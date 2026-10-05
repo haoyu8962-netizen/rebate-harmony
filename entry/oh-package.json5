@@ -1,0 +1,22 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "HAP：AppShell 入口（EntryAbility、RootPage）。依赖方向 entry → features → core → generated。",
+  "main": "",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "core": "file:../common/core",
+    "designsystem": "file:../common/designsystem",
+    "generated": "file:../common/generated",
+    "home": "file:../features/home",
+    "search": "file:../features/search",
+    "product": "file:../features/product",
+    "agent": "file:../features/agent",
+    "orders": "file:../features/orders",
+    "wallet": "file:../features/wallet",
+    "me": "file:../features/me",
+    "auth": "file:../features/auth",
+    "web": "file:../features/web"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "designsystem",
+  "version": "1.0.0",
+  "description": "DesignSystem（HAR）：设计令牌 → ArkUI 常量。依赖 generated。",
+  "main": "Index.ets",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "generated": "file:../generated"
+  }
+}

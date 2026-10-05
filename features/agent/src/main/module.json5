@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "agent",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ]
+  }
+}

@@ -1,0 +1,206 @@
+{
+  "enums": {
+    "identity_level": {
+      "source": "规划/04 §2.5；BR-ID-01",
+      "description": "GET /v1/me 返回的身份等级",
+      "values": {
+        "basic": "基本模式",
+        "guest": "游客",
+        "member": "已登录",
+        "phone": "已绑手机号",
+        "realname": "已实名"
+      }
+    },
+    "login_provider": {
+      "source": "规划/04 §6.1；BR-ID-04",
+      "description": "第三方登录身份来源（user_oauth.provider）；手机号验证码登录不属于此列",
+      "values": {
+        "wechat": "微信（unionid）",
+        "apple": "Sign in with Apple（sub）",
+        "huawei": "华为账号（unionID，M-公开）"
+      }
+    },
+    "device_id_source": {
+      "source": "规划/04 §3.2 devices、§6.1；BR-ID-09",
+      "description": "设备标识哈希的来源（devices.id_source）",
+      "values": {
+        "idfv": "iOS IDFV",
+        "android_id": "Android ANDROID_ID（MVP Android 只用它）",
+        "oaid": "Android OAID（MVP 不集成获取方式，预留）",
+        "odid": "鸿蒙 ODID"
+      }
+    },
+    "oauth_attempt_purpose": {
+      "source": "规划/04 §6.1；BR-ID-04、BR-ID-08、BR-WDR-33 ②",
+      "description": "第三方授权尝试的用途（POST /v1/auth/oauth-attempts）",
+      "values": {
+        "login": "登录",
+        "step_up": "二次验证",
+        "payout_bind": "收款授权（只用于绑定微信零钱收款账号；不登录、不签发令牌，BR-ID-04 细则「收款授权」）"
+      }
+    },
+    "session_scope": {
+      "source": "规划/04 §2.5、§5；BR-ID-01",
+      "description": "access_token 的 scp；登录与刷新按这次请求的客户端版本判定，含义与可调用的接口见 BR-ID-01 细则「受限会话」",
+      "values": {
+        "full": "正常作用域",
+        "deletion_only": "受限作用域（低于最低支持版本，只能调用注销相关的接口）"
+      }
+    },
+    "h5_token_scope": {
+      "source": "规划/04 §2.5、§6.1；BR-ID-32",
+      "description": "h5_token 的作用域；取值含义与缺省见 BR-ID-32 细则「只读作用域」",
+      "values": {
+        "standard": "标准",
+        "read_only": "只读（GET 以外的接口返回 10403 data.reason=h5_read_only）"
+      }
+    },
+    "sms_purpose": {
+      "source": "规划/04 §6.1；BR-ID-05",
+      "values": {
+        "login": "登录",
+        "bind": "绑定手机号",
+        "step_up": "二次验证"
+      }
+    },
+    "step_up_action": {
+      "source": "规划/04 §2.5、§5；BR-ID-08",
+      "description": "step_up_token 的 action，须与所调接口一致",
+      "values": {
+        "withdraw": "POST /v1/withdrawals",
+        "payout_account_change": "PUT /v1/me/payout-account",
+        "phone_change": "POST /v1/me/phone（更换）",
+        "account_deletion": "POST /v1/me/deletion"
+      }
+    },
+    "idempotency_abandon_outcome": {
+      "source": "规划/04 §6.1；BR-ID-10",
+      "description": "POST /v1/idempotency-keys/abandon 的 outcome",
+      "values": {
+        "abandoned": "该键已作废（本次写入作废记录，或此前已作废）",
+        "completed": "该键已有完成的结果，随响应原样返回，不作废"
+      }
+    },
+    "consent_type": {
+      "source": "08 §13.2；BR-ID-12、BR-WDR-31",
+      "values": {
+        "privacy": "隐私政策",
+        "agreement": "用户协议",
+        "ai_third_party": "AI 第三方处理",
+        "id_verification": "实名授权",
+        "personalization": "个性化推荐",
+        "labor_agreement": "劳务协议"
+      }
+    },
+    "consent_channel": {
+      "source": "规划/04 §3.2 consent_records；BR-ID-12 细则",
+      "description": "consent_records.channel，同意发生的入口；login_merge、h5_landing、withdraw_flow 只由服务端写入（登录合并、落地页注册、劳务协议签署），不经 POST /v1/consents 提交",
+      "values": {
+        "first_launch": "首启隐私弹窗",
+        "login_page": "登录页协议勾选",
+        "h5_landing": "邀请落地页注册",
+        "agent_sheet": "Agent 同意半屏",
+        "realname_sheet": "实名授权半屏",
+        "privacy_center": "隐私中心",
+        "login_merge": "登录时设备级记录并入用户级",
+        "withdraw_flow": "提现流程中签署劳务协议（BR-WDR-31）"
+      }
+    },
+    "auth_method": {
+      "source": "规划/04 §6.3；BR-ID-17",
+      "description": "淘宝授权方式（auth-url 的 auth_methods、bindings 的 auth_method）；按端由服务端配置下发",
+      "values": {
+        "web_code": "网页授权码",
+        "sdk_token": "淘宝 SDK 换得的访问令牌"
+      }
+    },
+    "union_binding_status": {
+      "source": "规划/04 §2.5；BR-ID-19、BR-ID-20",
+      "description": "不设 cooling，释放后冷却用 released + cooldown_until；无用户自助换绑",
+      "values": {
+        "unbound": "未绑定",
+        "pending_auth": "授权中",
+        "active": "有效",
+        "invalid": "已失效，需重新授权",
+        "released": "已释放",
+        "blocked": "已停用"
+      }
+    },
+    "union_binding_blocked_reason": {
+      "source": "规划/04 §2.5；BR-ID-20；拍板第二批 OPS-11",
+      "values": {
+        "ban": "封禁",
+        "admin_disable": "后台停用返利（可恢复）",
+        "deletion": "注销"
+      }
+    },
+    "risk_state": {
+      "source": "规划/04 §2.5；BR-ID-31",
+      "description": "user_risk_state.state，risk 模块唯一写者",
+      "values": {
+        "normal": "正常",
+        "frozen": "冻结（可设期限 frozen_until）",
+        "appealing": "申诉中",
+        "banned": "封禁（永久）"
+      }
+    },
+    "realname_status": {
+      "source": "规划/04 §2.5",
+      "values": {
+        "none": "未实名",
+        "verified": "已实名",
+        "failed": "核验失败"
+      }
+    },
+    "deletion_status": {
+      "source": "规划/04 §2.5；BR-ID-27",
+      "values": {
+        "cooling": "冷静期",
+        "processing": "处理中",
+        "done": "已注销",
+        "cancelled": "已撤回"
+      }
+    },
+    "deletion_cancel_reason": {
+      "source": "规划/04 §3.2 deletion_requests；BR-ID-27",
+      "values": {
+        "user": "用户撤回",
+        "negative_balance": "冷静期满时余额为负，系统撤销（拍板第二批 §8 ADD-07）"
+      }
+    },
+    "tip_key": {
+      "source": "规划/04 §6.1 /v1/me/tips；BR-ATTR-21、BR-INV-03 细则",
+      "values": {
+        "jump_tip": "下单须知（按平台记已读）",
+        "inviter_before_buy": "首次购买前的邀请码提示（不分平台）"
+      }
+    },
+    "appeal_status": {
+      "source": "规划/04 §2.5；BR-ID-36",
+      "values": {
+        "processing": "处理中",
+        "upheld": "维持",
+        "revoked": "撤销"
+      }
+    },
+    "appeal_target_type": {
+      "source": "规划/04 §3.2 appeals、§6.1；BR-ID-36（含细则「被拦截请求申诉」）",
+      "description": "appeals.target_type；用户侧申诉接口（POST / GET /v1/me/appeals）只用 account、order，接口里的 AppealTargetType 是本枚举的子集（04 §6.1）",
+      "values": {
+        "account": "账号",
+        "order": "订单",
+        "blocked_request": "被拦截的请求（被 risk_action=block 拦下、返回 44001 的那一次写请求，类型见 blocked_request_type）；只由后台客服代为登记，用户侧申诉接口不接受"
+      }
+    },
+    "blocked_request_type": {
+      "source": "规划/04 §3.2 appeals、risk_hits；BR-ID-36 细则「被拦截请求申诉」；编码由契约线定稿（规划/06 第 22 项 ⑤）",
+      "description": "appeals.request_type 与 risk_hits 的请求类型；仅 target_type=blocked_request（其余为空）；编码由契约线定稿（规划/06 第 22 项 ⑤，照 08 暂定编码）；以后新增会返回 44001 的写操作，上线前在此加值",
+      "values": {
+        "register": "注册：用手机号注册或登录时被拦（发验证码、验证码登录即注册、落地页发码与注册，BR-ID-05、BR-ID-32），没有登录态与账号，user_id 为空",
+        "withdraw": "提现提交：POST /v1/withdrawals 被拦、没有建单（BR-WDR-03 ③a、BR-ID-31），另记申请金额（整数分）",
+        "phone_change": "换手机号：绑定或更换手机号时新号码被拦（BR-ID-06）",
+        "payout_account": "收款账号：绑定或更换收款账号时被拦（支付宝、银行卡、微信零钱，BR-WDR-02 ⓪、BR-WDR-33）"
+      }
+    }
+  }
+}

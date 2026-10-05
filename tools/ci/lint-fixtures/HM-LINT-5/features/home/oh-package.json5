@@ -1,0 +1,8 @@
+{
+  // 违反样例：feature home 依赖了 feature search。
+  "name": "home",
+  "version": "1.0.0",
+  "dependencies": {
+    "search": "file:../search",
+  }
+}

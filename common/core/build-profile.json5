@@ -1,0 +1,22 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "resOptions": {
+      "copyCodeResource": {
+        "enable": false
+      }
+    }
+  },
+  // default target（Release）只编译 src/release；staging target（Debug / Staging）只编译 src/staging。
+  // 两个目录里放同名文件，src/main 里用 'core/ets/…' 引用，由 hvigor 按 target 选目录（见工程根 build-profile.json5）。
+  "targets": [
+    {
+      "name": "default",
+      "source": { "sourceRoots": ["./src/release"] }
+    },
+    {
+      "name": "staging",
+      "source": { "sourceRoots": ["./src/staging"] }
+    }
+  ]
+}

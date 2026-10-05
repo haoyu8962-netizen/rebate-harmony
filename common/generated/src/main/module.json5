@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "generated",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "designsystem",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ]
+  }
+}

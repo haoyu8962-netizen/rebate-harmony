@@ -1,0 +1,33 @@
+{
+  "version": "1",
+  "permissions": [
+    {
+      "type": "photos",
+      "platform": "ios",
+      "system_key": "NSPhotoLibraryAddUsageDescription",
+      "feature": "media.saveImage（保存图片到相册，只写不读）",
+      "purpose_key": "perm.photos.system_purpose",
+      "phase": "MVP",
+      "builds": [
+        "debug",
+        "staging",
+        "release"
+      ],
+      "source": "own"
+    },
+    {
+      "type": "push",
+      "platform": "ios",
+      "system_key": null,
+      "feature": "通知（PermissionRequester，push 类型；只在用户需要时申请，BR-ID-13）",
+      "purpose_key": "perm.push.card_hint",
+      "phase": "MVP",
+      "builds": [
+        "debug",
+        "staging",
+        "release"
+      ],
+      "source": "own"
+    }
+  ]
+}

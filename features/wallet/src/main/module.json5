@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "wallet",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "orders",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ]
+  }
+}

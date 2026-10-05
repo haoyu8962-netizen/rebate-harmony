@@ -1,0 +1,1108 @@
+{
+  "$comment": "Route table (CT-03): route name → native page or H5 path (规划/01 §4.2, 03 §4.4). Every jump is {route, params} (拍板第二批 TECH-04); external links use {route: ExternalPage, params: {url}}. since is per platform (拍板第二批 TECH-07): null = not shipped on that platform yet; an unknown route or a since above the app version opens the upgrade page. h5_path is relative to config.h5_base_url. InvitedFriends and LevelUpgrade are P1 with since null (the bridge answers unsupported); CustomPage, MyWatches and WatchLanding are added when they ship. debug_only routes open only in debug / staging builds (TECH-11). entry lists where a route may be opened from (route_entry: in_app, push, deeplink; values only from 规划/08 BR-ID-10 细则「路由入口矩阵」; InvitedFriends and LevelUpgrade are not in the matrix and are in_app only, orchestrator decision D-13). push means a route the server returned for a message id; any route carried directly in launch parameters is checked as deeplink.",
+  "version": 1,
+  "routes": {
+    "Launch": {
+      "page": "启动与隐私首启弹窗",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "BasicMode": {
+      "page": "基本模式",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "Login": {
+      "page": "登录",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "BindPhone": {
+      "page": "绑定手机号",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "Home": {
+      "page": "首页",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "Search": {
+      "page": "搜索与结果",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "q": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "taobao",
+              "jd",
+              "pdd",
+              "meituan",
+              "vip",
+              "douyin",
+              "eleme",
+              "kuaishou",
+              "suning"
+            ]
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "ProductDetail": {
+      "page": "商品详情",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "taobao",
+              "jd",
+              "pdd",
+              "meituan",
+              "vip",
+              "douyin",
+              "eleme",
+              "kuaishou",
+              "suning"
+            ]
+          },
+          "product_key": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128
+          },
+          "item_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "platform",
+          "product_key"
+        ]
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "AuthSheet": {
+      "page": "平台授权说明半屏",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "taobao",
+              "jd",
+              "pdd",
+              "meituan",
+              "vip",
+              "douyin",
+              "eleme",
+              "kuaishou",
+              "suning"
+            ]
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "JumpTip": {
+      "page": "下单须知浮层",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "taobao",
+              "jd",
+              "pdd",
+              "meituan",
+              "vip",
+              "douyin",
+              "eleme",
+              "kuaishou",
+              "suning"
+            ]
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "AgentChat": {
+      "page": "AI 助手",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "AgentConsent": {
+      "page": "AI 单独同意弹窗",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "OrderList": {
+      "page": "订单列表",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "self",
+              "share"
+            ]
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "OrderDetail": {
+      "page": "订单详情",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "FindOrder": {
+      "page": "订单找回",
+      "kind": "h5",
+      "h5_path": "/find-order",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Me": {
+      "page": "我的",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Wallet": {
+      "page": "钱包",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Withdraw": {
+      "page": "提现申请（不接受外部预填：传入参数由路由层丢弃后照常打开，并记 route_params_dropped）",
+      "kind": "native",
+      "auth": "realname",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "WithdrawRecords": {
+      "page": "提现记录",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "withdrawal_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "定位本人的一张提现单并展开详情；不是本人的按不存在处理，只显示列表"
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Ledger": {
+      "page": "收益明细与余额流水",
+      "kind": "h5",
+      "h5_path": "/ledger",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "RealName": {
+      "page": "实名认证（不接受外部预填：传入参数由路由层丢弃后照常打开，并记 route_params_dropped）",
+      "kind": "native",
+      "auth": "phone",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "PayoutAccount": {
+      "page": "收款账号（不接受外部预填：传入参数由路由层丢弃后照常打开，并记 route_params_dropped）",
+      "kind": "native",
+      "auth": "realname",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "LaborAgreement": {
+      "page": "劳务协议签署（不接受外部预填：传入参数由路由层丢弃后照常打开，并记 route_params_dropped）",
+      "kind": "native",
+      "auth": "realname",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "Settings": {
+      "page": "设置（游客与基本模式可达）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "PrivacyCenter": {
+      "page": "隐私中心（游客与基本模式可达）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "DeleteAccount": {
+      "page": "账号注销",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": null,
+        "android": null,
+        "harmony": null
+      },
+      "phase": "M-公开",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "RiskNotice": {
+      "page": "封禁与冻结说明",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Appeal": {
+      "page": "提交申诉与查看进度",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "ForceUpdate": {
+      "page": "强制更新拦截页",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "HomePreview": {
+      "page": "首页草稿预览（仅测试包；二维码内容就是本路由的深链，参数只有预览 token 与 page_key、不带主机名，用系统相机扫开，测试包按当前环境换取草稿）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "page_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "page_key",
+          "token"
+        ]
+      },
+      "debug_only": true,
+      "entry": [
+        "in_app",
+        "deeplink"
+      ]
+    },
+    "About": {
+      "page": "关于（游客与基本模式可达）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Messages": {
+      "page": "消息中心",
+      "kind": "h5",
+      "h5_path": "/messages",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "InviteShare": {
+      "page": "邀请好友",
+      "kind": "h5",
+      "h5_path": "/invite",
+      "auth": "phone",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "Rules": {
+      "page": "返利规则",
+      "kind": "h5",
+      "h5_path": "/rules",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "Help": {
+      "page": "帮助中心（游客与基本模式可达）",
+      "kind": "h5",
+      "h5_path": "/help",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "Notice": {
+      "page": "公告",
+      "kind": "h5",
+      "h5_path": "/notice",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "Agreement": {
+      "page": "用户协议、隐私政策、SDK 清单（游客与基本模式可达）",
+      "kind": "h5",
+      "h5_path": "/agreement",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "agreement",
+              "privacy",
+              "sdk_list"
+            ]
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "WebPage": {
+      "page": "通用可信容器（只加载白名单 origin）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https://",
+            "maxLength": 2048,
+            "description": "只接受 bridge_origins 白名单内的 https 地址，不接受外部传入"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "ExternalPage": {
+      "page": "第三方页容器（不注入桥；活动转链上线前不加载联盟平台页面，BR-ATTR-29）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https://",
+            "maxLength": 2048,
+            "description": "从深链进入时主机必须在 /v1/config.external_hosts 里（完整主机名匹配，BR-ID-10 细则）"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "主机名下方的副标题（后台保存时过禁用词）；不能隐藏标题栏、主机名、返回与关闭按钮"
+          },
+          "nav_style": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ],
+            "description": "标题栏配色，缺省 light；不能隐藏标题栏、主机名、返回与关闭按钮"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "InvitedFriends": {
+      "page": "邀请的好友（P1；桥调用返回不支持）",
+      "kind": "native",
+      "auth": "phone",
+      "since": {
+        "ios": null,
+        "android": null,
+        "harmony": null
+      },
+      "phase": "P1",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "LevelUpgrade": {
+      "page": "等级（P1；桥调用返回不支持）",
+      "kind": "native",
+      "auth": "phone",
+      "since": {
+        "ios": null,
+        "android": null,
+        "harmony": null
+      },
+      "phase": "P1",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app"
+      ]
+    },
+    "LinkLanding": {
+      "page": "App 内链接落地页（分享链接与其他链接的商品卡；可由深链进入，购买仍只经 POST /v1/links/{link_id}/open）",
+      "kind": "native",
+      "auth": "none",
+      "since": {
+        "ios": null,
+        "android": null,
+        "harmony": null
+      },
+      "phase": "M-公开",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "link_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "link_id"
+        ]
+      },
+      "entry": [
+        "in_app",
+        "push",
+        "deeplink"
+      ]
+    },
+    "Earnings": {
+      "page": "收益看板",
+      "kind": "h5",
+      "h5_path": "/earnings",
+      "auth": "login",
+      "since": {
+        "ios": null,
+        "android": null,
+        "harmony": null
+      },
+      "phase": "M-公开",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "taobao",
+              "jd",
+              "pdd",
+              "meituan",
+              "vip",
+              "douyin",
+              "eleme",
+              "kuaishou",
+              "suning"
+            ]
+          }
+        },
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    },
+    "AuthManage": {
+      "page": "授权管理（页内【去授权】只能由用户在 App 内点击发起，BR-ID-17 细则「授权管理页」）",
+      "kind": "native",
+      "auth": "login",
+      "since": {
+        "ios": "1.0.0",
+        "android": "1.0.0",
+        "harmony": "1.0.0"
+      },
+      "phase": "M-内测",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "entry": [
+        "in_app",
+        "push"
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "rebate_platform": {
+    "repo": "../rebate-platform",
+    "commit": "85af83aae61d1609d82c9797ac1a3f80fdc1c46b"
+  },
+  "design_tokens": {
+    "repo": "../couli",
+    "commit": "d0146901281e931e10d8f7f899554a0b31c40524",
+    "path": "design/tokens/design-tokens.json"
+  },
+  "files": {
+    "contracts/apps.json": "b7c3e07ad63d52e7ec5b6021b13dc2003cabb0755adffa4af5079aa3ac2267dd",
+    "contracts/bridge.schema.json": "ca89a017e1c061d1b66fb923a3b68cb9d99d3f0ad9e133f18622f978689e9437",
+    "contracts/enums/admin.json": "68fe2c909a68bc967ebd8d53c254a704fb4d096bb22b141e2edc8dc710b3538e",
+    "contracts/enums/fund.json": "f20c47b5ec9aebf71ba1ef2c992933405c506101b0ce0bc8ccdc7150db1a6c5d",
+    "contracts/enums/identity.json": "226a61a8879034d1af1d915bbab3b8771f1734559cbfac1ab24e324533da7f3f",
+    "contracts/enums/ops.json": "5d9a24213bdcff8f861fcac5cc95245bc9a7be5d05d3b7e6f7a4f7617c730751",
+    "contracts/enums/order.json": "ded41d09fe87a0186147203e0555de5581ea268c2c0730d5639b8c5397276e0f",
+    "contracts/enums/platform.json": "1830fc872e5471cb5a8e0acdc887a529fdcf433392138759f5a010dbf684c531",
+    "contracts/enums/trade.json": "ff739e2461453f95b62b22c979dd5fc3f0af0c01d371519eda2b42849ca63d1c",
+    "contracts/error-codes.json": "171141696903a566fb2f3f2e20db64fdb268d5387f4077f01ace0ea08e763afc",
+    "contracts/routes.json": "9b2f44728426e37403e353370c1fdf1cdc40a567568534cbe902c9c6c276ae41",
+    "contracts/texts.default.json": "9c1624ed2418b7790ab950282ed64b7cdee44d27cdc7307a95311b38240e839e",
+    "design/design-tokens.json": "cae7499e21496fbeaddc190c7d6170dbf03161436e0e85062d8d4373670f42f1",
+    "specs/client-public-ids.json": "1ef9e57a1a77dc849899ec72f53d7911ff57b6583cb3eaf78527a3bc6fb9f7b3",
+    "specs/client-security-baseline.json": "25c48e505e0dee4afd7279ae9b7cbb029dbacb2585e68a7c52d3ad7e2738ff90",
+    "specs/events.json": "c17a9a20cd18d9faca8227083904acb4244160f80173f2b99f9f4d7c77df7353",
+    "specs/system-permissions.json": "bd7c09ae405d0ed5493704be0a51e59ec2628bf7a0c24c2433c39acfe8175b2f"
+  }
+}

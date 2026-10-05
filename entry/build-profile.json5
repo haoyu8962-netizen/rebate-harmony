@@ -1,0 +1,26 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "resOptions": {
+      "copyCodeResource": {
+        "enable": false
+      }
+    }
+  },
+  // 两个 target 对应工程根 build-profile.json5 的两个 product（映射与命令见那里的注释）：
+  // - default（Release）：sourceRoots = src/release —— 只有 prod、首屏只有品牌背景，没有调试面板与 debug_only 路由。
+  // - staging（Debug / Staging）：sourceRoots = src/staging —— 环境切换面板（COULI_DEBUG_PANEL）、DebugRoutes。
+  // src/main 里用 'entry/ets/variant/BuildVariant' 引用，由 hvigor 按 target 选目录，编译期剔除，不靠运行时 if。
+  "targets": [
+    {
+      "name": "default",
+      "source": { "sourceRoots": ["./src/release"] }
+    },
+    {
+      "name": "staging",
+      "source": { "sourceRoots": ["./src/staging"] },
+      // 应用名「凑狸测试」：src/staging/resources 覆盖 EntryAbility_label（桌面显示的入口名）。
+      "resource": { "directories": ["./src/staging/resources", "./src/main/resources"] }
+    }
+  ]
+}

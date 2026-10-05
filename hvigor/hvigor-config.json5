@@ -1,0 +1,14 @@
+{
+  "modelVersion": "6.0.0",
+  "dependencies": {
+  },
+  "execution": {
+    // 本机 CI 用命令行 --no-daemon；这里不改默认值。
+  },
+  "logging": {
+  },
+  "debugging": {
+  },
+  "nodeOptions": {
+  }
+}

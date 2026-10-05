@@ -1,0 +1,11 @@
+# 真实告警样例：2026-10-06 用 DevEco 6.1.1（hvigor 6.24.5，compatibleSdkVersion 6.0.0(20)）在 core 里临时调用
+# util.ArkTSVM.setMultithreadingDetectionEnabled（@since 23）构建得到的日志摘录（去掉了 ANSI 颜色）。
+# tools/ci/verify.sh 的 api-compat 自测用它证明匹配规则能认出这类告警。
+> hvigor ERROR: Failed :entry:default@CompileArkTS... 
+> hvigor WARN: 
+1 WARN: ArkTS:WARN: For details about ArkTS syntax errors, see FAQs
+3 WARN: ArkTS:WARN File: <mirror>/common/core/src/main/ets/privacy/PrivacyGate.ets:11:8
+ The 'ArkTSVM' API is supported since SDK version 23. However, the current compatible SDK version is 6.0.0(20).
+
+4 WARN: ArkTS:WARN File: <mirror>/common/core/src/main/ets/privacy/PrivacyGate.ets:11:16
+ The 'setMultithreadingDetectionEnabled' API is supported since SDK version 23. However, the current compatible SDK version is 6.0.0(20).

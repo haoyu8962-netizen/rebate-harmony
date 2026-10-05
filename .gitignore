@@ -14,3 +14,4 @@
 *.cer
 *.p7b
 .env*
+**/.test

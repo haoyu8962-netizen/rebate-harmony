@@ -1,0 +1,11 @@
+{
+  "name": "generated",
+  "version": "1.0.0",
+  "description": "契约生成物（HAR，禁止手改；来源 contract.lock）。",
+  "main": "Index.ets",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+
+  }
+}

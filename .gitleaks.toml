@@ -1,0 +1,11 @@
+# gitleaks 配置：沿用默认规则，只放行 contract.lock 里「快照文件路径 → sha256」这一种写法
+# （例如 design-tokens.json 的哈希会被 generic-api-key 误判）。不放宽其他任何检查。
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "contract.lock 的快照文件 sha256"
+condition = "AND"
+paths = ['''(^|/)contract\.lock$''']
+regexes = ['''^[0-9a-f]{64}$''']
+regexTarget = "secret"

@@ -1,0 +1,19 @@
+# 远端建好后用。鸿蒙构建需要 DevEco Studio（hvigor、ohpm、SDK），GitHub 托管机没有，
+# 所以跑在装了 DevEco Studio 的自托管 macOS 机器上（03 §11：自托管 Mac）；内容只调用 tools/ci/verify.sh。
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: [self-hosted, macOS, deveco]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: verify
+        env:
+          DEVECO_HOME: /Applications/DevEco-Studio.app/Contents
+        run: tools/ci/verify.sh

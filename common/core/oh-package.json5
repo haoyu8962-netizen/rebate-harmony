@@ -1,0 +1,11 @@
+{
+  "name": "core",
+  "version": "1.0.0",
+  "description": "Core（HAR）：配置与环境；其余子模块为占位。依赖 generated。",
+  "main": "Index.ets",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "generated": "file:../generated"
+  }
+}

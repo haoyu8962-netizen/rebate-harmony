@@ -1,0 +1,159 @@
+// 工程级构建配置（hvigor，随 DevEco Studio 自带）。
+//
+// SDK 版本（规划 D5）：
+//   compileSdkVersion = targetSdkVersion = "6.1.1(24)"：API 24，取自已装 SDK（$DEVECO_SDK_HOME/default/sdk-pkg.json 的
+//     platformVersion + apiVersion；DevEco Studio 6.1.1 自带 SDK 6.1.1.125）。tools/ci/verify.sh 核对这里与已装 SDK 一致，
+//     并核对三套产物 module.json 的 targetAPIVersion 是 API 24。
+//   compatibleSdkVersion = "6.0.0(20)"：最低兼容 API 20。代码只用 API 20 及以下的接口；verify.sh 检查编译日志里
+//     没有「接口高于兼容版本」类告警（见 verify.sh 的 api-compat 步骤）。
+//
+// 三套构建配置（名字与 iOS / Android 对齐）= product × buildMode：
+//
+//   配置      product   buildMode  默认环境  调试能力   命令（在仓库根执行）
+//   Debug     staging   debug      test      编译进去   hvigorw --mode module -p product=staging -p buildMode=debug assembleHap --no-daemon
+//   Staging   staging   release    staging   编译进去   hvigorw --mode module -p product=staging -p buildMode=release assembleHap --no-daemon
+//   Release   default   release    prod      不编译     hvigorw --mode module -p product=default -p buildMode=release assembleHap --no-daemon
+//
+// - 调试能力在编译期剔除：entry、core、generated 三个模块各有 default 与 staging 两个 target，
+//   target 的 source.sourceRoots 分别是 ./src/release 与 ./src/staging（hvigor 官方「定制目标产物源码」机制）。
+//   product=default 只编译 src/release（只有 prod 地址、无调试面板、无 debug_only 路由、无环境切换实现与 DebugCapabilities），
+//   product=staging 编译 src/staging。产物差异由 tools/ci/release-scan.sh 检查。
+// - default × debug 组合不使用（不进 CI，也不发给任何人）；Release 只用 default × release。
+// - 三套同一个 bundleName（com.couli.hm，AppScope/app.json5）。
+// - 只做未签名构建：signingConfigs 为空，产物是 *-unsigned.hap（签名材料见 needs.md N-04）。
+{
+  "app": {
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "compileSdkVersion": "6.1.1(24)",
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.0.0(20)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      },
+      {
+        "name": "staging",
+        // Debug / Staging 的可见测试标识：应用名「凑狸测试」（AppScope/resources_staging 覆盖 app_name，
+        // entry 的 staging target 用 src/staging/resources 覆盖 EntryAbility_label）。同名资源以先列出的目录为准。
+        "resource": { "directories": ["./AppScope/resources_staging", "./AppScope/resources"] },
+        "compileSdkVersion": "6.1.1(24)",
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.0.0(20)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default"] },
+        { "name": "staging", "applyToProducts": ["staging"] }
+      ]
+    },
+    {
+      "name": "core",
+      "srcPath": "./common/core",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default"] },
+        { "name": "staging", "applyToProducts": ["staging"] }
+      ]
+    },
+    {
+      "name": "designsystem",
+      "srcPath": "./common/designsystem",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "generated",
+      "srcPath": "./common/generated",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default"] },
+        { "name": "staging", "applyToProducts": ["staging"] }
+      ]
+    },
+    {
+      "name": "home",
+      "srcPath": "./features/home",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "search",
+      "srcPath": "./features/search",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "product",
+      "srcPath": "./features/product",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "agent",
+      "srcPath": "./features/agent",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "orders",
+      "srcPath": "./features/orders",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "wallet",
+      "srcPath": "./features/wallet",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "me",
+      "srcPath": "./features/me",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "auth",
+      "srcPath": "./features/auth",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    },
+    {
+      "name": "web",
+      "srcPath": "./features/web",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default", "staging"] }
+      ]
+    }
+  ]
+}

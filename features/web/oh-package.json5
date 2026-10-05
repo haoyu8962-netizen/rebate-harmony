@@ -1,0 +1,13 @@
+{
+  "name": "web",
+  "version": "1.0.0",
+  "description": "功能模块 web（HAR 占位）。只依赖 core / designsystem / generated，不依赖其他 feature。",
+  "main": "Index.ets",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "core": "file:../../common/core",
+    "designsystem": "file:../../common/designsystem",
+    "generated": "file:../../common/generated"
+  }
+}
