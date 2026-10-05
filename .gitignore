@@ -1,0 +1,16 @@
+.DS_Store
+/node_modules
+**/node_modules
+/oh_modules
+**/oh_modules
+/local.properties
+**/build
+/.hvigor
+**/.preview
+.idea/
+*.hap
+*.app
+*.p12
+*.cer
+*.p7b
+.env*
