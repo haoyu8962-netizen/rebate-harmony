@@ -15,6 +15,8 @@
 #   - 环境切换实现：类名 EnvironmentSwitcher、调试面板选择的持久化键 couli.debug.environment_selection
 #   - 调试能力判断：类名 DebugCapabilities、能力取值前缀 couli.debug.capability.
 #   - 组件目录页（DS-01）：固定标记 COULI_COMPONENT_CATALOG_DS01_7f3a9c51e2（目录页显示它；对照页同在 src/staging）
+#   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
+#     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
 #   可调试标志（只在扫描模式判定）：module.json 的 app.debug 为 true，或 app.buildMode 为 debug
 #
@@ -70,6 +72,7 @@ def fail(msg):
     sys.exit(2)
 
 root, routes_path, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+DEBUG_SCHEME = "couli-debug"
 try:
     with open(routes_path, encoding="utf-8") as f:
         routes = json.load(f)["routes"]
@@ -82,6 +85,7 @@ markers = [
     "EnvironmentSwitcher", "couli.debug.environment_selection",
     "DebugCapabilities", "couli.debug.capability.",
     "COULI_COMPONENT_CATALOG_DS01_7f3a9c51e2",
+    DEBUG_SCHEME,
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:
@@ -121,6 +125,22 @@ if app.get("debug") is True:
 if app.get("buildMode") == "debug":
     flags.append("module.json: app.buildMode = debug")
 
+# module.json 里声明的深链 scheme（EntryAbility 等所有 ability 的 skills.uris）。
+module_obj = None
+try:
+    with open(os.path.join(root, "module.json"), encoding="utf-8") as f:
+        module_obj = json.load(f).get("module", {})
+except Exception as e:  # noqa: BLE001
+    fail("解析 module.json 失败：%r" % (e,))
+declared_schemes = set()
+for ability in module_obj.get("abilities", []) or []:
+    for skill in ability.get("skills", []) or []:
+        for uri in skill.get("uris", []) or []:
+            if isinstance(uri, dict) and uri.get("scheme"):
+                declared_schemes.add(uri["scheme"])
+if DEBUG_SCHEME in declared_schemes:
+    flags.append("module.json: skills 声明了测试深链 scheme %s" % DEBUG_SCHEME)
+
 for p in markers:
     if p in found:
         print("  命中 %r：%s" % (p, "、".join(found[p][:3])))
@@ -129,6 +149,8 @@ for fl in flags:
 
 if mode == "self-test":
     missing = [p for p in markers if p not in found]
+    if DEBUG_SCHEME not in declared_schemes:
+        missing.append("module.json skills scheme " + DEBUG_SCHEME)
     for p in missing:
         print("  未命中 %r" % p)
     print("RELEASE-SCAN-COMPLETE files=%d markers=%d found=%d" % (files, len(markers), len(markers) - len(missing)))
@@ -154,7 +176,7 @@ if [ "$MODE" = "self-test" ]; then
     esac
 fi
 case "$STATUS" in
-    0)  echo "release-scan：${NAME} 未命中（非 prod 地址、调试面板、debug_only 路由、环境切换实现、调试能力判断、组件目录页、可调试标志）"; exit 0 ;;
+    0)  echo "release-scan：${NAME} 未命中（非 prod 地址、调试面板、debug_only 路由、环境切换实现、调试能力判断、组件目录页、测试深链 scheme、可调试标志）"; exit 0 ;;
     10) echo "release-scan：${NAME} 含调试能力或非 prod 残留，阻断发布" >&2; exit 1 ;;
     *)  die "python3 exit ${STATUS}" ;;
 esac

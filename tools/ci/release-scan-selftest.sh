@@ -13,7 +13,7 @@
 #   5. ZIP 里没有 module.json / ets/modules.abc      → 必须退出 2
 #   6. 不存在的输入                                  → 必须退出 2
 # 另有正向用例证明合成输入本身是好的：干净的合成包 scan 退出 0；含 COULI_DEBUG_PANEL 的合成包 scan 退出 1；
-# 含组件目录页标记（DS-01，UTF-16LE 编码）的合成包 scan 退出 1。
+# 含组件目录页标记（DS-01，UTF-16LE 编码）的合成包 scan 退出 1；module.json 声明测试深链 scheme couli-debug 的合成包 scan 退出 1（APP-02a）。
 # 用例 2–4 用的是「干净的合成包」：如果扫描吞掉了工具失败，就会错误地得到 0。
 set -euo pipefail
 
@@ -40,6 +40,9 @@ def make(name, files):
 make("clean.hap", {"module.json": module, "ets/modules.abc": b"prod.couli.invalid"})
 make("dirty.hap", {"module.json": module, "ets/modules.abc": b"COULI_DEBUG_PANEL"})
 make("catalog.hap", {"module.json": module, "ets/modules.abc": "COULI_COMPONENT_CATALOG_DS01_7f3a9c51e2".encode("utf-16-le")})
+scheme_module = json.dumps({"app": {"bundleName": "com.couli.hm", "debug": False, "buildMode": "release"},
+    "module": {"abilities": [{"name": "EntryAbility", "skills": [{"uris": [{"scheme": "couli" + "-debug", "host": "r"}]}]}]}})
+make("debug-scheme.hap", {"module.json": scheme_module, "ets/modules.abc": b"prod.couli.invalid"})
 make("no-module.hap", {"ets/modules.abc": b"prod.couli.invalid"})
 PY
 printf '#!/bin/sh\nexit 127\n' >"$WORK/fakebin-unzip/unzip"
@@ -69,6 +72,7 @@ expect() {
 expect 0 "干净的合成包（scan）" "" "$WORK/clean.hap"
 expect 1 "含 COULI_DEBUG_PANEL 的合成包（scan）" "" "$WORK/dirty.hap"
 expect 1 "含组件目录页标记（UTF-16LE）的合成包（scan，DS-01）" "" "$WORK/catalog.hap"
+expect 1 "module.json 声明测试深链 scheme 的合成包（scan，APP-02a）" "" "$WORK/debug-scheme.hap"
 for mode in scan self-test; do
     if [ "$mode" = "scan" ]; then flag=""; else flag="--self-test"; fi
     expect 2 "非 ZIP 输入（${mode}）" "" ${flag:+"$flag"} "$WORK/not-a-zip.hap"

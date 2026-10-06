@@ -1,9 +1,9 @@
 // Debug / Staging（entry 模块 staging target，product=staging）的构建变体。
 // 只在 product=staging 编译；Release 产物里没有本目录的任何代码与字符串。
 import BuildProfile from 'BuildProfile';
-import { AppEnvironment } from 'core';
+import { AppEnvironment, DeepLinkConfig, RouteTable } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
-import { DesignTokens } from 'generated';
+import { DebugRoutes, DesignTokens } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
@@ -21,6 +21,22 @@ export class BuildVariant {
   /** Debug 默认连 test，Staging 默认连 staging（03 §3.6）；都可在调试面板切换。 */
   static defaultEnvironment(): AppEnvironment {
     return BuildVariant.CONFIG_NAME === 'Debug' ? AppEnvironment.TEST : AppEnvironment.STAGING;
+  }
+
+  /** 守卫的 isDebugBuild：Debug / Staging 为 true（debug_only 路由可开）。 */
+  static readonly IS_DEBUG_BUILD: boolean = true;
+
+  /**
+   * 深链入站配置：只认测试 scheme couli-debug（APP-02a 冒烟用；module.json 的 skills 也只在 product=staging 声明，
+   * 见 entry/hvigorfile.ts）。正式 scheme 与 l. 子域未定（needs N-05），不在这里放任何域名。
+   */
+  static deepLinkConfig(): DeepLinkConfig {
+    return new DeepLinkConfig(['couli-debug'], []);
+  }
+
+  /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
+  static registerDebugOnlyTable(): void {
+    RouteTable.registerDebugOnlyTable(DebugRoutes.all);
   }
 }
 

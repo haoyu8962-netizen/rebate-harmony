@@ -126,6 +126,8 @@ export {
   parseAgentIntent,
   AgentCardType,
   parseAgentCardType,
+  PageGuideRejectReason,
+  parsePageGuideRejectReason,
   AgentFinishReason,
   parseAgentFinishReason,
   WatchStatus,
@@ -221,6 +223,8 @@ export {
 } from './src/main/ets/ErrorCodes';
 export {
   RouteKind,
+  RouteParamType,
+  RouteParamSpec,
   RouteSpec,
   Routes
 } from './src/main/ets/Routes';

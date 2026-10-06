@@ -188,6 +188,10 @@
     {
       "code": 20001,
       "http": 400,
+      "http_also": [
+        413,
+        415
+      ],
       "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」）",
       "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31 细则），不进用户侧字典",
       "retry": "否",

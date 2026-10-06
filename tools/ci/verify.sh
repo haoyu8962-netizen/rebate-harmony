@@ -436,7 +436,7 @@ export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"
 
 step "release-scan 失败路径自测（非 ZIP、假 unzip / python3 返回 127 等必须失败）"
 "$ROOT/tools/ci/release-scan-selftest.sh" "$OUT_DIR/scan-selftest" || fail_fast "release-scan 失败路径自测" "见上方输出"
-record "release-scan 失败路径自测" PASS "12 个出错用例均非零退出，3 个正向用例符合预期"
+record "release-scan 失败路径自测" PASS "12 个出错用例均非零退出，4 个正向用例符合预期"
 
 step "release-scan：Release 必须不命中"
 if "$ROOT/tools/ci/release-scan.sh" "$OUT_DIR/Release.hap"; then

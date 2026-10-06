@@ -59,6 +59,7 @@ export class DefaultTexts {
     map.set('agent.suggest.no_result.3', '换个平台看看');
     map.set('agent.timeout', '这次回复超时了，可以再问一次。');
     map.set('agent.welcome', '我是凑狸 AI 助手。说说想买什么，我帮你找货、查返利。');
+    map.set('ai_label', '内容由 AI 生成，仅供参考');
     map.set('amount_mask.hide', '隐藏金额');
     map.set('amount_mask.show', '显示金额');
     map.set('app_update.cancel_deletion', '撤销注销');

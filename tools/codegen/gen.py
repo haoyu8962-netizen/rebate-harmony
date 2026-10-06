@@ -13,6 +13,8 @@
     common/generated/src/test/ContractSnapshotData.ets        一致性测试用的快照全文（只在 test 目录）
     common/generated/Index.ets                                模块统一导出
     common/designsystem/src/test/FormatVectorsData.ets        specs/format-vectors.json 全文（DS-01，格式向量单测用）
+    common/core/src/test/RouterVectorsData.ets                specs/router-vectors.json 全文（APP-02a，Router 向量单测用）
+    common/core/src/test/TestDebugRoutes.ets                  debug_only 路由表的测试副本（APP-02a，core 单测注册调试路由用）
 不生成 OpenAPI 客户端、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -255,6 +257,7 @@ export class ErrorCodes {
 
 def route_specs(route_entry_type, route_entry_values, debug_only):
     data = load("contracts/routes.json")
+    agent_guide_accounts = agent_guide_account_values()
     out = []
     for name, route in data["routes"].items():
         if bool(route.get("debug_only")) != debug_only:
@@ -271,10 +274,73 @@ def route_specs(route_entry_type, route_entry_values, debug_only):
             if e not in route_entry_values:
                 raise GenError("路由 %s 的 entry %r 不在 route_entry 枚举里" % (name, e))
         entry_src = ", ".join("%s.%s" % (route_entry_type, upper_snake(e)) for e in entries)
-        out.append("    all.set(%s, new RouteSpec(%s, RouteKind.%s, %s, %s, [%s], %s, %s));" % (
+        agent_guide = route.get("agent_guide", False)
+        if not isinstance(agent_guide, bool):
+            raise GenError("路由 %s 的 agent_guide 不是布尔" % name)
+        account = route.get("agent_guide_account")
+        if account is not None and account not in agent_guide_accounts:
+            raise GenError("路由 %s 的 agent_guide_account %r 不在契约取值 %r 里" % (name, account, agent_guide_accounts))
+        if account is not None and agent_guide:
+            raise GenError("路由 %s 同时声明 agent_guide 与 agent_guide_account" % name)
+        params, required, additional = route_params(name, route.get("params"))
+        out.append("    all.set(%s, new RouteSpec(%s, RouteKind.%s, %s, %s, [%s], %s, %s, %s, %s,\n"
+                   "      [%s], [%s], %s));" % (
             ts_str(name), ts_str(name), upper_snake(kind), ts_str(auth), ts_nullable_str(since.get("harmony")),
-            entry_src, ts_nullable_str(route.get("h5_path")), "true" if debug_only else "false"))
+            entry_src, ts_nullable_str(route.get("h5_path")), "true" if debug_only else "false",
+            "true" if agent_guide else "false", ts_nullable_str(account),
+            ", ".join(params), ", ".join(ts_str(r) for r in required), "true" if additional else "false"))
     return out
+
+
+# routes.json params 用到的 JSON Schema 关键字；出现别的关键字时报错，免得生成物悄悄漏掉约束。
+PARAM_TYPES = ("string", "integer", "number", "boolean", "object", "array")
+PARAM_KEYWORDS = {"type", "enum", "minLength", "maxLength", "pattern", "description", "additionalProperties"}
+
+
+def agent_guide_account_values():
+    """agent_guide_account 的契约取值：从 routes.json $comment 里「agent_guide_account (a | b | c)」读出。"""
+    comment = load("contracts/routes.json").get("$comment", "")
+    m = re.search(r"agent_guide_account \(([a-z_ |]+)\)", comment)
+    if not m:
+        raise GenError("routes.json $comment 里找不到 agent_guide_account 的取值说明")
+    return [v.strip() for v in m.group(1).split("|") if v.strip()]
+
+
+def route_params(name, schema):
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise GenError("路由 %s 的 params 不是 object schema" % name)
+    unknown = set(schema) - {"type", "additionalProperties", "properties", "required"}
+    if unknown:
+        raise GenError("路由 %s 的 params 有未支持的关键字 %r" % (name, sorted(unknown)))
+    additional = schema.get("additionalProperties", True)
+    if not isinstance(additional, bool):
+        raise GenError("路由 %s 的 additionalProperties 不是布尔" % name)
+    required = schema.get("required", [])
+    props = schema.get("properties", {})
+    for r in required:
+        if r not in props:
+            raise GenError("路由 %s 的必填参数 %s 没有定义" % (name, r))
+    out = []
+    for pname, p in props.items():
+        extra = set(p) - PARAM_KEYWORDS
+        if extra:
+            raise GenError("路由 %s 参数 %s 有未支持的关键字 %r" % (name, pname, sorted(extra)))
+        ptype = p.get("type")
+        if ptype not in PARAM_TYPES:
+            raise GenError("路由 %s 参数 %s 的 type 未知：%r" % (name, pname, ptype))
+        enum = p.get("enum")
+        if enum is not None and (not isinstance(enum, list) or not all(isinstance(v, str) for v in enum)):
+            raise GenError("路由 %s 参数 %s 的 enum 只支持字符串" % (name, pname))
+        for k in ("minLength", "maxLength"):
+            if k in p and (not isinstance(p[k], int) or isinstance(p[k], bool)):
+                raise GenError("路由 %s 参数 %s 的 %s 不是整数" % (name, pname, k))
+        out.append("new RouteParamSpec(%s, RouteParamType.%s, %s, %s, %s, %s)" % (
+            ts_str(pname), upper_snake(ptype),
+            "null" if enum is None else "[" + ", ".join(ts_str(v) for v in enum) + "]",
+            "null" if "minLength" not in p else str(p["minLength"]),
+            "null" if "maxLength" not in p else str(p["maxLength"]),
+            ts_nullable_str(p.get("pattern"))))
+    return out, required, additional
 
 
 def gen_routes(route_entry_type, route_entry_values):
@@ -286,6 +352,35 @@ def gen_routes(route_entry_type, route_entry_values):
   H5 = 'h5'
 }
 
+export enum RouteParamType {
+  STRING = 'string',
+  INTEGER = 'integer',
+  NUMBER = 'number',
+  BOOLEAN = 'boolean',
+  OBJECT = 'object',
+  ARRAY = 'array'
+}
+
+/** routes.json params.properties 的一项（只含契约用到的 JSON Schema 关键字；缺省为 null）。 */
+export class RouteParamSpec {
+  readonly name: string;
+  readonly type: RouteParamType;
+  readonly enumValues: string[] | null;
+  readonly minLength: number | null;
+  readonly maxLength: number | null;
+  readonly pattern: string | null;
+
+  constructor(name: string, type: RouteParamType, enumValues: string[] | null, minLength: number | null,
+    maxLength: number | null, pattern: string | null) {
+    this.name = name;
+    this.type = type;
+    this.enumValues = enumValues;
+    this.minLength = minLength;
+    this.maxLength = maxLength;
+    this.pattern = pattern;
+  }
+}
+
 export class RouteSpec {
   readonly name: string;
   readonly kind: RouteKind;
@@ -294,9 +389,19 @@ export class RouteSpec {
   readonly entries: %(t)s[];
   readonly h5Path: string | null;
   readonly debugOnly: boolean;
+  /** Agent 页面引导卡可打开的目标（routes.json agent_guide，缺省 false）。 */
+  readonly agentGuide: boolean;
+  /** 账号安全类路由的引导拒答类别（routes.json agent_guide_account：phone | delete | fund；缺省 null）。 */
+  readonly agentGuideAccount: string | null;
+  /** params.properties（契约顺序）。 */
+  readonly params: RouteParamSpec[];
+  readonly requiredParams: string[];
+  /** params.additionalProperties（契约里都是 false）。 */
+  readonly additionalParams: boolean;
 
   constructor(name: string, kind: RouteKind, auth: string, sinceHarmony: string | null, entries: %(t)s[],
-    h5Path: string | null, debugOnly: boolean) {
+    h5Path: string | null, debugOnly: boolean, agentGuide: boolean = false, agentGuideAccount: string | null = null,
+    params: RouteParamSpec[] = [], requiredParams: string[] = [], additionalParams: boolean = false) {
     this.name = name;
     this.kind = kind;
     this.auth = auth;
@@ -304,6 +409,20 @@ export class RouteSpec {
     this.entries = entries;
     this.h5Path = h5Path;
     this.debugOnly = debugOnly;
+    this.agentGuide = agentGuide;
+    this.agentGuideAccount = agentGuideAccount;
+    this.params = params;
+    this.requiredParams = requiredParams;
+    this.additionalParams = additionalParams;
+  }
+
+  param(name: string): RouteParamSpec | undefined {
+    for (const p of this.params) {
+      if (p.name === name) {
+        return p;
+      }
+    }
+    return undefined;
   }
 }
 
@@ -327,7 +446,7 @@ export class Routes {
 def gen_debug_routes(route_entry_type, route_entry_values):
     lines = [HEADER, "// debug_only 路由：只在 generated 模块的 staging target（Debug / Staging 配置）编译，Release 产物里没有。\n"]
     lines.append("import { %s } from '../../main/ets/ContractEnums';" % route_entry_type)
-    lines.append("import { RouteKind, RouteSpec } from '../../main/ets/Routes';")
+    lines.append("import { RouteKind, RouteParamSpec, RouteParamType, RouteSpec } from '../../main/ets/Routes';")
     lines.append("")
     lines.append("export class DebugRoutes {")
     lines.append("  static readonly all: Map<string, RouteSpec> = DebugRoutes.build();")
@@ -335,6 +454,25 @@ def gen_debug_routes(route_entry_type, route_entry_values):
     lines.append("  static spec(name: string): RouteSpec | undefined {")
     lines.append("    return DebugRoutes.all.get(name);")
     lines.append("  }")
+    lines.append("")
+    lines.append("  private static build(): Map<string, RouteSpec> {")
+    lines.append("    const all: Map<string, RouteSpec> = new Map<string, RouteSpec>();")
+    lines.extend(route_specs(route_entry_type, route_entry_values, True))
+    lines.append("    return all;")
+    lines.append("  }")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def gen_core_test_debug_routes(route_entry_type, route_entry_values):
+    """debug_only 路由表的测试副本（core 本机单测按 default target 编译，拿不到 generated 的 staging 源码）。
+    与 DebugRoutes 同一生成函数产出；只在 core 的 src/test，不进任何产物。"""
+    lines = [HEADER, "// debug_only 路由表的测试副本（APP-02a）：core 单测在 default target 下模拟 Debug / Staging 构建注册调试路由。\n"
+             "// 只在 src/test，不进产物；内容与 generated/src/staging/ets/DebugRoutes.ets 同源。\n"]
+    lines.append("import { %s, RouteKind, RouteParamSpec, RouteParamType, RouteSpec } from 'generated';" % route_entry_type)
+    lines.append("")
+    lines.append("export class TestDebugRoutes {")
+    lines.append("  static readonly all: Map<string, RouteSpec> = TestDebugRoutes.build();")
     lines.append("")
     lines.append("  private static build(): Map<string, RouteSpec> {")
     lines.append("    const all: Map<string, RouteSpec> = new Map<string, RouteSpec>();")
@@ -616,6 +754,26 @@ def gen_format_vectors_data():
             + "export const FORMAT_VECTORS_JSON: string = " + ts_str(text) + ";\n")
 
 
+ROUTER_VECTORS = os.path.join("specs", "router-vectors.json")
+CORE_MODULE = os.path.join("common", "core")
+
+
+def gen_router_vectors_data():
+    """specs/router-vectors.json → core 本机单测可 import 的字符串常量（APP-02a；Local Test 读不了文件）。"""
+    path = os.path.join(ROOT, ROUTER_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + ROUTER_VECTORS)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    try:
+        json.loads(text)
+    except ValueError as e:
+        raise GenError("%s 不是合法 JSON：%s" % (ROUTER_VECTORS, e))
+    return (HEADER.replace("来源 contract.lock", "来源 specs/router-vectors.json")
+            + "// Router 判定向量（APP-02a）：specs/router-vectors.json 全文，供 RouterVector.test.ets 解析。只在 src/test，不进产物。\n\n"
+            + "export const ROUTER_VECTORS_JSON: string = " + ts_str(text) + ";\n")
+
+
 def gen_snapshot_data():
     rels = []
     for dirpath, _, names in os.walk(SNAPSHOT):
@@ -682,6 +840,9 @@ def build_outputs():
         os.path.join(MODULE, "src", "release", "ets", "DebugOnly.ets"): RELEASE_DEBUG_ONLY,
         os.path.join(MODULE, "src", "test", "ContractSnapshotData.ets"): gen_snapshot_data(),
         os.path.join(DS_MODULE, "src", "test", "FormatVectorsData.ets"): gen_format_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "RouterVectorsData.ets"): gen_router_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
+            gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
     outputs[os.path.join(MODULE, "Index.ets")] = INDEX % index_exports(outputs, main)
     return outputs

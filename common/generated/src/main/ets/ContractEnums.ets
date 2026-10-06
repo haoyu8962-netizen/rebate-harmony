@@ -1531,7 +1531,9 @@ export enum AgentIntent {
   RULE_QA = 'rule_qa',
   HANDOFF = 'handoff',
   CLARIFY = 'clarify',
-  OUT_OF_SCOPE = 'out_of_scope'
+  OUT_OF_SCOPE = 'out_of_scope',
+  PAGE_GUIDE = 'page_guide',
+  EARNINGS_QUERY = 'earnings_query'
 }
 
 export function parseAgentIntent(raw: string): AgentIntent | undefined {
@@ -1552,6 +1554,10 @@ export function parseAgentIntent(raw: string): AgentIntent | undefined {
       return AgentIntent.CLARIFY;
     case 'out_of_scope':
       return AgentIntent.OUT_OF_SCOPE;
+    case 'page_guide':
+      return AgentIntent.PAGE_GUIDE;
+    case 'earnings_query':
+      return AgentIntent.EARNINGS_QUERY;
     default:
       return undefined;
   }
@@ -1566,7 +1572,9 @@ export enum AgentCardType {
   HANDOFF = 'handoff',
   AUTH_REQUIRED = 'auth_required',
   NOTICE = 'notice',
-  RULE_REF = 'rule_ref'
+  RULE_REF = 'rule_ref',
+  PAGE_GUIDE = 'page_guide',
+  EARNINGS_SUMMARY = 'earnings_summary'
 }
 
 export function parseAgentCardType(raw: string): AgentCardType | undefined {
@@ -1587,6 +1595,36 @@ export function parseAgentCardType(raw: string): AgentCardType | undefined {
       return AgentCardType.NOTICE;
     case 'rule_ref':
       return AgentCardType.RULE_REF;
+    case 'page_guide':
+      return AgentCardType.PAGE_GUIDE;
+    case 'earnings_summary':
+      return AgentCardType.EARNINGS_SUMMARY;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 page_guide_reject_reason */
+export enum PageGuideRejectReason {
+  NOT_ALLOWED = 'not_allowed',
+  EXTRA_FIELDS = 'extra_fields',
+  DISABLED = 'disabled',
+  UNTRUSTED_INPUT = 'untrusted_input',
+  PARAMS_REQUESTED = 'params_requested'
+}
+
+export function parsePageGuideRejectReason(raw: string): PageGuideRejectReason | undefined {
+  switch (raw) {
+    case 'not_allowed':
+      return PageGuideRejectReason.NOT_ALLOWED;
+    case 'extra_fields':
+      return PageGuideRejectReason.EXTRA_FIELDS;
+    case 'disabled':
+      return PageGuideRejectReason.DISABLED;
+    case 'untrusted_input':
+      return PageGuideRejectReason.UNTRUSTED_INPUT;
+    case 'params_requested':
+      return PageGuideRejectReason.PARAMS_REQUESTED;
     default:
       return undefined;
   }
@@ -2775,8 +2813,9 @@ export class ContractEnums {
     all.set('notify_template_code', ['ORDER_TRACKED', 'ORDER_INVALID', 'CREDITED', 'CLAWBACK', 'WD_SUCCESS', 'WD_REJECTED', 'WD_FAILED', 'WD_OVERDUE', 'CLAIM_RESULT', 'RISK_STATE_CHANGED', 'APPEAL_RESULT', 'DELETION_PROGRESS', 'BALANCE_ADJUSTED', 'SMS_CODE', 'UNION_AUTH_EXPIRING', 'UNION_AUTH_EXPIRED']);
     all.set('notify_category', ['service', 'subscription', 'marketing']);
     all.set('user_level', ['L1', 'L2', 'L3']);
-    all.set('agent_intent', ['find_by_link', 'search', 'refine', 'order_query', 'rule_qa', 'handoff', 'clarify', 'out_of_scope']);
-    all.set('agent_card_type', ['product_list', 'rebate_quote', 'order_status', 'claim_draft', 'handoff', 'auth_required', 'notice', 'rule_ref']);
+    all.set('agent_intent', ['find_by_link', 'search', 'refine', 'order_query', 'rule_qa', 'handoff', 'clarify', 'out_of_scope', 'page_guide', 'earnings_query']);
+    all.set('agent_card_type', ['product_list', 'rebate_quote', 'order_status', 'claim_draft', 'handoff', 'auth_required', 'notice', 'rule_ref', 'page_guide', 'earnings_summary']);
+    all.set('page_guide_reject_reason', ['not_allowed', 'extra_fields', 'disabled', 'untrusted_input', 'params_requested']);
     all.set('agent_finish_reason', ['stop', 'cancelled', 'limit', 'budget', 'error', 'auth_required', 'safety', 'fallback', 'timeout']);
     all.set('watch_status', ['active', 'paused', 'unavailable', 'expired', 'cancelled']);
     all.set('watch_event_status', ['pending', 'suppressed', 'sent']);

@@ -5,6 +5,7 @@ import {
   AppConfig, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
+import { AppRouting } from '../routing/AppRouting';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -25,12 +26,16 @@ export default class EntryAbility extends UIAbility {
     // X-01：上次生效的环境与本次不同（同 bundleName 覆盖安装）时先清理再记录；见 EnvironmentLaunchReconciler。
     // 清理或记录失败（自动重试一次后）→ BLOCKED：不装入环境，RootPage 只显示阻断页与【重试】。
     this.environmentReady = AppConfig.start(BuildVariant.defaultEnvironment(), new PreferencesEnvironmentRecord(appContext));
-    // TODO(HM-02)：冷启动深链（want）经 Router 白名单校验，隐私同意与 Navigation 就绪后再消费。
+    // 冷启动深链：只取 want.uri 交给 DeepLinkParser → 排队 → 环境 / 隐私 / 强更有结论且导航就绪后经 EntryGuard 打开。
+    // want 的其他参数一律不看（APP-02a：外部拉起只走 Router + EntryGuard）。
+    AppRouting.shared.start(appContext);
+    AppRouting.shared.handleWant(want);
     hilog.info(DOMAIN, TAG, '%{public}s', 'EntryAbility onCreate');
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    // TODO(HM-02)：热启动深链与 onCreate 走同一解析服务。
+    // 热启动深链：与 onCreate 同一入口。
+    AppRouting.shared.handleWant(want);
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
@@ -44,6 +49,8 @@ export default class EntryAbility extends UIAbility {
         const report: LaunchReport | null = AppConfig.launchReport();
         hilog.info(DOMAIN, TAG, 'environment gate %{public}s: %{public}s', gate,
           report === null ? '-' : report.target + ' ' + report.outcome);
+        // 环境闸门有结论：立刻记下闸门通过时刻（强更等待从这里起算，不等 RootPage 的 Navigation 就绪）。
+        AppRouting.shared.stateChanged();
       } catch (e) {
         hilog.error(DOMAIN, TAG, 'environment bootstrap failed: %{public}s', JSON.stringify(e));
       }

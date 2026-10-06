@@ -3,7 +3,7 @@
 // debug_only 路由：只在 generated 模块的 staging target（Debug / Staging 配置）编译，Release 产物里没有。
 
 import { RouteEntry } from '../../main/ets/ContractEnums';
-import { RouteKind, RouteSpec } from '../../main/ets/Routes';
+import { RouteKind, RouteParamSpec, RouteParamType, RouteSpec } from '../../main/ets/Routes';
 
 export class DebugRoutes {
   static readonly all: Map<string, RouteSpec> = DebugRoutes.build();
@@ -14,7 +14,8 @@ export class DebugRoutes {
 
   private static build(): Map<string, RouteSpec> {
     const all: Map<string, RouteSpec> = new Map<string, RouteSpec>();
-    all.set('HomePreview', new RouteSpec('HomePreview', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.DEEPLINK], null, true));
+    all.set('HomePreview', new RouteSpec('HomePreview', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.DEEPLINK], null, true, false, null,
+      [new RouteParamSpec('page_key', RouteParamType.STRING, null, 1, null, null), new RouteParamSpec('token', RouteParamType.STRING, null, 1, null, null)], ['page_key', 'token'], false));
     return all;
   }
 }

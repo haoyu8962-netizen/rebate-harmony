@@ -1,26 +1,27 @@
 {
   "rebate_platform": {
     "repo": "../rebate-platform",
-    "commit": "85af83aae61d1609d82c9797ac1a3f80fdc1c46b"
+    "commit": "091da5a6f52024eb5c9dffa1d42a171ecff369b8"
   },
   "design_tokens": {
     "repo": "../couli",
-    "commit": "d0146901281e931e10d8f7f899554a0b31c40524",
+    "commit": "18ad5b4aa66235855a92e68f40f8b8ef7822f4dc",
     "path": "design/tokens/design-tokens.json"
   },
   "files": {
+    "contracts/agent-stream.schema.json": "91b79c7939b21f5e89e9e0ead4dd270bb69bc0e4ca66ae41df98c9075813e63c",
     "contracts/apps.json": "b7c3e07ad63d52e7ec5b6021b13dc2003cabb0755adffa4af5079aa3ac2267dd",
     "contracts/bridge.schema.json": "ca89a017e1c061d1b66fb923a3b68cb9d99d3f0ad9e133f18622f978689e9437",
     "contracts/enums/admin.json": "68fe2c909a68bc967ebd8d53c254a704fb4d096bb22b141e2edc8dc710b3538e",
     "contracts/enums/fund.json": "f20c47b5ec9aebf71ba1ef2c992933405c506101b0ce0bc8ccdc7150db1a6c5d",
     "contracts/enums/identity.json": "226a61a8879034d1af1d915bbab3b8771f1734559cbfac1ab24e324533da7f3f",
-    "contracts/enums/ops.json": "5d9a24213bdcff8f861fcac5cc95245bc9a7be5d05d3b7e6f7a4f7617c730751",
+    "contracts/enums/ops.json": "fd6deb3feb7351e67ba03c3b77346c4289d9d2ba60063e4b4eb48fd552008917",
     "contracts/enums/order.json": "ded41d09fe87a0186147203e0555de5581ea268c2c0730d5639b8c5397276e0f",
     "contracts/enums/platform.json": "1830fc872e5471cb5a8e0acdc887a529fdcf433392138759f5a010dbf684c531",
     "contracts/enums/trade.json": "ff739e2461453f95b62b22c979dd5fc3f0af0c01d371519eda2b42849ca63d1c",
-    "contracts/error-codes.json": "171141696903a566fb2f3f2e20db64fdb268d5387f4077f01ace0ea08e763afc",
-    "contracts/routes.json": "9b2f44728426e37403e353370c1fdf1cdc40a567568534cbe902c9c6c276ae41",
-    "contracts/texts.default.json": "9c1624ed2418b7790ab950282ed64b7cdee44d27cdc7307a95311b38240e839e",
+    "contracts/error-codes.json": "944e9475169da2838e95689cb8b71cabf2365de7676b57f2ab6d7c83440185e2",
+    "contracts/routes.json": "6f4040133d3953b74e8610baabbfeec872b5e539c6b454b83ec99733ce9af68c",
+    "contracts/texts.default.json": "fb9d1c7e159ebf7d563e5f1dcfa4edbfd91bdb569f403df979a7344768bb90b8",
     "design/design-tokens.json": "cae7499e21496fbeaddc190c7d6170dbf03161436e0e85062d8d4373670f42f1",
     "specs/client-public-ids.json": "1ef9e57a1a77dc849899ec72f53d7911ff57b6583cb3eaf78527a3bc6fb9f7b3",
     "specs/client-security-baseline.json": "25c48e505e0dee4afd7279ae9b7cbb029dbacb2585e68a7c52d3ad7e2738ff90",

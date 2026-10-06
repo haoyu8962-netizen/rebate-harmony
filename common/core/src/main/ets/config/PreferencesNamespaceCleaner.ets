@@ -4,7 +4,10 @@ import { LocalDataCleaner } from './LocalDataCleaner';
 
 /** 本 App 自己的 Preferences 文件名（命名空间）。 */
 export class CouliPreferences {
-  /** 业务数据命名空间；别的模块新增 Preferences 文件时登记进 ALL_NAMESPACES，清理时一并删除。 */
+  /**
+   * 业务数据命名空间；别的模块新增 Preferences 文件时登记进 ALL_NAMESPACES，清理时一并删除。
+   * 已用的键：router.pending_action（PreferencesPendingBackend，APP-02a）。
+   */
   static readonly APP_NAMESPACE: string = 'couli_app';
   static readonly ALL_NAMESPACES: string[] = [CouliPreferences.APP_NAMESPACE];
   /**

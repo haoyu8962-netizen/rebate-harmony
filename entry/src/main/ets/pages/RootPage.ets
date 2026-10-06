@@ -1,9 +1,11 @@
-import { AppConfig, EnvironmentGate } from 'core';
+import { AppConfig, EnvironmentGate, RouteDestination, RouteTable } from 'core';
 import {
   CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography
 } from 'designsystem';
 import { DefaultTexts } from 'generated';
 import { VariantDestination, VariantHomeOverlay } from 'entry/ets/variant/BuildVariant';
+import { AppRouting, UPGRADE_PROMPT_PAGE } from '../routing/AppRouting';
+import { RoutePlaceholderPage } from './RoutePlaceholderPage';
 
 /**
  * 阻断页文案（不硬编码）：从生成的 DefaultTexts 取已有的通用键，与 iOS 同口径。
@@ -37,7 +39,8 @@ class LaunchGateModel {
  * 环境闸门不是 SETTLED 时不进入正常界面：BLOCKED 显示阻断页（一句说明 +【重试】），重试成功后才显示正常首屏。
  * Debug / Staging 由 src/staging 的 VariantHomeOverlay 显示令牌版本、配置名与调试面板入口（英文开发字样）；
  * Release 的 VariantHomeOverlay 是空的，首屏只有品牌色图形占位。
- * TODO(HM-02)：Tab、隐私闸门、Router 接管本页。
+ * 业务页面只由 Router 推入（AppRouting.navigator）：Navigation 出现后才把栈交给 Router 并放行排队的启动意图。
+ * TODO(APP-02b)：Tab、隐私闸门接管本页。
  */
 @Entry
 @ComponentV2
@@ -47,7 +50,15 @@ struct RootPage {
 
   @Builder
   routeMap(name: string, param: Object) {
-    VariantDestination(name, param)
+    if (name === UPGRADE_PROMPT_PAGE || RouteTable.has(name)) {
+      // 业务路由与内置升级提示页：占位页（各 Feature 的入口视图接入前）。参数只认 Router 放进来的 RouteDestination。
+      RoutePlaceholderPage({
+        route: name,
+        readonlyMode: param instanceof RouteDestination ? (param as RouteDestination).readonly : false
+      })
+    } else {
+      VariantDestination(name, param)
+    }
   }
 
   @Builder
@@ -96,6 +107,9 @@ struct RootPage {
       .hideToolBar(true)
       .navDestination(this.routeMap)
       .backgroundColor(CouliColors.backgroundCanvas)
+      .onAppear(() => {
+        AppRouting.shared.attachNavigation(this.pathStack);
+      })
     } else if (this.launch.gate === EnvironmentGate.BLOCKED) {
       this.blockedPage()
     } else {

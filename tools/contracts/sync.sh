@@ -131,6 +131,7 @@ for f in \
     contracts/bridge.schema.json \
     contracts/texts.default.json \
     contracts/apps.json \
+    contracts/agent-stream.schema.json \
     specs/events.yaml \
     specs/client-public-ids.yaml \
     specs/client-security-baseline.yaml \

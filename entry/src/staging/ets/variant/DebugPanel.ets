@@ -7,6 +7,7 @@ import {
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes } from 'generated';
 import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
+import { AppRouting } from '../../../main/ets/routing/AppRouting';
 
 /** 调试面板的固定标记；tools/ci/release-scan.sh 查 Release 产物里不得出现它。 */
 export const COULI_DEBUG_PANEL: string = 'COULI_DEBUG_PANEL';
@@ -43,6 +44,8 @@ export struct DebugPanel {
       return;
     }
     const result: SwitchResult = await switcher.switchTo(target);
+    // 环境变了：作废进行中的推送回查、排队的启动意图与 pending_action（APP-02a）。
+    AppRouting.shared.environmentChanged();
     this.current = switcher.current;
     this.apiBase = switcher.endpoints.apiBase;
     this.message = 'switch ' + target + ': ' + result.outcome;
