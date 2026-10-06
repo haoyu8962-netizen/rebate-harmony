@@ -1,7 +1,7 @@
 {
   "rebate_platform": {
     "repo": "../rebate-platform",
-    "commit": "091da5a6f52024eb5c9dffa1d42a171ecff369b8"
+    "commit": "9cd1e6f9c3748bc99d92aec2fe845b48a26f180a"
   },
   "design_tokens": {
     "repo": "../couli",
@@ -9,7 +9,7 @@
     "path": "design/tokens/design-tokens.json"
   },
   "files": {
-    "contracts/agent-stream.schema.json": "91b79c7939b21f5e89e9e0ead4dd270bb69bc0e4ca66ae41df98c9075813e63c",
+    "contracts/agent-stream.schema.json": "895bd7458fc9185e5b9022e316fc4313b90b84f91d75f72227bd3e907139fb9e",
     "contracts/apps.json": "b7c3e07ad63d52e7ec5b6021b13dc2003cabb0755adffa4af5079aa3ac2267dd",
     "contracts/bridge.schema.json": "ca89a017e1c061d1b66fb923a3b68cb9d99d3f0ad9e133f18622f978689e9437",
     "contracts/enums/admin.json": "68fe2c909a68bc967ebd8d53c254a704fb4d096bb22b141e2edc8dc710b3538e",
@@ -20,7 +20,7 @@
     "contracts/enums/platform.json": "1830fc872e5471cb5a8e0acdc887a529fdcf433392138759f5a010dbf684c531",
     "contracts/enums/trade.json": "ff739e2461453f95b62b22c979dd5fc3f0af0c01d371519eda2b42849ca63d1c",
     "contracts/error-codes.json": "944e9475169da2838e95689cb8b71cabf2365de7676b57f2ab6d7c83440185e2",
-    "contracts/openapi.json": "fd4d427f36e6f3be54bb6d0643efcbf63cde9cb9b9ed76788d8f988688b3cf81",
+    "contracts/openapi.json": "a6a13fbb18de6d9f5570d603e773a70e7cf5067908c8501495f9e94c43e62b3d",
     "contracts/routes.json": "6f4040133d3953b74e8610baabbfeec872b5e539c6b454b83ec99733ce9af68c",
     "contracts/texts.default.json": "fb9d1c7e159ebf7d563e5f1dcfa4edbfd91bdb569f403df979a7344768bb90b8",
     "design/design-tokens.json": "cae7499e21496fbeaddc190c7d6170dbf03161436e0e85062d8d4373670f42f1",
@@ -28,6 +28,7 @@
     "specs/client-public-ids.json": "1ef9e57a1a77dc849899ec72f53d7911ff57b6583cb3eaf78527a3bc6fb9f7b3",
     "specs/client-security-baseline.json": "25c48e505e0dee4afd7279ae9b7cbb029dbacb2585e68a7c52d3ad7e2738ff90",
     "specs/events.json": "c17a9a20cd18d9faca8227083904acb4244160f80173f2b99f9f4d7c77df7353",
+    "specs/request-sign.vectors.json": "42512225bf4ada0642b761176d5cf5010c44c0d168f99b087166459518c1cbf9",
     "specs/system-permissions.json": "bd7c09ae405d0ed5493704be0a51e59ec2628bf7a0c24c2433c39acfe8175b2f"
   }
 }

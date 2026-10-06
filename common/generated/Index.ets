@@ -245,4 +245,8 @@ export {
   AppStoreSpec,
   AppStores
 } from './src/main/ets/AppStores';
+export {
+  ApiOperation,
+  ApiOperations
+} from './src/main/ets/ApiOperations';
 export * from 'generated/ets/DebugOnly';

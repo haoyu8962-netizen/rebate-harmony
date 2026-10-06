@@ -6,6 +6,13 @@ import privacyBehaviorTest from './PrivacyBehavior.test';
 import updateGateVectorTest from './UpdateGateVector.test';
 import updateBehaviorTest from './UpdateBehavior.test';
 import updateCoordinatorTest from './UpdateCoordinator.test';
+import updateForegroundInFlightTest from './UpdateForegroundInFlight.test';
+import networkVectorTest from './NetworkVector.test';
+import requestSignVectorTest from './RequestSignVector.test';
+import networkIntegrationTest from './NetworkIntegration.test';
+import networkReviewR1Test from './NetworkReviewR1.test';
+import networkReviewR2Test from './NetworkReviewR2.test';
+import networkReviewR3Test from './NetworkReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -21,4 +28,11 @@ export default function testsuite() {
   updateGateVectorTest();
   updateBehaviorTest();
   updateCoordinatorTest();
+  updateForegroundInFlightTest();
+  networkVectorTest();
+  requestSignVectorTest();
+  networkIntegrationTest();
+  networkReviewR1Test();
+  networkReviewR2Test();
+  networkReviewR3Test();
 }

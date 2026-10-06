@@ -30,8 +30,40 @@ export class CleanReport {
   }
 }
 
+/** 每次清理开始时最先同步执行的一步（如作废并取消在途网络请求）。 */
+class BeforeClearHook {
+  readonly name: string;
+  readonly run: () => void;
+
+  constructor(name: string, run: () => void) {
+    this.name = name;
+    this.run = run;
+  }
+}
+
 export class LocalDataCleanerRegistry {
   private cleaners: LocalDataCleaner[] = [];
+  private hooks: BeforeClearHook[] = [];
+
+  /**
+   * 登记「清理前第一步」（同名替换）：cleanAll（切换环境、覆盖安装对账）与 cleanOnly（撤回同意）开始时、在任何清理器
+   * 之前同步执行，不受名字筛选影响。用于网络层作废并取消在途请求（ApiClient.invalidate，lessons 35）：先让旧请求、
+   * 重试与刷新结果全部失效，再删令牌与设备身份，晚到的响应不能把会话写回来。抛异常记为失败，其余照常清理。
+   */
+  setBeforeClear(name: string, run: () => void): void {
+    const hook: BeforeClearHook = new BeforeClearHook(name, run);
+    const index: number = this.hooks.findIndex((h: BeforeClearHook) => h.name === name);
+    if (index >= 0) {
+      this.hooks[index] = hook;
+    } else {
+      this.hooks.push(hook);
+    }
+  }
+
+  /** 已登记的「清理前第一步」名字（按执行顺序）。 */
+  beforeClearNames(): string[] {
+    return this.hooks.map((h: BeforeClearHook) => h.name);
+  }
 
   register(cleaner: LocalDataCleaner): void {
     const index: number = this.cleaners.findIndex((c: LocalDataCleaner) => c.name === cleaner.name);
@@ -71,6 +103,15 @@ export class LocalDataCleanerRegistry {
   private async run(cleaners: LocalDataCleaner[]): Promise<CleanReport> {
     const cleaned: string[] = [];
     const failed: string[] = [];
+    // 第一步（同步、在任何 await 之前）：清理前钩子。
+    for (const hook of this.hooks.slice()) {
+      try {
+        hook.run();
+        cleaned.push(hook.name);
+      } catch (e) {
+        failed.push(hook.name);
+      }
+    }
     for (const cleaner of cleaners) {
       try {
         await cleaner.clean();

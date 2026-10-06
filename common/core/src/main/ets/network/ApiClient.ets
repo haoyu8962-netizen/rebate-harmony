@@ -1,0 +1,1877 @@
+import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import { util } from '@kit.ArkTS';
+import { ApiOperation, ApiOperations } from 'generated';
+import { EnvironmentEndpoints } from '../config/AppEnvironment';
+import { SessionTokens, SessionTokenSet } from '../session/SessionTokens';
+import {
+  EffectKind, ErrorActionInput, ErrorActionMapper, ErrorActionState, ErrorEffect, ErrorUpdateState, ReplayKind
+} from './ErrorActionMapper';
+import { HttpTransport, TransportFailure, TransportRequest, TransportResponse } from './HttpTransport';
+import {
+  HeaderDecision, LocalRejectReason, NetworkHeaders, NetworkPrivacy, NetworkRequestState, PendingResolution,
+  RequestHeaderPolicy, RetryPlan,
+  RetryPolicy, SessionScope
+} from './NetworkPolicy';
+import { PendingKeyRecord, PendingKeyState, PendingKeyStateRaw, PendingKeyStore, PendingResponseKind } from './PendingKeyStore';
+import { RefreshCompletion, RefreshCoordinator, RefreshRequest } from './RefreshCoordinator';
+import { DigestPort, CryptoKitDigest, RequestSigner, SigningInput } from './RequestSigner';
+
+/** 本 App 的公共头取值（X-App-Id、X-Platform、X-App-Version、X-Build、X-Channel）。 */
+export class ApiAppIdentity {
+  readonly appId: string;
+  readonly platform: string;
+  readonly appVersion: string;
+  readonly build: string;
+  readonly channel: string;
+
+  constructor(appId: string, platform: string, appVersion: string, build: string, channel: string) {
+    this.appId = appId;
+    this.platform = platform;
+    this.appVersion = appVersion;
+    this.build = build;
+    this.channel = channel;
+  }
+}
+
+/** 设备凭据（device_id、install_secret；设备注册在 APP-03b）。只在需要时读，不缓存。 */
+export interface CredentialSource {
+  deviceId(): string | null;
+
+  installSecret(): string | null;
+}
+
+/** 设备还没注册（APP-03b 之前）：没有任何设备凭据。 */
+export class NoDeviceCredentials implements CredentialSource {
+  deviceId(): string | null {
+    return null;
+  }
+
+  installSecret(): string | null {
+    return null;
+  }
+}
+
+/** 网络层要读的 App 状态。 */
+export interface NetworkContext {
+  /** 当前环境基址；环境闸门不是 SETTLED 时为 undefined（不发任何请求）。 */
+  endpoints(): EnvironmentEndpoints | undefined;
+
+  /** full / basic / not_decided（NetworkPrivacy）。 */
+  privacy(): string;
+
+  /** 撤回同意的清理已完成、凭据可读。 */
+  credentialsReadable(): boolean;
+}
+
+/** 强更（Update 模块）的接口：结论与 10405 入口。 */
+export interface UpdatePort {
+  /** supported / below / unknown（ErrorUpdateState）。 */
+  state(): string;
+
+  on10405(minSupported: string | null): void;
+}
+
+/** 10402 → 重新注册设备（APP-03b）。 */
+export interface DeviceRegistrar {
+  reregister(): Promise<boolean>;
+}
+
+/** APP-03b 之前：不能重新注册，10402 按兜底处理。 */
+export class NoDeviceRegistrar implements DeviceRegistrar {
+  reregister(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+}
+
+/** 定时（退避与超时）。生产用 setTimeout，单测注入可控实现。 */
+export interface NetworkTimer {
+  delay(millis: number): Promise<void>;
+}
+
+export class SystemNetworkTimer implements NetworkTimer {
+  delay(millis: number): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      setTimeout(() => resolve(), millis);
+    });
+  }
+}
+
+/** 随机值（X-Nonce、X-Trace-Id、Idempotency-Key）。 */
+export interface NetworkRandom {
+  /** 32 位小写十六进制（16 字节随机）。 */
+  nonce(): string;
+
+  /** UUID（Trace 与幂等键用；字符集 [A-Za-z0-9-]）。 */
+  uuid(): string;
+}
+
+export class SystemNetworkRandom implements NetworkRandom {
+  nonce(): string {
+    const random: cryptoFramework.Random = cryptoFramework.createRandom();
+    return RequestSigner.hex(random.generateRandomSync(16).data);
+  }
+
+  uuid(): string {
+    return util.generateRandomUUID(false);
+  }
+}
+
+/** ApiClient 的依赖（必填在构造参数里，其余有缺省）。 */
+export class ApiClientDeps {
+  readonly transport: HttpTransport;
+  readonly context: NetworkContext;
+  readonly identity: ApiAppIdentity;
+  readonly tokens: SessionTokens;
+  readonly update: UpdatePort;
+  credentials: CredentialSource = new NoDeviceCredentials();
+  digest: DigestPort = new CryptoKitDigest();
+  /** 四个 step-up 操作的未决键；null 时不记录。 */
+  pendingKeys: PendingKeyStore | null = null;
+  deviceRegistrar: DeviceRegistrar = new NoDeviceRegistrar();
+  timer: NetworkTimer = new SystemNetworkTimer();
+  random: NetworkRandom = new SystemNetworkRandom();
+  /** 毫秒时钟。 */
+  clock: () => number = () => Date.now();
+  /** 刷新失败（清会话）时的会话级 Effect：跳登录或停在强更页（每次刷新失败一次）。 */
+  sessionEffect: (effect: ErrorEffect) => void = (_e: ErrorEffect) => {
+  };
+
+  constructor(transport: HttpTransport, context: NetworkContext, identity: ApiAppIdentity, tokens: SessionTokens,
+    update: UpdatePort) {
+    this.transport = transport;
+    this.context = context;
+    this.identity = identity;
+    this.tokens = tokens;
+    this.update = update;
+  }
+}
+
+/** 一次业务请求。 */
+export class ApiRequest {
+  readonly operationId: string;
+  /** 路径参数（按 openapi 路径模板替换，值会做 URL 编码）。 */
+  readonly pathParams: Record<string, string>;
+  /** 原样 query（不含 '?'；签名与发送一致）。 */
+  readonly query: string;
+  /** 请求体原文（JSON）；没有为 null。 */
+  readonly body: string | null;
+  /** 沿用的幂等键（重放、确认上一笔）；null 时写操作新生成。 */
+  idempotencyKey: string | null = null;
+  /** X-Step-Up-Token（只对带 x-step-up 的操作发送）。 */
+  stepUpToken: string | null = null;
+  /** 未决记录的展示摘要（脱敏，调用方给）。 */
+  summary: string = '';
+  /** 发起页有可重新转链的商品卡（30144 输出 refetch_product）；App 内链接落地页 LinkLanding 传 false（R1-08）。 */
+  fromProductCard: boolean = true;
+
+  constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
+    body: string | null = null) {
+    this.operationId = operationId;
+    this.pathParams = pathParams;
+    this.query = query;
+    this.body = body;
+  }
+}
+
+export class ApiOutcome {
+  static readonly SUCCESS: string = 'success';
+  /** 带统一外壳的业务错误码。 */
+  static readonly BUSINESS_ERROR: string = 'business_error';
+  /** 超时、断连、没有统一外壳。 */
+  static readonly NETWORK_ERROR: string = 'network_error';
+  /** 本地拒绝，没有发出。 */
+  static readonly LOCAL_REJECT: string = 'local_reject';
+}
+
+/** 请求结果。 */
+export class ApiResult {
+  readonly outcome: string;
+  /** 外壳的 code（成功 0）；没有外壳为 -1。 */
+  readonly code: number;
+  readonly msg: string;
+  /** 外壳的 data（没有为 {}）。 */
+  readonly data: Record<string, Object>;
+  readonly traceId: string;
+  readonly httpStatus: number;
+  /**
+   * none / timeout / disconnect / cancelled / no_envelope / session_cleanup_failed（刷新失败后清会话本身出错）/
+   * refresh_unavailable（等待的刷新没有服务端结论，原请求没有发出，R2-03）。
+   */
+  readonly failure: string;
+  readonly localRejectReason: string | null;
+  /** 页面要执行的动作（成功为 null）。 */
+  readonly effect: ErrorEffect | null;
+  /** 这次用的幂等键（没有为 null）。 */
+  readonly idempotencyKey: string | null;
+  /**
+   * 放弃上一笔（abandonPending）的结局：abandoned（已放弃）/ completed（原请求已完成，本结果是解包后的原结果）；
+   * 其余调用与没有明确结局时为 null（PendingResolution，R2-04）。
+   */
+  pendingResolution: string | null = null;
+
+  constructor(outcome: string, code: number, msg: string, data: Record<string, Object>, traceId: string,
+    httpStatus: number, failure: string, localRejectReason: string | null, effect: ErrorEffect | null,
+    idempotencyKey: string | null) {
+    this.outcome = outcome;
+    this.code = code;
+    this.msg = msg;
+    this.data = data;
+    this.traceId = traceId;
+    this.httpStatus = httpStatus;
+    this.failure = failure;
+    this.localRejectReason = localRejectReason;
+    this.effect = effect;
+    this.idempotencyKey = idempotencyKey;
+  }
+
+  get ok(): boolean {
+    return this.outcome === ApiOutcome.SUCCESS;
+  }
+
+  /** trace_id 后 6 位（通用错误态附注，BR-TEXT-14）。 */
+  get trace6(): string {
+    return this.traceId.length <= 6 ? this.traceId : this.traceId.substring(this.traceId.length - 6);
+  }
+
+  static rejected(reason: string): ApiResult {
+    return new ApiResult(ApiOutcome.LOCAL_REJECT, -1, '', {}, '', 0, TransportFailure.NONE, reason, null, null);
+  }
+}
+
+/** 统一外壳 {code, msg, data, trace_id}。 */
+class Envelope {
+  readonly code: number;
+  readonly msg: string;
+  readonly data: Record<string, Object>;
+  readonly traceId: string;
+
+  constructor(code: number, msg: string, data: Record<string, Object>, traceId: string) {
+    this.code = code;
+    this.msg = msg;
+    this.data = data;
+    this.traceId = traceId;
+  }
+
+  static parse(text: string): Envelope | null {
+    try {
+      const parsed: Object | null = JSON.parse(text) as Object | null;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null;
+      }
+      const record: Record<string, Object> = parsed as Record<string, Object>;
+      const code: Object | undefined = record['code'];
+      if (typeof code !== 'number' || !Number.isInteger(code as number)) {
+        return null;
+      }
+      const msg: Object | undefined = record['msg'];
+      const data: Object | undefined = record['data'];
+      const trace: Object | undefined = record['trace_id'];
+      const dataRecord: Record<string, Object> =
+        data !== undefined && data !== null && typeof data === 'object' && !Array.isArray(data) ?
+          data as Record<string, Object> : {};
+      return new Envelope(code as number, typeof msg === 'string' ? msg as string : '', dataRecord,
+        typeof trace === 'string' ? trace as string : '');
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+/**
+ * 一次逻辑调用（首发、GET 重试、校时重签、10002 / 10402 重放、确认上一笔、屏障后继续）共享的「调用归属」
+ * （harmony-review-r1 R1-01、R1-02、R1-05；r2 R2-01、R2-08；lessons 22–26、30、34）。
+ * 在调用入口、进入任何异步等待之前就固定：账号、会话世代、登录序号、作废世代（撤回同意 / 切换环境）、隐私状态、环境基址。
+ * 之后每一次实际发送前、每一次异步等待之后、每一个响应处理之前都用 ApiClient.ownershipLost 核对；
+ * 归属变了就结束这次调用，绝不改绑到当前账号。
+ */
+class CallContext {
+  /** 逻辑调用标识（未决键的占用绑定它，lessons 26）。 */
+  readonly id: number;
+  /** 入口时有会话且这个接口带 Authorization：要核对账号与会话世代。 */
+  bound: boolean = false;
+  /** 入口时的会话账号（没有会话为 null）。 */
+  account: string | null = null;
+  generation: number = 0;
+  loginSerial: number = 0;
+  epoch: number = 0;
+  /** 入口时凭据可读（已同意隐私且撤回清理已完成）。 */
+  credentialsAllowed: boolean = false;
+  /** 入口时的隐私状态（NetworkPrivacy 规范值）。 */
+  privacy: string = '';
+  /** 入口时的环境基址（环境未就绪为空串）。 */
+  apiBase: string = '';
+  /** 四个 step-up 操作：beforeSend 已接受的未决键与所属账号（结算绑定原账号）。 */
+  pendingKey: string | null = null;
+  pendingAccount: string | null = null;
+  /** 这次发送的是曾经结果未知的键（确认上一笔）：非终结的 2xxxx 改为「暂时确认不了」（lessons 39）。 */
+  pendingEverUnknown: boolean = false;
+
+  constructor(id: number) {
+    this.id = id;
+  }
+}
+
+/** 一次实际的请求执行（同一逻辑调用的各次共享 ctx）。 */
+class Attempt {
+  readonly request: ApiRequest;
+  readonly operation: ApiOperation;
+  readonly isReplay: boolean;
+  /** 刷新请求本身：不按 mapper 再处理、不在这里保存令牌（performRefresh 核对后保存）。 */
+  readonly internalRefresh: boolean;
+  readonly ctx: CallContext;
+
+  constructor(request: ApiRequest, operation: ApiOperation, isReplay: boolean, internalRefresh: boolean,
+    ctx: CallContext) {
+    this.request = request;
+    this.operation = operation;
+    this.isReplay = isReplay;
+    this.internalRefresh = internalRefresh;
+    this.ctx = ctx;
+  }
+}
+
+/** prepare 的结果。 */
+class Prepared {
+  readonly rejected: string | null;
+  readonly decision: HeaderDecision | null;
+  readonly endpoints: EnvironmentEndpoints | undefined;
+  readonly accessToken: string | null;
+  readonly deviceId: string | null;
+  readonly installSecret: string | null;
+  readonly scope: string;
+  readonly pathWithQuery: string;
+  readonly key: string | null;
+
+  constructor(rejected: string | null, decision: HeaderDecision | null, endpoints: EnvironmentEndpoints | undefined,
+    accessToken: string | null, deviceId: string | null, installSecret: string | null, scope: string,
+    pathWithQuery: string, key: string | null) {
+    this.rejected = rejected;
+    this.decision = decision;
+    this.endpoints = endpoints;
+    this.accessToken = accessToken;
+    this.deviceId = deviceId;
+    this.installSecret = installSecret;
+    this.scope = scope;
+    this.pathWithQuery = pathWithQuery;
+    this.key = key;
+  }
+
+  /** 这次发送带了 Authorization。 */
+  get carriesToken(): boolean {
+    return this.decision !== null && this.decision.has(NetworkHeaders.AUTHORIZATION) && this.accessToken !== null;
+  }
+
+  static reject(reason: string): Prepared {
+    return new Prepared(reason, null, undefined, null, null, null, SessionScope.FULL, '', null);
+  }
+}
+
+/** 一次单飞刷新的结论（等待者全部拿到同一个结论，R1-03）。 */
+class RefreshOutcome {
+  static readonly OK: string = 'ok';
+  /** 服务端明确拒绝：会话已清，发出会话级 Effect。 */
+  static readonly FAILED: string = 'failed';
+  /** 没有服务端结论（超时、断连、响应形状不对）：不清会话，这次按网络错误收口。 */
+  static readonly TRANSIENT: string = 'transient';
+  /** 刷新期间会话换了（登录、退出、撤回同意、切换环境）：结果丢弃，不替新会话重放。 */
+  static readonly SESSION_CHANGED: string = 'session_changed';
+
+  readonly kind: string;
+  readonly token: string | null;
+  readonly effect: ErrorEffect | null;
+  /** 刷新失败后清会话本身出错（R1-04：转换为明确结果，不丢等待者）。 */
+  readonly cleanupFailed: boolean;
+
+  constructor(kind: string, token: string | null, effect: ErrorEffect | null, cleanupFailed: boolean = false) {
+    this.kind = kind;
+    this.token = token;
+    this.effect = effect;
+    this.cleanupFailed = cleanupFailed;
+  }
+
+  static ok(token: string): RefreshOutcome {
+    return new RefreshOutcome(RefreshOutcome.OK, token, null);
+  }
+
+  static of(kind: string): RefreshOutcome {
+    return new RefreshOutcome(kind, null, null);
+  }
+}
+
+/**
+ * 一轮单飞刷新：屏障 promise 只在完成流程的最后一步（会话已保存或已清除、结论已定）才兑现。
+ * 账号、世代与令牌快照在入队那一刻固定（lessons 24）：执行与结算都以快照为准，不再去读「当前账号」。
+ */
+class RefreshRound {
+  readonly promise: Promise<RefreshOutcome>;
+  /** 发起刷新时的 access_token（成功后记入令牌世系；失败时记为已失败令牌）。 */
+  readonly usedAccess: string | null;
+  /** 入队时的 refresh_token（凭据不可读时为 null）。 */
+  readonly refreshToken: string | null;
+  readonly account: string | null;
+  readonly generation: number;
+  readonly epoch: number;
+  readonly credentialsAllowed: boolean;
+  settled: boolean = false;
+  private resolver: (outcome: RefreshOutcome) => void = (_o: RefreshOutcome) => {
+  };
+
+  constructor(usedAccess: string | null, refreshToken: string | null, account: string | null, generation: number,
+    epoch: number, credentialsAllowed: boolean) {
+    this.usedAccess = usedAccess;
+    this.refreshToken = refreshToken;
+    this.account = account;
+    this.generation = generation;
+    this.epoch = epoch;
+    this.credentialsAllowed = credentialsAllowed;
+    this.promise = new Promise<RefreshOutcome>((resolve: (outcome: RefreshOutcome) => void) => {
+      this.resolver = resolve;
+    });
+  }
+
+  resolve(outcome: RefreshOutcome): void {
+    this.resolver(outcome);
+  }
+}
+
+/** 已交给传输层、还没有结果的一次发送（撤回同意 / 切换环境时取消，lessons 22）。 */
+class LiveRequest {
+  readonly request: TransportRequest;
+  readonly abort: () => void;
+
+  constructor(request: TransportRequest, abort: () => void) {
+    this.request = request;
+    this.abort = abort;
+  }
+}
+
+/**
+ * 请求管线（APP-03a；03 §4.2 中间件顺序）：公共头 → 签名（只对 x-signed）→ 发送（10 秒超时；open 8 秒）→ 解包外壳 →
+ * ErrorActionMapper。读接口超时 / 断连自动重试 1 次（退避 500 ms），写接口不自动重试。
+ *
+ * - 本地拒绝（不发出）：环境未就绪、基本模式白名单外、受限会话表外（含请求体条件）、需要签名而设备未注册、
+ *   未决键未结（RequestHeaderPolicy + 本类的请求体条件）。基本模式与撤回清理未完成时不读不带任何凭据。
+ * - 调用归属（R1-01、R2-01、R2-08；lessons 22–26、30、34）：调用入口（任何异步等待之前）固定账号、会话世代、登录序号、
+ *   作废世代、隐私状态与环境基址（CallContext）。所有自动续发路径——GET 重试、10401 校时重签、10002 刷新后重放、
+ *   10402 重新注册后重放、确认上一笔、刷新 / 受限屏障之后继续——以及每个响应的处理（含登录响应保存令牌、10404 清会话），
+ *   都先经 ownershipLost 同一套核对；归属变了就结束旧调用（session_changed / cancelled），不改绑到当前账号，
+ *   旧响应不改动当前会话。传输层在真正发出前再核对一次（TransportRequest.admit），撤回同意 / 切换环境时取消已交给
+ *   传输层、还没有结果的请求（invalidate）。
+ * - 10002：单飞刷新（RefreshCoordinator 计数），成功后用新令牌、原键原体重放 1 次；只有同世代、同账号，且当前令牌是
+ *   这次请求所用令牌经本客户端刷新得到的（令牌世系），才复用已完成的刷新。失败清会话并发出会话级 Effect。
+ *   刷新的账号、世代与令牌快照在入队时固定（lessons 24）。刷新的收尾在同一个完成流程里依次做完：保存或清除会话 →
+ *   定下结论（强更状态取这一刻的值）→ 兑现屏障（全部等待者拿到同一结论，各结算一次）。带会话的请求在刷新在途时先等屏障；
+ *   屏障按完整结论结算（R2-03）：失败 → session_cleared，没有服务端结论 → 网络错误，会话换了 → session_changed，
+ *   都不发出原请求。会话世代结束时在途的刷新与新世代脱钩，新会话的请求不等旧刷新。
+ * - 受限会话屏障（R1-06、R2-02）：冷启动后第一次请求、或强更状态由「低于 / 未知」恢复为「不低于」后，本机会话是
+ *   deletion_only 的，先自动单飞刷新，其他带令牌的请求都等它。强更状态变更由 onUpdateStateChanged 通知（App 组合处
+ *   经 NetworkComposition 把 AppUpdate.onChanged 接到这里），请求入口也会核对；登录或刷新在强更未知时拿到 deletion_only、按「低于」处理时同步记下。
+ * - 10402：重新注册设备后原键重放 1 次（DeviceRegistrar，APP-03b）。
+ * - 10405：进强更（UpdatePort.on10405）；遗留受限令牌只刷新（refresh_only）。
+ * - 登录 / 刷新成功：记下 session_scope；强更检查未知时拿到 deletion_only → 按低于处理（UpdatePort.on10405(null)），
+ *   强更状态取处理响应那一刻的值（lessons 28）。
+ * - 10401 且响应头 Date 与本机相差超过 300 秒：校正时钟偏移，用新的 X-Timestamp 与 X-Nonce 重签再发 1 次（BR-ID-09）。
+ * - 四个 step-up 操作：发送前写未决记录，按响应结局更新（PendingKeyStore，结算绑定原账号与调用标识）；内部续发期间
+ *   一直占用，逻辑调用结束时还在途的统一结算（R1-05、lessons 26）。查询 / 确认 / 放弃上一笔先核对记录账号与当前会话
+ *   账号（R1-02）；确认 / 放弃先持久化成功再发送（R2-05）；放弃得到 completed 时按原操作解包并映射（R2-04）。
+ * 单线程（UI 线程）使用。
+ */
+export class ApiClient {
+  /** 签发会话的操作（响应 data 为 TokenPair）。 */
+  static readonly SESSION_ISSUING: string[] = ['loginBySms', 'loginByWechat', 'loginByApple', 'loginByHuawei',
+    'refreshToken'];
+  static readonly REFRESH_OPERATION: string = 'refreshToken';
+  static readonly ABANDON_OPERATION: string = 'abandonIdempotencyKey';
+  /** BR-ID-09：Date 与本机相差超过 300 秒才校时重签。 */
+  static readonly CLOCK_SKEW_LIMIT_SECONDS: number = 300;
+  /** 等待的刷新没有服务端结论（R2-03）。 */
+  static readonly REFRESH_UNAVAILABLE: string = 'refresh_unavailable';
+  /** 令牌世系最多回溯的刷新次数。 */
+  private static readonly LINEAGE_DEPTH: number = 16;
+
+  private readonly deps: ApiClientDeps;
+  private readonly signer: RequestSigner;
+  private readonly refresher: RefreshCoordinator;
+  /** 在途的单飞刷新（屏障）；没有为 null。 */
+  private refreshRound: RefreshRound | null = null;
+  /** 最近一次明确失败的刷新所用的 access_token：同一旧令牌晚到的 10002 不再刷新、不再清会话（lessons R1-06）。 */
+  private failedAccessToken: string | null = null;
+  /**
+   * 因刷新明确失败而清掉的会话世代与那次的结论（lessons 37）：这个世代晚到的 10002 / 屏障等待者复用它，
+   * 返回 session_cleared，不再刷新、不再清会话；与用户换了会话（session_changed）区分开。
+   */
+  private clearedGeneration: number = -1;
+  private clearedOutcome: RefreshOutcome | null = null;
+  /** 作废世代：撤回同意、切换环境时加一，在途请求、重试与刷新结果一律作废。 */
+  private epoch: number = 0;
+  /** 会话世代：登录、退出、清会话、作废时加一（R1-01）。 */
+  private sessionGeneration: number = 0;
+  /** 登录序号：登录成功、onSessionChanged、作废时加一（不随刷新失败清会话变化；不带令牌的调用核对它，lessons 23）。 */
+  private loginSerial: number = 0;
+  /** 本世代内本客户端完成的刷新：旧 access_token → 新 access_token。 */
+  private lineage: Map<string, string> = new Map<string, string>();
+  /** 当前会话已确认不需要受限会话刷新（R1-06）；冷启动为 false。 */
+  private restrictedChecked: boolean = false;
+  /** 上次看到的强更状态（检测「低于 / 未知 → 不低于」，R2-02）。 */
+  private lastUpdateState: string | null = null;
+  /** 强更未知时拿到 deletion_only、已按「低于」处理（UpdatePort.on10405(null)）；恢复为「不低于」时清除。 */
+  private treatedAsBelow: boolean = false;
+  private sequence: number = 0;
+  private callSequence: number = 0;
+  /** 服务端时间 − 本机时间（秒），由 10401 的 Date 校正。 */
+  private clockOffsetSeconds: number = 0;
+  /** 已交给传输层、还没有结果的发送。 */
+  private readonly live: Set<LiveRequest> = new Set<LiveRequest>();
+
+  constructor(deps: ApiClientDeps) {
+    this.deps = deps;
+    this.signer = new RequestSigner(deps.digest);
+    this.refresher = new RefreshCoordinator(
+      (completion: RefreshCompletion): void => {
+        this.runRefreshRound(completion);
+      },
+      (_request: RefreshRequest, _token: string): void => {
+        // 等待者由 RefreshRound 的屏障统一结算（R1-03），这里不逐个回调。
+      },
+      (): void => {
+        // 清会话在 finishRound 的完成流程里做（R1-03、R1-04）。
+      },
+      deps.clock,
+      (): boolean => this.deps.update.state() === ErrorUpdateState.BELOW);
+  }
+
+  /**
+   * 撤回同意、切换环境（清理器里调用）：作废全部在途请求、它们的重试与在途刷新的结果（lessons R1-01、R1-07），
+   * 并取消已交给传输层、还没有结果的请求（还在等连接 / TLS 的不再发出，lessons 22）。
+   */
+  invalidate(): void {
+    this.epoch++;
+    this.loginSerial++;
+    this.endSessionGeneration();
+    const live: LiveRequest[] = Array.from(this.live.values());
+    this.live.clear();
+    for (const entry of live) {
+      try {
+        this.deps.transport.cancel(entry.request);
+      } catch (e) {
+        // 传输层不得抛出；万一抛出，下面照样按取消收口。
+      }
+      entry.abort();
+    }
+  }
+
+  /**
+   * 登录流程以外换了会话（退出登录、切换账号，APP-05 调用）：旧世代的请求不再重试或重放，未决记录跟随当前账号。
+   */
+  onSessionChanged(): void {
+    this.loginSerial++;
+    this.endSessionGeneration();
+    this.syncPendingAccount();
+  }
+
+  /**
+   * 强更状态变更通知（R2-02、R3-04；App 组合处经 NetworkComposition.install 把 AppUpdate.onChanged 接到这里）。
+   * 由「低于 / 未知」恢复为「不低于」且本机会话是 deletion_only：立即发起受限会话刷新屏障，不等下一个请求。
+   */
+  onUpdateStateChanged(): void {
+    this.observeUpdateState();
+    this.ensureRestrictedBarrier();
+  }
+
+  /** 单飞刷新的计数（测试与诊断用）。 */
+  get refreshCalls(): number {
+    return this.refresher.refreshCalls;
+  }
+
+  /** 发一个业务请求。不抛出。 */
+  request(request: ApiRequest): Promise<ApiResult> {
+    const operation: ApiOperation | undefined = ApiOperations.byId(request.operationId);
+    if (operation === undefined) {
+      return Promise.resolve(ApiResult.rejected(LocalRejectReason.UNKNOWN_OPERATION));
+    }
+    // 冷启动 / 强更恢复后的受限会话刷新（R1-06、R2-02）先发起，再在任何等待之前绑定调用归属（R2-01）。
+    this.observeUpdateState();
+    this.ensureRestrictedBarrier();
+    return this.runCall(new Attempt(request, operation, false, false, this.bind(operation)));
+  }
+
+  /**
+   * 受限会话刷新屏障的手动入口（冷启动与强更恢复已自动接入，R1-06、R2-02）：本机会话是 deletion_only 的
+   * 立即单飞刷新，刷新期间新发的请求等它结束。返回刷新后是否仍有会话。
+   */
+  async refreshRestrictedSession(): Promise<boolean> {
+    this.observeUpdateState();
+    this.restrictedChecked = false;
+    this.ensureRestrictedBarrier();
+    const round: RefreshRound | null = this.refreshRound;
+    if (round === null) {
+      return this.credentialsAllowed() && this.deps.tokens.accessToken() !== null;
+    }
+    const outcome: RefreshOutcome = await round.promise;
+    return outcome.kind === RefreshOutcome.OK;
+  }
+
+  /** 发起页查询：当前会话账号该操作的未决记录（先核对账号，R1-02）。 */
+  pendingFor(operationId: string): PendingKeyRecord | null {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    const account: string | null = this.trustedAccount();
+    if (store === null || account === null) {
+      return null;
+    }
+    this.syncPendingAccount();
+    const record: PendingKeyRecord | null = store.pendingFor(operationId);
+    return record !== null && record.account === account ? record : null;
+  }
+
+  /** 某个键的状态（只看当前会话账号的记录，R1-02）。 */
+  pendingState(key: string): PendingKeyState {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    const account: string | null = this.trustedAccount();
+    if (store === null || account === null) {
+      return new PendingKeyState(PendingKeyStateRaw.NONE, null);
+    }
+    this.syncPendingAccount();
+    const state: PendingKeyState = store.state(key);
+    if (state.record !== null && state.record.account !== account) {
+      return new PendingKeyState(PendingKeyStateRaw.NONE, null);
+    }
+    return state;
+  }
+
+  /**
+   * 【确认上一笔】：原键、原请求体重发。记录必须属于当前可信会话账号（R1-02），调用在入口绑定这个账号与会话世代，
+   * 等屏障、发送前都再核对；结算绑定原账号与本调用标识。先把「在途」持久化成功才发送；持久化失败保持结果未知并返回
+   * pending_store_failed（R2-05）。结果未知后 10003 → 二次验证后带新 token 再调本方法。
+   */
+  confirmPending(key: string, stepUpToken: string | null = null): Promise<ApiResult> {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    const account: string | null = this.trustedAccount();
+    if (store === null || account === null) {
+      return Promise.resolve(ApiResult.rejected(store === null ? LocalRejectReason.PENDING_KEY_UNRESOLVED :
+      LocalRejectReason.ACCOUNT_UNKNOWN));
+    }
+    const owned: string | null = this.pendingOwner(store, key, account);
+    if (owned !== null) {
+      return Promise.resolve(ApiResult.rejected(owned));
+    }
+    if (!this.pendingStoreReady(store, account)) {
+      return Promise.resolve(ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED));
+    }
+    const record: PendingKeyRecord | null = store.state(key).record;
+    const operation: ApiOperation | undefined = record === null ? undefined : ApiOperations.byId(record.operationId);
+    if (record === null || operation === undefined || record.stateRaw !== PendingKeyStateRaw.UNKNOWN) {
+      return Promise.resolve(ApiResult.rejected(operation === undefined && record !== null ?
+      LocalRejectReason.UNKNOWN_OPERATION : LocalRejectReason.PENDING_KEY_UNRESOLVED));
+    }
+    this.observeUpdateState();
+    this.ensureRestrictedBarrier();
+    const ctx: CallContext = this.bind(operation);
+    if (!ctx.bound || ctx.account !== account) {
+      return Promise.resolve(ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH));
+    }
+    try {
+      if (!store.confirm(key, ctx.id)) {
+        return Promise.resolve(ApiResult.rejected(LocalRejectReason.PENDING_KEY_UNRESOLVED));
+      }
+    } catch (e) {
+      return Promise.resolve(ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED));
+    }
+    ctx.pendingKey = key;
+    ctx.pendingAccount = account;
+    ctx.pendingEverUnknown = true;
+    const request: ApiRequest = new ApiRequest(record.operationId, {}, '', record.body);
+    request.idempotencyKey = record.key;
+    request.stepUpToken = stepUpToken;
+    request.summary = record.summary;
+    // 本地被拒绝、发送前出错、归属变了：逻辑调用结束时 runCall 把记录从在途恢复为结果未知（lessons R1-13、R1-05）。
+    return this.runCall(new Attempt(request, operation, false, false, ctx));
+  }
+
+  /**
+   * 【放弃上一笔】（用户已二次确认）：调 POST /v1/idempotency-keys/abandon（不带 Idempotency-Key，原键放请求体）。
+   * 记录必须属于当前可信会话账号，作废请求在入口绑定这个账号（R1-02）；结算绑定原账号。先持久化成功才发送（R2-05）。
+   * outcome=abandoned → 键结束，结果带 pendingResolution=abandoned；outcome=completed → 按附带的原结果结算（成功或 3xxxx
+   * 结束），并按记录里的原 operation 解包成原业务结果、经 ErrorActionMapper 给出 Effect（R2-04，lessons 27）；
+   * 其余响应或没有明确响应 → 保持待确认。
+   */
+  async abandonPending(key: string): Promise<ApiResult> {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    const account: string | null = this.trustedAccount();
+    if (store === null || account === null) {
+      return ApiResult.rejected(store === null ? LocalRejectReason.PENDING_KEY_UNRESOLVED :
+      LocalRejectReason.ACCOUNT_UNKNOWN);
+    }
+    const owned: string | null = this.pendingOwner(store, key, account);
+    if (owned !== null) {
+      return ApiResult.rejected(owned);
+    }
+    if (!this.pendingStoreReady(store, account)) {
+      return ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED);
+    }
+    const record: PendingKeyRecord | null = store.state(key).record;
+    const operation: ApiOperation | undefined = record === null ? undefined : ApiOperations.byId(record.operationId);
+    const abandonOp: ApiOperation | undefined = ApiOperations.byId(ApiClient.ABANDON_OPERATION);
+    if (record === null || operation === undefined || operation.stepUp === null || abandonOp === undefined
+      || record.stateRaw !== PendingKeyStateRaw.UNKNOWN) {
+      return ApiResult.rejected(LocalRejectReason.PENDING_KEY_UNRESOLVED);
+    }
+    this.observeUpdateState();
+    this.ensureRestrictedBarrier();
+    const ctx: CallContext = this.bind(abandonOp);
+    if (!ctx.bound || ctx.account !== account) {
+      return ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH);
+    }
+    try {
+      if (!store.abandon(key, ctx.id)) {
+        return ApiResult.rejected(LocalRejectReason.PENDING_KEY_UNRESOLVED);
+      }
+    } catch (e) {
+      return ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED);
+    }
+    const body: string = JSON.stringify(new AbandonBody(operation.stepUp, key));
+    let result: ApiResult = ApiResult.rejected(LocalRejectReason.CANCELLED);
+    try {
+      result = await this.runCall(new Attempt(new ApiRequest(ApiClient.ABANDON_OPERATION, {}, '', body), abandonOp,
+        false, false, ctx));
+    } finally {
+      try {
+        store.onResponse(key, ApiClient.abandonOutcomeKind(result), account, ctx.id);
+      } catch (e) {
+        // 记录写不进存储：持久记录仍是在途，下次恢复时按结果未知处理。
+      }
+      try {
+        store.settleIfInFlight(key, account, ctx.id);
+      } catch (e) {
+        // 同上。
+      }
+    }
+    return this.abandonResult(result, operation);
+  }
+
+  /**
+   * 作废接口结果的解包（R2-04，lessons 27）：completed → 原业务结果（code、msg、data 取 original，Effect 按原 operation
+   * 经 ErrorActionMapper，30304 等照常引导）；abandoned → 原样返回并标 abandoned；其余原样返回。
+   */
+  private abandonResult(result: ApiResult, operation: ApiOperation): ApiResult {
+    if (!result.ok) {
+      return result;
+    }
+    const outcome: Object | undefined = result.data['outcome'];
+    if (outcome === PendingResolution.ABANDONED) {
+      const abandoned: ApiResult = new ApiResult(result.outcome, result.code, result.msg, result.data, result.traceId,
+        result.httpStatus, result.failure, result.localRejectReason, result.effect, result.idempotencyKey);
+      abandoned.pendingResolution = PendingResolution.ABANDONED;
+      return abandoned;
+    }
+    const original: Record<string, Object> | null = ApiClient.originalOf(result.data);
+    if (outcome !== PendingResolution.COMPLETED || original === null) {
+      return result;
+    }
+    const code: number = original['code'] as number;
+    const msgRaw: Object | undefined = original['msg'];
+    const dataRaw: Object | undefined = original['data'];
+    const msg: string = typeof msgRaw === 'string' ? msgRaw as string : '';
+    const data: Record<string, Object> = dataRaw !== undefined && dataRaw !== null && typeof dataRaw === 'object'
+      && !Array.isArray(dataRaw) ? dataRaw as Record<string, Object> : {};
+    let effect: ErrorEffect | null = null;
+    if (code !== 0) {
+      effect = ErrorActionMapper.map(new ErrorActionInput(code, data, operation, {}, false,
+        this.errorState(this.currentScope())));
+    }
+    const unwrapped: ApiResult = new ApiResult(code === 0 ? ApiOutcome.SUCCESS : ApiOutcome.BUSINESS_ERROR, code, msg,
+      data, result.traceId, result.httpStatus, TransportFailure.NONE, null, effect, result.idempotencyKey);
+    unwrapped.pendingResolution = PendingResolution.COMPLETED;
+    return unwrapped;
+  }
+
+  /** data.original（completed 时是原响应外壳 {code, msg, data}；形状不对为 null）。 */
+  private static originalOf(data: Record<string, Object>): Record<string, Object> | null {
+    const original: Object | undefined = data['original'];
+    if (original === undefined || original === null || typeof original !== 'object' || Array.isArray(original)) {
+      return null;
+    }
+    const record: Record<string, Object> = original as Record<string, Object>;
+    const code: Object | undefined = record['code'];
+    return typeof code === 'number' && Number.isInteger(code as number) ? record : null;
+  }
+
+  /**
+   * 确认 / 放弃之前核对账号（R1-02）：store 还停在别的账号、且那个账号有这条记录 → account_mismatch；
+   * 之后把 store 切到当前账号。返回 null 表示可以继续（记录是否存在由调用方再查）。
+   */
+  private pendingOwner(store: PendingKeyStore, key: string, account: string): string | null {
+    const before: PendingKeyRecord | null = store.state(key).record;
+    if (before !== null && before.account !== account) {
+      this.syncPendingAccount();
+      return LocalRejectReason.ACCOUNT_MISMATCH;
+    }
+    this.syncPendingAccount();
+    const after: PendingKeyRecord | null = store.state(key).record;
+    return after !== null && after.account !== account ? LocalRejectReason.ACCOUNT_MISMATCH : null;
+  }
+
+  /**
+   * 未决存储能否确认这个账号的状态（R3-01、R3-03，lessons 38）：恢复未完成就重读、清理待重试就重删；仍失败返回 false，
+   * 调用方本地拒绝（pending_store_failed），不把读取失败当成「没有未决记录」。
+   */
+  private pendingStoreReady(store: PendingKeyStore, account: string): boolean {
+    try {
+      store.ensureReady(account);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 发起页查询：当前会话账号的未决状态现在确认不了（存储读失败、记录损坏或删除待重试；每次调用都会重试）。
+   * 为 true 时 pendingFor 的 null 不代表「没有未决记录」，四个敏感操作本地拒绝（pending_store_failed）。
+   */
+  pendingStoreUnavailable(): boolean {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    const account: string | null = this.trustedAccount();
+    if (store === null || account === null) {
+      return false;
+    }
+    return !this.pendingStoreReady(store, account);
+  }
+
+  private static abandonOutcomeKind(result: ApiResult): string {
+    if (result.outcome === ApiOutcome.LOCAL_REJECT) {
+      return PendingResponseKind.NO_RESULT;
+    }
+    if (result.outcome === ApiOutcome.NETWORK_ERROR) {
+      return PendingResponseKind.NO_ENVELOPE;
+    }
+    if (result.code === 10002 || result.code === 10402) {
+      // 作废请求自己的 10002 / 10402 已在管线里重放或放弃；到这里说明没有结果（R1-05）。
+      return PendingResponseKind.NO_RESULT;
+    }
+    if (result.code !== 0) {
+      return PendingResponseKind.ofCode(result.code);
+    }
+    const outcome: Object | undefined = result.data['outcome'];
+    if (outcome === PendingResolution.ABANDONED) {
+      return PendingResponseKind.ABANDONED;
+    }
+    const original: Record<string, Object> | null = ApiClient.originalOf(result.data);
+    if (outcome === PendingResolution.COMPLETED && original !== null) {
+      const code: number = original['code'] as number;
+      if (code !== 10002 && code !== 10402) {
+        return PendingResponseKind.ofCode(code);
+      }
+    }
+    // 形状不符：说明不了结果，保持待确认（保守）。
+    return PendingResponseKind.NO_RESULT;
+  }
+
+  // ------------------------------------------------------------------ 调用归属
+
+  /** 在调用入口（任何异步等待之前）固定调用归属（R2-01）。 */
+  private bind(op: ApiOperation): CallContext {
+    this.callSequence++;
+    const ctx: CallContext = new CallContext(this.callSequence);
+    const allowed: boolean = this.credentialsAllowed();
+    const access: string | null = allowed ? this.deps.tokens.accessToken() : null;
+    const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
+    ctx.credentialsAllowed = allowed;
+    ctx.privacy = RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy());
+    ctx.apiBase = endpoints === undefined ? '' : endpoints.apiBase;
+    ctx.epoch = this.epoch;
+    ctx.generation = this.sessionGeneration;
+    ctx.loginSerial = this.loginSerial;
+    ctx.account = access !== null ? this.deps.tokens.account() : null;
+    ctx.bound = access !== null && op.auth !== 'none';
+    return ctx;
+  }
+
+  /**
+   * 调用归属是否还有效（所有自动续发路径与响应处理共用的同一套核对，lessons 30、34）。返回 null 表示有效；否则返回
+   * 结束旧调用的本地原因：撤回同意 / 隐私或凭据状态变化 / 切换环境 → cancelled；登录、退出、换账号、会话世代结束
+   * → session_changed。不带令牌的调用（登录、刷新、匿名白名单）不随刷新失败清会话结束，但出现了别的账号的会话、
+   * 或登录序号变了，同样结束（不改绑到新会话，lessons 23）。
+   */
+  private ownershipLost(ctx: CallContext): string | null {
+    if (ctx.epoch !== this.epoch) {
+      return LocalRejectReason.CANCELLED;
+    }
+    const allowed: boolean = this.credentialsAllowed();
+    if (allowed !== ctx.credentialsAllowed
+      || RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()) !== ctx.privacy) {
+      return LocalRejectReason.CANCELLED;
+    }
+    const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
+    if ((endpoints === undefined ? '' : endpoints.apiBase) !== ctx.apiBase) {
+      return LocalRejectReason.CANCELLED;
+    }
+    if (ctx.loginSerial !== this.loginSerial) {
+      return LocalRejectReason.SESSION_CHANGED;
+    }
+    const account: string | null = allowed && this.deps.tokens.accessToken() !== null ? this.deps.tokens.account() :
+      null;
+    if (ctx.bound) {
+      if (ctx.generation !== this.sessionGeneration && ctx.generation === this.clearedGeneration
+        && this.clearedOutcome !== null && account === null) {
+        // 这个世代因刷新明确失败被清掉，之后没有新会话：复用那次失败的结论（lessons 37）。
+        return LocalRejectReason.SESSION_CLEARED;
+      }
+      if (ctx.generation !== this.sessionGeneration || (allowed && account !== ctx.account)) {
+        return LocalRejectReason.SESSION_CHANGED;
+      }
+    } else if (account !== null && account !== ctx.account) {
+      return LocalRejectReason.SESSION_CHANGED;
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------------ 管线
+
+  /** 一次逻辑调用：不抛出；结束时还停在本进程在途、且由本调用占用的未决记录统一结算（R1-05、lessons 26）。 */
+  private async runCall(attempt: Attempt): Promise<ApiResult> {
+    try {
+      return await this.execute(attempt);
+    } catch (e) {
+      return ApiResult.rejected(LocalRejectReason.CANCELLED);
+    } finally {
+      const ctx: CallContext = attempt.ctx;
+      const store: PendingKeyStore | null = this.deps.pendingKeys;
+      if (ctx.pendingKey !== null && store !== null) {
+        try {
+          store.settleIfInFlight(ctx.pendingKey, ctx.pendingAccount, ctx.id);
+        } catch (e) {
+          // 存储出错：持久记录仍是在途，下次进程恢复时按结果未知处理。
+        }
+      }
+    }
+  }
+
+  /** 发送前的全部判定与凭据（每次实际发送前都重新取：重试、重签、重放都不复用旧请求，lessons R1-01）。 */
+  private prepare(op: ApiOperation, request: ApiRequest, fixedKey: string | null): Prepared {
+    const allowed: boolean = this.credentialsAllowed();
+    const accessToken: string | null = allowed ? this.deps.tokens.accessToken() : null;
+    const deviceId: string | null = allowed ? this.deps.credentials.deviceId() : null;
+    const scope: string = allowed && accessToken !== null ? this.deps.tokens.scope() : SessionScope.FULL;
+    const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
+    const state: NetworkRequestState = new NetworkRequestState(this.deps.context.privacy(), scope,
+      accessToken !== null, deviceId, endpoints !== undefined, this.deps.context.credentialsReadable());
+    const decision: HeaderDecision = RequestHeaderPolicy.decide(state, op);
+    if (!decision.send || endpoints === undefined) {
+      return Prepared.reject(decision.localRejectReason ?? LocalRejectReason.ENVIRONMENT_UNSETTLED);
+    }
+    if (scope === SessionScope.DELETION_ONLY && !ApiClient.restrictedBodyAllowed(op.operationId, request.body)) {
+      return Prepared.reject(LocalRejectReason.SESSION_SCOPE_BODY_DENIED);
+    }
+    const path: string | null = ApiClient.buildPath(op.pathTemplate, request.pathParams);
+    if (path === null) {
+      return Prepared.reject(LocalRejectReason.BAD_REQUEST);
+    }
+    const installSecret: string | null = decision.has(NetworkHeaders.SIGN) ? this.deps.credentials.installSecret() : null;
+    if (decision.has(NetworkHeaders.SIGN) && (installSecret === null || installSecret.length === 0)) {
+      return Prepared.reject(LocalRejectReason.DEVICE_NOT_READY);
+    }
+    const key: string | null = decision.has(NetworkHeaders.IDEMPOTENCY_KEY) ?
+      (fixedKey ?? request.idempotencyKey ?? this.newIdempotencyKey()) : null;
+    const pathWithQuery: string = request.query.length > 0 ? path + '?' + request.query : path;
+    return new Prepared(null, decision, endpoints, accessToken, deviceId, installSecret, scope, pathWithQuery, key);
+  }
+
+  /**
+   * 带会话的调用等在途的刷新屏障（R1-03、R2-01、R2-03）。按完整结论结算：刷新失败 → session_cleared；没有服务端结论 →
+   * 网络错误；会话换了 → session_changed；都不发出原请求。旧世代的刷新（已与新会话脱钩）不影响新世代的调用。
+   * 返回 null 表示可以继续发送。
+   */
+  private async awaitBarrier(ctx: CallContext): Promise<ApiResult | null> {
+    for (let waits: number = 0; waits < ApiClient.LINEAGE_DEPTH && this.refreshRound !== null; waits++) {
+      const round: RefreshRound = this.refreshRound as RefreshRound;
+      const outcome: RefreshOutcome = await round.promise;
+      const lost: string | null = this.ownershipLost(ctx);
+      if (lost === LocalRejectReason.CANCELLED) {
+        return this.lostResult(lost);
+      }
+      if (round.generation !== ctx.generation || round.account !== ctx.account) {
+        // 不是这个会话的刷新：它的结论与本调用无关，归属照常核对。
+        if (lost !== null) {
+          return this.lostResult(lost);
+        }
+        continue;
+      }
+      if (outcome.kind === RefreshOutcome.FAILED) {
+        // 刷新失败、会话已清：原本要带会话的请求不再发出（不得带旧令牌，R1-03），按刷新失败的 Effect 收口。
+        return ApiClient.sessionClearedResult(outcome);
+      }
+      if (lost !== null) {
+        return this.lostResult(lost);
+      }
+      if (outcome.kind === RefreshOutcome.TRANSIENT) {
+        // 没有服务端结论：会话保留，但这次调用结束，不带旧（受限）令牌发出（R2-03）。
+        return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, '', 0, ApiClient.REFRESH_UNAVAILABLE, null,
+          ApiClient.networkEffect(), null);
+      }
+      if (outcome.kind === RefreshOutcome.SESSION_CHANGED) {
+        return ApiResult.rejected(LocalRejectReason.SESSION_CHANGED);
+      }
+    }
+    return null;
+  }
+
+  /** 响应对应的未决结局（归属失效时按真实响应结算原账号的记录；10002 / 10402 不再重放 → 没有结果）。 */
+  private static responseKind(response: TransportResponse): string {
+    if (response.failure !== TransportFailure.NONE) {
+      return PendingResponseKind.NO_ENVELOPE;
+    }
+    const envelope: Envelope | null = Envelope.parse(response.body);
+    if (envelope === null) {
+      return PendingResponseKind.NO_ENVELOPE;
+    }
+    if (envelope.code === 10002 || envelope.code === 10402) {
+      return PendingResponseKind.NO_RESULT;
+    }
+    return PendingResponseKind.ofCode(envelope.code);
+  }
+
+  private async execute(attempt: Attempt): Promise<ApiResult> {
+    const op: ApiOperation = attempt.operation;
+    const request: ApiRequest = attempt.request;
+    const ctx: CallContext = attempt.ctx;
+    if (op.operationId !== ApiClient.REFRESH_OPERATION && ctx.bound) {
+      const barrier: ApiResult | null = await this.awaitBarrier(ctx);
+      if (barrier !== null) {
+        return barrier;
+      }
+    }
+    const initiallyLost: string | null = this.ownershipLost(ctx);
+    if (initiallyLost !== null) {
+      return this.lostResult(initiallyLost);
+    }
+    let prepared: Prepared = this.prepare(op, request, null);
+    if (prepared.rejected !== null) {
+      return ApiResult.rejected(prepared.rejected);
+    }
+    const key: string | null = prepared.key;
+    // 四个 step-up 操作：账号必须来自调用入口绑定的可信会话（登录响应的 user_id）；未决记录写成功才发送
+    // （lessons R1-11）。
+    if (op.stepUp !== null) {
+      const store: PendingKeyStore | null = this.deps.pendingKeys;
+      const account: string | null = ctx.bound ? ctx.account : null;
+      if (store === null || account === null || account.length === 0 || key === null) {
+        return ApiResult.rejected(LocalRejectReason.ACCOUNT_UNKNOWN);
+      }
+      if (ctx.pendingAccount !== null && ctx.pendingAccount !== account) {
+        return ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH);
+      }
+      let accepted: boolean = false;
+      try {
+        accepted = store.beforeSend(op.operationId, key, request.body ?? '', account, request.summary, ctx.id);
+      } catch (e) {
+        return ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED);
+      }
+      if (!accepted) {
+        return ApiResult.rejected(LocalRejectReason.PENDING_KEY_UNRESOLVED);
+      }
+      ctx.pendingKey = key;
+      ctx.pendingAccount = account;
+    }
+    const plan: RetryPlan = RetryPolicy.forOperation(op);
+    const traceId: string = this.deps.random.uuid();
+    let resigned: boolean = false;
+    let lastKind: string = PendingResponseKind.NO_RESULT;
+    let response: TransportResponse = TransportResponse.failed(TransportFailure.DISCONNECT);
+    for (let sent: number = 0; ; sent++) {
+      // 每次实际发送前（含 GET 重试、校时重签）都核对归属并重新组头、重新签名（lessons R1-01、25）。
+      const lost: string | null = this.ownershipLost(ctx);
+      if (lost !== null) {
+        this.settle(ctx, lastKind);
+        return this.lostResult(lost);
+      }
+      if (sent > 0) {
+        prepared = this.prepare(op, request, key);
+        if (prepared.rejected !== null) {
+          this.settle(ctx, lastKind);
+          return ApiResult.rejected(prepared.rejected);
+        }
+      }
+      const endpoints: EnvironmentEndpoints = prepared.endpoints as EnvironmentEndpoints;
+      const headers: Record<string, string> = this.headers(prepared.decision as HeaderDecision, op, request,
+        prepared.accessToken, prepared.deviceId, key, traceId);
+      if (prepared.installSecret !== null) {
+        this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
+      }
+      response = await this.send(new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery, headers,
+        request.body, plan.timeoutMillis, (): boolean => this.ownershipLost(ctx) === null));
+      const afterSend: string | null = this.ownershipLost(ctx);
+      if (afterSend !== null) {
+        // 撤回同意、切换环境、换了会话：旧响应不改动当前会话（不保存登录令牌、不清会话、不刷新、不重试，lessons 23、34），
+        // 未决记录按真实响应结算到原账号。
+        this.settle(ctx, ApiClient.responseKind(response));
+        return this.lostResult(afterSend);
+      }
+      if (response.failure === TransportFailure.NONE) {
+        const envelope: Envelope | null = Envelope.parse(response.body);
+        if (envelope !== null && envelope.code === 10401 && prepared.installSecret !== null && !resigned
+          && this.adjustClock(response.headers)) {
+          // BR-ID-09：校时后用新的 X-Timestamp 与 X-Nonce 重签再发 1 次（不是重放原签名）。
+          resigned = true;
+          lastKind = PendingResponseKind.NO_RESULT;
+          continue;
+        }
+        break;
+      }
+      if (sent >= plan.autoRetries || response.failure === TransportFailure.CANCELLED) {
+        break;
+      }
+      lastKind = PendingResponseKind.NO_ENVELOPE;
+      await this.deps.timer.delay(plan.backoffMillis);
+    }
+
+    if (response.failure !== TransportFailure.NONE) {
+      this.settle(ctx, PendingResponseKind.NO_ENVELOPE);
+      return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, traceId, 0, response.failure, null,
+        ApiClient.networkEffect(), key);
+    }
+    const envelope: Envelope | null = Envelope.parse(response.body);
+    if (envelope === null) {
+      this.settle(ctx, PendingResponseKind.NO_ENVELOPE);
+      return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, traceId, response.status, 'no_envelope', null,
+        ApiClient.networkEffect(), key);
+    }
+    const responseTrace: string = envelope.traceId.length > 0 ? envelope.traceId : traceId;
+    if (envelope.code === 0) {
+      this.settle(ctx, PendingResponseKind.SUCCESS);
+      if (!attempt.internalRefresh && !this.onSuccess(op, envelope.data, prepared.accessToken)) {
+        // 登录响应的令牌没能保存（lessons 40）：不返回登录成功。
+        return ApiResult.rejected(LocalRejectReason.SESSION_STORE_FAILED);
+      }
+      return new ApiResult(ApiOutcome.SUCCESS, 0, envelope.msg, envelope.data, responseTrace, response.status,
+        TransportFailure.NONE, null, null, key);
+    }
+    const effect: ErrorEffect = ApiClient.unknownKeyEffect(ctx, envelope.code,
+      ErrorActionMapper.map(new ErrorActionInput(envelope.code, envelope.data, op, response.headers, attempt.isReplay,
+        this.errorState(prepared.scope), request.fromProductCard)));
+    // 只有网络层确实要沿用原键自动重放时，未决记录才保持在途（且仍由本调用占用）；否则这次没有业务结果（R1-05）。
+    const willReplay: boolean = !attempt.internalRefresh && (effect.effectKindRaw === EffectKind.REFRESH_REPLAY
+      || effect.effectKindRaw === EffectKind.REGISTER_DEVICE_REPLAY);
+    const replayCode: boolean = envelope.code === 10002 || envelope.code === 10402;
+    this.settle(ctx, willReplay || !replayCode ? PendingResponseKind.ofCode(envelope.code) :
+    PendingResponseKind.NO_RESULT);
+    const failed: ApiResult = new ApiResult(ApiOutcome.BUSINESS_ERROR, envelope.code, envelope.msg, envelope.data,
+      responseTrace, response.status, TransportFailure.NONE, null, effect, key);
+    if (attempt.internalRefresh) {
+      return failed;
+    }
+    return this.applyEffect(attempt, effect, failed, key, prepared.carriesToken ? prepared.accessToken : null);
+  }
+
+  /**
+   * 归属失效的结束结果。session_cleared（本世代因刷新失败被清，lessons 37）复用那次刷新失败的结论：同一个会话级
+   * Effect，不再刷新、不再清会话；其余为本地拒绝。
+   */
+  private lostResult(reason: string): ApiResult {
+    if (reason === LocalRejectReason.SESSION_CLEARED && this.clearedOutcome !== null) {
+      return ApiClient.sessionClearedResult(this.clearedOutcome);
+    }
+    return ApiResult.rejected(reason);
+  }
+
+  /** 未决记录结算（绑定原账号与本调用标识，R1-02、lessons 26）。 */
+  private settle(ctx: CallContext, kind: string): void {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    if (store !== null && ctx.pendingKey !== null) {
+      try {
+        store.onResponse(ctx.pendingKey, kind, ctx.pendingAccount, ctx.id);
+      } catch (e) {
+        // 存储出错：逻辑调用结束时 settleIfInFlight 再兜一次。
+      }
+    }
+  }
+
+  /**
+   * 执行 mapper 给出的、网络层自己完成的动作（刷新重放、重新注册重放、强更、清会话）。每个异步等待之后、每个会话级
+   * 副作用之前都核对调用归属（R2-08，lessons 30、34）。
+   */
+  private async applyEffect(attempt: Attempt, effect: ErrorEffect, failed: ApiResult, key: string | null,
+    usedToken: string | null): Promise<ApiResult> {
+    const op: ApiOperation = attempt.operation;
+    const ctx: CallContext = attempt.ctx;
+    switch (effect.effectKindRaw) {
+      case EffectKind.REFRESH_REPLAY: {
+        const outcome: RefreshOutcome = await this.singleFlightRefresh(usedToken, ctx);
+        const lost: string | null = this.ownershipLost(ctx);
+        if (lost === LocalRejectReason.CANCELLED) {
+          this.settle(ctx, PendingResponseKind.NO_RESULT);
+          return this.lostResult(lost);
+        }
+        if (outcome.kind === RefreshOutcome.OK && lost === null) {
+          return this.execute(new Attempt(ApiClient.sameKey(attempt.request, key), op, true, false, ctx));
+        }
+        this.settle(ctx, PendingResponseKind.NO_RESULT);
+        if (outcome.kind === RefreshOutcome.FAILED || outcome.kind === RefreshOutcome.TRANSIENT) {
+          return this.withRefreshFailure(failed, outcome);
+        }
+        // 令牌已属于另一个会话 / 账号：不替它重放（R1-01）。
+        return this.lostResult(lost ?? LocalRejectReason.SESSION_CHANGED);
+      }
+      case EffectKind.REGISTER_DEVICE_REPLAY: {
+        let registered: boolean = false;
+        try {
+          registered = await this.deps.deviceRegistrar.reregister();
+        } catch (e) {
+          registered = false;
+        }
+        const lost: string | null = this.ownershipLost(ctx);
+        if (lost !== null) {
+          this.settle(ctx, PendingResponseKind.NO_RESULT);
+          return this.lostResult(lost);
+        }
+        if (!registered) {
+          this.settle(ctx, PendingResponseKind.NO_RESULT);
+          return this.withEffect(failed,
+            new ErrorEffect(EffectKind.GENERIC_ERROR, null, null, ReplayKind.NONE, false, 0, true));
+        }
+        return this.execute(new Attempt(ApiClient.sameKey(attempt.request, key), op, true, false, ctx));
+      }
+      case EffectKind.FORCE_UPDATE:
+        this.deps.update.on10405(ErrorActionMapper.minSupportedVersion(failed.data));
+        return failed;
+      case EffectKind.REFRESH_ONLY: {
+        const outcome: RefreshOutcome = await this.singleFlightRefresh(usedToken, ctx);
+        // 只刷新失败：结束原调用，清会话后跳登录（强更状态下停在强更页，lessons R1-09）。
+        if (outcome.kind === RefreshOutcome.FAILED || outcome.kind === RefreshOutcome.TRANSIENT) {
+          return this.withRefreshFailure(failed, outcome);
+        }
+        const lost: string | null = this.ownershipLost(ctx);
+        return lost !== null ? this.lostResult(lost) : failed;
+      }
+      case EffectKind.CLEAR_SESSION_LOGIN: {
+        // 10404：只清这个调用所属的会话；旧世代 / 别的账号的迟到响应不得清掉当前会话（R2-08）。
+        const lost: string | null = this.ownershipLost(ctx);
+        if (lost !== null) {
+          return this.lostResult(lost);
+        }
+        try {
+          this.deps.tokens.clear();
+        } catch (e) {
+          // 清不掉也要让旧世代失效；页面按 Effect 跳登录。
+        }
+        this.endSessionGeneration();
+        this.syncPendingAccount();
+        return failed;
+      }
+      default:
+        return failed;
+    }
+  }
+
+  /** 曾经结果未知的键（确认上一笔）收到非终结的 2xxxx（20903 除外）的页面动作文案键（lessons 39）。 */
+  static readonly CANNOT_CONFIRM_TEXT: string = 'pending_confirm.cannot_confirm';
+
+  /**
+   * lessons 39：曾经结果未知的键收到非终结的 2xxxx（20903 除外）——键不能换（记录仍待确认），统一覆盖为页面动作
+   * 「暂时确认不了」（pending_confirm.cannot_confirm），保留确认 / 放弃入口；不输出换新键重新提交、不重放。
+   */
+  private static unknownKeyEffect(ctx: CallContext, code: number, effect: ErrorEffect): ErrorEffect {
+    if (!ctx.pendingEverUnknown || code < 20000 || code > 29999 || code === 20903) {
+      return effect;
+    }
+    return new ErrorEffect(EffectKind.PAGE_ACTION, null, ApiClient.CANNOT_CONFIRM_TEXT, ReplayKind.NONE, false);
+  }
+
+  private withEffect(result: ApiResult, effect: ErrorEffect): ApiResult {
+    return new ApiResult(result.outcome, result.code, result.msg, result.data, result.traceId, result.httpStatus,
+      result.failure, result.localRejectReason, effect, result.idempotencyKey);
+  }
+
+  private withRefreshFailure(result: ApiResult, outcome: RefreshOutcome): ApiResult {
+    const effect: ErrorEffect = outcome.kind === RefreshOutcome.FAILED && outcome.effect !== null ? outcome.effect :
+    ApiClient.networkEffect();
+    return new ApiResult(result.outcome, result.code, result.msg, result.data, result.traceId, result.httpStatus,
+      outcome.cleanupFailed ? 'session_cleanup_failed' : result.failure, result.localRejectReason, effect,
+      result.idempotencyKey);
+  }
+
+  /** 等待的刷新失败：请求没有发出，带刷新失败的会话级 Effect（R1-03）。 */
+  private static sessionClearedResult(outcome: RefreshOutcome): ApiResult {
+    return new ApiResult(ApiOutcome.LOCAL_REJECT, -1, '', {}, '', 0,
+      outcome.cleanupFailed ? 'session_cleanup_failed' : TransportFailure.NONE, LocalRejectReason.SESSION_CLEARED,
+      outcome.effect, null);
+  }
+
+  private static sameKey(request: ApiRequest, key: string | null): ApiRequest {
+    const copy: ApiRequest = new ApiRequest(request.operationId, request.pathParams, request.query, request.body);
+    copy.idempotencyKey = key;
+    copy.stepUpToken = request.stepUpToken;
+    copy.summary = request.summary;
+    copy.fromProductCard = request.fromProductCard;
+    return copy;
+  }
+
+  private static networkEffect(): ErrorEffect {
+    return new ErrorEffect(EffectKind.NETWORK_ERROR, null, null, ReplayKind.NONE, false);
+  }
+
+  /** 刷新失败的会话级 Effect：读这一刻的强更状态（R1-07）。 */
+  private sessionFailureEffect(): ErrorEffect {
+    let below: boolean = false;
+    try {
+      below = this.deps.update.state() === ErrorUpdateState.BELOW;
+    } catch (e) {
+      below = false;
+    }
+    const kind: string = below ? EffectKind.CLEAR_SESSION_STAY_FORCE_UPDATE : EffectKind.CLEAR_SESSION_LOGIN;
+    return new ErrorEffect(kind, below ? null : 'Login', null, ReplayKind.NONE, false);
+  }
+
+  private errorState(scope: string): ErrorActionState {
+    return new ErrorActionState(this.deps.update.state(), scope, this.deps.identity.appVersion);
+  }
+
+  /** 当前会话作用域（凭据不可读或没有会话为 full）。 */
+  private currentScope(): string {
+    return this.credentialsAllowed() && this.deps.tokens.accessToken() !== null ? this.deps.tokens.scope() :
+    SessionScope.FULL;
+  }
+
+  /** 已同意隐私、撤回清理已完成：可以读、带凭据。 */
+  private credentialsAllowed(): boolean {
+    return RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()) === NetworkPrivacy.FULL
+      && this.deps.context.credentialsReadable();
+  }
+
+  /** 可信会话里的账号（凭据不可读时为 null）。 */
+  private trustedAccount(): string | null {
+    if (!this.credentialsAllowed() || this.deps.tokens.accessToken() === null) {
+      return null;
+    }
+    const account: string | null = this.deps.tokens.account();
+    return account !== null && account.length > 0 ? account : null;
+  }
+
+  /**
+   * 旧世代失效：登录、退出、清会话、作废。在途的刷新与新会话脱钩（它仍按自己的快照结算等待它的旧调用），
+   * 新世代的请求不再等它（R2-01）。
+   */
+  private endSessionGeneration(): void {
+    this.sessionGeneration++;
+    this.lineage = new Map<string, string>();
+    this.restrictedChecked = false;
+    if (this.refreshRound !== null) {
+      this.refreshRound = null;
+      this.refresher.detach();
+    }
+  }
+
+  /** 未决记录跟随当前会话账号（登录、切换账号后；R1-02）。 */
+  private syncPendingAccount(): void {
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    if (store === null) {
+      return;
+    }
+    try {
+      const account: string | null = this.trustedAccount();
+      if (account === null) {
+        if (store.currentAccount !== null) {
+          store.signOut();
+        }
+      } else if (store.currentAccount !== account) {
+        store.restore(account);
+      }
+    } catch (e) {
+      // 存储读不出：保持原状；确认与放弃仍会核对记录账号。
+    }
+  }
+
+  private headers(decision: HeaderDecision, op: ApiOperation, request: ApiRequest, accessToken: string | null,
+    deviceId: string | null, key: string | null, traceId: string): Record<string, string> {
+    const identity: ApiAppIdentity = this.deps.identity;
+    const headers: Record<string, string> = {};
+    headers[NetworkHeaders.APP_ID] = identity.appId;
+    headers[NetworkHeaders.PLATFORM] = identity.platform;
+    headers[NetworkHeaders.APP_VERSION] = identity.appVersion;
+    headers[NetworkHeaders.BUILD] = identity.build;
+    headers[NetworkHeaders.CHANNEL] = identity.channel;
+    headers[NetworkHeaders.TRACE_ID] = traceId;
+    if (decision.has(NetworkHeaders.AUTHORIZATION) && accessToken !== null) {
+      headers[NetworkHeaders.AUTHORIZATION] = 'Bearer ' + accessToken;
+    }
+    if (decision.has(NetworkHeaders.DEVICE_ID) && deviceId !== null) {
+      headers[NetworkHeaders.DEVICE_ID] = deviceId;
+    }
+    if (key !== null) {
+      headers[NetworkHeaders.IDEMPOTENCY_KEY] = key;
+    }
+    if (op.stepUp !== null && !decision.anonymous && request.stepUpToken !== null && request.stepUpToken.length > 0) {
+      headers[NetworkHeaders.STEP_UP_TOKEN] = request.stepUpToken;
+    }
+    if (request.body !== null) {
+      headers[NetworkHeaders.CONTENT_TYPE] = 'application/json';
+    }
+    return headers;
+  }
+
+  private sign(headers: Record<string, string>, method: string, pathWithQuery: string, body: string,
+    installSecret: string): void {
+    const timestamp: string = String(Math.floor(this.deps.clock() / 1000) + this.clockOffsetSeconds);
+    const nonce: string = this.deps.random.nonce();
+    headers[NetworkHeaders.TIMESTAMP] = timestamp;
+    headers[NetworkHeaders.NONCE] = nonce;
+    headers[NetworkHeaders.SIGN] = this.signer.sign(new SigningInput(method, pathWithQuery, body, timestamp, nonce),
+      installSecret);
+  }
+
+  /** 响应头 Date 与本机相差超过 300 秒时记下偏移并返回 true（BR-ID-09）。 */
+  private adjustClock(headers: Record<string, string>): boolean {
+    let date: string | null = null;
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'date') {
+        date = headers[name];
+      }
+    }
+    if (date === null) {
+      return false;
+    }
+    const serverMillis: number = Date.parse(date);
+    if (Number.isNaN(serverMillis)) {
+      return false;
+    }
+    const skew: number = Math.round((serverMillis - this.deps.clock()) / 1000);
+    if (Math.abs(skew) <= ApiClient.CLOCK_SKEW_LIMIT_SECONDS) {
+      return false;
+    }
+    this.clockOffsetSeconds = skew;
+    return true;
+  }
+
+  /**
+   * 发送并按计划超时（传输层自己也设了超时；这里再兜一层，open 8 秒即结束；超时后取消底层请求）。
+   * 登记为在途：invalidate 时取消并以 cancelled 收口（lessons 22）。
+   */
+  private send(request: TransportRequest): Promise<TransportResponse> {
+    let abort: () => void = () => {
+    };
+    const aborted: Promise<TransportResponse> = new Promise<TransportResponse>(
+      (resolve: (response: TransportResponse) => void) => {
+        abort = () => resolve(TransportResponse.failed(TransportFailure.CANCELLED));
+      });
+    const entry: LiveRequest = new LiveRequest(request, abort);
+    this.live.add(entry);
+    const timeout: Promise<TransportResponse> = this.deps.timer.delay(request.timeoutMillis)
+      .then((): TransportResponse => {
+        this.cancelQuietly(request);
+        return TransportResponse.failed(TransportFailure.TIMEOUT);
+      });
+    let sent: Promise<TransportResponse>;
+    try {
+      sent = this.deps.transport.send(request)
+        .catch((): TransportResponse => TransportResponse.failed(TransportFailure.DISCONNECT));
+    } catch (e) {
+      sent = Promise.resolve(TransportResponse.failed(TransportFailure.DISCONNECT));
+    }
+    return Promise.race([sent, timeout, aborted]).then((response: TransportResponse): TransportResponse => {
+      this.live.delete(entry);
+      return response;
+    });
+  }
+
+  private cancelQuietly(request: TransportRequest): void {
+    try {
+      this.deps.transport.cancel(request);
+    } catch (e) {
+      // 传输层不得抛出。
+    }
+  }
+
+  // ------------------------------------------------------------------ 会话
+
+  /**
+   * 登录 / 刷新成功：保存令牌并记下作用域；强更检查未知时拿到 deletion_only → 按低于处理（强更状态取这一刻的值，
+   * lessons 28）。调用方已核对调用归属（旧世代、撤回同意、切换环境之后到达的登录响应不会走到这里，lessons 23）。
+   * 登录开始新的会话世代（旧世代的在途请求不再重放），未决记录切到新账号（R1-01、R1-02）。
+   */
+  private onSuccess(op: ApiOperation, data: Record<string, Object>, usedAccess: string | null): boolean {
+    if (ApiClient.SESSION_ISSUING.indexOf(op.operationId) < 0) {
+      return true;
+    }
+    // 登录：data = LoginData（令牌在 data.tokens，账号为 data.user_id）；刷新：data = TokenPair。
+    const login: boolean = op.operationId !== ApiClient.REFRESH_OPERATION;
+    let pair: Record<string, Object> = data;
+    let account: string | null = null;
+    if (login) {
+      const tokens: Object | undefined = data['tokens'];
+      const userId: Object | undefined = data['user_id'];
+      if (tokens === undefined || tokens === null || typeof tokens !== 'object') {
+        return true;
+      }
+      pair = tokens as Record<string, Object>;
+      account = typeof userId === 'string' ? userId as string : null;
+    }
+    const set: SessionTokenSet | null = ApiClient.tokenSet(pair, account);
+    if (set === null) {
+      return true;
+    }
+    const previous: string | null = this.deps.tokens.accessToken();
+    if (login) {
+      this.loginSerial++;
+      this.endSessionGeneration();
+    }
+    try {
+      this.deps.tokens.save(set);
+    } catch (e) {
+      // 令牌写不进安全存储（lessons 40）：不算登录 / 刷新成功；登录已让旧世代失效，旧请求不会再被重放。
+      return false;
+    }
+    this.failedAccessToken = null;
+    // 新登录或刷新拿到的作用域是服务端当下的结论：不需要再做受限会话屏障。
+    this.restrictedChecked = true;
+    if (login) {
+      this.syncPendingAccount();
+    } else if (previous !== null) {
+      this.lineage.set(previous, set.accessToken);
+    } else if (usedAccess !== null) {
+      this.lineage.set(usedAccess, set.accessToken);
+    }
+    this.restrictedScopeIssued(set.scope);
+    return true;
+  }
+
+  /**
+   * 03 §4.2：强更检查结果未知期间拿到 deletion_only，说明本机版本已低于最低支持版本：按「低于」处理（调用 Update 进入
+   * 强更），并同步记下，之后强更状态恢复为「不低于」时重新做受限会话刷新（R2-02）。强更状态取这一刻的值（lessons 28）。
+   */
+  private restrictedScopeIssued(scope: string): void {
+    if (scope !== SessionScope.DELETION_ONLY) {
+      return;
+    }
+    let state: string = ErrorUpdateState.UNKNOWN;
+    try {
+      state = this.deps.update.state();
+    } catch (e) {
+      state = ErrorUpdateState.UNKNOWN;
+    }
+    if (state === ErrorUpdateState.UNKNOWN) {
+      this.treatedAsBelow = true;
+      this.lastUpdateState = ErrorUpdateState.BELOW;
+      this.deps.update.on10405(null);
+    } else if (state === ErrorUpdateState.BELOW) {
+      this.lastUpdateState = ErrorUpdateState.BELOW;
+    }
+  }
+
+  private static tokenSet(pair: Record<string, Object>, account: string | null): SessionTokenSet | null {
+    const access: Object | undefined = pair['access_token'];
+    const refresh: Object | undefined = pair['refresh_token'];
+    const scope: Object | undefined = pair['session_scope'];
+    if (typeof access !== 'string' || typeof refresh !== 'string') {
+      return null;
+    }
+    const scopeRaw: string = scope === SessionScope.DELETION_ONLY ? SessionScope.DELETION_ONLY : SessionScope.FULL;
+    return new SessionTokenSet(access as string, refresh as string, scopeRaw, account);
+  }
+
+  /**
+   * 看强更状态（R1-06、R2-02）：由「低于」或「未知」恢复为「不低于」时，受限会话要重新做刷新屏障。
+   * 只在恢复为 supported 时触发（未知期间按「低于」处理的会话不在未知期间刷新，免得反复拿到 deletion_only）。
+   */
+  private observeUpdateState(): void {
+    let now: string = ErrorUpdateState.UNKNOWN;
+    try {
+      now = this.deps.update.state();
+    } catch (e) {
+      return;
+    }
+    if (this.lastUpdateState !== null && this.lastUpdateState !== ErrorUpdateState.SUPPORTED
+      && now === ErrorUpdateState.SUPPORTED) {
+      this.restrictedChecked = false;
+      this.treatedAsBelow = false;
+    }
+    this.lastUpdateState = now;
+  }
+
+  /**
+   * 03 §4.2「受限会话」：冷启动时、强更状态恢复为「不低于」时，本机会话是 deletion_only 的先单飞刷新令牌，
+   * 再发其他带令牌的请求（R1-06）。强更状态「低于」（或未知期间已按低于处理）时不刷新（停在强更页，恢复后再做）；
+   * 环境未就绪不发。
+   */
+  private ensureRestrictedBarrier(): void {
+    if (this.restrictedChecked || this.refreshRound !== null || !this.credentialsAllowed()) {
+      return;
+    }
+    const access: string | null = this.deps.tokens.accessToken();
+    if (access === null || this.deps.tokens.scope() !== SessionScope.DELETION_ONLY) {
+      return;
+    }
+    const state: string = this.deps.update.state();
+    if (state === ErrorUpdateState.BELOW || (this.treatedAsBelow && state !== ErrorUpdateState.SUPPORTED)
+      || this.deps.context.endpoints() === undefined) {
+      return;
+    }
+    this.restrictedChecked = true;
+    this.startRefresh(access).then((outcome: RefreshOutcome): void => {
+      if (outcome.kind === RefreshOutcome.TRANSIENT) {
+        // 没有服务端结论：下一个请求再做一次屏障。
+        this.restrictedChecked = false;
+      }
+    });
+  }
+
+  /**
+   * 收到 10002（或 10405 遗留受限令牌）时取刷新结论。令牌世代检查、复用已完成结果、入队在同一个同步区内完成：
+   * - 这个调用的归属已经失效（登录、退出、换账号、撤回同意、切换环境）→ session_changed，不重放（R1-01）；
+   * - 有本会话的刷新在途 → 等同一个屏障；
+   * - 当前令牌已不是这次用的令牌：只有它是这次令牌经本客户端刷新得到的（同世代的令牌世系）才复用；否则 session_changed；
+   * - 同一旧令牌的刷新已明确失败 → 不再刷新、不再清会话；
+   * - 否则发起单飞刷新。
+   */
+  private singleFlightRefresh(usedToken: string | null, ctx: CallContext): Promise<RefreshOutcome> {
+    if (this.ownershipLost(ctx) !== null) {
+      return Promise.resolve(RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED));
+    }
+    const round: RefreshRound | null = this.refreshRound;
+    if (round !== null) {
+      return round.promise;
+    }
+    const current: string | null = this.credentialsAllowed() ? this.deps.tokens.accessToken() : null;
+    if (usedToken !== null && current !== null && current !== usedToken) {
+      return Promise.resolve(this.descends(usedToken, current) ? RefreshOutcome.ok(current) :
+      RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED));
+    }
+    if (usedToken !== null && usedToken === this.failedAccessToken) {
+      return Promise.resolve(new RefreshOutcome(RefreshOutcome.FAILED, null, this.sessionFailureEffect()));
+    }
+    if (usedToken !== null && current === null) {
+      // 会话已被清掉（退出、撤回同意）：不再刷新，也不替别的会话重放。
+      return Promise.resolve(RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED));
+    }
+    return this.startRefresh(current);
+  }
+
+  /** to 是 from 在本世代里经本客户端刷新（一次或多次）得到的令牌。 */
+  private descends(from: string, to: string): boolean {
+    let cursor: string = from;
+    for (let i: number = 0; i < ApiClient.LINEAGE_DEPTH; i++) {
+      const next: string | undefined = this.lineage.get(cursor);
+      if (next === undefined) {
+        return false;
+      }
+      if (next === to) {
+        return true;
+      }
+      cursor = next;
+    }
+    return false;
+  }
+
+  /** 发起一轮单飞刷新（经 RefreshCoordinator 计数），返回屏障。账号、世代与令牌快照在这里固定（lessons 24）。 */
+  private startRefresh(usedAccess: string | null): Promise<RefreshOutcome> {
+    const allowed: boolean = this.credentialsAllowed();
+    const round: RefreshRound = new RefreshRound(usedAccess, allowed ? this.deps.tokens.refreshToken() : null,
+      allowed ? this.deps.tokens.account() : null, this.sessionGeneration, this.epoch, allowed);
+    this.refreshRound = round;
+    this.sequence++;
+    const operation: ApiOperation = ApiOperations.byId(ApiClient.REFRESH_OPERATION) as ApiOperation;
+    if (this.refresher.refreshing) {
+      // 协调器还停在上一轮（不应发生）：不排进去等一个不会来的结论。
+      this.finishRound(round, RefreshOutcome.of(RefreshOutcome.TRANSIENT));
+      return round.promise;
+    }
+    try {
+      this.refresher.run([new RefreshRequest('refresh-round-' + this.sequence, operation, '', '')],
+        this.deps.update.state() === ErrorUpdateState.BELOW);
+    } catch (e) {
+      this.finishRound(round, RefreshOutcome.of(RefreshOutcome.TRANSIENT));
+    }
+    return round.promise;
+  }
+
+  /** RefreshCoordinator 的 refresh 回调：执行刷新请求，再走完成流程。 */
+  private runRefreshRound(completion: RefreshCompletion): void {
+    const round: RefreshRound | null = this.refreshRound;
+    if (round === null) {
+      completion(null);
+      return;
+    }
+    let work: Promise<RefreshOutcome>;
+    try {
+      work = this.performRefresh(round);
+    } catch (e) {
+      work = Promise.resolve(RefreshOutcome.of(RefreshOutcome.TRANSIENT));
+    }
+    work.catch((): RefreshOutcome => RefreshOutcome.of(RefreshOutcome.TRANSIENT))
+      .then((outcome: RefreshOutcome): void => {
+        try {
+          completion(outcome.kind === RefreshOutcome.OK ? outcome.token : null);
+        } catch (e) {
+          // 协调器回调出错不影响结算。
+        }
+        this.finishRound(round, outcome);
+      });
+  }
+
+  /**
+   * 刷新的完成流程（R1-03、R1-04、R1-07）：明确失败时先记下失败令牌并清会话（清理出错转成 cleanupFailed）、结束会话世代，
+   * 再按这一刻的强更状态定下会话级 Effect 并通知 App（通知出错不影响）；最后（finally）解除屏障并把同一个结论交给
+   * 全部等待者——每个等待者只结算一次。
+   */
+  private finishRound(round: RefreshRound, outcome: RefreshOutcome): void {
+    if (round.settled) {
+      return;
+    }
+    round.settled = true;
+    let result: RefreshOutcome = outcome;
+    try {
+      if (outcome.kind === RefreshOutcome.FAILED && this.refreshStale(round)) {
+        // harmony-review-r3 R3-02：结论定下之后、清会话之前（同步区内）会话已换（登录、退出、撤回同意、切换环境）：
+        // 这轮按 session_changed 结算等待者，不清当前会话、不发会话级 Effect。
+        result = RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
+      } else if (outcome.kind === RefreshOutcome.FAILED) {
+        this.failedAccessToken = round.usedAccess;
+        let cleanupFailed: boolean = false;
+        try {
+          this.deps.tokens.clear();
+        } catch (e) {
+          cleanupFailed = true;
+        }
+        this.endSessionGeneration();
+        this.syncPendingAccount();
+        const effect: ErrorEffect = this.sessionFailureEffect();
+        result = new RefreshOutcome(RefreshOutcome.FAILED, null, effect, cleanupFailed);
+        this.clearedGeneration = round.generation;
+        this.clearedOutcome = result;
+        try {
+          // 03 §4.2：刷新失败清会话并跳登录；强更状态下只清会话、停在 ForceUpdate（每次刷新失败一次）。
+          this.deps.sessionEffect(effect);
+        } catch (e) {
+          // App 的回调出错不影响等待者结算。
+        }
+      }
+    } catch (e) {
+      result = new RefreshOutcome(RefreshOutcome.FAILED, null, this.sessionFailureEffect(), true);
+    } finally {
+      if (this.refreshRound === round) {
+        this.refreshRound = null;
+      }
+      round.resolve(result);
+    }
+  }
+
+  /**
+   * POST /v1/auth/refresh（签名，不带 Authorization）。用入队时固定的快照（refresh_token、账号、世代，lessons 24）。
+   * 成功保存新令牌对与作用域（账号取快照）；服务端拒绝（任何业务码）记为刷新失败；超时、断连、响应形状不对记为没有结论
+   * （TODO(N-19)：传输失败是否也要清会话未规定，保守：不清会话，按网络错误收口）。
+   * 结果晚于撤回同意、切换环境、登录、换账号或清会话到达（与快照不符）：丢弃，不把会话恢复回来（lessons R1-07）。
+   */
+  private async performRefresh(round: RefreshRound): Promise<RefreshOutcome> {
+    if (!round.credentialsAllowed) {
+      return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
+    }
+    const refreshToken: string | null = round.refreshToken;
+    if (refreshToken === null) {
+      return RefreshOutcome.of(RefreshOutcome.FAILED);
+    }
+    const body: string = JSON.stringify(new RefreshBody(refreshToken));
+    const operation: ApiOperation = ApiOperations.byId(ApiClient.REFRESH_OPERATION) as ApiOperation;
+    const result: ApiResult = await this.execute(new Attempt(new ApiRequest(ApiClient.REFRESH_OPERATION, {}, '', body),
+      operation, true, true, this.bind(operation)));
+    if (this.refreshStale(round)) {
+      return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
+    }
+    if (result.ok) {
+      const set: SessionTokenSet | null = ApiClient.tokenSet(result.data, round.account);
+      if (set === null) {
+        return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+      }
+      this.deps.tokens.save(set);
+      this.failedAccessToken = null;
+      this.restrictedChecked = true;
+      if (round.usedAccess !== null) {
+        this.lineage.set(round.usedAccess, set.accessToken);
+      }
+      this.restrictedScopeIssued(set.scope);
+      return RefreshOutcome.ok(set.accessToken);
+    }
+    if (result.outcome === ApiOutcome.NETWORK_ERROR || result.outcome === ApiOutcome.LOCAL_REJECT) {
+      return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+    }
+    return RefreshOutcome.of(RefreshOutcome.FAILED);
+  }
+
+  /** 刷新结果与入队快照不符（作废、换世代、凭据不可读、令牌或账号已换）。 */
+  private refreshStale(round: RefreshRound): boolean {
+    return round.epoch !== this.epoch || round.generation !== this.sessionGeneration || !this.credentialsAllowed()
+      || this.deps.tokens.refreshToken() !== round.refreshToken || this.deps.tokens.account() !== round.account;
+  }
+
+  // ------------------------------------------------------------------ 工具
+
+  private newIdempotencyKey(): string {
+    return this.deps.random.uuid();
+  }
+
+  /** 路径模板替换（参数值做 URL 编码）；缺参数返回 null。 */
+  static buildPath(template: string, params: Record<string, string>): string | null {
+    let missing: boolean = false;
+    const path: string = template.replace(/\{([A-Za-z0-9_]+)\}/g, (_m: string, name: string): string => {
+      const value: string | undefined = params[name];
+      if (value === undefined || value.length === 0) {
+        missing = true;
+        return '';
+      }
+      return encodeURIComponent(value);
+    });
+    return missing ? null : path;
+  }
+
+  /**
+   * 受限会话下「按请求体字段才接受」的接口（BR-ID-01 细则「受限会话」表）：
+   * sms-codes / oauth-attempts 只接受 purpose=login，或 purpose=step_up 且 action=account_deletion；
+   * step-up 与作废只接受 action=account_deletion；consents 只接受撤回（accepted=false）或 privacy、agreement 的记录。
+   * 解析不了请求体按不满足（保守，本地拒绝）。
+   */
+  static restrictedBodyAllowed(operationId: string, body: string | null): boolean {
+    const rules: string[] = ['sendSmsCode', 'createOauthAttempt', 'stepUp', ApiClient.ABANDON_OPERATION, 'recordConsent'];
+    if (rules.indexOf(operationId) < 0) {
+      return true;
+    }
+    let fields: Record<string, Object> = {};
+    try {
+      const parsed: Object | null = body === null ? null : JSON.parse(body) as Object | null;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return false;
+      }
+      fields = parsed as Record<string, Object>;
+    } catch (e) {
+      return false;
+    }
+    const purpose: Object | undefined = fields['purpose'];
+    const action: Object | undefined = fields['action'];
+    switch (operationId) {
+      case 'sendSmsCode':
+      case 'createOauthAttempt':
+        return purpose === 'login' || (purpose === 'step_up' && action === 'account_deletion');
+      case 'stepUp':
+      case ApiClient.ABANDON_OPERATION:
+        return action === 'account_deletion';
+      default: {
+        const accepted: Object | undefined = fields['accepted'];
+        const type: Object | undefined = fields['type'];
+        return accepted === false || type === 'privacy' || type === 'agreement';
+      }
+    }
+  }
+}
+
+class RefreshBody {
+  refresh_token: string;
+
+  constructor(refreshToken: string) {
+    this.refresh_token = refreshToken;
+  }
+}
+
+class AbandonBody {
+  action: string;
+  idempotency_key: string;
+
+  constructor(action: string, key: string) {
+    this.action = action;
+    this.idempotency_key = key;
+  }
+}

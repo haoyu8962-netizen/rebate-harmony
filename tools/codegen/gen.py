@@ -21,7 +21,12 @@
                                                               openapi GET /v1/app-versions/check 的 200 响应示例 data（APP-02c 调试假数据，
                                                               只进 Debug / Staging，release-scan 查它的 MARKER）
     common/core/src/test/UpdateGateVectorsData.ets            specs/update-vectors.json 全文（APP-02c，UpdateGate 向量单测用）
-不生成 OpenAPI 客户端、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
+    common/generated/src/main/ets/ApiOperations.ets           openapi 操作登记表（APP-03a：operationId → method、路径、x-auth、
+                                                              x-signed、x-idempotent、x-step-up、x-error-codes、x-session-scopes、
+                                                              x-min-version-gate、x-implementation）
+    common/core/src/test/NetworkVectorsData.ets               specs/network-vectors.json 全文（APP-03a，网络向量单测用）
+    common/core/src/test/RequestSignVectorsData.ets           契约快照 specs/request-sign.vectors.json 全文（APP-03a，签名向量单测用）
+不生成请求 / 响应模型、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
 
@@ -40,7 +45,7 @@ HEADER = "// 生成物，禁止手改；来源 contract.lock（tools/codegen/gen
 # 生成物自身使用的类型名；契约枚举转换后与它们或 ArkTS 全局类型重名时加前缀 Contract。
 RESERVED_TYPE_NAMES = {
     "ContractEnums", "RetryKind", "ErrorCodeInfo", "ErrorCodes", "RouteKind", "RouteSpec", "Routes",
-    "DebugRoutes", "AppStoreSpec", "AppStores", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "DefaultTexts", "DesignTokens",
+    "DebugRoutes", "AppStoreSpec", "AppStores", "ApiOperation", "ApiOperations", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "DefaultTexts", "DesignTokens",
     "Object", "Function", "String", "Number", "Boolean", "Symbol", "Array", "Map", "Set", "Date",
     "Error", "Promise", "JSON", "Math", "RegExp", "Record", "Partial", "Required", "Readonly",
     "BigInt", "Intl", "Reflect", "Proxy", "WeakMap", "WeakSet", "Color", "Resource", "Context",
@@ -927,6 +932,168 @@ def gen_update_gate_vectors_data():
 
 
 
+# ---------------------------------------------------------------- 操作登记表（APP-03a）
+
+HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+X_AUTH_VALUES = ("none", "optional", "login", "phone", "realname")
+SESSION_SCOPES = ("full", "deletion_only")
+
+
+def gen_api_operations():
+    """openapi 的每个 operation → ApiOperation（网络层按它决定公共头、签名、幂等键、受限会话放行与恢复规则）。
+    不生成请求 / 响应模型（另立任务）。缺省：x-signed / x-idempotent 缺省 false；x-step-up 缺省 null；
+    x-session-scopes 缺省 [full]（04 §5 受限会话）；x-min-version-gate 缺省 'not_marked'（GET 不标）。"""
+    data = load("contracts/openapi.json")
+    paths = data.get("paths")
+    if not isinstance(paths, dict):
+        raise GenError("openapi.json 没有 paths")
+    rows = []
+    seen = set()
+    for path, item in paths.items():
+        if not isinstance(item, dict):
+            raise GenError("openapi.json paths[%s] 不是对象" % path)
+        for method in HTTP_METHODS:
+            op = item.get(method)
+            if op is None:
+                continue
+            op_id = op.get("operationId")
+            where = "%s %s" % (method.upper(), path)
+            if not isinstance(op_id, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", op_id):
+                raise GenError("%s 的 operationId 非法：%r" % (where, op_id))
+            if op_id in seen:
+                raise GenError("operationId 重复：%s" % op_id)
+            seen.add(op_id)
+            auth = op.get("x-auth")
+            if auth not in X_AUTH_VALUES:
+                raise GenError("%s 的 x-auth 未知：%r" % (where, auth))
+            flags = {}
+            for key in ("x-signed", "x-idempotent"):
+                value = op.get(key, False)
+                if not isinstance(value, bool):
+                    raise GenError("%s 的 %s 不是布尔" % (where, key))
+                flags[key] = value
+            step_up = op.get("x-step-up")
+            if step_up is not None and (not isinstance(step_up, str) or not re.fullmatch(r"[a-z_]+", step_up)):
+                raise GenError("%s 的 x-step-up 非法：%r" % (where, step_up))
+            codes = op.get("x-error-codes", [])
+            if not isinstance(codes, list) or not all(isinstance(c, int) and not isinstance(c, bool) for c in codes):
+                raise GenError("%s 的 x-error-codes 不是整数列表" % where)
+            scopes = op.get("x-session-scopes", ["full"])
+            if not isinstance(scopes, list) or not scopes or not all(s in SESSION_SCOPES for s in scopes):
+                raise GenError("%s 的 x-session-scopes 非法：%r" % (where, scopes))
+            gate = op.get("x-min-version-gate", None)
+            if gate is None:
+                gate_raw = "not_marked"
+            elif gate is True:
+                gate_raw = "true"
+            elif gate is False:
+                gate_raw = "false"
+            elif gate == "conditional":
+                gate_raw = "conditional"
+            else:
+                raise GenError("%s 的 x-min-version-gate 非法：%r" % (where, gate))
+            impl = op.get("x-implementation")
+            if impl not in (None, "planned"):
+                raise GenError("%s 的 x-implementation 未知：%r" % (where, impl))
+            rows.append("    ApiOperations.put(all, new ApiOperation(%s, %s, %s, %s, %s, %s, %s, [%s], [%s], %s, %s));" % (
+                ts_str(op_id), ts_str(method.upper()), ts_str(path), ts_str(auth),
+                "true" if flags["x-signed"] else "false", "true" if flags["x-idempotent"] else "false",
+                ts_nullable_str(step_up), ", ".join(str(c) for c in codes), ", ".join(ts_str(s) for s in scopes),
+                ts_str(gate_raw), "true" if impl == "planned" else "false"))
+    if not rows:
+        raise GenError("openapi.json 没有任何 operation")
+    lines = [HEADER, "// 操作登记表（APP-03a）：contracts/openapi.yaml 的每个 operation 与扩展字段。不含请求 / 响应模型。\n"]
+    lines.append("""/** 一个 openapi operation（03 §4.2：签名只看 signed，受限会话只看 sessionScopes，不自动恢复只看 stepUp）。 */
+export class ApiOperation {
+  readonly operationId: string;
+  /** 大写 HTTP 方法。 */
+  readonly method: string;
+  /** openapi 路径模板，如 /v1/links/{link_id}/open。 */
+  readonly pathTemplate: string;
+  /** x-auth：none | optional | login | phone | realname。 */
+  readonly auth: string;
+  /** x-signed（缺省 false）。 */
+  readonly signed: boolean;
+  /** x-idempotent（缺省 false）。 */
+  readonly idempotent: boolean;
+  /** x-step-up 的 step_up_action（四个需二次验证的操作）；其余为 null。 */
+  readonly stepUp: string | null;
+  /** x-error-codes（公共码之外可能返回的业务码）。 */
+  readonly errorCodes: number[];
+  /** x-session-scopes（缺省 [full]）。 */
+  readonly sessionScopes: string[];
+  /** x-min-version-gate：'true' | 'false' | 'conditional'；没有标注（GET 等）为 'not_marked'。 */
+  readonly minVersionGate: string;
+  /** x-implementation: planned（服务端尚未上线）。 */
+  readonly planned: boolean;
+
+  constructor(operationId: string, method: string, pathTemplate: string, auth: string, signed: boolean,
+    idempotent: boolean, stepUp: string | null, errorCodes: number[], sessionScopes: string[], minVersionGate: string,
+    planned: boolean) {
+    this.operationId = operationId;
+    this.method = method;
+    this.pathTemplate = pathTemplate;
+    this.auth = auth;
+    this.signed = signed;
+    this.idempotent = idempotent;
+    this.stepUp = stepUp;
+    this.errorCodes = errorCodes;
+    this.sessionScopes = sessionScopes;
+    this.minVersionGate = minVersionGate;
+    this.planned = planned;
+  }
+
+  /** GET 以外都是写操作（03 §4.2「Idempotency-Key（写操作）」「写接口不自动重试」）。 */
+  get isWrite(): boolean {
+    return this.method !== 'GET';
+  }
+
+  acceptsScope(scope: string): boolean {
+    return this.sessionScopes.indexOf(scope) >= 0;
+  }
+}
+
+export class ApiOperations {
+  static readonly all: Map<string, ApiOperation> = ApiOperations.build();
+
+  /** 按 operationId 取；没有返回 undefined。 */
+  static byId(operationId: string): ApiOperation | undefined {
+    return ApiOperations.all.get(operationId);
+  }
+
+  private static put(all: Map<string, ApiOperation>, op: ApiOperation): void {
+    all.set(op.operationId, op);
+  }
+
+  private static build(): Map<string, ApiOperation> {
+    const all: Map<string, ApiOperation> = new Map<string, ApiOperation>();""")
+    lines.extend(rows)
+    lines.append("    return all;")
+    lines.append("  }")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+NETWORK_VECTORS = os.path.join("specs", "network-vectors.json")
+
+
+def gen_network_vectors_data():
+    """specs/network-vectors.json（APP-03a，Codex 先写的三端共用向量）。"""
+    return gen_vectors_data(NETWORK_VECTORS, "NETWORK_VECTORS_JSON",
+                            "网络向量（APP-03a）：specs/network-vectors.json 全文，供 NetworkVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+REQUEST_SIGN_VECTORS = os.path.join("contracts", "snapshot", "specs", "request-sign.vectors.json")
+
+
+def gen_request_sign_vectors_data():
+    """契约快照 specs/request-sign.vectors.json（BR-ID-09 三端与服务端共用的签名向量，APP-03a）。"""
+    return gen_vectors_data(REQUEST_SIGN_VECTORS, "REQUEST_SIGN_VECTORS_JSON",
+                            "签名向量（APP-03a，BR-ID-09）：契约快照 specs/request-sign.vectors.json 全文，"
+                            "供 RequestSignVector.test.ets 解析。只在 src/test，不进产物。")
+
+
 # ---------------------------------------------------------------- 汇总
 
 INDEX = HEADER + """// generated 模块统一导出（import { … } from 'generated'）。
@@ -973,6 +1140,7 @@ def build_outputs():
         os.path.join(MODULE, "src", "staging", "ets", "DebugRoutes.ets"):
             gen_debug_routes(route_entry_type, route_entry_values),
         os.path.join(main, "AppStores.ets"): gen_app_stores(),
+        os.path.join(main, "ApiOperations.ets"): gen_api_operations(),
         os.path.join(MODULE, "src", "staging", "ets", "AppVersionCheckExample.ets"): gen_app_version_check_example(),
         os.path.join(MODULE, "src", "staging", "ets", "DebugOnly.ets"): STAGING_DEBUG_ONLY,
         os.path.join(MODULE, "src", "release", "ets", "DebugOnly.ets"): RELEASE_DEBUG_ONLY,
@@ -981,6 +1149,8 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "RouterVectorsData.ets"): gen_router_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "PrivacyGateVectorsData.ets"): gen_privacy_gate_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "UpdateGateVectorsData.ets"): gen_update_gate_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "NetworkVectorsData.ets"): gen_network_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "RequestSignVectorsData.ets"): gen_request_sign_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
@@ -990,7 +1160,7 @@ def build_outputs():
 
 def index_exports(outputs, main):
     lines = []
-    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens", "AppStores"):
+    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens", "AppStores", "ApiOperations"):
         src = outputs[os.path.join(main, name + ".ets")]
         names = re.findall(r"^export (?:enum|class|function|const) ([A-Za-z0-9_]+)", src, re.M)
         lines.append("export {\n%s\n} from './src/main/ets/%s';" % (",\n".join("  " + n for n in names), name))
