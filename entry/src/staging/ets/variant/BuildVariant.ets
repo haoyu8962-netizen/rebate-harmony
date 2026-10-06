@@ -2,10 +2,11 @@
 // 只在 product=staging 编译；Release 产物里没有本目录的任何代码与字符串。
 import { common, Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
-import { AppEnvironment, DeepLinkConfig, RouteTable } from 'core';
+import { AppEnvironment, CouliPreferences, DeepLinkConfig, RouteTable, UpdateChecker } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
+import { DebugUpdateChecker } from './DebugUpdate';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -34,6 +35,17 @@ export class BuildVariant {
   static deepLinkConfig(): DeepLinkConfig {
     return new DeepLinkConfig(['couli-debug'], []);
   }
+
+  /**
+   * 版本检查器：读调试面板选的场景，返回契约示例改字段得到的假结果（APP-02c）；prod 环境下按请求失败。
+   * TODO(APP-03): 网络层接入后，test / staging 环境改走真实请求，假数据只在调试面板显式选择时使用。
+   */
+  static updateChecker(context: common.Context): UpdateChecker {
+    return new DebugUpdateChecker(context);
+  }
+
+  /** 强更结论存储：调试假结果只写 couli_update_debug，不写 Release 读取的 couli_update（三端统一裁定）。 */
+  static readonly UPDATE_NAMESPACE: string = CouliPreferences.UPDATE_DEBUG_NAMESPACE;
 
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {

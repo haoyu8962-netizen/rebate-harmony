@@ -1,14 +1,17 @@
 // 调试面板（只在 Debug / Staging 编译）：显示并切换服务器环境（选择跨重启持久化）。
 // 当前环境是 prod 时只剩「切换服务器地址」，其余调试能力（含 debug_only 路由列表）一律不可达（03 §3.6）。
+import { common } from '@kit.AbilityKit';
 import {
   AppConfig, AppEnvironment, currentEnvironmentSwitcher, DebugCapabilities, DebugCapability, EnvironmentSource,
   EnvironmentSwitcher, LaunchReport, parseAppEnvironment, SwitchResult
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
-import { DebugRoutes } from 'generated';
+import { AppVersionCheckExample, DebugRoutes } from 'generated';
 import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
 import { AppPrivacy } from '../../../main/ets/privacy/AppPrivacy';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
+import { AppUpdate } from '../../../main/ets/update/AppUpdate';
+import { DEBUG_UPDATE_SCENARIOS, DebugUpdateScenario, DebugUpdateScenarioStore } from './DebugUpdate';
 
 /** 调试面板的固定标记；tools/ci/release-scan.sh 查 Release 产物里不得出现它。 */
 export const COULI_DEBUG_PANEL: string = 'COULI_DEBUG_PANEL';
@@ -37,6 +40,24 @@ export struct DebugPanel {
   @Local current: string = currentName();
   @Local apiBase: string = currentApiBase();
   @Local message: string = launchSummary();
+  @Local updateScenario: string = '';
+
+  aboutToAppear(): void {
+    this.updateScenario = this.scenarioStore().current;
+  }
+
+  /** 与假检查器同一个 Preferences 目录：用 ApplicationContext（EntryAbility 给检查器的也是它；UIAbility 的模块级目录不同）。 */
+  private scenarioStore(): DebugUpdateScenarioStore {
+    const host: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    return new DebugUpdateScenarioStore(host.getApplicationContext());
+  }
+
+  /** 版本检查假数据（APP-02c）：选中后立即重新检查（冒烟与设计稿比对截图用）。 */
+  private selectUpdateScenario(scenario: DebugUpdateScenario): void {
+    this.scenarioStore().current = scenario;
+    this.updateScenario = scenario;
+    AppUpdate.shared.recheck();
+  }
 
   private async switchTo(target: AppEnvironment): Promise<void> {
     const switcher: EnvironmentSwitcher | undefined = currentEnvironmentSwitcher();
@@ -101,6 +122,26 @@ export struct DebugPanel {
             const saved: boolean = AppPrivacy.shared.withdraw();
             this.message = 'privacy: ' + AppPrivacy.shared.decision + (saved ? '' : ' (withdraw not persisted, retrying)');
           })
+        // 版本检查假数据（APP-02c）：契约示例改字段的五种场景；prod 环境下不可用（假检查器按请求失败）。
+        if (this.capable(DebugCapability.MOCK_DATA)) {
+          Text(AppVersionCheckExample.MARKER)
+            .fontSize(CouliTypography.caption.fontSize)
+            .fontColor(CouliColors.textSecondary)
+          Text('update check: ' + this.updateScenario + ' → ' + AppUpdate.shared.statusRaw)
+            .fontSize(CouliTypography.footnote.fontSize)
+            .fontColor(CouliColors.textSecondary)
+          ForEach(DEBUG_UPDATE_SCENARIOS, (scenario: DebugUpdateScenario) => {
+            Button('Update: ' + scenario)
+              .width('100%')
+              .height(CouliInteraction.minTouchTarget)
+              .borderRadius(CouliRadius.button)
+              .enabled(scenario !== this.updateScenario)
+              .id('debug_update_' + scenario)
+              .onClick(() => {
+                this.selectUpdateScenario(scenario);
+              })
+          }, (scenario: DebugUpdateScenario) => scenario)
+        }
         // 组件目录页（DS-01）：只是界面样例，不连任何服务，prod 环境下也可进入。
         Button('Component catalog')
           .width('100%')

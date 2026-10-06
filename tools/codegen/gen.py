@@ -16,6 +16,11 @@
     common/core/src/test/RouterVectorsData.ets                specs/router-vectors.json 全文（APP-02a，Router 向量单测用）
     common/core/src/test/TestDebugRoutes.ets                  debug_only 路由表的测试副本（APP-02a，core 单测注册调试路由用）
     common/core/src/test/PrivacyGateVectorsData.ets           specs/privacy-gate-vectors.json 全文（APP-02b，隐私闸门向量单测用）
+    common/generated/src/main/ets/AppStores.ets               商店对照表 specs/app-stores.yaml（APP-02c；值为 null 的商店视为本机打不开）
+    common/generated/src/staging/ets/AppVersionCheckExample.ets
+                                                              openapi GET /v1/app-versions/check 的 200 响应示例 data（APP-02c 调试假数据，
+                                                              只进 Debug / Staging，release-scan 查它的 MARKER）
+    common/core/src/test/UpdateGateVectorsData.ets            specs/update-vectors.json 全文（APP-02c，UpdateGate 向量单测用）
 不生成 OpenAPI 客户端、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -35,7 +40,7 @@ HEADER = "// 生成物，禁止手改；来源 contract.lock（tools/codegen/gen
 # 生成物自身使用的类型名；契约枚举转换后与它们或 ArkTS 全局类型重名时加前缀 Contract。
 RESERVED_TYPE_NAMES = {
     "ContractEnums", "RetryKind", "ErrorCodeInfo", "ErrorCodes", "RouteKind", "RouteSpec", "Routes",
-    "DebugRoutes", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "DefaultTexts", "DesignTokens",
+    "DebugRoutes", "AppStoreSpec", "AppStores", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "DefaultTexts", "DesignTokens",
     "Object", "Function", "String", "Number", "Boolean", "Symbol", "Array", "Map", "Set", "Date",
     "Error", "Promise", "JSON", "Math", "RegExp", "Record", "Partial", "Required", "Readonly",
     "BigInt", "Intl", "Reflect", "Proxy", "WeakMap", "WeakSet", "Color", "Resource", "Context",
@@ -811,11 +816,123 @@ def gen_snapshot_data():
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------- 商店对照表与版本检查示例（APP-02c）
+
+# 版本检查假数据的唯一标记（三端同一串；release-scan.sh 查 Release 产物里不得出现它）。
+UPDATE_EXAMPLE_MARKER = "COULI_UPDATE_CHECK_EXAMPLE_MARKER_5b7e3d91c2a4"
+APP_VERSION_CHECK_PATH = "/v1/app-versions/check"
+
+
+def gen_app_stores():
+    """specs/app-stores.yaml → AppStores（规划/03 §4.1：商店对照表由契约生成，代码里不写死商店键与打开方式）。"""
+    data = load("specs/app-stores.json")
+    version = data.get("version")
+    stores = data.get("stores")
+    if not isinstance(version, str) or not isinstance(stores, list):
+        raise GenError("app-stores.json 缺 version 或 stores")
+    lines = [HEADER, "// 商店对照表：specs/app-stores.yaml（APP-02c；规划/03 §4.1、BR-ID-01）。\n"
+             "// 值为 null 的商店一律视为「本机打不开」（needs N-17：商店键与打开方式待接入时按官方文档填）。\n"]
+    lines.append("""export class AppStoreSpec {
+  /** 商店键（与 GET /v1/app-versions/check 的 default_store、stores[].store 同一套）；未定时为 null。 */
+  readonly key: string | null;
+  readonly name: string;
+  /** client_platform：ios / android / harmony。 */
+  readonly platform: string;
+  /** X-Channel 取值（鸿蒙为 agc）。 */
+  readonly channels: string[];
+  /** Android 安装来源包名。 */
+  readonly installSourcePackages: string[];
+  /** 详情页的打开方式；null = 本机打不开。 */
+  readonly openMethod: string | null;
+  /** 详情页的目标；null = 本机打不开。 */
+  readonly target: string | null;
+
+  constructor(key: string | null, name: string, platform: string, channels: string[], installSourcePackages: string[],
+    openMethod: string | null, target: string | null) {
+    this.key = key;
+    this.name = name;
+    this.platform = platform;
+    this.channels = channels;
+    this.installSourcePackages = installSourcePackages;
+    this.openMethod = openMethod;
+    this.target = target;
+  }
+}
+""")
+    lines.append("export class AppStores {")
+    lines.append("  static readonly version: string = %s;" % ts_str(version))
+    lines.append("  static readonly all: AppStoreSpec[] = [")
+    for index, item in enumerate(stores):
+        where = "app-stores.json stores[%d]" % index
+        if not isinstance(item, dict):
+            raise GenError(where + " 不是对象")
+        name, platform = item.get("name"), item.get("platform")
+        if not isinstance(name, str) or not isinstance(platform, str):
+            raise GenError(where + " 缺 name 或 platform")
+        key = item.get("key")
+        if key is not None and (not isinstance(key, str) or not re.fullmatch(r"[a-z0-9_]+", key)):
+            raise GenError("%s 的 key 不是小写字母、数字、下划线：%r" % (where, key))
+        channels = item.get("channels") or []
+        packages = item.get("install_source_packages") or []
+        if not all(isinstance(v, str) for v in channels) or not all(isinstance(v, str) for v in packages):
+            raise GenError(where + " 的 channels / install_source_packages 不是字符串列表")
+        detail = item.get("detail_page") or {}
+        open_method, target = detail.get("open_method"), detail.get("target")
+        for label, value in (("open_method", open_method), ("target", target)):
+            if value is not None and not isinstance(value, str):
+                raise GenError("%s 的 detail_page.%s 不是字符串或 null" % (where, label))
+        lines.append("    new AppStoreSpec(%s, %s, %s, [%s], [%s], %s, %s)%s" % (
+            ts_nullable_str(key), ts_str(name), ts_str(platform), ", ".join(ts_str(v) for v in channels),
+            ", ".join(ts_str(v) for v in packages), ts_nullable_str(open_method), ts_nullable_str(target),
+            "," if index < len(stores) - 1 else ""))
+    lines.append("  ];")
+    lines.append("")
+    lines.append("  /** 某一端（ios / android / harmony）的商店。 */")
+    lines.append("  static forPlatform(platform: string): AppStoreSpec[] {")
+    lines.append("    return AppStores.all.filter((s: AppStoreSpec) => s.platform === platform);")
+    lines.append("  }")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def gen_app_version_check_example():
+    """openapi GET /v1/app-versions/check 的 200 响应示例 data → 调试假数据（只进 Debug / Staging）。"""
+    data = load("contracts/openapi.json")
+    try:
+        example = data["paths"][APP_VERSION_CHECK_PATH]["get"]["responses"]["200"]["content"]["application/json"]["example"]
+    except (KeyError, TypeError) as e:
+        raise GenError("openapi.json 里没有 GET %s 的 200 响应示例（%r）" % (APP_VERSION_CHECK_PATH, e))
+    body = example.get("data") if isinstance(example, dict) else None
+    if not isinstance(body, dict):
+        raise GenError("GET %s 的响应示例没有 data 对象" % APP_VERSION_CHECK_PATH)
+    text = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+    lines = [HEADER, "// openapi GET %s 的 200 响应示例里的 data（AppVersionCheck），原样转写（APP-02c）。\n"
+             "// 只在 generated 模块的 staging target（Debug / Staging）编译：调试面板的版本检查假数据；Release 里没有，\n"
+             "// release-scan 查 MARKER。\n" % APP_VERSION_CHECK_PATH]
+    lines.append("export class AppVersionCheckExample {")
+    lines.append("  static readonly MARKER: string = %s;" % ts_str(UPDATE_EXAMPLE_MARKER))
+    lines.append("  static readonly DATA_JSON: string = %s;" % ts_str(text))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+UPDATE_GATE_VECTORS = os.path.join("specs", "update-vectors.json")
+
+
+def gen_update_gate_vectors_data():
+    """specs/update-vectors.json（APP-02c）。"""
+    return gen_vectors_data(UPDATE_GATE_VECTORS, "UPDATE_GATE_VECTORS_JSON",
+                            "UpdateGate 向量（APP-02c）：specs/update-vectors.json 全文，供 UpdateGateVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+
 # ---------------------------------------------------------------- 汇总
 
 INDEX = HEADER + """// generated 模块统一导出（import { … } from 'generated'）。
 // 'generated/ets/DebugOnly' 由 hvigor 按 target 选目录：staging target（Debug / Staging）→ src/staging，导出 DebugRoutes；
-// default target（Release）→ src/release，只导出一个 false 标记，Release 里没有 DebugRoutes 与 debug_only 路由名。
+// default target（Release）→ src/release，只导出一个 false 标记，Release 里没有 DebugRoutes、debug_only 路由名
+// 与版本检查假数据 AppVersionCheckExample（APP-02c）。
 
 %s
 export * from 'generated/ets/DebugOnly';
@@ -826,9 +943,10 @@ RELEASE_DEBUG_ONLY = HEADER + """// Release（generated 模块 default target）
 export const DEBUG_ROUTES_COMPILED: boolean = false;
 """
 
-STAGING_DEBUG_ONLY = HEADER + """// Debug / Staging（generated 模块 staging target）：导出 debug_only 路由表。
+STAGING_DEBUG_ONLY = HEADER + """// Debug / Staging（generated 模块 staging target）：导出 debug_only 路由表与版本检查假数据（APP-02c）。
 
 export { DebugRoutes } from './DebugRoutes';
+export { AppVersionCheckExample } from './AppVersionCheckExample';
 
 export const DEBUG_ROUTES_COMPILED: boolean = true;
 """
@@ -854,12 +972,15 @@ def build_outputs():
             read_text("contracts/texts.default.json"),
         os.path.join(MODULE, "src", "staging", "ets", "DebugRoutes.ets"):
             gen_debug_routes(route_entry_type, route_entry_values),
+        os.path.join(main, "AppStores.ets"): gen_app_stores(),
+        os.path.join(MODULE, "src", "staging", "ets", "AppVersionCheckExample.ets"): gen_app_version_check_example(),
         os.path.join(MODULE, "src", "staging", "ets", "DebugOnly.ets"): STAGING_DEBUG_ONLY,
         os.path.join(MODULE, "src", "release", "ets", "DebugOnly.ets"): RELEASE_DEBUG_ONLY,
         os.path.join(MODULE, "src", "test", "ContractSnapshotData.ets"): gen_snapshot_data(),
         os.path.join(DS_MODULE, "src", "test", "FormatVectorsData.ets"): gen_format_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "RouterVectorsData.ets"): gen_router_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "PrivacyGateVectorsData.ets"): gen_privacy_gate_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "UpdateGateVectorsData.ets"): gen_update_gate_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
@@ -869,7 +990,7 @@ def build_outputs():
 
 def index_exports(outputs, main):
     lines = []
-    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens"):
+    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens", "AppStores"):
         src = outputs[os.path.join(main, name + ".ets")]
         names = re.findall(r"^export (?:enum|class|function|const) ([A-Za-z0-9_]+)", src, re.M)
         lines.append("export {\n%s\n} from './src/main/ets/%s';" % (",\n".join("  " + n for n in names), name))

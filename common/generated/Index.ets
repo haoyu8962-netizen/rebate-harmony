@@ -1,7 +1,8 @@
 // 生成物，禁止手改；来源 contract.lock（tools/codegen/gen.py 生成）
 // generated 模块统一导出（import { … } from 'generated'）。
 // 'generated/ets/DebugOnly' 由 hvigor 按 target 选目录：staging target（Debug / Staging）→ src/staging，导出 DebugRoutes；
-// default target（Release）→ src/release，只导出一个 false 标记，Release 里没有 DebugRoutes 与 debug_only 路由名。
+// default target（Release）→ src/release，只导出一个 false 标记，Release 里没有 DebugRoutes、debug_only 路由名
+// 与版本检查假数据 AppVersionCheckExample（APP-02c）。
 
 export {
   AdminPermission,
@@ -240,4 +241,8 @@ export {
   ShadowLayerToken,
   DesignTokens
 } from './src/main/ets/DesignTokens';
+export {
+  AppStoreSpec,
+  AppStores
+} from './src/main/ets/AppStores';
 export * from 'generated/ets/DebugOnly';

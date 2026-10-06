@@ -9,7 +9,17 @@ export class CouliPreferences {
    * 已用的键：router.pending_action（PreferencesPendingBackend，APP-02a）。
    */
   static readonly APP_NAMESPACE: string = 'couli_app';
-  static readonly ALL_NAMESPACES: string[] = [CouliPreferences.APP_NAMESPACE];
+  /**
+   * 强更检查结论（APP-02c，PreferencesUpdateStore）：Release 读写这里。检查结果属于连接的那套服务器，随环境清理。
+   */
+  static readonly UPDATE_NAMESPACE: string = 'couli_update';
+  /**
+   * Debug / Staging 调试假数据得到的强更结论（APP-02c）：与 Release 的 UPDATE_NAMESPACE 分开，Release 不读这里
+   * （三端统一裁定：同签名覆盖安装成 Release 后不会被假的强更结论拦住）。
+   */
+  static readonly UPDATE_DEBUG_NAMESPACE: string = 'couli_update_debug';
+  static readonly ALL_NAMESPACES: string[] = [CouliPreferences.APP_NAMESPACE, CouliPreferences.UPDATE_NAMESPACE,
+    CouliPreferences.UPDATE_DEBUG_NAMESPACE];
   /**
    * 环境记录（上次生效的环境、调试面板的选择）专用命名空间。不在 ALL_NAMESPACES 里，
    * PreferencesNamespaceCleaner 也会主动跳过它：清理期间不能丢掉这些记录。

@@ -15,6 +15,8 @@
 #   - 环境切换实现：类名 EnvironmentSwitcher、调试面板选择的持久化键 couli.debug.environment_selection
 #   - 调试能力判断：类名 DebugCapabilities、能力取值前缀 couli.debug.capability.
 #   - 组件目录页（DS-01）：固定标记 COULI_COMPONENT_CATALOG_DS01_7f3a9c51e2（目录页显示它；对照页同在 src/staging）
+#   - 版本检查调试假数据（APP-02c）：生成物 AppVersionCheckExample 的 MARKER（三端同一串，调试面板显示它）、契约示例里的
+#     商店地址 store.example.test（DATA_JSON 原样转写）、调试场景的偏好文件名 couli_debug_update
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
 #     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
@@ -85,6 +87,7 @@ markers = [
     "EnvironmentSwitcher", "couli.debug.environment_selection",
     "DebugCapabilities", "couli.debug.capability.",
     "COULI_COMPONENT_CATALOG_DS01_7f3a9c51e2",
+    "COULI_UPDATE_CHECK_EXAMPLE_MARKER_5b7e3d91c2a4", "store.example.test", "couli_debug_update",
     DEBUG_SCHEME,
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
@@ -176,7 +179,7 @@ if [ "$MODE" = "self-test" ]; then
     esac
 fi
 case "$STATUS" in
-    0)  echo "release-scan：${NAME} 未命中（非 prod 地址、调试面板、debug_only 路由、环境切换实现、调试能力判断、组件目录页、测试深链 scheme、可调试标志）"; exit 0 ;;
+    0)  echo "release-scan：${NAME} 未命中（非 prod 地址、调试面板、debug_only 路由、环境切换实现、调试能力判断、组件目录页、版本检查假数据、测试深链 scheme、可调试标志）"; exit 0 ;;
     10) echo "release-scan：${NAME} 含调试能力或非 prod 残留，阻断发布" >&2; exit 1 ;;
     *)  die "python3 exit ${STATUS}" ;;
 esac

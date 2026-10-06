@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "sources": [
+    "couli@9396b017957221ae9000007bca08908adcdba9a5(origin/main):规划/03_前端架构.md §4.1 强更全部子条、§4.4",
+    "couli@9396b017957221ae9000007bca08908adcdba9a5(origin/main):规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-01 最低支持版本的接口层拦截、受限会话、【去更新】打开哪家商店与保存前的核对",
+    "rebate-platform@091da5a6f52024eb5c9dffa1d42a171ecff369b8:contracts/openapi.yaml GET /v1/app-versions/check 示例、AppVersionCheck、StoreListing、SemVer、ConfigAppUpdate",
+    "rebate-platform@091da5a6f52024eb5c9dffa1d42a171ecff369b8:specs/app-stores.yaml",
+    "APP-02c/brief.md §2.1：API及比较器接线约定；§4：文件位置"
+  ],
+  "versionCompare": [
+    {"a":"1.0.0","b":"1.0.10","expect":-1},
+    {"a":"1.10.0","b":"1.2.99","expect":1},
+    {"a":"1.2.3","b":"1.2.3","expect":0},
+    {"a":"1.2.3.4","b":"1.2.3.10","expect":-1},
+    {"a":"1.2","b":"1.10.0","expect":-1},
+    {"a":"2.0.0.1","b":"1.99.99","expect":1},
+    {"a":"01.002.0003","b":"1.2.3","expect":0},
+    {"a":"1.0.010","b":"1.0.9","expect":1}
+  ],
+  "gate": [
+    {
+      "name":"first_failure_and_retry",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"coldStart","atMillis":1000,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"applyFailure","atMillis":1100,"result":null,"expect":{"status":"unknown","showPrompt":false,"targetVersion":null}},
+        {"op":"foreground","atMillis":1200,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"applyFailure","atMillis":1300,"result":null,"expect":{"status":"unknown","showPrompt":false,"targetVersion":null}}
+      ],
+      "note":"03 §4.1：首次失败为未知，下次回前台再试；生命周期方法发起检查，失败由下一步投递。"
+    },
+    {
+      "name":"successful_check_anchor_and_strict_interval",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"coldStart","atMillis":1000,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"apply","atMillis":100000,"result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.3.0"}]},"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":1899999,"result":null,"expect":{"shouldCheck":false,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":1900000,"result":null,"expect":{"shouldCheck":false,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":1900001,"result":null,"expect":{"shouldCheck":true,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"applyFailure","atMillis":1900100,"result":null,"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":1900101,"result":null,"expect":{"shouldCheck":true,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"apply","atMillis":1905000,"result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.3.0"}]},"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":3704999,"result":null,"expect":{"shouldCheck":false,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":3705000,"result":null,"expect":{"shouldCheck":false,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"foreground","atMillis":3705001,"result":null,"expect":{"shouldCheck":true,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}}
+      ],
+      "note":"BR-ID-01、ConfigAppUpdate：默认1800秒，严格超过才查；以apply成功时间为准，失败与请求发起不重置。复查不能临时解除已知强更。"
+    },
+    {
+      "name":"cold_start_keeps_force_and_cannot_dismiss",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.3.0"}]},"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"dismissPrompt","atMillis":1100,"result":null,"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"coldStart","atMillis":1200,"result":null,"expect":{"shouldCheck":true,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"applyFailure","atMillis":1300,"result":null,"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"apply","atMillis":1400,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.0.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"ok","showPrompt":false,"targetVersion":null}}
+      ],
+      "note":"03 §4.4：重建后仍直接强更，同时冷启动必查；ForceUpdate无暂不更新；后续成功检查可解除拦截。"
+    },
+    {
+      "name":"cached_ok_must_recheck_and_failure_is_unknown",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.0.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"ok","showPrompt":false,"targetVersion":null}},
+        {"op":"applyFailure","atMillis":1100,"result":null,"expect":{"status":"ok","showPrompt":false,"targetVersion":null}},
+        {"op":"coldStart","atMillis":1200,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"applyFailure","atMillis":1300,"result":null,"expect":{"status":"unknown","showPrompt":false,"targetVersion":null}},
+        {"op":"foreground","atMillis":1400,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"apply","atMillis":1500,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.0.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"ok","showPrompt":false,"targetVersion":null}}
+      ],
+      "note":"更正依据：03 §4.4「统一入口守卫」明确冷启动时缓存的「不低于」不作数，须等本次结果；本次失败按「未知」处理，不能恢复旧ok。1100的失败发生在同次运行且已有有效成功结论，保留原期望；1200重建后不再适用。§4.1允许用户在原生页面上自己的操作，不等于将守卫状态改为ok；外部入口、pending恢复和桥调用仍按§4.4的未知规则处理。失败后下次回前台再试，即使距旧成功检查尚不足1800秒；只有新的成功结果才能恢复ok。"
+    },
+    {
+      "name":"prompt_dismiss_latest_and_persist",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.2.0"}},
+        {"op":"dismissPrompt","atMillis":1100,"result":null,"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}},
+        {"op":"apply","atMillis":1200,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.1","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}},
+        {"op":"applyFailure","atMillis":1300,"result":null,"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}},
+        {"op":"coldStart","atMillis":1400,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"apply","atMillis":1500,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.1","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}},
+        {"op":"apply","atMillis":1600,"result":{"latest_version":"1.3.0","min_supported_version":"1.0.0","recommended_version":"1.1.1","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.3.0"}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.3.0"}},
+        {"op":"dismissPrompt","atMillis":1700,"result":null,"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.3.0"}},
+        {"op":"apply","atMillis":1800,"result":{"latest_version":"1.3.0","min_supported_version":"1.0.0","recommended_version":"1.1.1","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.3.0"}]},"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.3.0"}}
+      ],
+      "note":"03 §4.1：按提示时latest记录，不按recommended。改变recommended但latest相同不重弹；重建仍不弹；更高latest恢复提示。"
+    },
+    {
+      "name":"recommended_equal_is_ok",
+      "appVersion":"1.1.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"ok","showPrompt":false,"targetVersion":null}}
+      ],
+      "note":"03 §4.1：严格低于recommended才提示；latest更高本身不足以触发。"
+    },
+    {
+      "name":"minimum_null_still_checks_recommendation",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":null,"recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.2.0"}}
+      ],
+      "note":"AppVersionCheck：最低版本为null不强更，建议更新仍独立判定。"
+    },
+    {
+      "name":"both_thresholds_null",
+      "appVersion":"0.9.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":null,"recommended_version":null,"update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"ok","showPrompt":false,"targetVersion":null}}
+      ],
+      "note":"AppVersionCheck、03 §4.1：未设最低和建议版本时，不因latest更高而拦截或提示。"
+    },
+    {
+      "name":"numeric_minimum",
+      "appVersion":"1.0.9",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.0.12","min_supported_version":"1.0.10","recommended_version":"1.0.11","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.0.12"}]},"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.0.10"}}
+      ],
+      "note":"BR-ID-01：逐段整数比较；最低版本优先于建议版本。"
+    },
+    {
+      "name":"prompt_source_below_recommended",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.0.5"},{"store":"xiaomi","listed_version":"1.2.0"}]},"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}}
+      ],
+      "note":"BR-ID-01：来源固定为已解析的huawei；来源版本不够就不弹，即便默认商店够版本。"
+    },
+    {
+      "name":"prompt_source_meets_recommended_not_latest",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.2.0"}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.2.0"}}
+      ],
+      "note":"BR-ID-01的提示可用性门槛为recommended；03 §4.1的提示记录键为latest，不能混用。"
+    },
+    {
+      "name":"10405_overrides_ok_immediately",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.0.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"ok","showPrompt":false,"targetVersion":null}},
+        {"op":"on10405","atMillis":1001,"result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.3.0"}]},"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"applyFailure","atMillis":1100,"result":null,"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"coldStart","atMillis":1200,"result":null,"expect":{"shouldCheck":true,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}}
+      ],
+      "note":"BR-ID-01：版本确实过低的10405立即强更。该op仅取result.min_supported_version，不调用apply；旧受限令牌例外见gaps。"
+    },
+    {
+      "name":"cached_below_recommended_cold_failure_is_unknown",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.2.0"}},
+        {"op":"coldStart","atMillis":1100,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"applyFailure","atMillis":1200,"result":null,"expect":{"status":"unknown","showPrompt":false,"targetVersion":null}},
+        {"op":"foreground","atMillis":1300,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"apply","atMillis":1400,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.2.0"}}
+      ],
+      "note":"新增依据：03 §4.4的「不低于最低版本」同时包含ok与below_recommended；两者的旧结论在冷启动均不作数。失败后保持unknown、不恢复旧提示与目标；§4.1要求下次回前台再试。未点暂不更新，新的成功检查仍命中建议更新且来源商店版本足够时恢复提示。"
+    },
+    {
+      "name":"dismissal_survives_cold_start_failure",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"apply","atMillis":1000,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":true,"targetVersion":"1.2.0"}},
+        {"op":"dismissPrompt","atMillis":1100,"result":null,"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}},
+        {"op":"coldStart","atMillis":1200,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"applyFailure","atMillis":1300,"result":null,"expect":{"status":"unknown","showPrompt":false,"targetVersion":null}},
+        {"op":"foreground","atMillis":1400,"result":null,"expect":{"shouldCheck":true,"status":"checking","showPrompt":false,"targetVersion":null}},
+        {"op":"apply","atMillis":1500,"result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":null}]},"expect":{"status":"below_recommended","showPrompt":false,"targetVersion":"1.2.0"}}
+      ],
+      "note":"新增依据：03 §4.4要求冷启动检查失败为unknown；§4.1另行规定「暂不更新」按latest_version记在本机，同一目标不再提示。失效的是旧的版本放行结论，不是用户的暂不更新记录；再次成功检查同一latest后仍不弹提示。"
+    },
+    {
+      "name":"10405_only_persists_through_cold_start_failure_same_app_version",
+      "appVersion":"1.0.0",
+      "steps":[
+        {"op":"on10405","atMillis":1000,"result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.3.0"}]},"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"coldStart","atMillis":1100,"result":null,"expect":{"shouldCheck":true,"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}},
+        {"op":"applyFailure","atMillis":1200,"result":null,"expect":{"status":"below_min","showPrompt":false,"targetVersion":"1.1.0"}}
+      ],
+      "note":"新增依据：03 §4.1、BR-ID-01要求确因本机版本过低的10405立即进入ForceUpdate；03 §4.4要求冷启动保留已知「低于」并照常检查。这里没有成功check可作缓存来源，且重建前后appVersion均为1.0.0、仍低于1.1.0，检查失败不能解除已知强更。on10405仅取min_supported_version；升级后旧缓存的效力未明确，见G15，不由此用例推断。"
+    }
+  ],
+  "pickStore": [
+    {
+      "name":"force_source_before_default",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"xiaomi","listed_version":"1.3.0"},{"store":"huawei","listed_version":"1.1.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"huawei","unavailable":false},
+      "note":"来源优先；强更只须达到min，不必达到recommended或latest。"
+    },
+    {
+      "name":"force_source_too_old",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.0.9"},{"store":"xiaomi","listed_version":"1.1.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"xiaomi","unavailable":false},
+      "note":"来源版本不足，继续核对默认商店。"
+    },
+    {
+      "name":"force_source_cannot_open",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.3.0"},{"store":"xiaomi","listed_version":"1.1.0"}]},
+      "canOpen":["xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"xiaomi","unavailable":false},
+      "note":"来源版本够但本机打不开，继续下一家。"
+    },
+    {
+      "name":"force_default_before_list_when_source_absent",
+      "appVersion":"1.0.0",
+      "installSource":null,
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"xiaomi","listed_version":"1.3.0"},{"store":"huawei","listed_version":"1.1.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"huawei","unavailable":false},
+      "note":"读不到来源时默认优先，即使它排在stores后面。"
+    },
+    {
+      "name":"force_default_too_old_then_remaining",
+      "appVersion":"1.0.0",
+      "installSource":null,
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.0.9"},{"store":"xiaomi","listed_version":"1.1.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"xiaomi","unavailable":false},
+      "note":"默认商店也必须核对版本；不够则看其余商店。"
+    },
+    {
+      "name":"force_unknown_listing_then_remaining",
+      "appVersion":"1.0.0",
+      "installSource":null,
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":null},{"store":"xiaomi","listed_version":"1.1.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"xiaomi","unavailable":false},
+      "note":"listed_version=null表示未知，不可选；不得补造版本。"
+    },
+    {
+      "name":"force_same_source_and_default_only_once",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.1.0"}]},
+      "canOpen":["xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":"xiaomi","unavailable":false},
+      "note":"同一家只看一次；测试同时检查canOpen调用不重复。"
+    },
+    {
+      "name":"force_all_versions_too_old",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.0.9"},{"store":"xiaomi","listed_version":"1.0.10"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"force",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"全部版本不足，unavailable；不能绕过核对直接打开store_url。"
+    },
+    {
+      "name":"force_all_cannot_open",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.3.0"},{"store":"xiaomi","listed_version":"1.3.0"}]},
+      "canOpen":[],
+      "mode":"force",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"都打不开时unavailable；当前null商店配置的生产能力应全为false。"
+    },
+    {
+      "name":"force_single_store_too_old",
+      "appVersion":"1.0.0",
+      "installSource":null,
+      "result":{"latest_version":"1.3.0","min_supported_version":"1.1.0","recommended_version":"1.2.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.0.9"}]},
+      "canOpen":["huawei"],
+      "mode":"force",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"只有一家也必须核对版本，不能因是默认地址就放行。"
+    },
+    {
+      "name":"prompt_source_meets_recommended",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.1.0"},{"store":"xiaomi","listed_version":"1.2.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"prompt",
+      "expect":{"storeKey":"huawei","unavailable":false},
+      "note":"原文选店门槛为recommended，不是latest；latest用于暂不更新记录。"
+    },
+    {
+      "name":"prompt_source_old_never_switches",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.0.5"},{"store":"xiaomi","listed_version":"1.2.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"prompt",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"来源已知但版本不足，不为可选更新转去默认商店；本来就不应弹提示。"
+    },
+    {
+      "name":"prompt_source_cannot_open_never_switches",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":"1.2.0"},{"store":"xiaomi","listed_version":"1.2.0"}]},
+      "canOpen":["xiaomi"],
+      "mode":"prompt",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"可关闭提示只看来源商店，不能因打不开改去另一家。"
+    },
+    {
+      "name":"prompt_absent_source_uses_default",
+      "appVersion":"1.0.0",
+      "installSource":null,
+      "result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"xiaomi","listed_version":"1.2.0"},{"store":"huawei","listed_version":"1.1.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"prompt",
+      "expect":{"storeKey":"huawei","unavailable":false},
+      "note":"BR-ID-01明确：来源读不到时看默认地址；仍核对recommended。"
+    },
+    {
+      "name":"prompt_absent_source_default_old_no_remaining",
+      "appVersion":"1.0.0",
+      "installSource":null,
+      "result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"huawei","stores":[{"store":"huawei","listed_version":"1.0.5"},{"store":"xiaomi","listed_version":"1.2.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"prompt",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"读不到来源且默认版本不足，不为可选更新遍历其他商店。"
+    },
+    {
+      "name":"prompt_unknown_source_listing_no_fallback",
+      "appVersion":"1.0.0",
+      "installSource":"huawei",
+      "result":{"latest_version":"1.2.0","min_supported_version":"1.0.0","recommended_version":"1.1.0","update_title":"新版本","update_notes":"修复若干问题","store_url":"https://store.example.test/app/couli","default_store":"xiaomi","stores":[{"store":"huawei","listed_version":null},{"store":"xiaomi","listed_version":"1.2.0"}]},
+      "canOpen":["huawei","xiaomi"],
+      "mode":"prompt",
+      "expect":{"storeKey":null,"unavailable":true},
+      "note":"来源已知但上架版本未知，与来源读不到不同；不能改去默认商店。"
+    }
+  ],
+  "gaps": [
+    "G01 契约差异：check.data没有recheck_interval_sec；它在/v1/config.app_update中。测试将BR-ID-01明确的包内默认1800秒传给UpdateCheckResult.recheckIntervalSec，不往check响应塞字段。动态配置与LKG接线须另测。",
+    "G02 目标版本须区分：BR-ID-01明写可关闭提示选店和可用性门槛为recommended_version；03 §4.1明写暂不更新按提示时latest_version记录。本组state.targetVersion按任务的提示记录目标取latest，pickStore按原文取recommended；不能把二者合并为同一个选店门槛。",
+    "G03 商店表version=0的key、open_method、target全为null，Android通用包上架列表也未定。huawei/xiaomi仅为OpenAPI示例里的不透明键。单测接线约定installSource是外层已核对并归一化的来源键，canOpen是能力替身；正向能力仅为算法测试条件，不宣称真实映射已经配置。生产null配置必须全false。真实包名映射、未知来源键、各端渠道限制和打开方式待契约补齐后另测。",
+    "G04 StoreListing.listed_version允许null，但brief内部stores[].version为非空字符串。适配器丢弃null条目，表示没有已知上架版本；保留其余条目的顺序，不填0或latest。defaultStore仍保留原值，默认商店没有已知版本时必须跳过。",
+    "G05 比较器多段、不同长度、前导零按本任务的逐段整数比较要求覆盖；不同长度只测共有段已经能决定大小的情形。契约SemVer只接受无前导零的三段，扩展示例不进入check响应。1.0与1.0.0是否补零、预发布/构建标识、超范围分段未明确。brief要求本地非法版本状态unknown并写TODO，但compareVersions只有-1/0/1，非法输入如何表达未定，不伪造比较结果。",
+    "G06 03 §4.4的最长5秒等待属于入口守卫/LaunchQueue；本API没有等待者、路由、桥或隐私态，不能由此断言state自行在第5秒切unknown。基本模式不发check、保留已知强更；外部/pending等待、未知只放行只读、强更页来源的PrivacyCenter/Agreement/Login/DeleteAccount例外均须接线测试。",
+    "G07 BR-ID-01的10405有旧deletion_only令牌例外：本机已受支持或错误min为空时应先刷新令牌，不进ForceUpdate。本API缺少session_scope，只把确需强更的10405送入Gate。空min不能一律解释为强更。受限登录/刷新、注销接口白名单、不重放请求、不新增pending、不删除未决幂等键须由网络与会话测试覆盖。",
+    "G08 canOpen布尔回调不能表达能力检查成功后真实open异步失败。打开失败继续下一家、重试重新check、只显示unavailable与重试且无下载入口，须由打开器/UI测试验证，不伪造额外Gate方法。",
+    "G09 提示显示后、暂不更新点击前又收到更高latest时，原文没有定义提示替换时序；不编造竞态期望。latest回滚、重复乱序响应、时钟回拨、持久化失败、重复商店条目也未明确。",
+    "G10 后台保存前核对不属于本API：提高min、修改/删除上架版本、换默认时，默认商店必须达到min，否则20001；其他不达标商店逐家确认并审计；都不够时先单独下调min；下调min、提高recommended、未设min免核对。需后台测试，客户端仍须独立核对。",
+    "G11 测试接线：gate统一用android/official和已解析来源huawei；pickStore同样测试通用多店纯逻辑。mode只是场景标签，不添加API参数，由apply后的状态决定。coldStart重建Gate、复用存储；now与clock均为毫秒。",
+    "G12 不固定普通前台复查期间ok/below_recommended的瞬态UI投影，间隔向量使用已知强更状态。不把持久化格式当作业务契约。只有两个示例商店键，本组覆盖来源、默认、其余的优先级；更多其余商店之间保持下发顺序，待有第三个合法商店fixture后补测。",
+    "G13 本文件与三端测试在实现前编写；只读会话未写文件、未编译或运行三端测试。",
+    "G14 状态与操作放行须分层验证：03 §4.1「检查请求失败不拦截用户在原生页面上自己的操作」不授予外部入口、自动恢复或桥调用正常执行的资格，也不把unknown改成ok。§4.4下，未知的启动意图只开只读清单页面，其他推送落到Messages、深链停在首页；pending只恢复打开只读页，购买/授权/提交丢弃并由用户再点；桥只读方法照常（auth.getH5Token只申请只读作用域、track.event只入队不上报），nav.open/trade.openProduct仅开只读页且无自动副作用，其余返回90500，有无手势都一样，拒绝后不排队、不补执行。Gate API无法表达这些差异，须另做入口、原生主动操作与桥接线测试；不得以恢复旧ok代替正确接线。已知below_min仍按强更规则处理。",
+    "G15 原文空白：持久化below_min来自成功check或确需强更的10405后，本机appVersion发生升级，再重建Gate冷启动且本次检查失败，03 §4.4没有明确旧「低于」是否绑定旧appVersion、是否按新版本重算、何时失效，以及失败后采用哪种状态。尤其旧1.0.0低于缓存min=1.1.0、升级至1.1.0或更高时，不能擅定继续below_min、改为checking/unknown或直接ok。BR-ID-01的升级后刷新受限令牌、收到10405但当前版本已不低于错误min时先刷新，规定的是会话与错误处理，未定义这个持久化缓存场景。须明确版本升级后仍低于、等于、高于旧min的处理及check/10405来源是否一致；本文件不为任何跨appVersion的冷启动失败场景提供期望。现有及新增coldStart向量均复用同一appVersion，不能外推到升级场景；当前结构也没有逐步更换appVersion的接线约定。"
+  ]
+}

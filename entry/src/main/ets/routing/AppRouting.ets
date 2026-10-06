@@ -4,10 +4,11 @@ import {
   AppConfig, DeepLinkParser, EnvironmentGate, GuardDecision, GuardDecisionKind, GuardState, LaunchIntent, LaunchQueue,
   LaunchReadiness, MemoryPendingBackend, PendingActionBackend, PendingActionStore, PreferencesPendingBackend,
   PrivacyState, PushLanding, RouteDestination, RouteNavigator, RouteRequest, RouteSource, RouteTable,
-  RouteTargetAllowlist, Router, SessionState, UpdateCheckStatus, UpdateState
+  RouteTargetAllowlist, Router, RoutePolicy, SessionState, UpdateState
 } from 'core';
 import { RouteSpec } from 'generated';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
+import { AppUpdate } from '../update/AppUpdate';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliRouting';
@@ -31,6 +32,16 @@ export class NavStackNavigator implements RouteNavigator {
 
   attach(stack: NavPathStack): void {
     this.stack = stack;
+  }
+
+  /** 导航栈里有没有这一页（按 NavPathStack 的页面名）。 */
+  contains(name: string): boolean {
+    return this.stack !== null && this.stack.getAllPathName().indexOf(name) >= 0;
+  }
+
+  /** 导航栈当前的页面名（自底向上；导航根为空数组）。 */
+  pathNames(): string[] {
+    return this.stack === null ? [] : this.stack.getAllPathName();
   }
 
   get attached(): boolean {
@@ -75,8 +86,7 @@ export class NavStackNavigator implements RouteNavigator {
  * 守卫状态里由其他任务提供的几项：本任务先用可注入的占位值（与 iOS / Android 同口径）。
  */
 export class RoutingPlaceholders {
-  // TODO(APP-02c): 接强更检查（检查中 / 结果 / 超时按 unknown）。
-  update: UpdateCheckStatus = UpdateCheckStatus.finished(UpdateState.OK);
+  // 强更检查已接 AppUpdate（APP-02c）：readiness() / guardState() 读 AppUpdate.shared.routerStatus()。
   // TODO(APP-05): 接 Session（游客 / 已登录 / 已绑手机 / 受限会话）。
   session: SessionState = SessionState.GUEST;
   // TODO(APP-05): 接实名结论；未知按未实名（auth=realname 进实名前置）。
@@ -106,6 +116,14 @@ export class AppRouting {
   private routerInstance: Router | null = null;
   private appVersion: string = '';
   private retryTimer: number = -1;
+
+  /**
+   * 按当前隐私结论与环境闸门同步版本检查（EntryAbility 接上 AppUpdate.syncPrivacy）：基本模式按 unknown（保留已知
+   * below_min）；冷启动或离开基本模式后能查了就立即发检查，Router 随即读到「检查中」（03 §4.4 冷启动顺序：隐私闸门 →
+   * 强更检查）。stateChanged 开头调一次；AppPrivacy.publish 写入隐私结论后、consentHandled 与任何待办恢复之前也调（R1-01）。
+   */
+  syncUpdateCheck: () => void = () => {
+  };
 
   /** EntryAbility.onCreate 调一次：注册调试路由（仅 Debug / Staging）、pending_action 落 Preferences、读版本号。 */
   start(context: common.Context): void {
@@ -155,9 +173,27 @@ export class AppRouting {
     }
   }
 
+  /** 本端版本号（app.json5 的 versionName）。 */
+  get appVersionName(): string {
+    return this.appVersion;
+  }
+
   /** App 内用户自己的操作打开一个路由（经 Router + EntryGuard，不直接碰 Navigation）。 */
   openInApp(route: string, params?: Record<string, Object>): GuardDecision {
     return this.router.open(RouteRequest.of(route, RouteSource.IN_APP, params));
+  }
+
+  /**
+   * 强更页上用户自己点的次要入口（03 §4.1）：带「从强更页进入」标记经 EntryGuard 判定，强更状态下只放行
+   * PrivacyCenter、Agreement、Login、DeleteAccount（其余回强更页）。打开的页面压在强更页之上，返回回到强更页。
+   */
+  openFromForceUpdatePage(route: string, params?: Record<string, Object>): GuardDecision {
+    return this.router.openWith(RouteRequest.of(route, RouteSource.IN_APP, params), this.guardState(true));
+  }
+
+  /** 当前会话（强更页【注销账号】据此决定先进登录页还是注销页）。TODO(APP-05): 接 Session。 */
+  get sessionState(): SessionState {
+    return this.placeholders.session;
   }
 
   /**
@@ -213,17 +249,18 @@ export class AppRouting {
 
   readiness(): LaunchReadiness {
     return new LaunchReadiness(AppConfig.gate() === EnvironmentGate.SETTLED, this.privacyState,
-      this.placeholders.update);
+      AppUpdate.shared.routerStatus());
   }
 
   /**
-   * 守卫状态。强更「检查中」在这里先记为 unknown，只对 App 内用户自己的操作生效；外部请求、pending_action 恢复
-   * 与推送回查由 Router 的等待协调器（readiness 源）先等结果，到时 Router 自己换成 unknown（R1-01）。
+   * 守卫状态。强更「检查中」时这里给 App 内用户自己的操作用的结论（不等待）：冷启动还没有结论为 unknown，回前台复查中
+   * 保留本进程已知结论（03 §4.1「检查请求失败不拦截用户在原生页面上自己的操作」）；外部请求、pending_action 恢复与
+   * 推送回查由 Router 的等待协调器（readiness 源，检查在途即 checking，R1-02）先等结果，到时 Router 自己换成 unknown。
    */
-  guardState(): GuardState {
-    const update: UpdateState | null = LaunchQueue.effectiveUpdate(this.placeholders.update, Date.now());
-    return new GuardState(this.privacyState, update ?? UpdateState.UNKNOWN, this.placeholders.session,
-      AppConfig.gate() === EnvironmentGate.SETTLED, this.appVersion, BuildVariant.IS_DEBUG_BUILD, false,
+  guardState(fromForceUpdatePage: boolean = false): GuardState {
+    const update: UpdateState | null = LaunchQueue.effectiveUpdate(AppUpdate.shared.routerStatus(), Date.now());
+    return new GuardState(this.privacyState, update ?? AppUpdate.shared.inAppUpdate(), this.placeholders.session,
+      AppConfig.gate() === EnvironmentGate.SETTLED, this.appVersion, BuildVariant.IS_DEBUG_BUILD, fromForceUpdatePage,
       this.placeholders.realnameVerified, this.placeholders.targets);
   }
 
@@ -238,12 +275,15 @@ export class AppRouting {
       clearTimeout(this.retryTimer);
       this.retryTimer = -1;
     }
+    this.syncUpdateCheck();
     const readiness: LaunchReadiness = this.readiness();
     const now: number = Date.now();
     this.router.observeReadiness(readiness, now);
     // 03 §4.4：环境闸门 → 隐私闸门有结论 → 强更有结果 → Tab 就绪后才恢复 pending_action、执行启动意图。
     // 全部由 Router 判定：闸门与强更按 readiness，Tab 就绪按 presentationReady（未就绪时 Router 什么都不放行）。
+    // below_min 时恢复 pending_action 的结论是 ForceUpdate：守卫删除持久化的待办并进入强更页（03 §4.4 状态表）。
     this.router.stateChanged(readiness, now);
+    this.syncForceUpdatePage(readiness);
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;
@@ -252,6 +292,26 @@ export class AppRouting {
       this.retryTimer = -1;
       this.stateChanged();
     }, Math.max(deadline - now, 0));
+  }
+
+  /**
+   * 强更页与结论同步（03 §4.1「命中最低支持版本时，无论当前在哪个页面都进入 ForceUpdate」）：
+   * - below_min 且导航栈里没有强更页 → 清栈后只留强更页（任何页面都回到强更页；之上只能再压从强更页进入的次要入口）；
+   * - 不再是 below_min（新的成功检查解除）而栈里还有强更页 → 清掉，经 Router 回首页。
+   * 外壳未就绪（隐私弹窗前）不动，外壳出现时 setShellReady 会再调 stateChanged。进入基本模式（「仍不同意」）、撤回同意时
+   * 外壳经 Router 重开 Home，守卫在 below_min 下给出的仍是 ForceUpdate，强更页不会被清掉。
+   */
+  private syncForceUpdatePage(readiness: LaunchReadiness): void {
+    if (!this.presentationReady) {
+      return;
+    }
+    const belowMin: boolean = readiness.update.result === UpdateState.BELOW_MIN;
+    const onForcePage: boolean = this.navigator.contains(RoutePolicy.FORCE_UPDATE);
+    if (belowMin && !onForcePage) {
+      this.navigator.reset([new RouteDestination(RoutePolicy.FORCE_UPDATE)]);
+    } else if (!belowMin && onForcePage) {
+      this.openInApp(RoutePolicy.HOME);
+    }
   }
 
   /** app.json5 的 versionName（1.0.0），与 routes.json since.harmony 比较；读不到时为空串（守卫按版本过低处理）。 */

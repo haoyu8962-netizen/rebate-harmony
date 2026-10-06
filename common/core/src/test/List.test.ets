@@ -3,6 +3,9 @@ import routerVectorTest from './RouterVector.test';
 import routerBehaviorTest from './RouterBehavior.test';
 import privacyGateVectorTest from './PrivacyGateVector.test';
 import privacyBehaviorTest from './PrivacyBehavior.test';
+import updateGateVectorTest from './UpdateGateVector.test';
+import updateBehaviorTest from './UpdateBehavior.test';
+import updateCoordinatorTest from './UpdateCoordinator.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -15,4 +18,7 @@ export default function testsuite() {
   routerBehaviorTest();
   privacyGateVectorTest();
   privacyBehaviorTest();
+  updateGateVectorTest();
+  updateBehaviorTest();
+  updateCoordinatorTest();
 }

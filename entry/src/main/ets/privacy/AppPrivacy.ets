@@ -2,10 +2,11 @@ import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AppConfig, CleanReport, GuardDecision, GuardDecisionKind, parsePrivacyState, PreferencesPrivacyStore, PrivacyDecision,
-  PrivacyGate, PrivacyGateState, PrivacyPromptStage, PrivacyWithdrawalCleaners, RouteDestination
+  PrivacyGate, PrivacyGateState, PrivacyPromptCover, PrivacyPromptStage, PrivacyWithdrawalCleaners, RouteDestination
 } from 'core';
 import { AppRouting } from '../routing/AppRouting';
 import { ShellState } from '../shell/ShellState';
+import { AppUpdate } from '../update/AppUpdate';
 
 /** 一次结论变化由什么引起（决定是否通知 Router 前置完成 / 丢弃待办）。 */
 enum PrivacyEvent {
@@ -62,8 +63,10 @@ export class AppPrivacy {
   @Trace decision: PrivacyDecision = PrivacyDecision.NOT_DECIDED;
   /** 当前要显示的弹窗。 */
   @Trace stage: PrivacyPromptStage = PrivacyPromptStage.NONE;
-  /** 弹窗里点了协议链接、协议页盖在弹窗上面：回到导航根时恢复显示弹窗。 */
+  /** 弹窗里点了协议链接、协议页盖在弹窗上面：回到打开协议前的宿主页（导航根或强更页等）时恢复显示弹窗（R2-02）。 */
   @Trace promptCovered: boolean = false;
+  /** 协议页盖住弹窗时的宿主页记录（promptCovered 的依据）。 */
+  private readonly cover: PrivacyPromptCover = new PrivacyPromptCover();
   /** 冷启动已读出本机决定。 */
   @Trace loaded: boolean = false;
 
@@ -177,19 +180,34 @@ export class AppPrivacy {
     return saved;
   }
 
-  /** 弹窗里的协议链接：经 Router 打开 Agreement（未决时只读放行）；打开了就暂时让出弹窗，回到导航根时恢复。 */
+  /**
+   * 弹窗里的协议链接：经 Router 打开 Agreement（未决时只读放行）；打开了就暂时让出弹窗，回到导航根时恢复。
+   * 强更（below_min）背景上的隐私弹窗（F-ALL-06）：弹窗盖在强更页上，协议链接按「从强更页进入」的次要入口判定
+   * （强更状态下守卫只放行 PrivacyCenter / Agreement / Login / DeleteAccount），否则守卫给出 ForceUpdate、协议页打不开。
+   * 标记只在这里（App 内、用户点弹窗里的协议链接）带上，只对 Agreement 生效；返回后弹窗与强更页都还在。
+   */
   openAgreement(type: string): void {
     const params: Record<string, Object> = {};
     params['type'] = type;
-    const decision: GuardDecision = AppRouting.shared.openInApp('Agreement', params);
+    const routing: AppRouting = AppRouting.shared;
+    // 打开前的栈深就是宿主页的位置（导航根 0；强更页上为 1）：返回到它（或更低、栈被重建）时恢复弹窗。
+    const hostDepth: number = routing.navigator.pathNames().length;
+    const decision: GuardDecision = AppUpdate.shared.belowMin ? routing.openFromForceUpdatePage('Agreement', params)
+      : routing.openInApp('Agreement', params);
     if (decision.kind === GuardDecisionKind.OPEN || decision.kind === GuardDecisionKind.OPEN_READONLY) {
+      this.cover.cover(hostDepth, decision.route ?? 'Agreement');
       this.promptCovered = true;
     }
   }
 
-  /** 导航栈回到根（RootPage 的 NavPathStack 拦截回调）。 */
-  returnedToRoot(): void {
-    this.promptCovered = false;
+  /**
+   * 有页面显示（RootPage 的 NavPathStack didShow，目标是导航根或任意 NavDestination）：协议页已离开（回到宿主页，
+   * 含强更页这类 NavDestination；或栈被清空重建）→ 弹窗恢复显示（R2-02）。
+   */
+  navigationShown(stack: string[]): void {
+    if (this.cover.shown(stack)) {
+      this.promptCovered = false;
+    }
   }
 
   /** Android / 鸿蒙二次说明的【退出 App】（BR-ID-11）：不记为同意或拒绝，下次冷启动重新弹首启弹窗。 */
@@ -230,11 +248,16 @@ export class AppPrivacy {
     this.decision = state.decision;
     this.stage = state.promptStage;
     if (!state.mustPrompt) {
+      this.cover.reset();
       this.promptCovered = false;
     }
     this.loaded = true;
     const routing: AppRouting = AppRouting.shared;
     routing.privacyState = parsePrivacyState(state.decisionRaw);
+    // 先按新结论同步版本检查（APP-02c R1-01 / R1-03）：进入基本模式按 unknown（保留已知 below_min）；同意（含离开基本模式）
+    // 后立即发检查、Router 读到「检查中」。必须在 consentHandled 与任何待办恢复之前：恢复因此等检查结果（最长 5 秒），
+    // 不会被同意那一刻的 unknown 判定删除。
+    routing.syncUpdateCheck();
     // 每次结论（可能）变化都通知 Router（未同意时删除 Agent 卡片来源的待办）。
     routing.router.privacyChanged();
     if (wasLoaded && state.decision !== previous && state.decision !== PrivacyDecision.NOT_DECIDED) {
