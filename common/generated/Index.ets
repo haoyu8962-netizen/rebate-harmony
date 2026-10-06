@@ -233,6 +233,7 @@ export {
   DefaultTexts
 } from './src/main/ets/DefaultTexts';
 export {
+  ShadowLayerToken,
   DesignTokens
 } from './src/main/ets/DesignTokens';
 export * from 'generated/ets/DebugOnly';

@@ -3,6 +3,25 @@
 // 设计令牌原始值：design/tokens/design-tokens.json。颜色键为去掉 tokens.color. 的点分路径。
 // spacing / radius / fontSize 是任务书 §5.6 的约定接口；lineHeight、fontWeight、touchTarget 供 DesignSystem 映射用。
 
+/** 一层阴影令牌（design-tokens.json 的 shadow.* 原值；颜色 #RRGGBB + 不透明度 0–1）。 */
+export class ShadowLayerToken {
+  readonly x: number;
+  readonly y: number;
+  readonly blur: number;
+  readonly spread: number;
+  readonly color: string;
+  readonly opacity: number;
+
+  constructor(x: number, y: number, blur: number, spread: number, color: string, opacity: number) {
+    this.x = x;
+    this.y = y;
+    this.blur = blur;
+    this.spread = spread;
+    this.color = color;
+    this.opacity = opacity;
+  }
+}
+
 export class DesignTokens {
   static readonly version: string = '0.3.0';
   static readonly colors: Map<string, string> = DesignTokens.buildColors();
@@ -12,6 +31,12 @@ export class DesignTokens {
   static readonly lineHeight: Map<string, number> = DesignTokens.buildLineHeight();
   static readonly fontWeight: Map<string, number> = DesignTokens.buildFontWeight();
   static readonly touchTarget: Map<string, number> = DesignTokens.buildTouchTarget();
+  /** component.*（DS-01）：键为去掉 component. 的点分路径，如 'button.min-height'。 */
+  static readonly component: Map<string, number> = DesignTokens.buildComponent();
+  /** focus.*（DS-01）：width、offset。 */
+  static readonly focus: Map<string, number> = DesignTokens.buildFocus();
+  /** shadow.*（DS-01）：每层 x / y / blur / spread / color / opacity；none 为空数组。 */
+  static readonly shadows: Map<string, ShadowLayerToken[]> = DesignTokens.buildShadows();
 
   private static buildColors(): Map<string, string> {
     const map: Map<string, string> = new Map<string, string>();
@@ -119,6 +144,33 @@ export class DesignTokens {
     map.set('ios', 44);
     map.set('android', 48);
     map.set('harmony', 48);
+    return map;
+  }
+
+  private static buildComponent(): Map<string, number> {
+    const map: Map<string, number> = new Map<string, number>();
+    map.set('button.min-height', 48);
+    map.set('button.padding-inline', 20);
+    map.set('button.padding-block', 12);
+    map.set('button.gap', 8);
+    map.set('control.min-height', 44);
+    map.set('control.border-width', 1);
+    map.set('icon.default', 24);
+    return map;
+  }
+
+  private static buildFocus(): Map<string, number> {
+    const map: Map<string, number> = new Map<string, number>();
+    map.set('width', 2);
+    map.set('offset', 2);
+    return map;
+  }
+
+  private static buildShadows(): Map<string, ShadowLayerToken[]> {
+    const map: Map<string, ShadowLayerToken[]> = new Map<string, ShadowLayerToken[]>();
+    map.set('none', []);
+    map.set('card', [new ShadowLayerToken(0, 2, 8, 0, '#28251F', 0.06)]);
+    map.set('floating', [new ShadowLayerToken(0, 8, 24, 0, '#28251F', 0.12)]);
     return map;
   }
 }

@@ -12,6 +12,7 @@
     common/generated/src/{staging,release}/ets/DebugOnly.ets  按 target 二选一，由 Index.ets 经 'generated/ets/DebugOnly' 导出
     common/generated/src/test/ContractSnapshotData.ets        一致性测试用的快照全文（只在 test 目录）
     common/generated/Index.ets                                模块统一导出
+    common/designsystem/src/test/FormatVectorsData.ets        specs/format-vectors.json 全文（DS-01，格式向量单测用）
 不生成 OpenAPI 客户端、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -491,6 +492,12 @@ def gen_tokens():
     lines.append("  static readonly lineHeight: Map<string, number> = DesignTokens.buildLineHeight();")
     lines.append("  static readonly fontWeight: Map<string, number> = DesignTokens.buildFontWeight();")
     lines.append("  static readonly touchTarget: Map<string, number> = DesignTokens.buildTouchTarget();")
+    lines.append("  /** component.*（DS-01）：键为去掉 component. 的点分路径，如 'button.min-height'。 */")
+    lines.append("  static readonly component: Map<string, number> = DesignTokens.buildComponent();")
+    lines.append("  /** focus.*（DS-01）：width、offset。 */")
+    lines.append("  static readonly focus: Map<string, number> = DesignTokens.buildFocus();")
+    lines.append("  /** shadow.*（DS-01）：每层 x / y / blur / spread / color / opacity；none 为空数组。 */")
+    lines.append("  static readonly shadows: Map<string, ShadowLayerToken[]> = DesignTokens.buildShadows();")
     lines.append("")
     lines.append("  private static buildColors(): Map<string, string> {")
     lines.append("    const map: Map<string, string> = new Map<string, string>();")
@@ -510,11 +517,103 @@ def gen_tokens():
             lines.append("    map.set(%s, %s);" % (ts_str(k), num(v)))
         lines.append("    return map;")
         lines.append("  }")
+    component = []
+
+    def walk_numbers(node, prefix):
+        for key, child in node.items():
+            path = key if not prefix else prefix + "." + key
+            if isinstance(child, dict) and "value" in child:
+                value = child["value"]
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    raise GenError("component.%s 不是数字" % path)
+                component.append((path, value))
+            elif isinstance(child, dict):
+                walk_numbers(child, path)
+
+    walk_numbers(tokens["component"], "")
+    lines.append("")
+    lines.append("  private static buildComponent(): Map<string, number> {")
+    lines.append("    const map: Map<string, number> = new Map<string, number>();")
+    for k, v in component:
+        lines.append("    map.set(%s, %s);" % (ts_str(k), num(v)))
+    lines.append("    return map;")
+    lines.append("  }")
+    lines.append("")
+    lines.append("  private static buildFocus(): Map<string, number> {")
+    lines.append("    const map: Map<string, number> = new Map<string, number>();")
+    for k, v in numbers(tokens["focus"], "focus"):
+        lines.append("    map.set(%s, %s);" % (ts_str(k), num(v)))
+    lines.append("    return map;")
+    lines.append("  }")
+    lines.append("")
+    lines.append("  private static buildShadows(): Map<string, ShadowLayerToken[]> {")
+    lines.append("    const map: Map<string, ShadowLayerToken[]> = new Map<string, ShadowLayerToken[]>();")
+    for name, leaf in tokens["shadow"].items():
+        layers = leaf.get("value")
+        if not isinstance(layers, list):
+            raise GenError("shadow.%s 不是数组" % name)
+        parts = []
+        for layer in layers:
+            for f in ("x", "y", "blur", "spread", "opacity"):
+                if not isinstance(layer.get(f), (int, float)) or isinstance(layer.get(f), bool):
+                    raise GenError("shadow.%s.%s 不是数字" % (name, f))
+            if not re.fullmatch(r"#[0-9A-Fa-f]{6}", str(layer.get("color"))):
+                raise GenError("shadow.%s.color 不是 #RRGGBB" % name)
+            parts.append("new ShadowLayerToken(%s, %s, %s, %s, %s, %s)" % (
+                num(layer["x"]), num(layer["y"]), num(layer["blur"]), num(layer["spread"]),
+                ts_str(layer["color"]), num(layer["opacity"])))
+        lines.append("    map.set(%s, [%s]);" % (ts_str(name), ", ".join(parts)))
+    lines.append("    return map;")
+    lines.append("  }")
     lines.append("}")
-    return "\n".join(lines) + "\n"
+    shadow_class = [
+        "",
+        "/** 一层阴影令牌（design-tokens.json 的 shadow.* 原值；颜色 #RRGGBB + 不透明度 0–1）。 */",
+        "export class ShadowLayerToken {",
+        "  readonly x: number;",
+        "  readonly y: number;",
+        "  readonly blur: number;",
+        "  readonly spread: number;",
+        "  readonly color: string;",
+        "  readonly opacity: number;",
+        "",
+        "  constructor(x: number, y: number, blur: number, spread: number, color: string, opacity: number) {",
+        "    this.x = x;",
+        "    this.y = y;",
+        "    this.blur = blur;",
+        "    this.spread = spread;",
+        "    this.color = color;",
+        "    this.opacity = opacity;",
+        "  }",
+        "}",
+        "",
+    ]
+    # 类声明不提升：ShadowLayerToken 必须写在 DesignTokens 前面（DesignTokens 的静态初始化要用它）。
+    at = lines.index("export class DesignTokens {")
+    return "\n".join(lines[:at] + shadow_class[1:] + lines[at:]) + "\n"
 
 
 # ---------------------------------------------------------------- 测试数据
+
+
+FORMAT_VECTORS = os.path.join("specs", "format-vectors.json")
+DS_MODULE = os.path.join("common", "designsystem")
+
+
+def gen_format_vectors_data():
+    """specs/format-vectors.json → designsystem 本机单测可 import 的字符串常量（Local Test 读不了文件）。"""
+    path = os.path.join(ROOT, FORMAT_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + FORMAT_VECTORS)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    try:
+        json.loads(text)
+    except ValueError as e:
+        raise GenError("%s 不是合法 JSON：%s" % (FORMAT_VECTORS, e))
+    return (HEADER.replace("来源 contract.lock", "来源 specs/format-vectors.json")
+            + "// 格式向量（DS-01）：specs/format-vectors.json 全文，供 FormatVector.test.ets 解析。只在 src/test，不进产物。\n\n"
+            + "export const FORMAT_VECTORS_JSON: string = " + ts_str(text) + ";\n")
 
 
 def gen_snapshot_data():
@@ -582,6 +681,7 @@ def build_outputs():
         os.path.join(MODULE, "src", "staging", "ets", "DebugOnly.ets"): STAGING_DEBUG_ONLY,
         os.path.join(MODULE, "src", "release", "ets", "DebugOnly.ets"): RELEASE_DEBUG_ONLY,
         os.path.join(MODULE, "src", "test", "ContractSnapshotData.ets"): gen_snapshot_data(),
+        os.path.join(DS_MODULE, "src", "test", "FormatVectorsData.ets"): gen_format_vectors_data(),
     }
     outputs[os.path.join(MODULE, "Index.ets")] = INDEX % index_exports(outputs, main)
     return outputs

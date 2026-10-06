@@ -6,6 +6,7 @@ import {
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes } from 'generated';
+import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
 
 /** 调试面板的固定标记；tools/ci/release-scan.sh 查 Release 产物里不得出现它。 */
 export const COULI_DEBUG_PANEL: string = 'COULI_DEBUG_PANEL';
@@ -29,6 +30,8 @@ function launchSummary(): string {
 
 @ComponentV2
 export struct DebugPanel {
+  /** 用于进入组件目录页（DS-01）。 */
+  @Param pathStack: NavPathStack | undefined = undefined;
   @Local current: string = currentName();
   @Local apiBase: string = currentApiBase();
   @Local message: string = launchSummary();
@@ -85,6 +88,14 @@ export struct DebugPanel {
             .fontSize(CouliTypography.footnote.fontSize)
             .fontColor(CouliColors.textSecondary)
         }
+        // 组件目录页（DS-01）：只是界面样例，不连任何服务，prod 环境下也可进入。
+        Button('Component catalog')
+          .width('100%')
+          .height(CouliInteraction.minTouchTarget)
+          .borderRadius(CouliRadius.button)
+          .onClick(() => {
+            this.pathStack?.pushPathByName(CATALOG_ROUTE, null);
+          })
         if (this.capable(DebugCapability.DEBUG_ROUTES)) {
           Text('debug_only routes: ' + Array.from(DebugRoutes.all.keys()).join(', '))
             .fontSize(CouliTypography.footnote.fontSize)

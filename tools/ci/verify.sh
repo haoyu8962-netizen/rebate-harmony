@@ -4,7 +4,7 @@
 # 用法：
 #   tools/ci/verify.sh          全量：生成物检查 → lint（项目规则 + codelinter）→ 违反样例必须报错 → 镜像 + ohpm install（锁文件不变）
 #                               → SDK 版本核对 → Debug / Staging / Release 三套 assembleHap（每套核对 API 版本、API 20 兼容告警、应用名）
-#                               → Hypium 本机单测 → release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
+#                               → Hypium 本机单测（designsystem 另在 TZ=UTC / America/Los_Angeles 各跑一次）→ release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
 #   tools/ci/verify.sh --fast   只到生成物检查、项目 lint、SDK 版本核对与一次 Debug 构建
 #
 # 环境变量（都有默认值）：
@@ -395,12 +395,15 @@ build_config Debug staging debug "凑狸测试"
 
 # ---------------------------------------------------------------- 7. Hypium 本机单测（Local Test，无需模拟器）
 run_unit_tests() {
-    # $1 模块名 $2 模块目录（相对仓库根）
-    local module="$1" dir="$2" log="$LOG_DIR/test-$1.log" code
+    # $1 模块名 $2 模块目录（相对仓库根）$3 可选：TZ（时区回归，DS-01 格式向量要求在 UTC、America/Los_Angeles 各跑一次）
+    local module="$1" dir="$2" tz="${3:-}" code
+    local label="$module${tz:+ TZ=$tz}"
+    local log="$LOG_DIR/test-$module${tz:+-$(printf '%s' "$tz" | tr '/' '_')}.log"
     local result="$BUILD_DIR/$dir/.test/default/intermediates/test/coverage_data/test_result.txt"
-    step "Hypium 本机单测：$module"
+    step "Hypium 本机单测：$label"
     rm -f "$result"
-    if (cd "$BUILD_DIR" && "$HVIGORW" --mode module -p module="$module@default" -p product=default test --no-daemon) \
+    if (cd "$BUILD_DIR" && if [ -n "$tz" ]; then export TZ="$tz"; fi \
+        && "$HVIGORW" --mode module -p module="$module@default" -p product=default test --no-daemon) \
         >"$log" 2>&1; then
         code=0
     else
@@ -408,29 +411,32 @@ run_unit_tests() {
     fi
     if [ ! -f "$result" ]; then
         show_matches "ERROR|Error Message" "$log" 30
-        fail_fast "test $module" "没有测试结果（hvigor exit ${code}），见 $log"
+        fail_fast "test $label" "没有测试结果（hvigor exit ${code}），见 $log"
     fi
     local summary_line
     summary_line="$({ grep -E '^Tests run:' "$result" || true; } | tail -1)"
     { grep -B1 -E "result=(Failure|Error|Fail)" "$result" || true; } | head -40
     echo "  $summary_line"
     if [ "$code" -eq 0 ] && printf '%s' "$summary_line" | grep -Eq 'Tests run: [1-9][0-9]*, Failure: 0, Error: 0'; then
-        record "test $module" PASS "$summary_line"
+        record "test $label" PASS "$summary_line"
         return 0
     fi
-    fail_fast "test $module" "${summary_line:-无汇总}（hvigor exit ${code}，见 ${result}）"
+    fail_fast "test $label" "${summary_line:-无汇总}（hvigor exit ${code}，见 ${result}）"
 }
 
 run_unit_tests generated common/generated
 run_unit_tests core common/core
 run_unit_tests designsystem common/designsystem
+# 格式向量的时区回归（BR-TEXT-11 固定 Asia/Shanghai，与设备时区无关）：Local Test 进程继承 TZ（已实测 getTimezoneOffset 随之变化）。
+run_unit_tests designsystem common/designsystem UTC
+run_unit_tests designsystem common/designsystem America/Los_Angeles
 
 # ---------------------------------------------------------------- 8. Release 制品扫描
 export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"
 
 step "release-scan 失败路径自测（非 ZIP、假 unzip / python3 返回 127 等必须失败）"
 "$ROOT/tools/ci/release-scan-selftest.sh" "$OUT_DIR/scan-selftest" || fail_fast "release-scan 失败路径自测" "见上方输出"
-record "release-scan 失败路径自测" PASS "12 个出错用例均非零退出"
+record "release-scan 失败路径自测" PASS "12 个出错用例均非零退出，3 个正向用例符合预期"
 
 step "release-scan：Release 必须不命中"
 if "$ROOT/tools/ci/release-scan.sh" "$OUT_DIR/Release.hap"; then

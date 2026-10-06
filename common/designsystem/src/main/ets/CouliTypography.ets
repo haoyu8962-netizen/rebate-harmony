@@ -64,3 +64,19 @@ export class CouliTypography {
     return value;
   }
 }
+
+/** 字重令牌 font.weight.*（DS-01；700 只给少量核心数值，GUIDE §2）。 */
+export class CouliFontWeight {
+  static readonly regular: number = CouliFontWeight.of('regular');
+  static readonly medium: number = CouliFontWeight.of('medium');
+  static readonly semibold: number = CouliFontWeight.of('semibold');
+  static readonly bold: number = CouliFontWeight.of('bold');
+
+  private static of(key: string): number {
+    const value: number | undefined = DesignTokens.fontWeight.get(key);
+    if (value === undefined) {
+      throw new Error('missing font weight token: ' + key);
+    }
+    return value;
+  }
+}

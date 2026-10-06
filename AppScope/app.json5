@@ -5,6 +5,8 @@
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:layered_image",
-    "label": "$string:app_name"
+    "label": "$string:app_name",
+    // 字号跟随系统设置（03 §10.4、adaptation-a11y-spec §2：fp 随系统字体大小缩放，检查到 200%）。鸿蒙应用默认不跟随，须显式声明。
+    "configuration": "$profile:configuration"
   }
 }

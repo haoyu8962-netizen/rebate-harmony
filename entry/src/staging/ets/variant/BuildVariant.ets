@@ -5,6 +5,11 @@ import { AppEnvironment } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DesignTokens } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
+import {
+  CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
+  CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
+  ComponentCatalog
+} from '../catalog/ComponentCatalog';
 
 // BuildProfile.BUILD_MODE_NAME 在生成文件里是字面量类型，先放宽为 string 再比较。
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
@@ -44,9 +49,70 @@ export function VariantHomeOverlay(pathStack: NavPathStack) {
 export function VariantDestination(name: string, param: Object) {
   if (name === DEBUG_PANEL_ROUTE) {
     NavDestination() {
-      DebugPanel()
+      DebugPanelHost()
     }
     .title('Debug')
     .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === CATALOG_ROUTE) {
+    // 组件目录页（DS-01）：从调试面板进入。
+    NavDestination() {
+      CatalogHost({ route: name })
+    }
+    .title('Components')
+    .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === COMPARE_SEARCH || name === COMPARE_STRESS || name === COMPARE_PRODUCT
+    || name === COMPARE_WALLET || name === COMPARE_ME || name === COMPARE_SEARCH_EMPTY) {
+    // 设计对照页：不显示系统标题栏，整页按画板拼出。
+    NavDestination() {
+      CatalogHost({ route: name })
+    }
+    .hideTitleBar(true)
+    .backgroundColor(CouliColors.backgroundCanvas)
+  }
+}
+
+/** 把导航栈交给调试面板（用于进入组件目录页）。 */
+@ComponentV2
+struct DebugPanelHost {
+  @Local stack: NavPathStack | undefined = undefined;
+
+  aboutToAppear(): void {
+    this.stack = this.queryNavigationInfo()?.pathStack;
+  }
+
+  build() {
+    DebugPanel({ pathStack: this.stack })
+  }
+}
+
+/** 取到当前导航栈后渲染目录页 / 对照页。 */
+@ComponentV2
+struct CatalogHost {
+  @Param route: string = '';
+  @Local stack: NavPathStack = new NavPathStack();
+
+  aboutToAppear(): void {
+    const s: NavPathStack | undefined = this.queryNavigationInfo()?.pathStack;
+    if (s !== undefined) {
+      this.stack = s;
+    }
+  }
+
+  build() {
+    if (this.route === CATALOG_ROUTE) {
+      ComponentCatalog({ pathStack: this.stack })
+    } else if (this.route === COMPARE_SEARCH) {
+      CompareSearch()
+    } else if (this.route === COMPARE_STRESS) {
+      CompareProductCardStress()
+    } else if (this.route === COMPARE_PRODUCT) {
+      CompareProduct({ pathStack: this.stack })
+    } else if (this.route === COMPARE_WALLET) {
+      CompareWallet({ pathStack: this.stack })
+    } else if (this.route === COMPARE_ME) {
+      CompareMe()
+    } else if (this.route === COMPARE_SEARCH_EMPTY) {
+      CompareSearchEmpty()
+    }
   }
 }
