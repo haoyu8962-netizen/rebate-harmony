@@ -1,0 +1,473 @@
+{
+  "version": 1,
+  "sources": [
+    "git -C /Users/zhixing/我的项目/couli show origin/main:规划/08_业务规则/10_ID_身份授权与合规.md；BR-ID-11 正文与细则",
+    "git -C /Users/zhixing/我的项目/couli show origin/main:规划/08_业务规则/10_ID_身份授权与合规.md；BR-ID-02 细则、BR-ID-12、BR-ID-13",
+    "git -C /Users/zhixing/我的项目/couli show origin/main:规划/03_前端架构.md；§4.1、§4.4",
+    "以上 origin/main 读取时为 b11917c0bfc585f496becc4791336d04f3ce3c0e；API 与同一实例重复初始化的验收约束来自 APP-02b/brief.md §2.1"
+  ],
+  "gate": [
+    {
+      "name": "first_launch_agree_persists",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "not_decided",
+        "consentedVersion": null,
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 0,
+          "expect": { "decision": "not_decided", "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "agree",
+          "atMillis": 1000,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 2000,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-11、BR-ID-12、03 §4.1：首次弹 first；同意记录先落本地，版本为实际展示的包内版本，时间为点击时间；重建闸门后不再弹。"
+    },
+    {
+      "name": "second_notice_can_agree",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "not_decided",
+        "consentedVersion": null,
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 0,
+          "expect": { "decision": "not_decided", "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "disagree",
+          "atMillis": 100,
+          "expect": { "decision": "not_decided", "mustPrompt": true, "promptStage": "second" }
+        },
+        {
+          "op": "agree",
+          "atMillis": 200,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 300,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-11、03 §4.1 流程图：首次不同意进入二次说明，二次说明同意后记录同意。"
+    },
+    {
+      "name": "second_refusal_persists_basic_and_explicitly_reopens",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "not_decided",
+        "consentedVersion": null,
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 0,
+          "expect": { "decision": "not_decided", "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "disagree",
+          "atMillis": 100,
+          "expect": { "decision": "not_decided", "mustPrompt": true, "promptStage": "second" }
+        },
+        {
+          "op": "stillDisagree",
+          "atMillis": 200,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 300,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "requestFullFunction",
+          "atMillis": 400,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "disagree",
+          "atMillis": 500,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "second" }
+        },
+        {
+          "op": "stillDisagree",
+          "atMillis": 600,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 700,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-11、BR-ID-02 细则：仍不同意进入并保存基本模式；冷启动不自动弹；主动开启完整功能才重新 first；再次拒绝仍可回基本模式。"
+    },
+    {
+      "name": "stored_current_consent_does_not_prompt",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "consented",
+        "consentedVersion": "10",
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 1000,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 2000,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-12、03 §4.1：已同意当前版本时冷启动不再提示；初始记录的点击时间夹具为 0 毫秒。"
+    },
+    {
+      "name": "integer_policy_upgrade_9_to_10",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "consented",
+        "consentedVersion": "9",
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 100,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "agree",
+          "atMillis": 200,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 300,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-12：政策版本是整数；9 小于 10，不能按字符串字典序比较。下一次冷启动重新 first，同意后保存版本 10。"
+    },
+    {
+      "name": "upgrade_refusal_is_not_withdrawal",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "consented",
+        "consentedVersion": "9",
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 100,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "disagree",
+          "atMillis": 200,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "second" }
+        },
+        {
+          "op": "stillDisagree",
+          "atMillis": 300,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 400,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-12 细则示例：拒绝新版后进入基本模式，本地令牌保留但不使用；不得误调用撤回同意的本地清理入口。"
+    },
+    {
+      "name": "basic_mode_ignores_upgrade_until_user_requests",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "basic_mode",
+        "consentedVersion": "9",
+        "basicMode": true
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 100,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 200,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "requestFullFunction",
+          "atMillis": 300,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "agree",
+          "atMillis": 400,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 500,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-11 明确基本模式用户即使遇到政策版本升级也不自动弹；主动开启完整功能后同意可离开基本模式。"
+    },
+    {
+      "name": "withdraw_calls_cleanup_and_persists_basic",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "consented",
+        "consentedVersion": "10",
+        "basicMode": false
+      },
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 100,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "withdraw",
+          "atMillis": 200,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "coldStart",
+          "atMillis": 300,
+          "expect": { "decision": "basic_mode", "mustPrompt": false, "promptStage": "none" }
+        },
+        {
+          "op": "requestFullFunction",
+          "atMillis": 400,
+          "expect": { "decision": null, "mustPrompt": true, "promptStage": "first" }
+        },
+        {
+          "op": "agree",
+          "atMillis": 500,
+          "expect": { "decision": "consented", "mustPrompt": false, "promptStage": "none" }
+        }
+      ],
+      "note": "BR-ID-13、03 §4.1：withdraw 必须调用本地令牌、device_id、install_secret 的清理入口并进入基本模式；后续冷启动仍为基本模式。此处验证清理接线，不模拟服务端撤回。"
+    }
+  ],
+  "init": [
+    {
+      "name": "no_initialization_before_consent_then_fixed_order_once",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "not_decided",
+        "consentedVersion": null,
+        "basicMode": false
+      },
+      "deviceRegisterResults": [true],
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 0,
+          "expect": { "started": false, "deviceRegisterAttempts": 0, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "disagree",
+          "atMillis": 100,
+          "expect": { "started": false, "deviceRegisterAttempts": 0, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "stillDisagree",
+          "atMillis": 200,
+          "expect": { "started": false, "deviceRegisterAttempts": 0, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "requestFullFunction",
+          "atMillis": 300,
+          "expect": { "started": false, "deviceRegisterAttempts": 0, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        { "op": "agree", "atMillis": 1000 },
+        {
+          "op": "onConsented",
+          "atMillis": 1000,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "onConsented",
+          "atMillis": 1001,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 86400000,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 0, "pendingRetries": 0 }
+        }
+      ],
+      "expect": {
+        "order": ["device_register", "push", "union", "crash", "wechat"],
+        "calledOnce": true,
+        "deviceRegisterRetryDelaysMillis": []
+      },
+      "note": "BR-ID-11、BR-ID-12、03 §4.1：未同意及基本模式不初始化；先持久化同意，再按固定顺序发起初始化。反向注册步骤检验执行顺序。calledOnce 指本实例首轮各步骤一次，重复 onConsented 不重复调用。"
+    },
+    {
+      "name": "device_failure_does_not_block_capped_backoff_stops_on_success",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "not_decided",
+        "consentedVersion": null,
+        "basicMode": false
+      },
+      "deviceRegisterResults": [false, false, false, false, false, false, false, false, false, true],
+      "steps": [
+        {
+          "op": "coldStart",
+          "atMillis": 1000,
+          "expect": { "started": false, "deviceRegisterAttempts": 0, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        { "op": "agree", "atMillis": 1100 },
+        {
+          "op": "onConsented",
+          "atMillis": 1100,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 1, "pendingRetries": 1 }
+        },
+        {
+          "op": "onConsented",
+          "atMillis": 1101,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 1, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 2099,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 1, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 2100,
+          "expect": { "started": true, "deviceRegisterAttempts": 2, "scheduledRetries": 2, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 4100,
+          "expect": { "started": true, "deviceRegisterAttempts": 3, "scheduledRetries": 3, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 8100,
+          "expect": { "started": true, "deviceRegisterAttempts": 4, "scheduledRetries": 4, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 16100,
+          "expect": { "started": true, "deviceRegisterAttempts": 5, "scheduledRetries": 5, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 32100,
+          "expect": { "started": true, "deviceRegisterAttempts": 6, "scheduledRetries": 6, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 64100,
+          "expect": { "started": true, "deviceRegisterAttempts": 7, "scheduledRetries": 7, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 124100,
+          "expect": { "started": true, "deviceRegisterAttempts": 8, "scheduledRetries": 8, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 184100,
+          "expect": { "started": true, "deviceRegisterAttempts": 9, "scheduledRetries": 9, "pendingRetries": 1 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 244100,
+          "expect": { "started": true, "deviceRegisterAttempts": 10, "scheduledRetries": 9, "pendingRetries": 0 }
+        },
+        {
+          "op": "onConsented",
+          "atMillis": 244101,
+          "expect": { "started": true, "deviceRegisterAttempts": 10, "scheduledRetries": 9, "pendingRetries": 0 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 86400000,
+          "expect": { "started": true, "deviceRegisterAttempts": 10, "scheduledRetries": 9, "pendingRetries": 0 }
+        }
+      ],
+      "expect": {
+        "order": ["device_register", "push", "union", "crash", "wechat"],
+        "calledOnce": true,
+        "deviceRegisterRetryDelaysMillis": [1000, 2000, 4000, 8000, 16000, 32000, 60000, 60000, 60000]
+      },
+      "note": "BR-ID-11：首次设备注册失败后，在任何重试执行前其余四步必须已完成调用；只有 device_register 重试。覆盖 1 秒前后、连续三次 60 秒封顶、成功后队列为空、重复 onConsented 不重开重试链。calledOnce 不禁止明确规定的设备注册重试。"
+    },
+    {
+      "name": "stored_consent_initializes_this_launch_once",
+      "bundledPolicyVersion": "10",
+      "initial": {
+        "decision": "consented",
+        "consentedVersion": "10",
+        "basicMode": false
+      },
+      "deviceRegisterResults": [true],
+      "steps": [
+        { "op": "coldStart", "atMillis": 1000 },
+        {
+          "op": "onConsented",
+          "atMillis": 1000,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "onConsented",
+          "atMillis": 1001,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 0, "pendingRetries": 0 }
+        },
+        {
+          "op": "advance",
+          "atMillis": 86400000,
+          "expect": { "started": true, "deviceRegisterAttempts": 1, "scheduledRetries": 0, "pendingRetries": 0 }
+        }
+      ],
+      "expect": {
+        "order": ["device_register", "push", "union", "crash", "wechat"],
+        "calledOnce": true,
+        "deviceRegisterRetryDelaysMillis": []
+      },
+      "note": "03 §4.1：已有当前版本同意记录的冷启动仍走初始化路径。初始点击时间为 0，冷启动和 onConsented 不得把它改为本次启动时间。"
+    }
+  ],
+  "gaps": [
+    "重新同意期间 decisionRaw 的临时表示未规定：旧 consented/basic_mode 是否保留，还是变成 not_decided。对应 expect.decision 使用 null 作为“不判定该字段”的标记，不是要求实际返回 null；实际值仍须属于三个合法字符串，mustPrompt 与 promptStage 始终严格断言。",
+    "版本号明确为整数，因此测试使用十进制字符串 9、10。损坏记录、非法版本串、consented 却缺少版本、decision 与 basicMode 相互矛盾的恢复策略未规定，不给期望值。",
+    "“只调用一次”的跨实例、跨进程以及撤回后再次同意的重置范围未规定。本组只约束同一实例、同一同意周期内的重复 onConsented；不规定全安装期只初始化一次。",
+    "任务书未定义依赖类型及注入成员的完整声明。三端测试文件头约定 PrivacyStore 字段、毫秒 clock、retryScheduler、withdrawalCleanup，以及初始化 action 用抛错表示设备注册失败；这些是待实现的测试接线契约，不是新增业务规则。",
+    "其余 SDK 初始化失败后的处理、步骤重复注册或缺失、非当前弹窗对应的操作、并发回调、撤回时在途请求的取消机制未具体定义，本组不假设其异常或返回值策略。",
+    "协议线上版本切换、实际展示版本传入、用户协议独立版本、10004 补同意与同意记录上报均有原文规则，但 §2.1 当前 API 未提供相应输入或网络接口。本组只验证包内隐私版本及本地点击时间，不把重试触发时间当 client_at。",
+    "03 §4.4 已明确冷启动顺序：隐私闸门有结论后，强更检查有结果或超时，再 Tab 就绪、推送回查、执行启动意图。§2.1 无启动协调器和 Router 接口，四文件不以测试自建流程冒充此集成验证；另需启动协调器测试。",
+    "返回键、外部点击不能关闭弹窗、iOS 无退出按钮、基本模式设置入口与匿名网络白名单属于已明确的 UI/Router/Network 规则，本组纯逻辑接口无法验证。撤回测试只验证本地清理入口接线，真实清理器、环境切换及服务端撤回需各自集成测试。",
+    "gate 每个 coldStart 都重建 PrivacyGate 并复用存储；init 每行保持一个实例以测试重复初始化。init 的 advance 是测试调度器操作，不是 PrivacyGate API。deviceRegisterResults 的 false 注入失败、true 正常返回；初始非空版本对应的历史点击时间夹具为 0。",
+    "agree 或 coldStart 是否内部转调 onConsented 未规定，因此相关 init 步骤可省略 checkpoint；紧随其后的显式 onConsented 必须达到规定结果，且不得重复调用已经执行的步骤。"
+  ]
+}

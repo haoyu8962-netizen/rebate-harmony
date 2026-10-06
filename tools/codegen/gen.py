@@ -15,6 +15,7 @@
     common/designsystem/src/test/FormatVectorsData.ets        specs/format-vectors.json 全文（DS-01，格式向量单测用）
     common/core/src/test/RouterVectorsData.ets                specs/router-vectors.json 全文（APP-02a，Router 向量单测用）
     common/core/src/test/TestDebugRoutes.ets                  debug_only 路由表的测试副本（APP-02a，core 单测注册调试路由用）
+    common/core/src/test/PrivacyGateVectorsData.ets           specs/privacy-gate-vectors.json 全文（APP-02b，隐私闸门向量单测用）
 不生成 OpenAPI 客户端、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -758,20 +759,37 @@ ROUTER_VECTORS = os.path.join("specs", "router-vectors.json")
 CORE_MODULE = os.path.join("common", "core")
 
 
-def gen_router_vectors_data():
-    """specs/router-vectors.json → core 本机单测可 import 的字符串常量（APP-02a；Local Test 读不了文件）。"""
-    path = os.path.join(ROOT, ROUTER_VECTORS)
+def gen_vectors_data(rel, const_name, comment):
+    """specs/*.json → core 本机单测可 import 的字符串常量（Local Test 读不了文件）。"""
+    path = os.path.join(ROOT, rel)
     if not os.path.isfile(path):
-        raise GenError("缺 " + ROUTER_VECTORS)
+        raise GenError("缺 " + rel)
     with open(path, encoding="utf-8") as f:
         text = f.read()
     try:
         json.loads(text)
     except ValueError as e:
-        raise GenError("%s 不是合法 JSON：%s" % (ROUTER_VECTORS, e))
-    return (HEADER.replace("来源 contract.lock", "来源 specs/router-vectors.json")
-            + "// Router 判定向量（APP-02a）：specs/router-vectors.json 全文，供 RouterVector.test.ets 解析。只在 src/test，不进产物。\n\n"
-            + "export const ROUTER_VECTORS_JSON: string = " + ts_str(text) + ";\n")
+        raise GenError("%s 不是合法 JSON：%s" % (rel, e))
+    return (HEADER.replace("来源 contract.lock", "来源 " + rel.replace(os.sep, "/"))
+            + "// " + comment + "\n\n"
+            + "export const " + const_name + ": string = " + ts_str(text) + ";\n")
+
+
+def gen_router_vectors_data():
+    """specs/router-vectors.json（APP-02a）。"""
+    return gen_vectors_data(ROUTER_VECTORS, "ROUTER_VECTORS_JSON",
+                            "Router 判定向量（APP-02a）：specs/router-vectors.json 全文，供 RouterVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+PRIVACY_GATE_VECTORS = os.path.join("specs", "privacy-gate-vectors.json")
+
+
+def gen_privacy_gate_vectors_data():
+    """specs/privacy-gate-vectors.json（APP-02b）。"""
+    return gen_vectors_data(PRIVACY_GATE_VECTORS, "PRIVACY_GATE_VECTORS_JSON",
+                            "隐私闸门向量（APP-02b）：specs/privacy-gate-vectors.json 全文，供 PrivacyGateVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
 
 
 def gen_snapshot_data():
@@ -841,6 +859,7 @@ def build_outputs():
         os.path.join(MODULE, "src", "test", "ContractSnapshotData.ets"): gen_snapshot_data(),
         os.path.join(DS_MODULE, "src", "test", "FormatVectorsData.ets"): gen_format_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "RouterVectorsData.ets"): gen_router_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "PrivacyGateVectorsData.ets"): gen_privacy_gate_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

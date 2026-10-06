@@ -1,11 +1,20 @@
-import { AppConfig, EnvironmentGate, RouteDestination, RouteTable } from 'core';
+import { AppConfig, EnvironmentGate, PrivacyDecision, PrivacyPromptStage, RouteDestination, RouteTable } from 'core';
 import {
-  CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography
+  CouliColors, CouliFontWeight, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography
 } from 'designsystem';
 import { DefaultTexts } from 'generated';
-import { VariantDestination, VariantHomeOverlay } from 'entry/ets/variant/BuildVariant';
+import { VariantDestination } from 'entry/ets/variant/BuildVariant';
+import { AppPrivacy } from '../privacy/AppPrivacy';
+import { PrivacyPrompt } from '../privacy/PrivacyPrompt';
 import { AppRouting, UPGRADE_PROMPT_PAGE } from '../routing/AppRouting';
+import { AppShell } from '../shell/AppShell';
+import { ShellDraftTexts } from '../shell/ShellDraftTexts';
 import { RoutePlaceholderPage } from './RoutePlaceholderPage';
+
+/** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
+const BRAND_MARK_SIZE: number = 88;
+const BRAND_MARK_RADIUS: number = 20;
+const BRAND_MARK_FONT: number = 22;
 
 /**
  * 阻断页文案（不硬编码）：从生成的 DefaultTexts 取已有的通用键，与 iOS 同口径。
@@ -28,6 +37,9 @@ class LaunchGateModel {
     this.retrying = true;
     try {
       this.gate = await AppConfig.retry();
+      if (this.gate === EnvironmentGate.SETTLED) {
+        AppPrivacy.shared.environmentSettled();
+      }
     } finally {
       this.retrying = false;
     }
@@ -35,18 +47,55 @@ class LaunchGateModel {
 }
 
 /**
- * 最小首屏（AppShell 外壳）：Navigation + NavPathStack，背景 color.background.canvas。
- * 环境闸门不是 SETTLED 时不进入正常界面：BLOCKED 显示阻断页（一句说明 +【重试】），重试成功后才显示正常首屏。
- * Debug / Staging 由 src/staging 的 VariantHomeOverlay 显示令牌版本、配置名与调试面板入口（英文开发字样）；
- * Release 的 VariantHomeOverlay 是空的，首屏只有品牌色图形占位。
- * 业务页面只由 Router 推入（AppRouting.navigator）：Navigation 出现后才把栈交给 Router 并放行排队的启动意图。
- * TODO(APP-02b)：Tab、隐私闸门接管本页。
+ * 首屏：Navigation + NavPathStack，背景 color.background.canvas。冷启动顺序（03 §4.4）：
+ * 1. 环境闸门：不是 SETTLED 时不进入正常界面，BLOCKED 显示阻断页（一句说明 +【重试】）；
+ * 2. 隐私闸门：没有结论（首启、版本升级后）只显示启动背景 + 首启弹窗 / 二次说明，不显示 Tab；
+ * 3. 有结论（已同意 / 基本模式）→ Tab 外壳（AppShell）出现，即「Tab 就绪」，之后才恢复 pending_action、执行启动意图。
+ * 弹窗是模态：遮罩吃掉触摸；底层对读屏隐藏；返回键在弹窗显示时不响应（onBackPress 返回 true，BR-ID-11）。
+ * 弹窗里点协议链接时 Agreement 页盖在弹窗上（弹窗暂时让出），返回到导航根后弹窗重新出现。
+ * 业务页面只由 Router 推入（AppRouting.navigator）。
  */
 @Entry
 @ComponentV2
 struct RootPage {
   @Local pathStack: NavPathStack = new NavPathStack();
   @Local launch: LaunchGateModel = new LaunchGateModel();
+  @Local privacy: AppPrivacy = AppPrivacy.shared;
+
+  /** 弹窗显示时吞掉返回键（不进入首页、不记为同意或拒绝）；协议页盖在上面时照常返回到弹窗。 */
+  onBackPress(): boolean {
+    return AppPrivacy.shared.blocksBack;
+  }
+
+  private promptVisible(): boolean {
+    return this.privacy.stage !== PrivacyPromptStage.NONE && !this.privacy.promptCovered;
+  }
+
+  /** 隐私闸门有结论（已同意当前版本或基本模式）：显示 Tab 外壳。 */
+  private shellVisible(): boolean {
+    return this.privacy.loaded && this.privacy.decision !== PrivacyDecision.NOT_DECIDED;
+  }
+
+  @Builder
+  launchBackdrop() {
+    // 启动背景（设计稿 LaunchPrivacy 弹窗后面）：画布底色 + 居中品牌块。纯装饰，读屏忽略。
+    Column() {
+      Text(ShellDraftTexts.BRAND_MARK)
+        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textInverse, CouliFontWeight.bold))
+        .fontSize(BRAND_MARK_FONT)
+        .letterSpacing(2)
+        .textAlign(TextAlign.Center)
+        .width(BRAND_MARK_SIZE)
+        .height(BRAND_MARK_SIZE)
+        .borderRadius(BRAND_MARK_RADIUS)
+        .backgroundColor(CouliColors.brandPrimary)
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor(CouliColors.backgroundCanvas)
+    .accessibilityLevel('no-hide-descendants')
+  }
 
   @Builder
   routeMap(name: string, param: Object) {
@@ -87,29 +136,39 @@ struct RootPage {
 
   build() {
     if (this.launch.gate === EnvironmentGate.SETTLED) {
-      Navigation(this.pathStack) {
-        Column({ space: CouliSpacing.space4 }) {
-          // App 名称图形占位（品牌色块）；真实 Logo 由设计稿交付后替换。
-          Row()
-            .width(CouliSpacing.space16)
-            .height(CouliSpacing.space16)
-            .borderRadius(CouliRadius.card)
-            .backgroundColor(CouliColors.brandPrimary)
-          VariantHomeOverlay(this.pathStack)
+      Stack() {
+        Navigation(this.pathStack) {
+          if (this.shellVisible()) {
+            AppShell({ pathStack: this.pathStack })
+          } else {
+            this.launchBackdrop()
+          }
         }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
+        .mode(NavigationMode.Stack)
+        .hideTitleBar(true)
+        .hideToolBar(true)
+        .navDestination(this.routeMap)
         .backgroundColor(CouliColors.backgroundCanvas)
+        // 弹窗显示时底层（Tab 外壳与已推入的页面）对读屏隐藏，焦点只在弹窗内（adaptation-a11y-spec §8）。
+        .accessibilityLevel(this.promptVisible() ? 'no-hide-descendants' : 'auto')
+        .onAppear(() => {
+          // 回到导航根（含从弹窗里打开的协议页返回）：弹窗重新出现。
+          this.pathStack.setInterception({
+            didShow: (_from: NavDestinationContext | NavBar, to: NavDestinationContext | NavBar) => {
+              if (typeof to === 'string') {
+                AppPrivacy.shared.returnedToRoot();
+              }
+            }
+          });
+          AppRouting.shared.attachNavigation(this.pathStack);
+        })
+
+        if (this.promptVisible()) {
+          PrivacyPrompt({ stage: this.privacy.stage })
+        }
       }
-      .mode(NavigationMode.Stack)
-      .hideTitleBar(true)
-      .hideToolBar(true)
-      .navDestination(this.routeMap)
-      .backgroundColor(CouliColors.backgroundCanvas)
-      .onAppear(() => {
-        AppRouting.shared.attachNavigation(this.pathStack);
-      })
+      .width('100%')
+      .height('100%')
     } else if (this.launch.gate === EnvironmentGate.BLOCKED) {
       this.blockedPage()
     } else {

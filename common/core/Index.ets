@@ -1,4 +1,5 @@
-// Core：config（环境）与 router（APP-02a：入口守卫、深链、pending_action、启动排队、推送落点）；其余子目录为占位。
+// Core：config（环境）、router（APP-02a：入口守卫、深链、pending_action、启动排队、推送落点）与 privacy（APP-02b：隐私闸门）；
+// 其余子目录为占位。
 // 'core/ets/config/DebugOnly' 由 hvigor 按 target 选目录：staging target（Debug / Staging）→ src/staging，
 // 导出环境切换实现（EnvironmentSwitcher）与调试能力判断（DebugCapabilities）；
 // default target（Release）→ src/release，只导出 ENVIRONMENT_SWITCH_COMPILED = false。
@@ -12,7 +13,12 @@ export { LaunchOutcome, LaunchReport, EnvironmentLaunchReconciler } from './src/
 export {
   AppConfig, BuildEnvironmentCatalog, EnvironmentBootstrap, EnvironmentCatalogPort, EnvironmentGate
 } from './src/main/ets/config/AppConfig';
-export { PrivacyGate } from './src/main/ets/privacy/PrivacyGate';
+export {
+  PrivacyDecision, PrivacyPromptStage, parsePrivacyDecision, PrivacyGateState, PrivacyStore, MemoryPrivacyStore,
+  RetryScheduler, TimerRetryScheduler, PrivacyInitSteps, PrivacyGate
+} from './src/main/ets/privacy/PrivacyGate';
+export { PrivacyStoreKeys, PreferencesPrivacyStore } from './src/main/ets/privacy/PreferencesPrivacyStore';
+export { PrivacyWithdrawalCleaners, PlaceholderCleaner } from './src/main/ets/privacy/PrivacyWithdrawal';
 export {
   RouteSource, parseRouteSource, entryOf, RouteRequest, emptyParams, paramCount
 } from './src/main/ets/router/RouteRequest';

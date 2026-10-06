@@ -52,10 +52,13 @@ export struct NavBar {
 export class TabBarItem {
   readonly label: string;
   readonly icon: string;
+  /** 读屏的角色与位置说明（如「标签，第 1 个，共 4 个」，由调用方给；空串不设）。选中状态由 accessibilitySelected 读出。 */
+  readonly accessibilityHint: string;
 
-  constructor(label: string, icon: string) {
+  constructor(label: string, icon: string, accessibilityHint: string = '') {
     this.label = label;
     this.icon = icon;
+    this.accessibilityHint = accessibilityHint;
   }
 }
 
@@ -91,6 +94,7 @@ export struct TabBar {
         .padding({ top: CouliSpacing.space1, bottom: CouliSpacing.space1 })
         .accessibilityGroup(true)
         .accessibilityText(item.label)
+        .accessibilityDescription(item.accessibilityHint)
         .accessibilitySelected(index === this.selectedIndex)
         .focusable(true)
         .focusBox(CouliFocus.box)

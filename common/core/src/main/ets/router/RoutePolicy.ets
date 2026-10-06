@@ -16,6 +16,13 @@ export class RoutePolicy {
     'Home', 'Search', 'ProductDetail', 'Settings', 'PrivacyCenter', 'Agreement', 'About', 'Help'
   ];
 
+  /**
+   * 隐私闸门未决（首启弹窗、二次说明正在显示）时 App 内可只读打开的路由：只有协议文本（BR-ID-11「同意前只允许请求协议文本
+   * 与配置」；BR-ID-11 细则「包内协议副本」）。深链、推送、pending_action 不在此列，照旧等闸门结论。
+   * TODO(N-14)：名单待规划写进 03 §4.4 / BR-ID-10 路由入口矩阵（编排者 2026-10-06 三端统一口径）。
+   */
+  static readonly PRIVACY_UNDECIDED_READONLY_ROUTES: string[] = ['Agreement'];
+
   /** 强更检查结果未知时可打开的只读页面（BR-ID-10 细则「路由入口矩阵」）。 */
   static readonly UPDATE_UNKNOWN_READONLY_ROUTES: string[] = [
     'Home', 'Search', 'ProductDetail', 'LinkLanding', 'OrderList', 'OrderDetail', 'Wallet', 'WithdrawRecords',

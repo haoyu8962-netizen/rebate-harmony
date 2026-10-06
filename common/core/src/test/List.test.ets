@@ -1,6 +1,8 @@
 import environmentConfigTest from './EnvironmentConfig.test';
 import routerVectorTest from './RouterVector.test';
 import routerBehaviorTest from './RouterBehavior.test';
+import privacyGateVectorTest from './PrivacyGateVector.test';
+import privacyBehaviorTest from './PrivacyBehavior.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -11,4 +13,6 @@ export default function testsuite() {
   RouteTable.registerDebugOnlyTable(TestDebugRoutes.all);
   routerVectorTest();
   routerBehaviorTest();
+  privacyGateVectorTest();
+  privacyBehaviorTest();
 }

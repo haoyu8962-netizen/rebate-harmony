@@ -1,5 +1,6 @@
 // Debug / Staging（entry 模块 staging target，product=staging）的构建变体。
 // 只在 product=staging 编译；Release 产物里没有本目录的任何代码与字符串。
+import { common, Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
 import { AppEnvironment, DeepLinkConfig, RouteTable } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
@@ -37,6 +38,27 @@ export class BuildVariant {
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
+  }
+
+  /**
+   * 冒烟与截图用的启动参数（只在 Debug / Staging）：`aa start ... --pd couli_debug_font_scale 2` 让本次进程按该字号倍数
+   * 渲染（ApplicationContext.setFontSizeScale）。用于在首启弹窗出现前就切到 200%：本机模拟器的系统字号设置不改变应用的
+   * fontSizeScale（DS-01 compare-harmony §0）。只读这一个调试键，不影响 AppRouting 只认 want.uri 的规则。
+   */
+  static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
+    const raw: Object | undefined = want.parameters?.['couli_debug_font_scale'];
+    if (typeof raw !== 'string' && typeof raw !== 'number') {
+      return;
+    }
+    const scale: number = Number(raw);
+    if (Number.isNaN(scale) || scale < 0.5 || scale > 3.2) {
+      return;
+    }
+    try {
+      context.setFontSizeScale(scale);
+    } catch (e) {
+      // 设置失败时按系统字号继续。
+    }
   }
 }
 

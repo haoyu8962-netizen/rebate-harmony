@@ -1,10 +1,10 @@
 import { bundleManager, common, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  AppConfig, DeepLinkParser, EnvironmentGate, GuardState, LaunchIntent, LaunchQueue, LaunchReadiness,
-  MemoryPendingBackend, PendingActionBackend, PendingActionStore, PreferencesPendingBackend, PrivacyState, PushLanding,
-  RouteDestination, RouteNavigator, RouteRequest, RouteTable, RouteTargetAllowlist, Router, SessionState,
-  UpdateCheckStatus, UpdateState
+  AppConfig, DeepLinkParser, EnvironmentGate, GuardDecision, GuardDecisionKind, GuardState, LaunchIntent, LaunchQueue,
+  LaunchReadiness, MemoryPendingBackend, PendingActionBackend, PendingActionStore, PreferencesPendingBackend,
+  PrivacyState, PushLanding, RouteDestination, RouteNavigator, RouteRequest, RouteSource, RouteTable,
+  RouteTargetAllowlist, Router, SessionState, UpdateCheckStatus, UpdateState
 } from 'core';
 import { RouteSpec } from 'generated';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -18,6 +18,16 @@ export const UPGRADE_PROMPT_PAGE: string = 'CouliUpgradePrompt';
 /** NavPathStack 版的 RouteNavigator：只有 Router 往业务页面栈里推页（外部拉起不直接碰 Navigation）。 */
 export class NavStackNavigator implements RouteNavigator {
   private stack: NavPathStack | null = null;
+  /** 守卫要求补隐私同意时调用（AppPrivacy.start 接上：弹首启弹窗）。 */
+  onConsentRequested: () => void = () => {
+  };
+  /**
+   * Tab 根路由（Home / AgentChat / OrderList / Me）不入栈：清空栈后交给外壳切 Tab（保留只读标记）。
+   * 返回 false 表示不是 Tab 根路由。AppPrivacy.start 接上 ShellState.showRoot。
+   */
+  tabRootHandler: (destination: RouteDestination) => boolean = (_d: RouteDestination) => false;
+  /** reset([]) 回首页时首页 Tab 的只读标记来源（AppRouting 接上：Router 最近结论或基本模式）。 */
+  homeReadonly: () => boolean = () => false;
 
   attach(stack: NavPathStack): void {
     this.stack = stack;
@@ -31,6 +41,11 @@ export class NavStackNavigator implements RouteNavigator {
     if (this.stack === null) {
       return;
     }
+    if (this.tabRootHandler(destination)) {
+      // Tab 根页：回到导航根并切 Tab（03 §4.4 Tab 外壳；只读标记随 destination 保留）。
+      this.stack.clear();
+      return;
+    }
     this.stack.pushPathByName(destination.route ?? UPGRADE_PROMPT_PAGE, destination);
   }
 
@@ -39,14 +54,20 @@ export class NavStackNavigator implements RouteNavigator {
       return;
     }
     this.stack.clear();
+    if (destinations.length === 0) {
+      // 回到首页：Router 打开 Home 时调 reset([])，首页 Tab 的只读标记按当时的结论。
+      this.tabRootHandler(new RouteDestination('Home', {}, this.homeReadonly()));
+      return;
+    }
     for (const d of destinations) {
       this.push(d);
     }
   }
 
+  /** 基本模式下点需同意的功能（BR-ID-11）：弹首启弹窗；结论出来后 AppPrivacy 调 router.consentHandled(granted)。 */
   requestConsent(): void {
-    // TODO(APP-02b): 弹隐私二次说明；处理完调 AppRouting.shared.router.consentHandled(granted)。
     hilog.info(DOMAIN, TAG, '%{public}s', 'consent requested');
+    this.onConsentRequested();
   }
 }
 
@@ -54,8 +75,6 @@ export class NavStackNavigator implements RouteNavigator {
  * 守卫状态里由其他任务提供的几项：本任务先用可注入的占位值（与 iOS / Android 同口径）。
  */
 export class RoutingPlaceholders {
-  // TODO(APP-02b): 接 PrivacyGate 的首启弹窗结论（同意 / 基本模式 / 未决）。
-  privacy: PrivacyState = PrivacyState.CONSENTED;
   // TODO(APP-02c): 接强更检查（检查中 / 结果 / 超时按 unknown）。
   update: UpdateCheckStatus = UpdateCheckStatus.finished(UpdateState.OK);
   // TODO(APP-05): 接 Session（游客 / 已登录 / 已绑手机 / 受限会话）。
@@ -76,6 +95,13 @@ export class AppRouting {
 
   readonly placeholders: RoutingPlaceholders = new RoutingPlaceholders();
   readonly navigator: NavStackNavigator = new NavStackNavigator();
+  /**
+   * 隐私闸门的结论（APP-02b：AppPrivacy 每次结论变化时写入，替换 APP-02a 的占位）。闸门在冷启动读出决定之前按未决：
+   * 守卫等待、不放行任何启动意图。
+   */
+  privacyState: PrivacyState = PrivacyState.NOT_DECIDED;
+  /** Tab 外壳已显示（03 §4.4「Tab 就绪」）：AppShell 出现时为 true、消失时为 false。 */
+  private shellReady: boolean = false;
   private backend: PendingActionBackend = new MemoryPendingBackend();
   private routerInstance: Router | null = null;
   private appVersion: string = '';
@@ -85,6 +111,13 @@ export class AppRouting {
   start(context: common.Context): void {
     BuildVariant.registerDebugOnlyTable();
     this.backend = new PreferencesPendingBackend(context);
+    this.navigator.homeReadonly = (): boolean => {
+      const last: GuardDecision | null = this.routerInstance === null ? null : this.routerInstance.lastDecision;
+      if (last !== null && last.route === 'Home') {
+        return last.kind === GuardDecisionKind.OPEN_READONLY;
+      }
+      return this.privacyState === PrivacyState.BASIC_MODE;
+    };
     this.appVersion = AppRouting.readVersionName();
   }
 
@@ -93,8 +126,16 @@ export class AppRouting {
       this.routerInstance = new Router(new PendingActionStore(this.backend), (): GuardState => this.guardState(),
         this.navigator, (name: string): RouteSpec | undefined => RouteTable.spec(name),
         (): LaunchReadiness => this.readiness());
+      // 03 §4.4「Tab 就绪」交给 Router 统一判定（R1-02 / R1-03）：同意回调与前置完成的恢复、冷启动推送的回查、
+      // 外部请求与启动队列的放行，都要等导航栈已交给 Router 且 Tab 外壳已显示。
+      this.routerInstance.presentationReady = (): boolean => this.presentationReady;
     }
     return this.routerInstance;
+  }
+
+  /** Navigation 已挂载（导航栈交给 Router）且 Tab 外壳已显示。 */
+  get presentationReady(): boolean {
+    return this.navigator.attached && this.shellReady;
   }
 
   /** RootPage 的 NavPathStack 就绪（Navigation 已建好）后调用；之后才恢复 pending_action、放行排队的启动意图。 */
@@ -103,14 +144,40 @@ export class AppRouting {
     this.stateChanged();
   }
 
+  /** Tab 外壳出现 / 消失（AppShell 调）。出现后才恢复 pending_action、放行排队的启动意图。 */
+  setShellReady(ready: boolean): void {
+    if (this.shellReady === ready) {
+      return;
+    }
+    this.shellReady = ready;
+    if (ready) {
+      this.stateChanged();
+    }
+  }
+
+  /** App 内用户自己的操作打开一个路由（经 Router + EntryGuard，不直接碰 Navigation）。 */
+  openInApp(route: string, params?: Record<string, Object>): GuardDecision {
+    return this.router.open(RouteRequest.of(route, RouteSource.IN_APP, params));
+  }
+
+  /**
+   * 隐私弹窗正在显示（AppPrivacy.start 接上）。运行中弹窗显示时新收到的深链与推送丢弃（03 §4.4「热启动时停在首启弹窗」）；
+   * 冷启动带来的照常排队等闸门结论。
+   */
+  privacyPromptShowing: () => boolean = () => false;
+
   /**
    * 外部拉起（EntryAbility.onCreate / onNewWant）：只认 want.uri 的深链；解析失败丢弃。
    * 成功的作为启动意图排队，等环境、隐私闸门、强更检查都有结论且导航就绪后交给 Router（03 §4.4 冷启动顺序）。
    * TODO(APP-推送): 推送点击的消息编号由推送 SDK 回调交给 router.openPush，不从 want.parameters 读。
    */
-  handleWant(want: Want): void {
+  handleWant(want: Want, hot: boolean = false): void {
     const uri: string | undefined = want.uri;
     if (uri === undefined || uri.length === 0) {
+      return;
+    }
+    if (hot && this.privacyPromptShowing()) {
+      hilog.info(DOMAIN, TAG, '%{public}s', 'deep link dropped: privacy prompt showing');
       return;
     }
     const request: RouteRequest | null = DeepLinkParser.parse(uri, BuildVariant.deepLinkConfig());
@@ -123,11 +190,17 @@ export class AppRouting {
   }
 
   /**
-   * 推送点击（热启动 / 冷启动的推送 SDK 回调）：Router 记下回查器，强更检查中排队；随后走一次 stateChanged，
-   * 确保等待到期定时器已设，检查完成或等满 5 秒时 Router 用记下的回查器继续回查（R2-01）。
+   * 推送点击（热启动 / 冷启动的推送 SDK 回调）：Router 记下回查器；强更检查中、或 Navigation / Tab 外壳未就绪（冷启动，
+   * R1-03）时不回查，消息编号留在启动队列。随后走一次 stateChanged：确保等待到期定时器已设；检查完成或等满 5 秒、
+   * 且外壳就绪（setShellReady(true) 也会调 stateChanged）时 Router 用记下的回查器回查并执行（R2-01）。
    * TODO(APP-推送): 推送 SDK 回调接到这里；回查器由 APP-03 的网络层提供。
    */
-  openPush(messageId: string, landing: PushLanding): Promise<void> | null {
+  openPush(messageId: string, landing: PushLanding, hot: boolean = true): Promise<void> | null {
+    if (hot && this.privacyPromptShowing()) {
+      // 运行中首启弹窗显示时新到的推送点击丢弃（03 §4.4）。
+      hilog.info(DOMAIN, TAG, '%{public}s', 'push dropped: privacy prompt showing');
+      return null;
+    }
     const run: Promise<void> | null = this.router.openPush(messageId, landing);
     this.stateChanged();
     return run;
@@ -139,7 +212,7 @@ export class AppRouting {
   }
 
   readiness(): LaunchReadiness {
-    return new LaunchReadiness(AppConfig.gate() === EnvironmentGate.SETTLED, this.placeholders.privacy,
+    return new LaunchReadiness(AppConfig.gate() === EnvironmentGate.SETTLED, this.privacyState,
       this.placeholders.update);
   }
 
@@ -149,13 +222,13 @@ export class AppRouting {
    */
   guardState(): GuardState {
     const update: UpdateState | null = LaunchQueue.effectiveUpdate(this.placeholders.update, Date.now());
-    return new GuardState(this.placeholders.privacy, update ?? UpdateState.UNKNOWN, this.placeholders.session,
+    return new GuardState(this.privacyState, update ?? UpdateState.UNKNOWN, this.placeholders.session,
       AppConfig.gate() === EnvironmentGate.SETTLED, this.appVersion, BuildVariant.IS_DEBUG_BUILD, false,
       this.placeholders.realnameVerified, this.placeholders.targets);
   }
 
   /**
-   * 状态变化（环境就绪、隐私结论、强更结果、会话变化、导航就绪）后调用；02b、02c、APP-05 接入后由它们调。
+   * 状态变化（环境就绪、隐私结论、强更结果、会话变化、导航与 Tab 外壳就绪）后调用；02b 已接隐私，02c、APP-05 接入后由它们调。
    * 先记下闸门通过的时刻（与外壳是否就绪无关，等待计时不因外壳未就绪推迟）；外壳就绪后交给 Router.stateChanged：
    * 冷启动与前置条件变化后恢复持久化的 pending_action（BR-ID-10），再放行排队的启动意图。
    * 强更仍在检查时只设一个到期定时器（满 5 秒按 unknown）；闸门未就绪或不在等待时不设定时器，不空转。
@@ -168,10 +241,9 @@ export class AppRouting {
     const readiness: LaunchReadiness = this.readiness();
     const now: number = Date.now();
     this.router.observeReadiness(readiness, now);
-    // TODO(APP-02b): 「Tab 就绪」接入后以它为准；本任务以 Navigation 就绪代替。
-    if (this.navigator.attached) {
-      this.router.stateChanged(readiness, now);
-    }
+    // 03 §4.4：环境闸门 → 隐私闸门有结论 → 强更有结果 → Tab 就绪后才恢复 pending_action、执行启动意图。
+    // 全部由 Router 判定：闸门与强更按 readiness，Tab 就绪按 presentationReady（未就绪时 Router 什么都不放行）。
+    this.router.stateChanged(readiness, now);
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;

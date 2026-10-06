@@ -1,4 +1,5 @@
 import { CouliColors, CouliSpacing, CouliTypography } from 'designsystem';
+import { AppPrivacy } from '../privacy/AppPrivacy';
 import { UPGRADE_PROMPT_PAGE } from '../routing/AppRouting';
 
 /**
@@ -30,5 +31,7 @@ export struct RoutePlaceholderPage {
     }
     .title(this.route === UPGRADE_PROMPT_PAGE ? '' : this.route)
     .backgroundColor(CouliColors.backgroundCanvas)
+    // 隐私弹窗显示在本页上面时（守卫在已推入的页面上要求补同意）返回键不响应（BR-ID-11）。
+    .onBackPressed(() => AppPrivacy.shared.blocksBack)
   }
 }

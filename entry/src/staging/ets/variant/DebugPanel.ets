@@ -7,6 +7,7 @@ import {
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes } from 'generated';
 import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
+import { AppPrivacy } from '../../../main/ets/privacy/AppPrivacy';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 
 /** 调试面板的固定标记；tools/ci/release-scan.sh 查 Release 产物里不得出现它。 */
@@ -91,6 +92,15 @@ export struct DebugPanel {
             .fontSize(CouliTypography.footnote.fontSize)
             .fontColor(CouliColors.textSecondary)
         }
+        // 撤回隐私同意（APP-02b 冒烟用；正式入口是隐私中心，APP-12）：清令牌与设备身份的占位清理项后进入基本模式。
+        Button('Withdraw privacy consent')
+          .width('100%')
+          .height(CouliInteraction.minTouchTarget)
+          .borderRadius(CouliRadius.button)
+          .onClick(() => {
+            const saved: boolean = AppPrivacy.shared.withdraw();
+            this.message = 'privacy: ' + AppPrivacy.shared.decision + (saved ? '' : ' (withdraw not persisted, retrying)');
+          })
         // 组件目录页（DS-01）：只是界面样例，不连任何服务，prod 环境下也可进入。
         Button('Component catalog')
           .width('100%')

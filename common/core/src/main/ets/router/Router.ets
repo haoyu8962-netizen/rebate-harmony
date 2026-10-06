@@ -1,7 +1,7 @@
 import { RouteEntry, RouteSpec } from 'generated';
 import { EntryGuard, RouteLookup } from './EntryGuard';
 import { GuardDecision, GuardDecisionKind, GuardReason } from './GuardDecision';
-import { GuardState, UpdateState } from './GuardState';
+import { GuardState, PrivacyState, UpdateState } from './GuardState';
 import { LaunchIntent, LaunchQueue, LaunchReadiness, LaunchRelease } from './LaunchQueue';
 import { PendingAction, PendingActionStore } from './PendingActionStore';
 import { PushLanding, PushLandingResult } from './PushLanding';
@@ -77,6 +77,12 @@ export class Router {
    * 隐私阻断才保留记录，由 consentHandled 决定去留；其余自动恢复被守卫 reject（含 basic_mode_blocked）一律删除。
    */
   private consentAwaited: boolean = false;
+  /**
+   * 展示层就绪（03 §4.4「Tab 就绪」：Navigation 已挂载且 Tab 外壳已显示；APP-02b R1-02 / R1-03）。App 接上；
+   * 缺省恒为 true（纯守卫单测）。未就绪时：外部请求与推送只排队（推送不回查）、pending_action 恢复暂停（同意 / 前置完成
+   * 记为「刚完成前置」）、stateChanged 与 drainLaunchQueue 什么都不放行；就绪后 App 调 stateChanged 继续。
+   */
+  presentationReady: () => boolean = () => true;
 
   constructor(pendingStore: PendingActionStore, state: () => GuardState, navigator: RouteNavigator,
     routes: RouteLookup = (name: string): RouteSpec | undefined => RouteTable.spec(name),
@@ -113,6 +119,24 @@ export class Router {
     return new GuardDecision(GuardDecisionKind.DEFER, null, GuardReason.UPDATE_CHECKING);
   }
 
+  private static shellWaitingDecision(): GuardDecision {
+    return new GuardDecision(GuardDecisionKind.DEFER, null, GuardReason.SHELL_NOT_READY);
+  }
+
+  /**
+   * 恢复 pending_action 的完整门槛（R1-02）：展示层就绪，且（接了放行条件源时）环境、隐私闸门已通过、
+   * 强更有结果或已等满 5 秒。与 stateChanged 的门槛一致。
+   */
+  private resumeAllowed(): boolean {
+    if (!this.presentationReady()) {
+      return false;
+    }
+    if (this.readiness === null) {
+      return true;
+    }
+    return this.launchQueue.updateFor(this.readiness(), this.pendingStore.now()) !== null;
+  }
+
   /**
    * 记下闸门通过的时刻（等待计时的起点）。App 在每次状态变化时都调，与外壳是否就绪无关，
    * 计时从环境与隐私闸门通过、检查开始时起算，不因外壳未就绪推迟。
@@ -133,6 +157,11 @@ export class Router {
    * 仍在等待时什么都不动（不删除 pending_action）。返回推送回查的 Promise（没有时为 null）。
    */
   stateChanged(readiness: LaunchReadiness, now: number, pushLanding: PushLanding | null = null): Promise<void> | null {
+    if (!this.presentationReady()) {
+      // Navigation / Tab 未就绪：只记闸门通过时刻，待办与启动意图都留着（R1-02 / R1-03）。
+      this.launchQueue.observe(readiness, now);
+      return null;
+    }
     const update: UpdateState | null = this.launchQueue.updateFor(readiness, now);
     if (update !== null) {
       const s: GuardState = this.state();
@@ -153,6 +182,12 @@ export class Router {
   open(request: RouteRequest): GuardDecision {
     if (request.sourceKind !== RouteSource.IN_APP && this.awaitingUpdate()) {
       const waiting: GuardDecision = Router.waitingDecision();
+      this.apply(waiting, request);
+      return waiting;
+    }
+    if (request.sourceKind !== RouteSource.IN_APP && !this.presentationReady()) {
+      // 外部请求在 Navigation / Tab 就绪前只排队（03 §4.4）。
+      const waiting: GuardDecision = Router.shellWaitingDecision();
       this.apply(waiting, request);
       return waiting;
     }
@@ -286,8 +321,9 @@ export class Router {
    * Agent 卡片登记的动作遇隐私阻断直接删除，不自动执行（BR-ID-10）。
    */
   resumePending(): void {
-    if (this.awaitingUpdate()) {
-      // 强更检查中：保留记录，等结果（或满 5 秒）后由 stateChanged 按「刚完成前置」恢复（R2-02）。
+    if (!this.resumeAllowed()) {
+      // 强更检查中（R2-02），或环境 / 隐私闸门未通过、Navigation / Tab 未就绪（APP-02b R1-02）：保留记录，
+      // 全部就绪（强更有结果或满 5 秒）后由 stateChanged 按「刚完成前置」恢复（还缺前置时进下一个前置页）。
       this.prerequisiteResumeDeferred = true;
       return;
     }
@@ -351,6 +387,17 @@ export class Router {
     const pending: PendingAction | null = this.pendingStore.load(this.pendingStore.now());
     if (pending !== null && pending.origin === RouteSource.AGENT_CARD) {
       this.pendingStore.clear();
+    }
+  }
+
+  /**
+   * 隐私闸门的结论变化（APP-02b：同意、仍不同意、版本升级重新提示、开启完整功能、撤回同意，每次都调）。
+   * 结论不是「已同意」（未决、基本模式）时删除 origin=agent_card 的 pending_action（BR-ID-10 Agent 卡片 ②，与 iOS 同口径）。
+   * pending_action 的恢复与排队启动意图的放行不在这里：App 随后调 stateChanged，闸门全部就绪时才恢复。
+   */
+  privacyChanged(): void {
+    if (this.state().privacyState !== PrivacyState.CONSENTED) {
+      this.dropAgentCardPending();
     }
   }
 
@@ -431,6 +478,9 @@ export class Router {
    * 返回推送回查的 Promise（测试可等待它结束）；没有回查时为 null。
    */
   drainLaunchQueue(readiness: LaunchReadiness, now: number, pushLanding: PushLanding | null = null): Promise<void> | null {
+    if (!this.presentationReady()) {
+      return null;
+    }
     const released: LaunchRelease | null = this.launchQueue.release(readiness, now);
     if (released === null) {
       return null;
@@ -469,6 +519,12 @@ export class Router {
       this.launchQueue.enqueue(LaunchIntent.push(messageId));
       return null;
     }
+    if (!this.presentationReady()) {
+      // 冷启动推送：Navigation / Tab 就绪前不回查，消息编号留在启动队列，就绪后由 stateChanged 回查并执行（R1-03）。
+      this.lastDecision = Router.shellWaitingDecision();
+      this.launchQueue.enqueue(LaunchIntent.push(messageId));
+      return null;
+    }
     return this.startPush(messageId, this.currentState(), pushLanding);
   }
 
@@ -502,6 +558,12 @@ export class Router {
     if (this.awaitingUpdate()) {
       // 回查期间强更又进入检查（如回前台复查）：这条推送重新排队，等结果后再回查。
       this.lastDecision = Router.waitingDecision();
+      this.launchQueue.enqueue(LaunchIntent.push(messageId));
+      return;
+    }
+    if (!this.presentationReady()) {
+      // 回查期间外壳消失（如隐私结论变化重建界面）：重新排队，就绪后再回查。
+      this.lastDecision = Router.shellWaitingDecision();
       this.launchQueue.enqueue(LaunchIntent.push(messageId));
       return;
     }

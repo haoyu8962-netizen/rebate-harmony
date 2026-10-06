@@ -77,7 +77,12 @@ export class EntryGuard {
         // Agent 卡片：先补同意，同意后不自动补打开（BR-ID-10 Agent 卡片 ②）。
         return new GuardDecision(GuardDecisionKind.REQUIRE_CONSENT, null, GuardReason.AGENT_CONSENT_NO_REPLAY);
       }
-      // TODO(N-14): in_app 在首启弹窗有结论之前不应出现，这里同样按等待处理（rule-gaps G11）。
+      if (source === RouteSource.IN_APP && RoutePolicy.PRIVACY_UNDECIDED_READONLY_ROUTES.indexOf(request.route) >= 0) {
+        // 首启弹窗、二次说明里的《隐私政策》《用户协议》等链接（APP-02b）：同意前只读看协议文本（BR-ID-11）；
+        // 其余检查（存在、入口、参数）照常，最后按只读打开（openDecision）。
+        return null;
+      }
+      // TODO(N-14): 其余 in_app 在首启弹窗有结论之前不应出现，这里同样按等待处理（rule-gaps G11）。
       return EntryGuard.wait(GuardReason.PRIVACY_UNDECIDED);
     }
     if (state.privacyState === PrivacyState.BASIC_MODE) {
@@ -157,6 +162,10 @@ export class EntryGuard {
   /** 前置条件都满足后的打开方式。 */
   private static openDecision(request: RouteRequest, state: GuardState): GuardDecision {
     const route: string = request.route;
+    if (state.privacyState === PrivacyState.NOT_DECIDED) {
+      // 只有 PRIVACY_UNDECIDED_READONLY_ROUTES 的 App 内请求走得到这里（privacyGate）。
+      return new GuardDecision(GuardDecisionKind.OPEN_READONLY, route, GuardReason.PRIVACY_UNDECIDED_READONLY);
+    }
     if (state.privacyState === PrivacyState.BASIC_MODE) {
       return new GuardDecision(GuardDecisionKind.OPEN_READONLY, route, GuardReason.BASIC_READONLY);
     }

@@ -50,10 +50,28 @@ export class LocalDataCleanerRegistry {
     return this.cleaners.map((c: LocalDataCleaner) => c.name);
   }
 
+  has(name: string): boolean {
+    return this.cleaners.some((c: LocalDataCleaner) => c.name === name);
+  }
+
   async cleanAll(): Promise<CleanReport> {
+    return this.run(this.cleaners.slice());
+  }
+
+  /**
+   * 只跑指定名字的清理器（按注册顺序；没注册的名字记为失败，不能当成清干净了）。
+   * 撤回隐私同意用它：只清令牌、device_id、install_secret（BR-ID-13），不删其他本机数据。
+   */
+  async cleanOnly(names: string[]): Promise<CleanReport> {
+    const report: CleanReport = await this.run(this.cleaners.filter((c: LocalDataCleaner) => names.indexOf(c.name) >= 0));
+    const missing: string[] = names.filter((n: string) => !this.has(n));
+    return new CleanReport(report.cleaned, report.failed.concat(missing));
+  }
+
+  private async run(cleaners: LocalDataCleaner[]): Promise<CleanReport> {
     const cleaned: string[] = [];
     const failed: string[] = [];
-    for (const cleaner of this.cleaners.slice()) {
+    for (const cleaner of cleaners) {
       try {
         await cleaner.clean();
         cleaned.push(cleaner.name);

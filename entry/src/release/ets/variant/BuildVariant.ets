@@ -1,6 +1,7 @@
 // Release（entry 模块 default target，product=default）的构建变体。
 // 与 src/staging/ets/variant/BuildVariant.ets 同名同接口，由 hvigor 按 target 二选一编译；
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
+import { common, Want } from '@kit.AbilityKit';
 import { AppEnvironment, DeepLinkConfig } from 'core';
 
 export class BuildVariant {
@@ -19,6 +20,10 @@ export class BuildVariant {
 
   /** Release 没有 debug_only 路由。 */
   static registerDebugOnlyTable(): void {
+  }
+
+  /** Release 不认任何调试启动参数。 */
+  static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
   }
 }
 

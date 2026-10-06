@@ -2,7 +2,7 @@
 export { CouliColors } from './src/main/ets/CouliColors';
 export { CouliTextStyle, CouliTypography, CouliFontWeight } from './src/main/ets/CouliTypography';
 export {
-  CouliSpacing, CouliRadius, CouliInteraction, CouliComponentMetrics, CouliShadow
+  CouliSpacing, CouliRadius, CouliInteraction, CouliComponentMetrics, CouliShadow, CouliFocus
 } from './src/main/ets/CouliMetrics';
 export { PriceTerms } from './src/main/ets/format/PriceTerms';
 export { CouliFormat } from './src/main/ets/format/CouliFormat';
@@ -29,6 +29,6 @@ export {
 export { CouliFontScale, currentFontScale } from './src/main/ets/components/FontScale';
 export { EmptyState, ErrorState, ToastView, CouliToast, CouliAnnounce } from './src/main/ets/components/States';
 export {
-  CouliDialogPanel, CouliDialog, CouliDialogOptions, CouliSheetPanel, CouliFocusReturn
+  CouliDialogPanel, CouliDialog, CouliDialogOptions, CouliSheetPanel, CouliFocusReturn, CouliShadowMask
 } from './src/main/ets/components/Overlays';
 export { NavBar, TabBar, TabBarItem } from './src/main/ets/components/Navigation';

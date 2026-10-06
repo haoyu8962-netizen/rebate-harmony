@@ -43,6 +43,13 @@ export class GuardReason {
   static readonly REALNAME_REQUIRED: string = 'realname_required';
   /** 强更检查中（闸门通过后未满 5 秒）：外部请求排队等结果，不交给 EntryGuard（Router 层的等待，03 §4.4 状态表）。 */
   static readonly UPDATE_CHECKING: string = 'update_checking';
+  /** 隐私未决（首启弹窗显示中）时 App 内打开协议文本：只读放行（APP-02b 三端统一，BR-ID-11 同意前可读协议）。 */
+  static readonly PRIVACY_UNDECIDED_READONLY: string = 'privacy_undecided_readonly';
+  /**
+   * Navigation 或 Tab 外壳还没就绪（03 §4.4「Tab 就绪」之前）：外部请求与推送排队、pending_action 恢复暂停，
+   * 就绪后由 stateChanged 继续（Router 层的等待，APP-02b R1-02 / R1-03）。
+   */
+  static readonly SHELL_NOT_READY: string = 'shell_not_ready';
 }
 
 /** 守卫结论。 */
