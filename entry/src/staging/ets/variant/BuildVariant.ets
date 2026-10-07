@@ -6,6 +6,7 @@ import { AppEnvironment, CouliPreferences, DeepLinkConfig, RouteTable, UpdateChe
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
+import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget } from './DebugBridge';
 import { DebugUpdateChecker } from './DebugUpdate';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
@@ -50,6 +51,14 @@ export class BuildVariant {
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
+  }
+
+  /**
+   * 可信容器的本机一致性测试源（APP-04，03 §5.5）：只在 Debug（buildMode=debug）加入，Staging 不加；Release 的同名函数返回空，
+   * 产物里没有回环地址（tools/ci/release-scan.sh 查 DEBUG_CONFORMANCE_ORIGIN）。模拟器经 hdc rport 访问宿主机的静态服务。
+   */
+  static debugTrustedOrigins(): string[] {
+    return BuildVariant.CONFIG_NAME === 'Debug' ? [DEBUG_CONFORMANCE_ORIGIN] : [];
   }
 
   /**
@@ -102,6 +111,17 @@ export function VariantDestination(name: string, param: Object) {
       DebugPanelHost()
     }
     .title('Debug')
+    .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === DEBUG_WEB_ROUTE) {
+    // 桥一致性入口（APP-04）：本机一致性页直接载入可信容器（只在 Debug / Staging；回环源只在 Debug 可信）。
+    NavDestination() {
+      if (param instanceof DebugWebTarget) {
+        DebugWebPage({ url: (param as DebugWebTarget).url, assumeLoggedIn: (param as DebugWebTarget).assumeLoggedIn })
+      } else {
+        DebugWebPage({ url: typeof param === 'string' ? param as string : '' })
+      }
+    }
+    .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
   } else if (name === CATALOG_ROUTE) {
     // 组件目录页（DS-01）：从调试面板进入。

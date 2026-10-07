@@ -128,7 +128,7 @@ export class EntryGuard {
       // TODO(N-14): 一般 schema 错误的提示与落点规划未定（rule-gaps G04），保守拒绝、不打开目标。
       return EntryGuard.reject(GuardReason.PARAMS_INVALID);
     }
-    if (!RouteTargetCheck.isAllowed(request.route, params, state.targets)) {
+    if (!RouteTargetCheck.isAllowed(request.route, params, state.targets, request.sourceKind)) {
       return EntryGuard.reject(GuardReason.TARGET_NOT_ALLOWED);
     }
     return null;

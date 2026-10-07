@@ -1,7 +1,7 @@
 // Core：config（环境）、router（APP-02a：入口守卫、深链、pending_action、启动排队、推送落点）、privacy（APP-02b：隐私闸门）
 // 与 update（APP-02c：强更检查）；network、session、storage（APP-03a：请求管线、签名、单飞刷新、ErrorActionMapper、未决键、
 // 令牌与安全存储）；clientcore、device（APP-03b：设备注册、ConfigStore + LKG、TrackerQueue、PermissionRequester）；
-// 其余子目录为占位。
+// bridge（APP-04）：桥协议、宿主与外部页导航判定；其余子目录为占位。
 // 'core/ets/config/DebugOnly' 由 hvigor 按 target 选目录：staging target（Debug / Staging）→ src/staging，
 // 导出环境切换实现（EnvironmentSwitcher）与调试能力判断（DebugCapabilities）；
 // default target（Release）→ src/release，只导出 ENVIRONMENT_SWITCH_COMPILED = false。
@@ -93,4 +93,6 @@ export {
   KeyValueSlot, PreferencesSlot, SecureDeviceCredentialStore
 } from './src/main/ets/device/DeviceCredentialStore';
 export { DeviceRegistry, DeviceIdentityCleaner } from './src/main/ets/device/DeviceRegistry';
+// bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
+export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

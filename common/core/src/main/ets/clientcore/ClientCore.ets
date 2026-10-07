@@ -4,7 +4,7 @@ export { ClientEvent, ClientEventValue, ClientEvents } from 'generated';
 export { ClientPlatformRaw, PrivacyStateRaw, DeviceIdDecision, DeviceIdPolicy } from './DeviceIdPolicy';
 export { JsonRecord, ConfigResolver } from './ConfigResolver';
 export {
-  ConfigReply, ConfigSourceRaw, ConfigSnapshot, ConfigListener, ConfigFetcher, ConfigStore
+  ConfigReply, ConfigSourceRaw, ConfigSnapshot, ConfigListener, ConfigFetcher, ConfigLayers, ConfigStore
 } from './ConfigStore';
 export { AsyncEventSink, EventSink, TrackerQueue, UploadTicket } from './TrackerQueue';
 export {

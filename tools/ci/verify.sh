@@ -2,7 +2,7 @@
 # 本机 CI 入口（03 §11 鸿蒙列：hvigorw assembleHap + codelinter + Hypium）。
 #
 # 用法：
-#   tools/ci/verify.sh          全量：生成物检查 → lint（项目规则 + codelinter）→ 违反样例必须报错 → 镜像 + ohpm install（锁文件不变）
+#   tools/ci/verify.sh          全量：生成物检查 → lint（项目规则 + codelinter）→ 违反样例必须报错 → 桥启动脚本 node 执行测试 → 镜像 + ohpm install（锁文件不变）
 #                               → SDK 版本核对 → Debug / Staging / Release 三套 assembleHap（每套核对 API 版本、API 20 兼容告警、应用名）
 #                               → Hypium 本机单测（designsystem 另在 TZ=UTC / America/Los_Angeles 各跑一次）→ release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
 #   tools/ci/verify.sh --fast   只到生成物检查、项目 lint、SDK 版本核对与一次 Debug 构建
@@ -195,8 +195,12 @@ for dir in "$ROOT"/tools/ci/lint-fixtures/HM-LINT-*; do
         fail_fast "lint-fixtures" "${rule} 没有被拦下（exit ${code}）"
     fi
 done
-[ "$FIXTURE_COUNT" -eq 5 ] || fail_fast "lint-fixtures" "应有 5 个违反样例，实际 ${FIXTURE_COUNT}"
-record "lint-fixtures" PASS "HM-LINT-1…5 均被拦下"
+[ "$FIXTURE_COUNT" -eq 9 ] || fail_fast "lint-fixtures" "应有 9 个违反样例，实际 ${FIXTURE_COUNT}"
+record "lint-fixtures" PASS "HM-LINT-1…9 均被拦下"
+
+step "桥启动脚本执行测试（node 沙箱，APP-04 R2-07）"
+"$NODE_BIN/node" "$ROOT/tools/ci/bridge-bootstrap-test.js" "$ROOT" || fail_fast "bridge-bootstrap-test" "见上方输出"
+record "bridge-bootstrap-test" PASS "启动脚本在途 id 行为"
 
 # ---------------------------------------------------------------- 3. SDK 版本（规划 D5）
 step "SDK 版本：compile/target = 已装 SDK（API 24），compatible = API 20"

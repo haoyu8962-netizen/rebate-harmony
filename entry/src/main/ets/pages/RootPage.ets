@@ -1,5 +1,6 @@
 import {
-  AppConfig, EnvironmentGate, PrivacyDecision, PrivacyPromptStage, RouteDestination, RoutePolicy, RouteTable, UpdateStatusRaw
+  AppConfig, EnvironmentGate, ExternalPageOptions, PrivacyDecision, PrivacyPromptStage, RouteDestination, RoutePolicy,
+  RouteTable, UpdateStatusRaw
 } from 'core';
 import {
   CouliColors, CouliFontWeight, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography
@@ -17,6 +18,7 @@ import { AppUpdate } from '../update/AppUpdate';
 import { ForceUpdatePage } from '../update/ForceUpdatePage';
 import { UpdatePrompt } from '../update/UpdatePrompt';
 import { RoutePlaceholderPage } from './RoutePlaceholderPage';
+import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -124,6 +126,12 @@ struct RootPage {
     if (name === RoutePolicy.FORCE_UPDATE) {
       // 强更全屏页（APP-02c）。
       ForceUpdatePage()
+    } else if (name === RoutePolicy.WEB_PAGE) {
+      // 可信容器（APP-04）。
+      AppWebPage({ url: destinationUrl(param) })
+    } else if (name === RoutePolicy.EXTERNAL_PAGE) {
+      // 第三方页容器（APP-04）。
+      AppExternalPage({ options: ExternalPageOptions.fromDestination(param) })
     } else if (name === UPGRADE_PROMPT_PAGE || RouteTable.has(name)) {
       // 业务路由与内置升级提示页：占位页（各 Feature 的入口视图接入前）。参数只认 Router 放进来的 RouteDestination。
       // 强更状态下守卫只放行从强更页进入的次要入口，所以 below_min 时出现的这几页都来自强更页：带强更状态 / 受限登录标记。

@@ -168,6 +168,13 @@ export class FakeRegistrar implements DeviceRegistrar {
     this.usedDeviceIds.push(usedDeviceId);
     return this.result();
   }
+
+  /** 不走重新注册的 10402 隔离（F-ALL-08 共性 25）：只记下来。 */
+  isolated: (string | null)[] = [];
+
+  isolate(usedDeviceId: string | null): void {
+    this.isolated.push(usedDeviceId);
+  }
 }
 
 export class Rig {

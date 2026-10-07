@@ -25,7 +25,9 @@ import {
   RouteLookup,
   RouteNavigator,
   RouteRequest,
+  RouteSource,
   RouteTargetAllowlist,
+  RouteTargetCheck,
   Router,
   UpdateCheckStatus,
   UpdateState
@@ -265,6 +267,23 @@ export default function routerBehaviorTest() {
         'https://user@shop.example.com/', 'https://shop.example.com:8443/', 'http://shop.example.com/']) {
         expect(decide(req('ExternalPage', 'deeplink', params([['url', url]])), s).startsWith('reject')).assertTrue();
       }
+    });
+
+    // APP-04 R1-10：external_hosts 只约束深链进入 ExternalPage；可信页跨域跳转（App 内）、JSBridge、推送回查不受这张表限制，
+    // 仍要求可解析的 https。pending_action 恢复与 Agent 卡片按深链口径。WebPage 任何来源都只认 bridge_origins。
+    it('external_hosts_only_limit_deeplink_entry_r1_10', 0, () => {
+      const s: GuardState = state('consented', 'ok', 'guest');
+      const brand: Record<string, Object> = params([['url', 'https://brand.example.com/story']]);
+      expect(decide(req('ExternalPage', 'in_app', brand), s)).assertEqual('open ExternalPage allowed');
+      expect(decide(req('ExternalPage', 'bridge', brand), s)).assertEqual('open ExternalPage allowed');
+      expect(decide(req('ExternalPage', 'push', brand), s)).assertEqual('open ExternalPage allowed');
+      expect(decide(req('ExternalPage', 'deeplink', brand), s)).assertEqual('reject - target_not_allowed');
+      expect(RouteTargetCheck.isAllowed('ExternalPage', brand, RouteTargetAllowlist.EMPTY, RouteSource.PENDING_ACTION))
+        .assertFalse();
+      expect(RouteTargetCheck.isAllowed('ExternalPage', params([['url', 'https://user@brand.example.com/']]),
+        RouteTargetAllowlist.EMPTY, RouteSource.IN_APP)).assertFalse();
+      expect(decide(req('WebPage', 'in_app', params([['url', 'https://h5.example.com/a']])), s))
+        .assertEqual('reject - target_not_allowed');
     });
 
     it('bridge_origins_for_web_page', 0, () => {

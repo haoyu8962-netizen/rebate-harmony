@@ -80,12 +80,21 @@ export interface UpdatePort {
  */
 export interface DeviceRegistrar {
   reregister(usedDeviceId: string | null): Promise<boolean>;
+
+  /**
+   * 不走重新注册的 10402（重放里再收到、注册请求自己收到）：只把这次请求所用的凭据从可读凭据中隔离，恢复交给唯一一条
+   * 退避链（F-ALL-08 / APP-03b 共性 25，I-R2-02）。重新注册与重放预算另算，不在这里触发。
+   */
+  isolate(usedDeviceId: string | null): void;
 }
 
 /** 没有设备注册（单测替身的缺省）：不能重新注册，10402 按兜底处理。 */
 export class NoDeviceRegistrar implements DeviceRegistrar {
   reregister(_usedDeviceId: string | null): Promise<boolean> {
     return Promise.resolve(false);
+  }
+
+  isolate(_usedDeviceId: string | null): void {
   }
 }
 
@@ -654,6 +663,14 @@ export class ApiClient {
     }
     const failed: string | null = this.failedAccessToken;
     return failed !== null && this.deps.tokens.accessToken() === failed ? null : account;
+  }
+
+  /**
+   * 会话世代（APP-04 R2-03）：不含任何凭据的计数，登录、退出、换账号、清会话、作废都会推进；同一账号退出后重新登录也是新世代。
+   * 桥调用把它绑进 binding，旧调用不会在新会话下执行。
+   */
+  sessionGenerationId(): number {
+    return this.sessionGeneration;
   }
 
   /** 发起页查询：当前会话账号该操作的未决记录（先核对账号，R1-02）。 */
@@ -1232,6 +1249,16 @@ export class ApiClient {
     PendingResponseKind.NO_RESULT);
     const failed: ApiResult = new ApiResult(ApiOutcome.BUSINESS_ERROR, envelope.code, envelope.msg, envelope.data,
       responseTrace, response.status, TransportFailure.NONE, null, effect, key);
+    if (envelope.code === 10402 && !attempt.internalRefresh
+      && effect.effectKindRaw !== EffectKind.REGISTER_DEVICE_REPLAY && this.ownershipLost(ctx) === null) {
+      // 有效世代的 10402 一律隔离这次所用的凭据，重放里再收到也一样（F-ALL-08 / 共性 25）；走重新注册的那条由
+      // reregister 自己隔离，刷新请求的 10402 在 performRefresh 里处理。
+      try {
+        this.deps.deviceRegistrar.isolate(prepared.deviceId);
+      } catch (e) {
+        // 凭据源出错不影响本次结果。
+      }
+    }
     if (attempt.internalRefresh) {
       return failed;
     }
@@ -1897,13 +1924,20 @@ export class ApiClient {
         // 设备没注册上：会话有没有失效没有结论，保留会话（退避流程继续注册）。
         return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
       }
-      result = await this.execute(new Attempt(ApiClient.sameKey(first.request, result.idempotencyKey), operation, true,
-        true, this.bind(operation)));
+      const replay: Attempt = new Attempt(ApiClient.sameKey(first.request, result.idempotencyKey), operation, true,
+        true, this.bind(operation));
+      result = await this.execute(replay);
       if (this.refreshStale(round)) {
         return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
       }
       if (ApiClient.isDeviceRejected(result)) {
-        // 重放仍是 10402：不再重新注册（BR-TEXT-14 表 A 按其他 5xxxx），同样不清会话。
+        // 重放仍是 10402：不再重新注册（BR-TEXT-14 表 A 按其他 5xxxx），同样不清会话；重放所用的凭据照样隔离，恢复交给
+        // 退避链（F-ALL-08 / 共性 25）。
+        try {
+          this.deps.deviceRegistrar.isolate(replay.sentDeviceId);
+        } catch (e) {
+          // 凭据源出错不影响结果。
+        }
         return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
       }
     }

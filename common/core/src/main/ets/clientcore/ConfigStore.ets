@@ -78,7 +78,13 @@ class LkgFile {
  *
  * 「清除缓存」不清这里（03 §4.3）；切换环境时由清理器调 clearForEnvironmentSwitch（03 §3.6）。单线程（UI 线程）使用。
  */
-export class ConfigStore {
+/** 按层读取顶层键（不跨层回落）：桥白名单这类要逐层验签的配置用（03 §5.1；APP-04 R1-03）。 */
+export interface ConfigLayers {
+  /** source 为 ConfigSourceRaw 的 current / lkg / bundled；这一层没有该键为 null。返回 JSON 文本。 */
+  layerValue(source: string, key: string): string | null;
+}
+
+export class ConfigStore implements ConfigLayers {
   static readonly LKG_FORMAT: number = 1;
 
   private readonly readFile: () => string | null;
@@ -171,6 +177,23 @@ export class ConfigStore {
   /** 回前台：带本进程最近一次成功响应的 ETag 拉取。 */
   onForeground(): void {
     this.startFetch();
+  }
+
+  /** 某一层的顶层键（JSON 文本）；这一层不存在或没有该键为 null。 */
+  layerValue(source: string, key: string): string | null {
+    let layer: JsonRecord | null = null;
+    if (source === ConfigSourceRaw.CURRENT) {
+      layer = this.current;
+    } else if (source === ConfigSourceRaw.LKG) {
+      layer = this.lkg;
+    } else if (source === ConfigSourceRaw.BUNDLED) {
+      layer = this.bundledObject;
+    }
+    if (layer === null) {
+      return null;
+    }
+    const value: Object | undefined = layer[key];
+    return value === undefined || value === null ? null : JSON.stringify(value);
   }
 
   /** 顶层键：当前 → LKG → 包内（JSON 文本）；都没有为 null。 */

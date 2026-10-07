@@ -235,6 +235,10 @@ export {
   BridgeErrors
 } from './src/main/ets/BridgeMethods';
 export {
+  BridgeSignedPath,
+  BridgeContract
+} from './src/main/ets/BridgeContract';
+export {
   DefaultTexts
 } from './src/main/ets/DefaultTexts';
 export {

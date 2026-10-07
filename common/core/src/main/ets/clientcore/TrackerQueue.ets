@@ -13,17 +13,32 @@ export type EventSink = (events: string[]) => boolean;
  */
 export class UploadTicket {
   private readonly check: () => boolean;
+  /** 这一批已结束（sink 同步拒收、兑现了结果或被取消）：之后一律无效（F-ALL-08 / APP-03b 共性 26，I-R2-03）。 */
+  private ended: boolean = false;
 
   constructor(check: () => boolean) {
     this.check = check;
   }
 
   get valid(): boolean {
+    if (this.ended) {
+      return false;
+    }
     try {
       return this.check();
     } catch (e) {
       return false;
     }
+  }
+
+  /** 这一批确实还在发送中。 */
+  get sending(): boolean {
+    return !this.ended;
+  }
+
+  /** 结束这张票据（只由 TrackerQueue 调用）。 */
+  end(): void {
+    this.ended = true;
   }
 }
 
@@ -140,6 +155,8 @@ export class TrackerQueue {
   /** 队列世代：清理、隐私状态变化、取消上报时加 1；在途上报的结果不再改动队列，也不再提交。 */
   private epoch: number = 0;
   private uploading: boolean = false;
+  /** 还在发送中的异步批次票据（F-ALL-08 / 共性 26：结束即移除）。 */
+  private activeUpload: UploadTicket | null = null;
   /** 清空时文件没删掉，等待重试（内存里已经是空的）。 */
   private purgePending: boolean = false;
 
@@ -223,10 +240,26 @@ export class TrackerQueue {
     });
   }
 
-  /** 取消在途上报（撤回同意、切换环境）：队列世代加 1，作废的批次不再提交、结果不改队列。 */
+  /** 取消在途上报（撤回同意、切换环境）：队列世代加 1，作废的批次不再提交、结果不改队列；在途票据立刻结束。 */
   cancelUploads(): void {
     this.epoch++;
     this.uploading = false;
+    const upload: UploadTicket | null = this.activeUpload;
+    if (upload !== null) {
+      this.endUpload(upload);
+    }
+  }
+
+  /** 确实还在发送中的批次票据（只保留这一张；结束、拒收、取消的都已移除）。测试与诊断用。 */
+  get uploadInFlight(): UploadTicket | null {
+    return this.activeUpload;
+  }
+
+  private endUpload(upload: UploadTicket): void {
+    upload.end();
+    if (this.activeUpload === upload) {
+      this.activeUpload = null;
+    }
   }
 
   /** 上报队列里的事件（按批，直到队列空或某批失败）。未同意、强更检查还没有结果时不上报。 */
@@ -339,13 +372,21 @@ export class TrackerQueue {
   /** 异步上报一批：sink 拿到 ticket；兑现后先核对 ticket，作废的结果什么都不改（不删队列、不接着上报）。 */
   private uploadAsync(sink: AsyncEventSink, batch: QueuedEvent[], events: string[], ticket: BatchTicket): void {
     this.uploading = true;
+    const upload: UploadTicket = new UploadTicket((): boolean => this.owns(ticket));
+    this.activeUpload = upload;
     let pending: Promise<boolean>;
     try {
-      pending = sink(events, new UploadTicket((): boolean => this.owns(ticket)));
+      pending = sink(events, upload);
     } catch (e) {
-      pending = Promise.resolve(false);
+      // sink 同步拒收（F-ALL-08 / 共性 26）：这一批立刻结束，票据作废并移除，不留「发送中」的状态等下一个微任务。
+      this.endUpload(upload);
+      if (this.epoch === ticket.epoch) {
+        this.uploading = false;
+      }
+      return;
     }
     pending.catch((): boolean => false).then((succeeded: boolean): void => {
+      this.endUpload(upload);
       if (this.epoch !== ticket.epoch) {
         // 已取消（撤回同意、切换环境、清理）：uploading 已由取消复位，这一批的结果作废。
         return;

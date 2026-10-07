@@ -1,6 +1,7 @@
 import { RouteParamSpec, RouteParamType, RouteSpec } from 'generated';
 import { RouteTargetAllowlist } from './GuardState';
 import { RoutePolicy } from './RoutePolicy';
+import { RouteSource } from './RouteRequest';
 
 /**
  * routes.json params 的 JSON Schema 校验（03 §4.4「统一入口守卫」：所有来源都校验参数）。
@@ -147,10 +148,18 @@ export class HttpsTarget {
   }
 }
 
-/** ExternalPage / WebPage 的目标地址白名单（03 §4.4「入口限制」，BR-ID-10 细则）。 */
+/**
+ * ExternalPage / WebPage 的目标地址白名单（03 §4.4「入口限制」，BR-ID-10 细则）：
+ * - WebPage：任何来源都只认 bridge_origins 白名单内的 https origin；
+ * - ExternalPage：external_hosts 只约束深链入口（03 §4.4：「这张白名单只决定深链能不能进入 ExternalPage」）。App 内、
+ *   推送回查、JSBridge 与可信页的跨域跳转（03 §5.1：跳到白名单外的 https 在新的 ExternalWebView 打开）不受这张表限制，只要
+ *   求是可解析的 https 地址；进入之后第一个 URL 与每一次导航仍由容器的 ExternalNavPolicy 判定（APP-04 R1-10）。
+ *   pending_action 恢复（原始来源可能是深链，TODO(N-14)）与 Agent 卡片仍按深链口径。
+ */
 export class RouteTargetCheck {
-  /** 该路由的目标地址是否在白名单内；不是这两个路由时恒为 true。 */
-  static isAllowed(route: string, params: Record<string, Object>, allowlist: RouteTargetAllowlist): boolean {
+  /** 该路由的目标地址是否在白名单内；不是这两个路由时恒为 true。source 不认识时按深链（最严格）。 */
+  static isAllowed(route: string, params: Record<string, Object>, allowlist: RouteTargetAllowlist,
+    source: RouteSource = RouteSource.DEEPLINK): boolean {
     if (route !== RoutePolicy.EXTERNAL_PAGE && route !== RoutePolicy.WEB_PAGE) {
       return true;
     }
@@ -163,7 +172,10 @@ export class RouteTargetCheck {
       return false;
     }
     if (route === RoutePolicy.EXTERNAL_PAGE) {
-      // 完整主机名匹配；带非默认端口的地址不按主机名放行。
+      if (source === RouteSource.IN_APP || source === RouteSource.PUSH || source === RouteSource.BRIDGE) {
+        return true;
+      }
+      // 深链（以及来源说不清的 pending_action 恢复、Agent 卡片，按最严格的深链口径）：完整主机名匹配；带非默认端口的地址不按主机名放行。
       if (target.port !== null) {
         return false;
       }

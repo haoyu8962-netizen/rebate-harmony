@@ -19,6 +19,12 @@ import clientCoreIntegrationTest from './ClientCoreIntegration.test';
 import clientCoreReviewR1Test from './ClientCoreReviewR1.test';
 import clientCoreReviewR2Test from './ClientCoreReviewR2.test';
 import clientCoreReviewR3Test from './ClientCoreReviewR3.test';
+import bridgeVectorTest from './BridgeVector.test';
+import bridgeHostTest from './BridgeHost.test';
+import clientCoreFollowupTest from './ClientCoreFollowup.test';
+import bridgeReviewR1Test from './BridgeReviewR1.test';
+import bridgeReviewR2Test from './BridgeReviewR2.test';
+import bridgeReviewR3Test from './BridgeReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -47,4 +53,10 @@ export default function testsuite() {
   clientCoreReviewR1Test();
   clientCoreReviewR2Test();
   clientCoreReviewR3Test();
+  bridgeVectorTest();
+  bridgeHostTest();
+  clientCoreFollowupTest();
+  bridgeReviewR1Test();
+  bridgeReviewR2Test();
+  bridgeReviewR3Test();
 }

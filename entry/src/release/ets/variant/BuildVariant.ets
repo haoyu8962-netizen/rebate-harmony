@@ -33,6 +33,11 @@ export class BuildVariant {
   /** Release 的强更结论存储：couli_update（Debug / Staging 的调试假结果存在 couli_update_debug，这里不读）。 */
   static readonly UPDATE_NAMESPACE: string = CouliPreferences.UPDATE_NAMESPACE;
 
+  /** Release 的可信容器没有任何额外 origin（本机一致性测试源只在 Debug 构建，APP-04）。 */
+  static debugTrustedOrigins(): string[] {
+    return [];
+  }
+
   /** Release 不认任何调试启动参数。 */
   static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
   }

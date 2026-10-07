@@ -11,6 +11,16 @@
     HM-LINT-3 no-router            import 了 @ohos.router，或从 @kit.ArkUI 导入 router（导航只用 Navigation + NavPathStack）
     HM-LINT-4 sdk-init-in-privacy  第三方 SDK 初始化调用出现在 PrivacyGate.ets 以外（03 §4.1）
     HM-LINT-5 no-feature-deps      feature 的 oh-package.json5 依赖或 import 了另一个 feature
+    HM-LINT-6 webview-containers   CSB-10 / CSB-03：ExternalWebView.ets 出现注入脚本、样式或消息通道的调用；或在 features/web 的
+                                   两个容器封装之外创建 Web 组件
+    HM-LINT-7 webview-no-external  APP-04 R1-09：两类容器（features/web）与 App 的桥接线（entry/src/main/ets/web）里拉起外部
+                                   应用或系统浏览器（openLink、startAbility*）。API 20 不能保证 https 只交给系统浏览器（已注册
+                                   App Linking 的应用会被优先拉起），所以容器不提供「在浏览器打开」出口
+    HM-LINT-8 webview-system-back  APP-04 R1-11：entry/src/main 里承载 TrustedWebView / ExternalWebView 的文件，每个容器都要有
+                                   NavDestination.onBackPressed 把系统返回交给容器（网页有历史时先后退）
+    HM-LINT-9 webview-navbar-size  APP-04 R4-01：TrustedWebView.ets 的标题栏 navBar() 里不得出现 Image 组件或百分比高度。
+                                   标题栏只有最小高度，百分比高度会参照整页、把标题栏撑满并挤掉 layoutWeight(1) 的网页区域；
+                                   背景图只能用 backgroundImage 等背景属性（不参与尺寸测量）
 """
 
 import json
@@ -33,6 +43,18 @@ KIT_ARKUI_IMPORT_RE = re.compile(r"""import\s*\{([^}]*)\}\s*from\s*['"]@kit\.Ark
 SDK_INIT_RE = re.compile(
     r"\b(MobPush\w*|AGConnect\w*|WXApi\w*|AlibcTrade\w*|Alibc\w*Sdk|Sentry\w*|JPush\w*|UMConfigure|UMeng\w*)"
     r"\s*\.\s*(init\w*|register\w*|setup\w*|start\w*|asyncInit\w*|configure\w*)\s*\(")
+EXTERNAL_INJECTION_RE = re.compile(
+    r"\b(javaScriptProxy|registerJavaScriptProxy|javaScriptOnDocumentStart|javaScriptOnDocumentEnd|"
+    r"runJavaScriptOnDocumentStart|runJavaScriptOnDocumentEnd|runJavaScriptOnHeadEnd|runJavaScript|runJavaScriptExt|"
+    r"createWebMessagePorts|postMessage|injectOfflineResources|setStyle)\s*\(")
+WEB_COMPONENT_RE = re.compile(r"(?<![A-Za-z0-9_.])Web\s*\(\s*\{")
+WEB_CONTAINER_FILES = {"features/web/src/main/ets/TrustedWebView.ets", "features/web/src/main/ets/ExternalWebView.ets"}
+EXTERNAL_LAUNCH_RE = re.compile(r"\b(openLink|startAbility\w*)\s*\(")
+WEB_CONTAINER_USE_RE = re.compile(r"(?<![A-Za-z0-9_.])(TrustedWebView|ExternalWebView)\s*\(\s*\{")
+BACK_PRESSED_RE = re.compile(r"\.onBackPressed\s*\(")
+NAVBAR_BUILDER_RE = re.compile(r"(?<![A-Za-z0-9_.])navBar\s*\(\s*\)\s*\{")
+NAVBAR_FORBIDDEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(Image\s*\(|\.\s*height\s*\(\s*['\"]\s*[0-9.]+\s*%\s*['\"]\s*\))")
 IMPORT_FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
@@ -95,6 +117,27 @@ def line_of(code, pos):
     return code.count("\n", 0, pos) + 1
 
 
+def block_end(code, start):
+    """start 是某个 { 之后的位置；返回与之配对的 } 的位置（字符串字面量里的括号不计，注释已去掉）。"""
+    depth, i, n = 1, start, len(code)
+    while i < n:
+        ch = code[i]
+        if ch in ("'", '"', "`"):
+            j = i + 1
+            while j < n and code[j] != ch:
+                j += 2 if code[j] == "\\" else 1
+            i = j + 1
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return n
+
+
 def load_json5(path):
     with open(path, encoding="utf-8") as f:
         text = f.read()
@@ -135,6 +178,40 @@ def lint(root):
             for m in SDK_INIT_RE.finditer(code):
                 report("HM-LINT-4", path, line_of(code, m.start()),
                        "第三方 SDK 初始化 %s.%s 只能写在 PrivacyGate.onConsented()" % (m.group(1), m.group(2)))
+
+        if os.path.basename(path) == "ExternalWebView.ets":
+            for m in EXTERNAL_INJECTION_RE.finditer(code):
+                report("HM-LINT-6", path, line_of(code, m.start()),
+                       "ExternalWebView 不得注入脚本、样式或消息通道：%s（CSB-10）" % m.group(1))
+        if rel not in WEB_CONTAINER_FILES:
+            for m in WEB_COMPONENT_RE.finditer(code):
+                report("HM-LINT-6", path, line_of(code, m.start()),
+                       "Web 组件只能在 features/web 的 TrustedWebView / ExternalWebView 封装里创建（CSB-03）")
+
+        if rel.startswith("features/web/") or rel.startswith("entry/src/main/ets/web/"):
+            for m in EXTERNAL_LAUNCH_RE.finditer(code):
+                report("HM-LINT-7", path, line_of(code, m.start()),
+                       "WebView 容器与桥接线不得拉起外部应用或系统浏览器：%s（R1-09）" % m.group(1))
+
+        if rel == "features/web/src/main/ets/TrustedWebView.ets":
+            m = NAVBAR_BUILDER_RE.search(code)
+            if m is None:
+                report("HM-LINT-9", path, 1, "找不到标题栏 navBar() 构建函数，无法检查标题栏尺寸（R4-01）")
+            else:
+                body_start = m.end()
+                end = block_end(code, body_start)
+                for hit in NAVBAR_FORBIDDEN_RE.finditer(code, body_start, end):
+                    report("HM-LINT-9", path, line_of(code, hit.start()),
+                           "标题栏 navBar() 里出现 %s：百分比高度或 Image 会把标题栏撑满整页、挤掉网页；背景图用 backgroundImage（R4-01）"
+                           % hit.group(1).strip())
+
+        if rel.startswith("entry/src/main/"):
+            uses = len(WEB_CONTAINER_USE_RE.findall(code))
+            backs = len(BACK_PRESSED_RE.findall(code))
+            if uses > backs:
+                report("HM-LINT-8", path, 1,
+                       "承载 WebView 容器的页面要用 NavDestination.onBackPressed 把系统返回交给容器（%d 个容器、%d 处 onBackPressed，R1-11）"
+                       % (uses, backs))
 
         if in_feature:
             own = rel.split("/")[1]

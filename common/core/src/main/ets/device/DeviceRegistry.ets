@@ -189,13 +189,28 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     return this.rejectedHashes.length;
   }
 
-  /** PrivacyGate 的设备注册步骤：确保已注册（已有凭据直接 true）。不抛出。 */
+  /**
+   * PrivacyGate 的设备注册步骤：确保已注册（已有凭据直接 true）。不抛出。
+   * APP-03b 共性 27（I-R3-01）：退避注册与 10402 窗口共享被拒凭据的恢复状态。有被隔离的凭据时，这次退避注册就是它的恢复：
+   * 结果登记到该凭据的重新注册记录上（换掉之前失败的那条），还没醒来、晚到的同一凭据 10402 复用它——成功后直接重放，不再
+   * 注册一次；失败仍由退避流程自己重试（这里不另发退避通知）。
+   */
   register(): Promise<boolean> {
     const running: Promise<boolean> | null = this.running;
     if (running !== null) {
       return running;
     }
-    return this.track(this.ensureRegistered());
+    const flight: Promise<boolean> = this.track(this.ensureRegistered());
+    const revoked: string | null = this.revokedDeviceId;
+    const scope: RegistrationTicket | null = this.scope();
+    if (revoked !== null && scope !== null) {
+      const recovery: Promise<boolean> = flight.then((ok: boolean): boolean => {
+        const now: string | null = this.deviceId();
+        return ok && now !== null && now !== revoked;
+      });
+      this.remember(DeviceRegistry.credentialKey(revoked), new ReregisterRecord(scope, recovery));
+    }
+    return flight;
   }
 
   /** 10402：重新注册 1 次（单飞；同一被拒凭据与世代复用结果）。不抛出。 */
@@ -216,15 +231,29 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
       // （lessons 4、18，R2-02）。
       return record.result;
     }
-    const running: Promise<boolean> | null = this.running;
-    if (running !== null) {
-      this.remember(key, new ReregisterRecord(scope, running));
-      return running;
-    }
-    // 被拒的 device_id 先在内存里作废（这次注册请求也不带它），再删旧凭据：删不掉不注册（旧凭据还在存储里）。
+    // 被拒的 device_id 立刻从可读凭据里隔离（F-ALL-08 / APP-03b 共性 21，I-R1-01）：不论是新开一轮注册还是并入在途的
+    // 注册，之后的请求（含这次注册请求）都不再带它。
     if (usedDeviceId !== null) {
       this.revokedDeviceId = usedDeviceId;
     }
+    const running: Promise<boolean> | null = this.running;
+    if (running !== null) {
+      // 并入在途的注册窗口：窗口结束后只有拿到了不是被拒那份的凭据才算成功。在途的是开始时还读得到旧凭据的普通注册
+      // （它不会换凭据）时，这个被拒凭据的结果是失败，并且交给退避流程一次；窗口本身失败时由窗口自己通知退避，这里不重复。
+      // 结果按被拒凭据保存，晚到的同一凭据 10402 复用它，不再另挂（退避通知只发一次）。
+      const joined: Promise<boolean> = running.then((ok: boolean): boolean => {
+        if (ok && this.deviceId() !== null) {
+          return true;
+        }
+        if (ok && this.valid(scope)) {
+          this.restart(false);
+        }
+        return false;
+      });
+      this.remember(key, new ReregisterRecord(scope, joined));
+      return joined;
+    }
+    // 再删旧凭据：删不掉不注册（旧凭据还在存储里）。
     let result: Promise<boolean>;
     try {
       this.store.clear();
@@ -243,6 +272,21 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     }
     this.remember(key, new ReregisterRecord(scope, result));
     return result;
+  }
+
+  /**
+   * 不走重新注册的 10402（重放里再收到、注册请求自己收到）：这次请求所用的凭据还是当前凭据时立刻隔离，并把恢复交给
+   * 唯一一条退避链（PrivacyGate.restartDeviceRegistration(false) 本身只保留一条链）。ticket 无效（未同意、切换中）时不动。
+   */
+  isolate(usedDeviceId: string | null): void {
+    if (usedDeviceId === null || this.scope() === null) {
+      return;
+    }
+    if (this.deviceId() !== usedDeviceId) {
+      return;
+    }
+    this.revokedDeviceId = usedDeviceId;
+    this.restart(false);
   }
 
   /** 环境闸门关闭（切换开始，同步）：放弃在途的注册任务与重新注册记录；它们的 ticket 已失效，结果一律不处理。 */

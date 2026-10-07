@@ -37,6 +37,9 @@
                                                               link_patterns 只留版本；TODO(N-21)：发布构建改取生产配置当时的值）
     common/core/src/test/ClientCoreVectorsData.ets            specs/client-core-vectors.json 全文（APP-03b，Codex 写的三端共用向量）
     common/core/src/test/DeviceHashVectorsData.ets            契约快照 specs/device-hash.vectors.json 全文（APP-03b，设备哈希向量单测用）
+    common/generated/src/main/ets/BridgeContract.ets          bridge.schema.json 的 params schema（JSON 文本）、signed_paths、not_exposed、
+                                                              events 名单与 apps.json 的 trade_only 目标（APP-04，桥协议判定用）
+    common/core/src/test/BridgeVectorsData.ets                specs/bridge-vectors.json 全文（APP-04，Codex 写的三端共用桥向量）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -56,7 +59,7 @@ HEADER = "// 生成物，禁止手改；来源 contract.lock（tools/codegen/gen
 # 生成物自身使用的类型名；契约枚举转换后与它们或 ArkTS 全局类型重名时加前缀 Contract。
 RESERVED_TYPE_NAMES = {
     "ContractEnums", "RetryKind", "ErrorCodeInfo", "ErrorCodes", "RouteKind", "RouteSpec", "Routes",
-    "DebugRoutes", "AppStoreSpec", "AppStores", "ApiOperation", "ApiOperations", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "DefaultTexts", "DesignTokens",
+    "DebugRoutes", "AppStoreSpec", "AppStores", "ApiOperation", "ApiOperations", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "BridgeSignedPath", "BridgeContract", "DefaultTexts", "DesignTokens",
     "ClientEvent", "ClientEvents", "ClientEventValue", "DeviceHashSeeds", "BundledConfig",
     "Object", "Function", "String", "Number", "Boolean", "Symbol", "Array", "Map", "Set", "Date",
     "Error", "Promise", "JSON", "Math", "RegExp", "Record", "Partial", "Required", "Readonly",
@@ -571,6 +574,88 @@ export class BridgeMethods {
     lines.append("  }")
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def gen_bridge_contract():
+    """bridge.schema.json 的协议数据（APP-04 / HM-03）：方法 params 的 JSON Schema 子集、$defs、signed_paths、not_exposed、
+    events 名单、envelope 的 id 上限，以及 apps.json 里 trade_only 的外跳目标（ext.openApp 的 90403）。
+    params 原样转写成 JSON 文本，由 core/bridge 的 BridgeSchema 在运行时按子集关键字校验（与 H5 SDK 同一份 schema）。"""
+    data = load("contracts/bridge.schema.json")
+    apps = load("contracts/apps.json")
+    envelope = data.get("envelope", {}).get("request", {})
+    props = envelope.get("properties", {})
+    if props.get("v", {}).get("enum") != [1]:
+        raise GenError("bridge envelope.v 不是 [1]")
+    id_max = props.get("id", {}).get("maxLength")
+    if not isinstance(id_max, int):
+        raise GenError("bridge envelope.id 缺 maxLength")
+    methods = {}
+    for name, m in data["methods"].items():
+        params = m.get("params")
+        if not isinstance(params, dict):
+            raise GenError("桥方法 %s 缺 params" % name)
+        methods[name] = params
+    schema_text = json.dumps({"methods": methods, "$defs": data.get("$defs", {})}, ensure_ascii=False,
+                             sort_keys=False, separators=(",", ":"))
+    signed = data.get("signed_paths", [])
+    for item in signed:
+        if not isinstance(item.get("method"), str) or not isinstance(item.get("path"), str):
+            raise GenError("signed_paths 条目非法：%r" % (item,))
+    not_exposed = data.get("not_exposed", [])
+    events = list(data.get("events", {}).keys())
+    events_text = json.dumps(data.get("events", {}), ensure_ascii=False, separators=(",", ":"))
+    trade_only = [k for k, v in apps.get("apps", {}).items() if v.get("trade_only") is True]
+    share_patterns = []
+    sp = data["methods"].get("share.open", {}).get("share_page_paths", {})
+    for key, v in sp.items():
+        if key.startswith("$"):
+            continue
+        share_patterns.append(v.get("path_pattern"))
+    lines = [HEADER, "// 桥协议数据（APP-04）：contracts/bridge.schema.json 的 params schema、signed_paths、not_exposed、events，",
+             "// 与 contracts/apps.json 的 trade_only 目标。params 原样转写为 JSON，由 core/bridge 按 JSON Schema 子集校验。\n"]
+    lines.append("export class BridgeSignedPath {")
+    lines.append("  readonly method: string;")
+    lines.append("  readonly path: string;")
+    lines.append("")
+    lines.append("  constructor(method: string, path: string) {")
+    lines.append("    this.method = method;")
+    lines.append("    this.path = path;")
+    lines.append("  }")
+    lines.append("}")
+    lines.append("")
+    lines.append("export class BridgeContract {")
+    lines.append("  /** envelope.v 唯一取值。 */")
+    lines.append("  static readonly ENVELOPE_VERSION: number = 1;")
+    lines.append("  /** envelope.id 的 maxLength。 */")
+    lines.append("  static readonly ENVELOPE_ID_MAX: number = %d;" % id_max)
+    lines.append("  /** {\"methods\": {方法名: params schema}, \"$defs\": {...}} 的 JSON 文本。 */")
+    lines.append("  static readonly PARAMS_SCHEMA_JSON: string = %s;" % ts_str(schema_text))
+    lines.append("  /** signed_paths：net.signedRequest 只签这些 method + path。 */")
+    lines.append("  static readonly SIGNED_PATHS: BridgeSignedPath[] = [%s];" % ", ".join(
+        "new BridgeSignedPath(%s, %s)" % (ts_str(i["method"]), ts_str(i["path"])) for i in signed))
+    lines.append("  /** not_exposed：不开放给 H5 的能力（任何同名调用按不存在处理）。 */")
+    lines.append("  static readonly NOT_EXPOSED: string[] = [%s];" % ", ".join(ts_str(x) for x in not_exposed))
+    lines.append("  /** events：原生只下发这些事件名。 */")
+    lines.append("  static readonly EVENTS: string[] = [%s];" % ", ".join(ts_str(x) for x in events))
+    lines.append("  /** events 的 data schema（{事件名: schema}）的 JSON 文本。 */")
+    lines.append("  static readonly EVENTS_SCHEMA_JSON: string = %s;" % ts_str(events_text))
+    lines.append("  /** apps.json 里 trade_only 的外跳目标（ext.openApp 一律 90403）。 */")
+    lines.append("  static readonly TRADE_ONLY_TARGETS: string[] = [%s];" % ", ".join(ts_str(x) for x in trade_only))
+    lines.append("  /** share.open 的 share_page_paths[*].path_pattern（null = 未定，按不放行处理）。 */")
+    lines.append("  static readonly SHARE_PAGE_PATTERNS: (string | null)[] = [%s];" % ", ".join(
+        ts_nullable_str(x) for x in share_patterns))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+BRIDGE_VECTORS = os.path.join("specs", "bridge-vectors.json")
+
+
+def gen_bridge_vectors_data():
+    """specs/bridge-vectors.json（APP-04，Codex 先写的三端共用向量）。"""
+    return gen_vectors_data(BRIDGE_VECTORS, "BRIDGE_VECTORS_JSON",
+                            "桥协议与外部页导航向量（APP-04）：specs/bridge-vectors.json 全文，供 BridgeVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
 
 
 # ---------------------------------------------------------------- 文案
@@ -1447,6 +1532,7 @@ def build_outputs():
         os.path.join(main, "ErrorCodes.ets"): gen_error_codes(),
         os.path.join(main, "Routes.ets"): gen_routes(route_entry_type, route_entry_values),
         os.path.join(main, "BridgeMethods.ets"): gen_bridge(),
+        os.path.join(main, "BridgeContract.ets"): gen_bridge_contract(),
         os.path.join(main, "DefaultTexts.ets"): gen_texts(),
         os.path.join(main, "DesignTokens.ets"): gen_tokens(),
         os.path.join(MODULE, "src", "main", "resources", "rawfile", "texts.default.json"):
@@ -1471,6 +1557,7 @@ def build_outputs():
         os.path.join(MODULE, "src", "main", "resources", "rawfile", "default_config.json"): bundled_text,
         os.path.join(CORE_MODULE, "src", "test", "ClientCoreVectorsData.ets"): gen_client_core_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "DeviceHashVectorsData.ets"): gen_device_hash_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "BridgeVectorsData.ets"): gen_bridge_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
@@ -1480,7 +1567,7 @@ def build_outputs():
 
 def index_exports(outputs, main):
     lines = []
-    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens", "AppStores", "ApiOperations",
+    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "BridgeContract", "DefaultTexts", "DesignTokens", "AppStores", "ApiOperations",
                  "ClientEvents", "DeviceHashSeeds", "BundledConfig"):
         src = outputs[os.path.join(main, name + ".ets")]
         names = re.findall(r"^export (?:enum|class|function|const|type) ([A-Za-z0-9_]+)", src, re.M)

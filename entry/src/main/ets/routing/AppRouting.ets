@@ -91,8 +91,11 @@ export class RoutingPlaceholders {
   session: SessionState = SessionState.GUEST;
   // TODO(APP-05): 接实名结论；未知按未实名（auth=realname 进实名前置）。
   realnameVerified: boolean = false;
-  // TODO(APP-03): 接 /v1/config 的 external_hosts 与 bridge_origins；缺省空 = ExternalPage、WebPage 全拒。
-  targets: RouteTargetAllowlist = RouteTargetAllowlist.EMPTY;
+  /**
+   * ExternalPage / WebPage 的目标白名单（APP-04 起由 AppBridge.routeTargets 接 /v1/config：external_hosts 与
+   * 验签通过的 bridge_origins）；缺省空 = 深链进 ExternalPage、任何来源进 WebPage 全拒。
+   */
+  targets: () => RouteTargetAllowlist = () => RouteTargetAllowlist.EMPTY;
 }
 
 /**
@@ -184,6 +187,17 @@ export class AppRouting {
   }
 
   /**
+   * 商品回流意图（BR-ATTR-29 ②(a)；APP-04 R1-08）：ExternalWebView 取消了去往商品页的导航，交来去掉 # 之后的地址。
+   * 返回 true 表示已接手（识别并打开原生 ProductDetail，压在容器之上）；false 表示现在处理不了，容器给出
+   * external_page.product_unresolved 的失败提示，原页面不动。
+   * TODO(APP-08)：POST /v1/inputs/parse 识别出 platform 与 product_key 后，经 openInApp('ProductDetail', …) 打开；在此之前
+   * 拿不到 ProductDetail 的必填参数，一律按处理不了返回 false（不打开占位详情、不加载平台页面）。
+   */
+  productIntent(_urlWithoutFragment: string): boolean {
+    return false;
+  }
+
+  /**
    * 强更页上用户自己点的次要入口（03 §4.1）：带「从强更页进入」标记经 EntryGuard 判定，强更状态下只放行
    * PrivacyCenter、Agreement、Login、DeleteAccount（其余回强更页）。打开的页面压在强更页之上，返回回到强更页。
    */
@@ -261,7 +275,7 @@ export class AppRouting {
     const update: UpdateState | null = LaunchQueue.effectiveUpdate(AppUpdate.shared.routerStatus(), Date.now());
     return new GuardState(this.privacyState, update ?? AppUpdate.shared.inAppUpdate(), this.placeholders.session,
       AppConfig.gate() === EnvironmentGate.SETTLED, this.appVersion, BuildVariant.IS_DEBUG_BUILD, fromForceUpdatePage,
-      this.placeholders.realnameVerified, this.placeholders.targets);
+      this.placeholders.realnameVerified, this.placeholders.targets());
   }
 
   /**

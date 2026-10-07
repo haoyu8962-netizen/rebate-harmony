@@ -1,3 +1,5 @@
+import { LinkRuleTable } from '../bridge/LinkRules';
+
 /** JSON 对象（JSON.parse 的结果按对象访问）。 */
 export type JsonRecord = Record<string, Object>;
 
@@ -13,7 +15,8 @@ const SEARCH_VALUES: string[] = ['on', 'off'];
  * - searchStatus：逐个平台取第一个带该平台取值的层，明确的 off 有效；缺字段、缺平台不当作 off、继续回落。
  *   TODO(N-21)：三层都缺、取值为 null 或不认识时结果未定（rule-gaps 第 4 条）：这里按缺失回落，都没有返回 null，由调用方决定。
  * - linkPatterns：带版本的完整链接形态表（version 为非空字符串、rules 为数组）按 当前 → 上一次成功 → 包内 取用；
- *   明确的空规则数组是完整的表，不等于缺失。TODO(N-21)：损坏、同版本异内容、版本回退的处理未定，按「不完整即跳过」。
+ *   明确的空规则数组是完整的表，不等于缺失；含不合格规则（如坏正则）的表整表按损坏跳过（APP-04 R2-06）。
+ *   TODO(N-21)：同版本异内容、版本回退的处理未定。
  */
 export class ConfigResolver {
   static resolve(current: string | null, lkg: string | null, bundled: string, key: string): string | null {
@@ -68,17 +71,17 @@ export class ConfigResolver {
     return ConfigResolver.completePatterns(layer['link_patterns']);
   }
 
-  /** 一个值是完整的链接形态表时返回它。 */
+  /**
+   * 一个值是完整且合格的链接形态表时返回它（APP-04 R2-06）：除 version 非空、rules 为数组外，每条规则都要合格（字段齐全、
+   * 类别认得、主机名合格、路径正则都能编译，见 LinkRuleTable.valid）。任一条不合格整表按损坏跳过，取下一层
+   * （上一次成功 → 包内），不把坏正则当成「不命中」。
+   */
   static completePatterns(value: Object | undefined): JsonRecord | null {
     const patterns: JsonRecord | null = ConfigResolver.objectOf(value);
     if (patterns === null) {
       return null;
     }
-    const version: Object | undefined = patterns['version'];
-    if (typeof version !== 'string' || (version as string).length === 0 || !Array.isArray(patterns['rules'])) {
-      return null;
-    }
-    return patterns;
+    return LinkRuleTable.valid(patterns) ? patterns : null;
   }
 
   /** JSON 文本 → 对象；不能解析或不是对象为 null。 */

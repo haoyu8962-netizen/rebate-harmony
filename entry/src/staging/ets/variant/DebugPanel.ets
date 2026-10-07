@@ -8,6 +8,7 @@ import {
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { AppVersionCheckExample, DebugRoutes } from 'generated';
 import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
+import { DEBUG_CONFORMANCE_URL, DEBUG_HARNESS_URL, DEBUG_WEB_ROUTE, DebugWebTarget } from './DebugBridge';
 import { AppPrivacy } from '../../../main/ets/privacy/AppPrivacy';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import { AppUpdate } from '../../../main/ets/update/AppUpdate';
@@ -150,6 +151,33 @@ export struct DebugPanel {
           .onClick(() => {
             this.pathStack?.pushPathByName(CATALOG_ROUTE, null);
           })
+        if (this.capable(DebugCapability.BRIDGE_CONFORMANCE)) {
+          // 桥一致性页与本机桥测试页（APP-04）：宿主机静态服务经 hdc rport 映射到模拟器 127.0.0.1:8788。
+          Button('Bridge conformance')
+            .width('100%')
+            .height(CouliInteraction.minTouchTarget)
+            .borderRadius(CouliRadius.button)
+            .id('debug_bridge_conformance')
+            .onClick(() => {
+              this.pathStack?.pushPathByName(DEBUG_WEB_ROUTE, new DebugWebTarget(DEBUG_CONFORMANCE_URL, false));
+            })
+          Button('Bridge conformance (assume logged in)')
+            .width('100%')
+            .height(CouliInteraction.minTouchTarget)
+            .borderRadius(CouliRadius.button)
+            .id('debug_bridge_conformance_logged_in')
+            .onClick(() => {
+              this.pathStack?.pushPathByName(DEBUG_WEB_ROUTE, new DebugWebTarget(DEBUG_CONFORMANCE_URL, true));
+            })
+          Button('Bridge harness')
+            .width('100%')
+            .height(CouliInteraction.minTouchTarget)
+            .borderRadius(CouliRadius.button)
+            .id('debug_bridge_harness')
+            .onClick(() => {
+              this.pathStack?.pushPathByName(DEBUG_WEB_ROUTE, new DebugWebTarget(DEBUG_HARNESS_URL, false));
+            })
+        }
         if (this.capable(DebugCapability.DEBUG_ROUTES)) {
           Text('debug_only routes: ' + Array.from(DebugRoutes.all.keys()).join(', '))
             .fontSize(CouliTypography.footnote.fontSize)
