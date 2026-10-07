@@ -1,5 +1,7 @@
 import { agentTabRootBuilder } from 'agent';
-import { homeTabRootBuilder } from 'home';
+import { HomeActions, homeTabRootBuilder } from 'home';
+import { AppRouting } from '../routing/AppRouting';
+import { SearchDraftTexts } from '../search/SearchDraftTexts';
 import { meTabRootBuilder } from 'me';
 import { ordersTabRootBuilder } from 'orders';
 import { TabBarItem } from 'designsystem';
@@ -43,6 +45,11 @@ export class TabRootRegistry {
   }
 
   private static build(): Map<string, WrappedBuilder<[boolean]>> {
+    // 首页的搜索入口（APP-06a）：经 Router 打开 Search（auth=none；基本模式按 EntryGuard 只读打开）。
+    HomeActions.searchLabel = SearchDraftTexts.text('search.placeholder');
+    HomeActions.openSearch = (): void => {
+      AppRouting.shared.openInApp('Search');
+    };
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));
     m.set('AgentChat', wrapBuilder(agentTabRootBuilder));

@@ -4,7 +4,8 @@ import {
   ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner,
   DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
   PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
-  SecurePendingKeyBackend, SecureSessionTokens, SessionTokens, SessionTokensCleaner, UpdateNetworkPort, UpdateState
+  SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionTokens, SessionTokensCleaner,
+  UpdateNetworkPort, UpdateState
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppLogin } from '../login/AppLogin';
@@ -49,6 +50,21 @@ class AppNetworkContext implements NetworkContext {
  *   10402 的重新注册（单飞，重放 1 次）；device_id 进 Preferences、install_secret 进 Asset Store Kit。它的清理项同名替换
  *   撤回同意 / 切换环境的 device_identity 占位。PrivacyGate.onConsented 的设备注册步骤由 AppPrivacy 接到 registerDevice。
  */
+/** 会话级 Effect 的 App 出口（登录页失效提示 + Router）。 */
+class AppSessionEffectHost implements SessionEffectHost {
+  markSessionExpired(): void {
+    AppLogin.shared.markSessionExpired();
+  }
+
+  open(route: string): void {
+    AppRouting.shared.openInApp(route);
+  }
+
+  stateChanged(): void {
+    AppRouting.shared.stateChanged();
+  }
+}
+
 export class AppNetwork {
   private static instance: ApiClient | null = null;
   private static updateHandler: (() => void) | null = null;
@@ -124,17 +140,22 @@ export class AppNetwork {
     deps.deviceRegistrar = registry;
     AppNetwork.registry = registry;
     deps.sessionEffect = (effect: ErrorEffect): void => {
-      // 刷新失败清会话：普通状态跳登录；强更状态下只清会话、停在强更页（route 为 null）。守卫的会话状态随之现算为游客。
+      // 10404 与刷新失败清会话（F-HM-09，APP-05a 共性 18）：普通状态经 Router 打开 Login 并提示失效；强更状态下只清会话、
+      // 停在强更页。守卫的会话状态随之现算为游客。判定在 Core 的 SessionEffectRouting（测试从真实 ApiClient 回调触发）。
       hilog.info(DOMAIN, TAG, 'session effect %{public}s', effect.effectKindRaw);
-      if (effect.route !== null) {
-        // 跳登录（LoginSessionExpired）：登录页出现时提示「登录已失效」（error.10404）。
-        if (effect.route === 'Login') {
-          AppLogin.shared.markSessionExpired();
-        }
-        AppRouting.shared.openInApp(effect.route);
-      } else {
-        AppRouting.shared.stateChanged();
+      SessionEffectRouting.apply(effect, new AppSessionEffectHost());
+    };
+    // F-HM-08（APP-05a 共性 14）：受限会话在异步刷新里变为 full 等作用域变化：世代仍是当前世代时交 Router 重算守卫状态
+    // （stateChanged 先过守卫再恢复待办）；世代已变（登出、换号）的旧通知丢弃。
+    // F-HM-09（APP-05a 共性 19）：按触发来源区分——冷启动 / 强更恢复的 App 级屏障变成 full：经 Router 守卫恢复待办；
+    // 登录尝试的复查（有效时 LoginService 自己恢复，已取消时不该恢复）与业务请求的刷新：只同步状态（resumePending=false）。
+    deps.sessionRefreshedFrom = (generation: number, scope: string, resumePending: boolean): void => {
+      const current: ApiClient | null = AppNetwork.instance;
+      if (current === null || current.sessionGenerationId() !== generation) {
+        return;
       }
+      hilog.info(DOMAIN, TAG, 'session refreshed scope=%{public}s resume=%{public}s', scope, String(resumePending));
+      AppRouting.shared.stateChanged(resumePending);
     };
     const client: ApiClient = new ApiClient(deps);
     const handler: () => void = NetworkComposition.install(client, AppConfig.cleaners,

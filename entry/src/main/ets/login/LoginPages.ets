@@ -31,6 +31,10 @@ export struct AppLoginPage {
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack || (this.config !== null && this.config.systemBack()))
+    .onShown(() => {
+      // F-HM-09（APP-05a 共性 20）：从协议页等返回、回前台时，按当前时钟与截止时间重算倒计时与限流，必要时重启计时器。
+      this.config?.pageShown();
+    })
     .onWillDisappear(() => {
       // R2-01（共性 9）：页面确定出栈（系统返回、任何不经 StackNavigator 的出栈）在退场动画开始前就作废本次登录尝试，
       // 不等 aboutToDisappear（动画结束才执行）；经 StackNavigator 的移除在同步出口已作废，这里重复调用无害。

@@ -30,6 +30,13 @@ import loginVectorTest from './LoginVector.test';
 import loginIntegrationTest from './LoginIntegration.test';
 import app05aReviewR3Test from './App05aReviewR3.test';
 import app05aReviewR4Test from './App05aReviewR4.test';
+import searchProductVectorTest from './SearchProductVector.test';
+import searchIntegrationTest from './SearchIntegration.test';
+import searchReviewR1Test from './SearchReviewR1.test';
+import searchReviewR2Test from './SearchReviewR2.test';
+import searchReviewR3Test from './SearchReviewR3.test';
+import followupHM09Test from './FollowupHM09.test';
+import followupHM08Test from './FollowupHM08.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -69,4 +76,11 @@ export default function testsuite() {
   loginIntegrationTest();
   app05aReviewR3Test();
   app05aReviewR4Test();
+  searchProductVectorTest();
+  searchIntegrationTest();
+  followupHM08Test();
+  searchReviewR1Test();
+  searchReviewR2Test();
+  searchReviewR3Test();
+  followupHM09Test();
 }

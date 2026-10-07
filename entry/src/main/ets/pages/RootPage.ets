@@ -21,6 +21,7 @@ import { RoutePlaceholderPage } from './RoutePlaceholderPage';
 import { AppLogin } from '../login/AppLogin';
 import { AppLoginPage, destinationReadonly, SettingsPlaceholderPage } from '../login/LoginPages';
 import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
+import { AppProductPage, AppSearch, AppSearchPage } from '../search/AppSearch';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -35,6 +36,8 @@ const BRAND_MARK_FONT: number = 22;
 const BLOCKED_MESSAGE_KEY: string = 'error.50001';
 const RETRY_KEY: string = 'external_page.retry';
 const SETTINGS_ROUTE: string = 'Settings';
+const SEARCH_ROUTE: string = 'Search';
+const PRODUCT_DETAIL_ROUTE: string = 'ProductDetail';
 
 /** 首屏观察的环境闸门状态。 */
 @ObservedV2
@@ -138,6 +141,12 @@ struct RootPage {
     } else if (name === RoutePolicy.LOGIN) {
       // 登录页（APP-05a）。强更状态下守卫只放行从强更页进入的 Login：带受限登录标记（不显示邀请码等业务输入）。
       AppLoginPage({ restrictedLogin: AppUpdate.shared.belowMin })
+    } else if (name === SEARCH_ROUTE) {
+      // 搜索页（APP-06a）。参数只认 Router 放进来的 RouteDestination（q、platform）。
+      AppSearchPage({ param: param })
+    } else if (name === PRODUCT_DETAIL_ROUTE) {
+      // 商品详情（APP-06a）：platform、product_key、item_ref。
+      AppProductPage({ param: param })
     } else if (name === SETTINGS_ROUTE) {
       // 设置页占位 + 退出登录入口（APP-05a；设置页本身在 APP-12）。
       SettingsPlaceholderPage({ readonlyMode: destinationReadonly(param) })
@@ -212,6 +221,7 @@ struct RootPage {
           AppRouting.shared.attachNavigation(this.pathStack);
           // 登录成功后的邀请结果提示用根页的界面上下文（登录页已出栈）。
           AppLogin.shared.attachUi(this.getUIContext());
+          AppSearch.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {

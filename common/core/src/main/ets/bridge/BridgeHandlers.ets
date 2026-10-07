@@ -30,9 +30,21 @@ export class BridgeRouteOpening {
    */
   static rechecked(request: RouteRequest, decision: GuardDecision, current: () => GuardState,
     decide: (request: RouteRequest, state: GuardState) => GuardDecision,
-    apply: (decision: GuardDecision, request: RouteRequest) => void): BridgeRouteOpening {
+    apply: (decision: GuardDecision, request: RouteRequest) => void,
+    checking: () => boolean = (): boolean => false): BridgeRouteOpening {
     return new BridgeRouteOpening(decision, (): void => {
+      // F-HM-08（APP-04 共性 63）：强更结论绑定检查轮次。执行这一刻有一轮检查在途（CHECKING）时，不拿上一轮的 supported
+      // 顶替——保守取消这次导航（回复已按原结论交出，用户可再点一次）。
+      if (checking()) {
+        return;
+      }
       const fresh: GuardDecision = decide(request, current());
+      // F-HM-09（APP-04 共性 65）：deferred（检查中、环境未就绪等）不执行——不交 Router 排进启动队列，事后也不补执行；
+      // 回复已按原结论交出（opened:false），用户可再点一次。
+      if (fresh.kind === GuardDecisionKind.DEFER
+        || (decision.kind === GuardDecisionKind.DEFER && fresh.kind !== GuardDecisionKind.FORCE_UPDATE)) {
+        return;
+      }
       const same: boolean = fresh.kind === decision.kind && fresh.route === decision.route;
       if (same || fresh.kind === GuardDecisionKind.FORCE_UPDATE) {
         apply(fresh, request);

@@ -161,6 +161,20 @@ export class ApiClientDeps {
   /** 刷新失败（清会话）时的会话级 Effect：跳登录或停在强更页（每次刷新失败一次）。 */
   sessionEffect: (effect: ErrorEffect) => void = (_e: ErrorEffect) => {
   };
+  /**
+   * 异步刷新（受限会话屏障、10002 单飞刷新）保存了新令牌、且作用域变了（如 deletion_only → full）时的状态通知
+   * （APP-05a 共性 14，F-HM-08）：带保存那一刻的会话世代。App 在主线程核对世代仍是当前世代后，交 Router 重算守卫状态；
+   * 需要恢复待办时由 Router 先过守卫再恢复。通知出错不影响刷新结果。
+   */
+  sessionRefreshed: (generation: number, scope: string) => void = (_g: number, _s: string) => {
+  };
+  /**
+   * F-HM-09（APP-05a 共性 19）：同一通知带触发来源。resumePending=true：这一轮是 App 级受限会话屏障（冷启动、强更恢复为
+   * 「不低于」）发起的，App 核对世代后交启动协调器经 Router 守卫恢复待办；false：这一轮由登录尝试的复查（或业务请求的
+   * 10002）发起——登录尝试有效时由 LoginService 自己按登录后计划恢复，已取消时只同步状态、不恢复待办。
+   * 设置了它时代替 sessionRefreshed 调用。
+   */
+  sessionRefreshedFrom: ((generation: number, scope: string, resumePending: boolean) => void) | null = null;
 
   constructor(transport: HttpTransport, context: NetworkContext, identity: ApiAppIdentity, tokens: SessionTokens,
     update: UpdatePort) {
@@ -542,6 +556,8 @@ export class ApiClient {
   static readonly SESSION_ISSUING: string[] = ['loginBySms', 'loginByWechat', 'loginByApple', 'loginByHuawei',
     'refreshToken'];
   static readonly REFRESH_OPERATION: string = 'refreshToken';
+  /** 登出（settings.logout）：回 10404 时不发会话级跳登录 Effect。 */
+  static readonly LOGOUT_OPERATION: string = 'logout';
   /** 设备注册（APP-03b，DeviceRegistry 发出）。 */
   static readonly REGISTER_DEVICE_OPERATION: string = 'registerDevice';
   static readonly ABANDON_OPERATION: string = 'abandonIdempotencyKey';
@@ -550,6 +566,17 @@ export class ApiClient {
   /** 等待的刷新没有服务端结论（R2-03）。 */
   static readonly REFRESH_UNAVAILABLE: string = 'refresh_unavailable';
   /** 令牌世系最多回溯的刷新次数。 */
+  /** 等一个布尔结果；守卫被 cancelOwned 取消时立即以 null 结束（与 waitOwned 同一套登记，F-HM-08 共性 64）。 */
+  private waitOwnedFlag(promise: Promise<boolean>, owner: () => boolean): Promise<boolean | null> {
+    const wrapped: Promise<RefreshOutcome> = promise.then((ok: boolean): RefreshOutcome =>
+    RefreshOutcome.of(ok ? ApiClient.FLAG_TRUE : ApiClient.FLAG_FALSE));
+    return this.waitOwned(wrapped, owner).then((outcome: RefreshOutcome | null): boolean | null =>
+    outcome === null ? null : outcome.kind === ApiClient.FLAG_TRUE);
+  }
+
+  private static readonly FLAG_TRUE: string = 'flag_true';
+  private static readonly FLAG_FALSE: string = 'flag_false';
+
   private static readonly LINEAGE_DEPTH: number = 16;
 
   private readonly deps: ApiClientDeps;
@@ -1474,7 +1501,11 @@ export class ApiClient {
         let registered: boolean = false;
         try {
           // R3-03：调用方有效性一并传入（没有归属守卫的原生请求为 null = 独立调用方）。
-          registered = await this.deps.deviceRegistrar.reregister(usedDeviceId, ctx.owner);
+          // F-HM-08（APP-04 共性 64）：共享的重新注册用它自己的请求超时；每个调用方各管自己的等待预算——这个调用方失效
+          // （桥调用到期、页面离开，经 cancelOwned）就立即停止等待，不跟着共享注册等到底，也不把自己的截止时间加给它。
+          const owner: (() => boolean) | null = ctx.owner;
+          const shared: Promise<boolean> = this.deps.deviceRegistrar.reregister(usedDeviceId, owner);
+          registered = owner === null ? await shared : ((await this.waitOwnedFlag(shared, owner)) ?? false);
         } catch (e) {
           registered = false;
         }
@@ -1508,6 +1539,12 @@ export class ApiClient {
         if (lost !== null) {
           return this.lostResult(lost);
         }
+        let hadSession: boolean = false;
+        try {
+          hadSession = this.deps.tokens.accessToken() !== null || this.deps.tokens.refreshToken() !== null;
+        } catch (e) {
+          hadSession = true;
+        }
         try {
           this.deps.tokens.clear();
         } catch (e) {
@@ -1515,6 +1552,16 @@ export class ApiClient {
         }
         this.endSessionGeneration();
         this.syncPendingAccount();
+        // F-HM-09（APP-05a 共性 18）：业务请求直接收到 10404 也是会话失效，和刷新失败一样交 App 的会话级回调——普通状态经
+        // Router 打开 Login 并提示失效，强更状态停在 ForceUpdate（sessionFailureEffect 读这一刻的强更状态）。
+        // 不靠发起页自己处理 Effect（搜索等页面不认识它）。登出请求回 10404 是用户自己在退出，不跳登录（LoginService 完成登出清理）。
+        if (hadSession && op.operationId !== ApiClient.LOGOUT_OPERATION) {
+          try {
+            this.deps.sessionEffect(this.sessionFailureEffect());
+          } catch (e) {
+            // App 的回调出错不影响本次结果。
+          }
+        }
         return failed;
       }
       default:
@@ -2143,6 +2190,7 @@ export class ApiClient {
       if (set === null) {
         return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
       }
+      const scopeBefore: string = this.deps.tokens.scope();
       this.deps.tokens.save(set);
       this.failedAccessToken = null;
       this.restrictedChecked = true;
@@ -2150,6 +2198,21 @@ export class ApiClient {
         this.lineage.set(round.usedAccess, set.accessToken);
       }
       this.restrictedScopeIssued(set.scope);
+      if (scopeBefore !== set.scope) {
+        // F-HM-08（APP-05a 共性 14）：作用域在异步刷新里变了，带世代通知 App 更新 Router。
+        // F-HM-09（共性 19）：按这一轮的发起来源决定是否恢复待办（system = 冷启动 / 强更恢复的 App 级屏障）。
+        try {
+          const from: ((generation: number, scope: string, resumePending: boolean) => void) | null =
+            this.deps.sessionRefreshedFrom;
+          if (from !== null) {
+            from(this.sessionGenerationId(), set.scope, round.system);
+          } else {
+            this.deps.sessionRefreshed(this.sessionGenerationId(), set.scope);
+          }
+        } catch (e) {
+          // 通知方出错不影响刷新结果。
+        }
+      }
       return RefreshOutcome.ok(set.accessToken);
     }
     if (result.outcome === ApiOutcome.NETWORK_ERROR || result.outcome === ApiOutcome.LOCAL_REJECT) {

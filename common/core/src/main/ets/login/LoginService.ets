@@ -110,6 +110,27 @@ export class SmsSendDeadlines {
   }
 }
 
+/**
+ * 页面显示用的发码状态（F-HM-09，APP-05a 共性 20、21）：一律按规范化号码读 LoginService 保存的截止时间，现算剩余秒数。
+ * 页面不另存「是否禁用」与倒计时截止时刻：换号时随号码切换，换回旧号时旧限制仍然生效；页面重新出现时按当前时钟重算。
+ */
+export class LoginSendState {
+  /** 成功发码后的重发倒计时剩余秒数（code_sent）；没有为 0。 */
+  readonly countdownSec: number;
+  /** 发码 42901 的禁用剩余秒数（rate_limited）；没有为 0。 */
+  readonly rateLimitedSec: number;
+
+  constructor(countdownSec: number, rateLimitedSec: number) {
+    this.countdownSec = countdownSec;
+    this.rateLimitedSec = rateLimitedSec;
+  }
+
+  /** 还有没到期的计时（页面据此决定是否保留 / 重启每秒刷新）；loginBlocked 是登录按钮的 42901 禁用。 */
+  needsTimer(loginBlocked: boolean): boolean {
+    return this.countdownSec > 0 || this.rateLimitedSec > 0 || loginBlocked;
+  }
+}
+
 /** 手机号页【获取验证码】的去向（harmony-review-r3 R3-01，APP-05a 共性 12）。 */
 export class PhoneEntry {
   /** 继续输入这个号码已收到、仍在有效期内的验证码（不发码）。 */
@@ -293,6 +314,21 @@ export class LoginService {
     return this.deadlines.remainingSec(phone.normalized, this.clock());
   }
 
+  /** 这个号码（任意写法）此刻的发码状态（按规范化号码的截止时间现算，F-HM-09）。号码不合法为 0 / 0。 */
+  sendState(rawPhone: string): LoginSendState {
+    const phone: PhoneResult = PhoneNumber.normalize(rawPhone);
+    if (!phone.valid || phone.normalized === null) {
+      return new LoginSendState(0, 0);
+    }
+    const now: number = this.clock();
+    const gate: SendDeadline | null = this.deadlines.active(phone.normalized, now);
+    if (gate === null) {
+      return new LoginSendState(0, 0);
+    }
+    const remaining: number = Math.ceil((gate.untilMillis - now) / 1000);
+    return gate.kind === SmsCountdown.STATE_SENT ? new LoginSendState(remaining, 0) : new LoginSendState(0, remaining);
+  }
+
   /** 这个号码（任意写法）已收到的验证码还有几秒有效；没有或已过期为 0。 */
   issuedCodeRemainingSec(rawPhone: string): number {
     const phone: PhoneResult = PhoneNumber.normalize(rawPhone);
@@ -328,6 +364,27 @@ export class LoginService {
     const countdown: number = gate !== null && gate.kind === SmsCountdown.STATE_SENT
       ? Math.ceil((gate.untilMillis - this.clock()) / 1000) : 0;
     return new PhoneEntry(PhoneEntry.CONTINUE, phone.normalized, countdown);
+  }
+
+  /**
+   * 手机号页独立的「继续输入验证码」入口（F-HM-08，APP-05a 共性 16）：这个号码有可能收到、仍在有效期内的码就提供，
+   * 不看此刻能不能重发。发码结果不确定（50401 供应商超时等 5xxxx、断网 / 超时）时也算「可能已收到」。
+   */
+  continueEntry(rawPhone: string): PhoneEntry {
+    const phone: PhoneResult = PhoneNumber.normalize(rawPhone);
+    if (!phone.valid || phone.normalized === null || this.issuedCodeRemainingSec(phone.normalized) <= 0) {
+      return new PhoneEntry(PhoneEntry.SEND, null, 0);
+    }
+    const gate: SendDeadline | null = this.deadlines.active(phone.normalized, this.clock());
+    const countdown: number = gate !== null && gate.kind === SmsCountdown.STATE_SENT
+      ? Math.ceil((gate.untilMillis - this.clock()) / 1000) : 0;
+    return new PhoneEntry(PhoneEntry.CONTINUE, phone.normalized, countdown);
+  }
+
+  /** 发码结果不确定：服务端 5xxxx（如 50401 供应商超时）或没有外壳（断网、超时）。短信可能已经发出。 */
+  private static sendUncertain(result: ApiResult): boolean {
+    return result.outcome === ApiOutcome.NETWORK_ERROR
+      || (result.outcome === ApiOutcome.BUSINESS_ERROR && result.code >= 50000);
   }
 
   /** 本次尝试的归属守卫：序号没变才算有效；登记下来，作废时据此取消传输。 */
@@ -389,6 +446,10 @@ export class LoginService {
         return new SendCodeOutcome(LoginOutcome.STALE, 0, null, null, null);
       }
       return new SendCodeOutcome(sent.stateRaw, sent.countdownSec, null, null, normalized);
+    }
+    if (LoginService.sendUncertain(result)) {
+      // F-HM-08（共性 16）：结果不确定，用户可能已收到码——记下有效期，手机号页提供「继续输入验证码」（不设重发倒计时）。
+      this.issuedCodes.set(normalized, this.clock() + LoginService.CODE_VALIDITY_SEC * 1000);
     }
     if (result.outcome === ApiOutcome.BUSINESS_ERROR && result.effect !== null) {
       const effect: ErrorEffect = result.effect;
@@ -499,8 +560,12 @@ export class LoginService {
     this.loggingOut = true;
     try {
       if (this.tokens.accessToken() !== null) {
+        // F-HM-08（APP-05a 共性 13）：登出在会话级作用域（App 的 LoginService）执行，请求不带页面归属守卫，页面出栈不取消它；
+        // 请求无论正常返回、出错还是抛异常，都按原会话世代完成下面的本地清理与 Router.sessionEnded。
         await this.client.request(new ApiRequest('logout'));
       }
+    } catch (e) {
+      // 网络层不该抛出；万一抛出照样完成清理。
     } finally {
       this.loggingOut = false;
     }

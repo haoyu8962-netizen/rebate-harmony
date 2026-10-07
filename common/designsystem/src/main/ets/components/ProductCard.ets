@@ -118,9 +118,17 @@ export class ProductCardData {
   /** 点开 i 图标展开的全文（按 disclaimer_keys 取好的文字）。 */
   disclaimerLines: string[] = [];
   disclaimerButtonLabel: string = '';
+  /** 口径说明弹层（DisclaimerNote，设计稿 SearchDisclaimerNote）的标题与关闭文字；空串时 i 沿用气泡。 */
+  disclaimerTitle: string = '';
+  disclaimerCloseText: string = '';
   /** 详情大卡：店铺名、取价时间等附加行。 */
   shopName: string = '';
   quoteTime: string = '';
+  /** 价格不可用（BR-PRICE-01）：不显示任何金额（价格、返利、预估返后、取价），显示 priceUnavailableText，按钮「稍后再试」。 */
+  priceUnavailable: boolean = false;
+  priceUnavailableText: string = '';
+  /** 缓存 / 商品池降级报价（stale 或 age_sec > 300，BR-PRICE-11）；详情取价处的提示已拼进 quoteTime。 */
+  priceStale: boolean = false;
 }
 
 /**
@@ -244,9 +252,22 @@ export struct ProductCard {
     return this.data.rebate.kindRaw === 'unknown';
   }
 
+  /** 不显示价格（amount_unknown 或价格不可用）：PriceTag、副行、口径 i 按钮都不放。 */
+  private noPrice(): boolean {
+    return this.amountUnknown() || this.data.priceUnavailable;
+  }
+
   private showsRebate(): boolean {
-    // 列表隐藏「暂无返利」，同时不显示预估返后（§7.2.1 表「无返利」行）。
-    return this.data.rebate.kindRaw !== 'none';
+    // 列表隐藏「暂无返利」，同时不显示预估返后（§7.2.1 表「无返利」行）；价格不可用时不显示任何金额（BR-PRICE-01）。
+    return this.data.rebate.kindRaw !== 'none' && !this.data.priceUnavailable;
+  }
+
+  /** 价格不可用的提示（BR-PRICE-01「暂时查不到该商品价格」）。 */
+  @Builder
+  unavailableNote(style: CouliTextStyle) {
+    Text(this.data.priceUnavailableText)
+      .attributeModifier(new CouliTextModifier(style, CouliColors.textSecondary))
+      .id('product_card_price_unavailable')
   }
 
   @Builder
@@ -271,17 +292,21 @@ export struct ProductCard {
     Column({ space: CouliSpacing.space1 }) {
       Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
         space: { main: LengthMetrics.vp(CouliSpacing.space2), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-        if (!this.amountUnknown()) {
-          PriceTag({
-            content: this.data.price,
-            tagSize: this.variant === ProductCardVariant.AI ? PriceTagSize.AI : PriceTagSize.LIST,
-            presale: PresaleDisplay.EXTERNAL
-          })
+        if (this.data.priceUnavailable) {
+          this.unavailableNote(CouliTypography.footnote)
+        } else {
+          if (!this.amountUnknown()) {
+            PriceTag({
+              content: this.data.price,
+              tagSize: this.variant === ProductCardVariant.AI ? PriceTagSize.AI : PriceTagSize.LIST,
+              presale: PresaleDisplay.EXTERNAL
+            })
+          }
+          RebateTag({ content: this.rebate(), tagSize: RebateTagSize.SMALL, inList: true })
         }
-        RebateTag({ content: this.rebate(), tagSize: RebateTagSize.SMALL, inList: true })
       }
 
-      if (!this.amountUnknown()) {
+      if (!this.noPrice()) {
         this.subLines(this.showsRebate())
       }
     }
@@ -320,13 +345,15 @@ export struct ProductCard {
       Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
         space: { main: LengthMetrics.vp(CouliSpacing.space2), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
         // 价格口径 i 按钮独立于返利区：返利隐藏、暂无返利、金额隐藏时都保留；只有不显示价格的卡（amount_unknown）不放。
-        if (this.variant === ProductCardVariant.LIST && !this.amountUnknown()) {
+        if (this.variant === ProductCardVariant.LIST && !this.noPrice()) {
           Row() {
             DisclaimerFooter({
               lines: this.data.disclaimerLines,
               mode: DisclaimerMode.CARD,
               prefix: this.data.disclaimerPrefix,
-              buttonLabel: this.data.disclaimerButtonLabel
+              buttonLabel: this.data.disclaimerButtonLabel,
+              noteTitle: this.data.disclaimerTitle,
+              noteCloseText: this.data.disclaimerCloseText
             })
           }
           .flexGrow(1)
@@ -350,12 +377,14 @@ export struct ProductCard {
   aiCard() {
     Stack({ alignContent: Alignment.TopEnd }) {
       this.listCard()
-      if (!this.amountUnknown()) {
+      if (!this.noPrice()) {
         Row() {
           DisclaimerFooter({
           lines: this.data.disclaimerLines,
           mode: DisclaimerMode.CARD,
-            buttonLabel: this.data.disclaimerButtonLabel
+            buttonLabel: this.data.disclaimerButtonLabel,
+            noteTitle: this.data.disclaimerTitle,
+            noteCloseText: this.data.disclaimerCloseText
           })
         }
         .margin({ top: CouliSpacing.space1 + CouliSpacing.space3, right: CouliSpacing.space1 })
@@ -370,7 +399,10 @@ export struct ProductCard {
       this.image('100%')
       this.title(TextStyleKind.LIST)
       this.tagRow()
-      if (!this.amountUnknown()) {
+      if (this.data.priceUnavailable) {
+        this.unavailableNote(CouliTypography.caption)
+      }
+      if (!this.noPrice()) {
         PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })
         this.subLines(false)
         // 网格卡的价格口径 i 按钮（单卡 i，BR-PRICE-03）。
@@ -378,7 +410,9 @@ export struct ProductCard {
           DisclaimerFooter({
             lines: this.data.disclaimerLines,
             mode: DisclaimerMode.CARD,
-            buttonLabel: this.data.disclaimerButtonLabel
+            buttonLabel: this.data.disclaimerButtonLabel,
+            noteTitle: this.data.disclaimerTitle,
+            noteCloseText: this.data.disclaimerCloseText
           })
         }
         .padding({ left: CouliSpacing.space3 })
@@ -398,7 +432,10 @@ export struct ProductCard {
   @Builder
   largeCard() {
     Column({ space: CouliSpacing.space3 }) {
-      if (!this.amountUnknown()) {
+      if (this.data.priceUnavailable) {
+        this.unavailableNote(CouliTypography.body)
+      }
+      if (!this.noPrice()) {
         PriceTag({ content: this.data.price, tagSize: PriceTagSize.DETAIL, showSub: true,
           presale: PresaleDisplay.EXTERNAL })
         // 规格说明与预售说明（定金与尾款以下单页为准）：详情大卡同样保留（R1-06，03 §10.2 预售）。
@@ -406,22 +443,25 @@ export struct ProductCard {
           this.notes(CouliTypography.footnote)
         }
       }
-      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
-        space: { main: LengthMetrics.vp(CouliSpacing.space3), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-        RebateTag({ content: this.rebate(), tagSize: RebateTagSize.LARGE })
-        if (this.data.disclaimerPrefix.length > 0) {
-          Text(this.data.disclaimerPrefix)
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+      if (!this.data.priceUnavailable) {
+        Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
+          space: { main: LengthMetrics.vp(CouliSpacing.space3), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
+          RebateTag({ content: this.rebate(), tagSize: RebateTagSize.LARGE })
+          if (this.data.disclaimerPrefix.length > 0) {
+            Text(this.data.disclaimerPrefix)
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          }
         }
-      }
 
-      Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space4),
-        cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-        EstNetLine({ text: this.estNet(), large: true, rebate: this.rebate() })
-        if (this.data.quoteTime.length > 0 && !this.amountUnknown()) {
-          Text(this.data.quoteTime)
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined,
-              true))
+        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space4),
+          cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
+          EstNetLine({ text: this.estNet(), large: true, rebate: this.rebate() })
+          if (this.data.quoteTime.length > 0 && !this.amountUnknown()) {
+            Text(this.data.quoteTime)
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined,
+                true))
+              .id('product_card_quote_time')
+          }
         }
       }
 

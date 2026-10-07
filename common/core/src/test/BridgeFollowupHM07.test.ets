@@ -412,11 +412,16 @@ export default function bridgeFollowupHM07Test() {
         order.push('teardown');
         page++;
       }));
-      // 回复脚本执行失败（页面已离开等）：通道不抛出，等待结束后照常复核再关闭。
+      // 回复脚本执行失败（页面已离开等）：F-HM-08（APP-04 共性 62）起不算「已执行」，放弃这次破坏性导航，dispatch 本身不抛出。
       const failing: BridgeReplyChannel = new BridgeReplyChannel((_s: string): Promise<void> =>
       Promise.reject(new Error('page gone')));
-      await host.dispatch(req('c1', 'nav.close'), new BridgeCaller(ORIGIN, true, false, 1),
+      await host.dispatch(req('c0', 'nav.close'), new BridgeCaller(ORIGIN, true, false, 1),
         (reply: string): Promise<void> => failing.deliver(reply));
+      expect(JSON.stringify(order)).assertEqual('[]');
+      // 脚本执行确认后才关闭。
+      const ok: BridgeReplyChannel = new BridgeReplyChannel((_s: string): Promise<void> => Promise.resolve());
+      await host.dispatch(req('c1', 'nav.close'), new BridgeCaller(ORIGIN, true, false, 1),
+        (reply: string): Promise<void> => ok.deliver(reply));
       expect(JSON.stringify(order)).assertEqual('["teardown"]');
       // 等待期间页面已换（主框架导航走了）：不再执行这次调用的破坏性导航。
       let finish: () => void = (): void => {

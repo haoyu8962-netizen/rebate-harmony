@@ -208,7 +208,9 @@ export class AppBridge {
     // R3-02：回复执行完、真正导航前，用那时的会话、隐私、环境与强更状态重新过 Router 守卫（不执行等待前的结论）。
     return BridgeRouteOpening.rechecked(request, decision, (): GuardState => routing.guardState(),
       (r: RouteRequest, s: GuardState): GuardDecision => routing.router.decide(r, s),
-      (d: GuardDecision, r: RouteRequest): void => routing.router.apply(d, r));
+      (d: GuardDecision, r: RouteRequest): void => routing.router.apply(d, r),
+      // F-HM-08（共性 63）：执行时强更检查在途（Router 状态源 result 为 null）→ 保守取消，不用上一轮结论。
+      (): boolean => AppUpdate.shared.routerStatus().result === null);
   }
 
   /** auth.login：打开登录页（APP-05 前是占位页），用户离开后兑现当时的登录状态。 */

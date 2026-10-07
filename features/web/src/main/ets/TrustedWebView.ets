@@ -283,7 +283,9 @@ export class BridgeTransport {
   emit(name: string, data: BridgeJson): void {
     const message: string | null = BridgeHost.eventMessage(name, data);
     if (message !== null) {
-      this.deliver(message);
+      // 事件下发不关心执行结果（页面已离开时丢弃）；回复通道执行失败会以失败结束（F-HM-08 共性 62）。
+      this.deliver(message).catch((): void => {
+      });
     }
   }
 }

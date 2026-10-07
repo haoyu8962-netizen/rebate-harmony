@@ -196,6 +196,10 @@ export class Rig {
   readonly registrar: FakeRegistrar = new FakeRegistrar();
   readonly pending: PendingKeyStore;
   readonly sessionEffects: ErrorEffect[] = [];
+  /** 异步刷新的作用域变化通知（世代:作用域）。 */
+  readonly refreshNotices: string[] = [];
+  /** 与 refreshNotices 一一对应：这次通知是否要恢复待办（F-HM-09）。 */
+  readonly refreshResume: boolean[] = [];
   readonly client: ApiClient;
   nowMillis: number = 1790661600 * 1000;
   /** App 的会话级 Effect 回调抛异常（R1-04）。 */
@@ -235,6 +239,15 @@ export class Rig {
       if (this.throwOnSessionEffect) {
         throw new Error('session effect handler failed');
       }
+    };
+    // F-HM-08（APP-05a 共性 14）：记录异步刷新带世代的作用域变化通知。
+    deps.sessionRefreshed = (generation: number, scope: string): void => {
+      this.refreshNotices.push(generation + ':' + scope);
+    };
+    // F-HM-09（APP-05a 共性 19）：带触发来源的同一通知（resumePending：App 级屏障为 true）。
+    deps.sessionRefreshedFrom = (generation: number, scope: string, resumePending: boolean): void => {
+      this.refreshNotices.push(generation + ':' + scope);
+      this.refreshResume.push(resumePending);
     };
     this.client = new ApiClient(deps);
   }

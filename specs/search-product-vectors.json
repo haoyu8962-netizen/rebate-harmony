@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "sources": [
+    "couli-runs/NATIVE/APP-06a/brief.md §2、§4：搜索请求、平台回落、分页、状态映射、请求失效；publicMode 按本任务书表示游客或基本模式。",
+    "couli origin/main（读取时为 4070ad5c32fd39816636742a83e01b1476637454）:规划/08_业务规则/02_PROD_商品身份与标识.md：BR-PROD-07 的 norm(q)、缓存；BR-PROD-08 的服务端游标与去重；BR-PROD-10 细则的逐平台回落、未知状态按 off。",
+    "couli origin/main:规划/08_业务规则/03_PRICE_价格口径与展示.md：BR-PRICE-08 的金额未知、过滤与 has_more；BR-PRICE-11 的 stale；BR-PRICE-13 的返利归零变化；BR-PRICE-15 的筛选边界、当页排序、无结果推荐；BR-PRICE-21、22 的展示状态与预售。",
+    "couli origin/main:规划/08_业务规则/12_TEXT_话术与格式.md：BR-TEXT-12 细则要求直接使用 cta.text_key；BR-TEXT-14 的错误码及 reason 文案回落。",
+    "couli origin/main:docs/changes/20261001-拍板第二批.md：TRADE-08、10、12、20、21。",
+    "couli origin/main:规划/03_前端架构.md §3.2、§4.2、§4.3、§4.4、§7.4、§10.2：content/empty/error、错误映射、配置回落、基本模式匿名只读、服务端 CTA。",
+    "rebate-platform 9cd1e6f:contracts/openapi.yaml：searchProducts、getProduct、SearchProductsOk、ProductOk、ProductCard、ProductCta、SearchProductsData、SortCode、PlatformSearchStatus。",
+    "rebate-platform 9cd1e6f:contracts/texts.default.json：error.50304、error.50304.search_disabled、error.50401、rebate_amount_unknown、rebate_login_to_view。",
+    "rebate-platform 9cd1e6f:contracts/routes.json：Search、ProductDetail 的 auth=none；Search 的可选 q 与必填搜索接口 q 不同；ProductDetail 要求非空 product_key。",
+    "couli-runs/design-hifi/flow-map.md §5.1、§10.4～10.7、§23.1.19，以及 project/ProductCardDegrade.dc.html：仅用于核对任务书术语差异并登记 gaps。",
+    "specs/format-vectors.json：已有金额、价格标签、返利区间与购买按钮金额后缀向量，本文件不重复格式化断言。"
+  ],
+  "searchRequest": [
+    {
+      "name": "default_relevance",
+      "input": {"keyword": "纸巾", "platform": "taobao"},
+      "expect": {"valid": true, "query": {"q": "纸巾", "platform": "taobao", "sort": "relevance"}}
+    },
+    {
+      "name": "normalized_keyword_fixed_point",
+      "input": {"keyword": "abc 纸巾", "platform": "jd", "sort": "relevance"},
+      "expect": {"valid": true, "query": {"q": "abc 纸巾", "platform": "jd", "sort": "relevance"}}
+    },
+    {
+      "name": "sales_sort",
+      "input": {"keyword": "牛奶", "platform": "jd", "sort": "sales_desc"},
+      "expect": {"valid": true, "query": {"q": "牛奶", "platform": "jd", "sort": "sales_desc"}}
+    },
+    {
+      "name": "price_sort_inclusive_business_boundaries",
+      "input": {"keyword": "纸巾", "platform": "pdd", "sort": "final_price_asc", "filters": {"has_coupon": true, "price_min_fen": 1, "price_max_fen": 10000000}},
+      "expect": {"valid": true, "query": {"q": "纸巾", "platform": "pdd", "sort": "final_price_asc", "has_coupon": true, "price_min_fen": 1, "price_max_fen": 10000000}}
+    },
+    {
+      "name": "rebate_sort_equal_bounds_and_explicit_false",
+      "input": {"keyword": "牛奶", "platform": "jd", "sort": "rebate_desc", "filters": {"has_coupon": false, "price_min_fen": 5000, "price_max_fen": 5000}},
+      "expect": {"valid": true, "query": {"q": "牛奶", "platform": "jd", "sort": "rebate_desc", "has_coupon": false, "price_min_fen": 5000, "price_max_fen": 5000}}
+    },
+    {
+      "name": "upper_bound_only",
+      "input": {"keyword": "牛奶", "platform": "jd", "filters": {"price_max_fen": 5000}},
+      "expect": {"valid": true, "query": {"q": "牛奶", "platform": "jd", "sort": "relevance", "price_max_fen": 5000}}
+    },
+    {
+      "name": "opaque_cursor_passed_unchanged",
+      "input": {"keyword": "纸巾", "platform": "taobao", "cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg"},
+      "expect": {"valid": true, "query": {"q": "纸巾", "platform": "taobao", "sort": "relevance", "cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg"}}
+    },
+    {
+      "name": "keyword_100_ascii_characters",
+      "input": {"keyword": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789", "platform": "taobao"},
+      "expect": {"valid": true, "query": {"q": "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789", "platform": "taobao", "sort": "relevance"}}
+    },
+    {
+      "name": "empty_keyword_is_not_a_search_request",
+      "input": {"keyword": "", "platform": "taobao"},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "keyword_101_ascii_characters",
+      "input": {"keyword": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890", "platform": "taobao"},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "tmall_is_not_a_platform_code",
+      "input": {"keyword": "纸巾", "platform": "tmall"},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "sort_outside_contract",
+      "input": {"keyword": "纸巾", "platform": "taobao", "sort": "price_desc"},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "negative_price_bound",
+      "input": {"keyword": "纸巾", "platform": "taobao", "filters": {"price_min_fen": -1}},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "zero_price_bound_rejected_by_BR_PRICE_15",
+      "input": {"keyword": "纸巾", "platform": "taobao", "filters": {"price_min_fen": 0}},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "price_bound_above_business_maximum",
+      "input": {"keyword": "纸巾", "platform": "taobao", "filters": {"price_max_fen": 10000001}},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "fractional_fen_is_invalid",
+      "input": {"keyword": "纸巾", "platform": "taobao", "filters": {"price_min_fen": 1.5}},
+      "expect": {"valid": false, "query": {}}
+    },
+    {
+      "name": "reversed_price_bounds",
+      "input": {"keyword": "牛奶", "platform": "jd", "filters": {"price_min_fen": 5000, "price_max_fen": 3000}},
+      "expect": {"valid": false, "query": {}}
+    }
+  ],
+  "tabs": [
+    {
+      "name": "all_current_on",
+      "searchStatus": {"current": {"pdd": "on", "jd": "on", "taobao": "on"}, "bundled": {}},
+      "expect": {"tabs": ["taobao", "jd", "pdd"]}
+    },
+    {
+      "name": "current_off_overrides_lower_on",
+      "searchStatus": {"current": {"taobao": "off", "jd": "on", "pdd": "off"}, "lkg": {"taobao": "on", "pdd": "on"}, "bundled": {"taobao": "on", "pdd": "on"}},
+      "expect": {"tabs": ["jd"]}
+    },
+    {
+      "name": "whole_current_layer_missing",
+      "searchStatus": {"lkg": {"taobao": "on", "jd": "off", "pdd": "on"}, "bundled": {"jd": "on"}},
+      "expect": {"tabs": ["taobao", "pdd"]}
+    },
+    {
+      "name": "fallback_is_per_platform",
+      "searchStatus": {"current": {"taobao": "off"}, "lkg": {"jd": "on"}, "bundled": {"taobao": "on", "jd": "off", "pdd": "on"}},
+      "expect": {"tabs": ["jd", "pdd"]}
+    },
+    {
+      "name": "empty_current_and_lkg_use_bundle",
+      "searchStatus": {"current": {}, "lkg": {}, "bundled": {"taobao": "on", "jd": "off", "pdd": "on"}},
+      "expect": {"tabs": ["taobao", "pdd"]}
+    },
+    {
+      "name": "unknown_current_value_is_off_without_fallback",
+      "searchStatus": {"current": {"taobao": "future_status"}, "lkg": {"taobao": "on"}, "bundled": {"taobao": "on"}},
+      "expect": {"tabs": []}
+    },
+    {
+      "name": "unknown_lkg_value_is_off_without_fallback",
+      "searchStatus": {"current": {}, "lkg": {"jd": "future_status"}, "bundled": {"jd": "on"}},
+      "expect": {"tabs": []}
+    },
+    {
+      "name": "missing_from_all_layers_is_off",
+      "searchStatus": {"bundled": {}},
+      "expect": {"tabs": []}
+    },
+    {
+      "name": "all_explicitly_off",
+      "searchStatus": {"current": {"taobao": "off", "jd": "off", "pdd": "off"}, "bundled": {"taobao": "on", "jd": "on", "pdd": "on"}},
+      "expect": {"tabs": []}
+    }
+  ],
+  "paging": [
+    {
+      "name": "short_page_with_has_more_is_not_terminal",
+      "pages": [
+        {"code": 0, "msg": "", "data": {"items": [
+          {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"}
+        ], "next_cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg", "has_more": true, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"}
+      ],
+      "expect": {"items": 1, "endReached": false, "stateRaw": "content"}
+    },
+    {
+      "name": "append_two_pages_preserves_server_order",
+      "pages": [
+        {"code": 0, "msg": "", "data": {"items": [
+          {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"}
+        ], "next_cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg", "has_more": true, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+        {"code": 0, "msg": "", "data": {"items": [
+          {"product_key": "tb:page2", "item_ref": "page2-ref", "platform": "taobao", "title": "第二页商品", "image": "https://img.example.test/p/page2.jpg", "price_fen": 1990, "coupon_fen": 0, "final_price_fen": 1990, "est_net_price_fen": 1890, "rebate_min_fen": 100, "rebate_max_fen": 100, "rebate_basis": "normal", "benefit_tags": [], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "cta": {"text_key": "btn.buy"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis.general", "rebate_estimate"], "availability": "ok"}
+        ], "next_cursor": null, "has_more": false, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"}
+      ],
+      "expect": {"items": 2, "endReached": true, "stateRaw": "content"}
+    },
+    {
+      "name": "empty_filtered_page_can_have_more",
+      "pages": [
+        {"code": 0, "msg": "", "data": {"items": [], "next_cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg", "has_more": true, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"}
+      ],
+      "expect": {"items": 0, "endReached": false, "stateRaw": "empty"}
+    },
+    {
+      "name": "empty_last_page_keeps_previous_items",
+      "pages": [
+        {"code": 0, "msg": "", "data": {"items": [
+          {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"}
+        ], "next_cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg", "has_more": true, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+        {"code": 0, "msg": "", "data": {"items": [], "next_cursor": null, "has_more": false, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"}
+      ],
+      "expect": {"items": 1, "endReached": true, "stateRaw": "content"}
+    },
+    {
+      "name": "fallback_cards_are_not_search_hits",
+      "pages": [
+        {"code": 0, "msg": "", "data": {"items": [], "next_cursor": null, "has_more": false, "fallback_items": [
+          {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"}
+        ]}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"}
+      ],
+      "expect": {"items": 0, "endReached": true, "stateRaw": "empty"}
+    }
+  ],
+  "resultState": [
+    {
+      "name": "successful_search_has_content",
+      "response": {"code": 0, "msg": "", "data": {"items": [
+        {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"}
+      ], "next_cursor": "c2Vzc2lvbj0wMTk5O3BhZ2U9Mg", "has_more": true, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+      "expect": {"stateRaw": "content"}
+    },
+    {
+      "name": "no_hits_and_no_fallback",
+      "response": {"code": 0, "msg": "", "data": {"items": [], "next_cursor": null, "has_more": false, "fallback_items": []}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+      "expect": {"stateRaw": "empty"}
+    },
+    {
+      "name": "union_failure_is_error_not_empty",
+      "error": {"code": 50304, "msg": "京东搜索暂不可用", "data": {"platform": "jd"}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+      "expect": {"stateRaw": "error", "textKey": "error.50304"}
+    },
+    {
+      "name": "disabled_search_uses_reason_key",
+      "error": {"code": 50304, "msg": "京东搜索已关闭", "data": {"platform": "jd", "reason": "search_disabled"}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+      "expect": {"stateRaw": "error", "textKey": "error.50304.search_disabled"}
+    },
+    {
+      "name": "unknown_reason_falls_back_to_code_key",
+      "error": {"code": 50304, "msg": "", "data": {"platform": "jd", "reason": "future_reason"}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+      "expect": {"stateRaw": "error", "textKey": "error.50304"}
+    },
+    {
+      "name": "server_error_uses_dictionary_key",
+      "error": {"code": 50401, "msg": "", "data": {}, "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"},
+      "expect": {"stateRaw": "error", "textKey": "error.50401"}
+    }
+  ],
+  "staleResponse": [
+    {
+      "name": "current_response_is_shown",
+      "steps": [{"op": "search", "seq": 1}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": 1}
+    },
+    {
+      "name": "new_search_invalidates_old_before_new_response",
+      "steps": [{"op": "search", "seq": 1}, {"op": "search", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": null}
+    },
+    {
+      "name": "old_search_cannot_overwrite_new_result",
+      "steps": [{"op": "search", "seq": 1}, {"op": "search", "seq": 2}, {"op": "respond", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": 2}
+    },
+    {
+      "name": "tab_change_invalidates_immediately",
+      "steps": [{"op": "search", "seq": 1}, {"op": "changeTab", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": null}
+    },
+    {
+      "name": "old_tab_cannot_overwrite_new_tab",
+      "steps": [{"op": "search", "seq": 1}, {"op": "changeTab", "seq": 2}, {"op": "respond", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": 2}
+    },
+    {
+      "name": "sort_change_invalidates_immediately",
+      "steps": [{"op": "search", "seq": 1}, {"op": "changeSort", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": null}
+    },
+    {
+      "name": "old_sort_cannot_overwrite_new_sort",
+      "steps": [{"op": "search", "seq": 1}, {"op": "changeSort", "seq": 2}, {"op": "respond", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": 2}
+    },
+    {
+      "name": "leave_discards_late_response",
+      "steps": [{"op": "search", "seq": 1}, {"op": "leave"}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": null}
+    },
+    {
+      "name": "reentry_does_not_revalidate_old_request",
+      "steps": [{"op": "search", "seq": 1}, {"op": "leave"}, {"op": "search", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": null}
+    },
+    {
+      "name": "previous_page_generation_cannot_overwrite_reentry",
+      "steps": [{"op": "search", "seq": 1}, {"op": "leave"}, {"op": "search", "seq": 2}, {"op": "respond", "seq": 2}, {"op": "respond", "seq": 1}],
+      "expect": {"shown": 2}
+    },
+    {
+      "name": "three_requests_only_latest_may_publish",
+      "steps": [{"op": "search", "seq": 1}, {"op": "changeTab", "seq": 2}, {"op": "changeSort", "seq": 3}, {"op": "respond", "seq": 3}, {"op": "respond", "seq": 1}, {"op": "respond", "seq": 2}],
+      "expect": {"shown": 3}
+    }
+  ],
+  "detail": [
+    {
+      "name": "coupon_cta_from_ProductOk",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "shop_type": "tmall", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "shop_name": "示例旗舰店", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "spec_text": null, "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "ad_label": null, "availability": "ok"},
+      "context": {"loggedIn": true, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy.coupon", "presale": false, "rebateUnknown": false, "publicMode": false}
+    },
+    {
+      "name": "no_coupon_cta",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 0, "final_price_fen": 3990, "est_net_price_fen": 3631, "rebate_min_fen": 359, "rebate_max_fen": 359, "rebate_basis": "normal", "benefit_tags": [], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis.general", "rebate_estimate"], "availability": "ok"},
+      "context": {"loggedIn": true, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy", "presale": false, "rebateUnknown": false, "publicMode": false}
+    },
+    {
+      "name": "coupon_does_not_override_no_rebate_cta",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2990, "rebate_min_fen": 0, "rebate_max_fen": 0, "rebate_basis": "no_rebate", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.no_rebate"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"},
+      "context": {"loggedIn": true, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy.no_rebate", "presale": false, "rebateUnknown": false, "publicMode": false}
+    },
+    {
+      "name": "presale_keeps_server_cta",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券", "预售"], "is_presale": true, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"},
+      "context": {"loggedIn": true, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy.coupon", "presale": true, "rebateUnknown": false, "publicMode": false}
+    },
+    {
+      "name": "amount_unknown_has_no_price_or_rebate_amount",
+      "product": {"product_key": null, "item_ref": null, "platform": "pdd", "title": null, "image": null, "price_fen": null, "coupon_fen": null, "final_price_fen": null, "est_net_price_fen": null, "rebate_min_fen": null, "rebate_max_fen": null, "rebate_basis": "amount_unknown", "benefit_tags": [], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy"}, "quoted_at": null, "stale": false, "age_sec": null, "source": "pdd_union", "disclaimer_keys": [], "availability": "unknown"},
+      "context": {"loggedIn": true, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy", "presale": false, "rebateUnknown": true, "publicMode": false}
+    },
+    {
+      "name": "zero_lower_endpoint_is_not_unknown",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2990, "rebate_min_fen": 0, "rebate_max_fen": 269, "rebate_basis": "price_compare_risk", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis", "rebate_compare"], "availability": "ok"},
+      "context": {"loggedIn": true, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy.coupon", "presale": false, "rebateUnknown": false, "publicMode": false}
+    },
+    {
+      "name": "guest_public_mode_does_not_rewrite_server_cta",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"},
+      "context": {"loggedIn": false, "privacy": "consented"},
+      "expect": {"buttonKeyRaw": "btn.buy.coupon", "presale": false, "rebateUnknown": false, "publicMode": true}
+    },
+    {
+      "name": "basic_mode_is_public_even_with_session_hint",
+      "product": {"product_key": "tb:7Kq9LmN3pQ", "item_ref": "v1.dGJfN0txOUxtTjNwUQ.c2ln", "platform": "taobao", "title": "降噪蓝牙耳机 5.3", "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg", "price_fen": 3990, "coupon_fen": 1000, "final_price_fen": 2990, "est_net_price_fen": 2721, "rebate_min_fen": 269, "rebate_max_fen": 269, "rebate_basis": "normal", "benefit_tags": ["有券"], "is_presale": false, "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70", "cta": {"text_key": "btn.buy.coupon"}, "quoted_at": "2026-10-02T09:30:00+08:00", "stale": false, "age_sec": 12, "source": "taobao_union", "disclaimer_keys": ["price_basis"], "availability": "ok"},
+      "context": {"loggedIn": true, "privacy": "basic"},
+      "expect": {"buttonKeyRaw": "btn.buy.coupon", "presale": false, "rebateUnknown": false, "publicMode": true}
+    }
+  ],
+  "gaps": [
+    "期望缺字段表示原文或 API 信息不足，不判定，不以 false 或 null 补造。detail 暂不填写 degraded、rebateGone；测试保留这两个属性的接线和可选断言，补齐依据后必须追加向量。当前通过不能视为这两项验收完成。",
+    "关键词规范化：BR-PROD-07 明确的 NFKC、首尾去空白、连续空白合并、转小写用于服务端 union_request_params/cache norm(q)；brief 只要求客户端规范化，未明确客户端是否复用全部步骤、长度校验在规范化前还是后。这里只测已规范化输入及无歧义 ASCII 长度，不把缓存规则直接推成客户端改写规则；空白词、兼容字符、大小写及 Unicode 长度边界待补。",
+    "无效搜索输入的 reasonRaw 词表、query 返回形状未规定。invalid 向量中的 query:{} 为结构占位，三端只断言 valid=false；不要求实现返回空对象，也不虚构 reason。",
+    "BR-PRICE-15 规定价格筛选为整数分且 1～10000000、min<=max；9cd1e6f 的 OpenAPI 写 minimum:0 且没有 maximum。这里明确采用 BR-PRICE-15 的业务判定，契约差异仍需修正，不能声称两份原文完全一致。",
+    "sort 省略与显式 relevance 在契约上等价；测试仅在比较合法请求时补齐这一默认表示。Tab 顺序和选中 Tab 不由 resolve 的返回列表充分规定：本组核对完整成员及无重复，不将数组顺序当作业务期望。",
+    "loading、请求尚未开始、网络传输失败的输入载体没有约定；SearchResultState.map 目前只测试实际成功或业务错误 envelope。searchProducts 是单平台响应，SearchProductsData 没有 partial/errors 字段，不捏造部分失败响应。需补充页面状态输入及部分失败定义。",
+    "empty 作为接线名只表示搜索命中为空；fallback_items 仍应独立展示。现有 API 没有推荐列表输出，测试只能保证推荐不混入 pager.items，不能验收推荐展示、空态文案或自动跨过空页。has_more 与 next_cursor 矛盾、分页错误后的保留/重试策略也未规定。",
+    "换筛选、翻页请求归属及真实页面出栈仍需页面/Repository 集成测试。给定 steps 没有 changeFilter/loadMore 或请求参数，SearchSession 向量不能证明这些入口已接线；begin 时是否清除已展示旧结果也未规定，本组不强定。",
+    "rebateGone：BR-PRICE-13、flow-map §10.4 指 open 复核时返利由正数变成 0。getProduct 的单张当前卡和 context:{loggedIn,privacy} 没有旧报价或 open 结果，不能把所有 no_rebate 都当成返利消失。须扩充输入或在 APP-06b 的变化态模型测试。",
+    "degraded：getProduct 的 stale 表示缓存/商品池降级；ProductCardDegrade 画板却含平台未开放、不支持返利、需认领、amount_unknown、游客登录查看等五种能力状态。当前 API 没有平台状态和认领配置，也未定义 degraded 究竟指哪一种，不能擅自令 degraded=stale 或 degraded=amount_unknown。",
+    "publicMode 按 brief 的游客/基本模式语义测试；ProductPublic 画板实际表示有分享赚入口的公开版。当前 context 没有发布阶段，不能据此决定分享入口。基本模式匿名请求、敏感字段裁剪与购买守卫不由这个布尔值验收。",
+    "amount_unknown 是 BR-PRICE-08 的拼多多直链卡，product_key 及金额为空；getProduct 路径和 ProductDetail 路由却要求非空 product_key。本向量只测试共用 ProductCard 的展示映射，不声称该卡能经现有详情路由获取；入口承载方式待补。",
+    "下架：getProduct 可返回 30141 错误 envelope；map(product,context) 不接收详情错误。原文规定置灰及商品已下架，但未给下架按钮的独立 cta.text_key，不能自造 btn.off_shelf。price_unavailable 不下发 link_id 与锁定版 ProductCard 必填 link_id 也有差异，待补契约及错误态 API。",
+    "9cd1e6f texts.default.json 未包含 btn.buy、btn.buy.coupon、btn.buy.no_rebate、tag.presale、presale.price_note 及普通搜索空态键。已有 CTA 键的依据是 ProductCta 与 BR-TEXT-12；这里只验 raw key，不声称字典渲染已可用。预售说明、免责声明顺序及位置、比价说明入口需组件测试。",
+    "金额格式、券前/券后价、返利区间与按钮金额后缀继续由 DS-01 的 format-vectors.json 覆盖。本组不重算价格或返利，不用实现生成期望值。"
+  ]
+}

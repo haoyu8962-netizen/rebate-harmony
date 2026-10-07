@@ -3,7 +3,7 @@ import {
   PhoneEntry, PhoneResult, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
-  CodeCellLayout, CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
+  CodeCellLayout, CouliButton, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
 } from 'designsystem';
@@ -31,6 +31,7 @@ export class LoginKeys {
   static readonly AGREE_HINT: string = 'login.agree.hint';
   static readonly GET_CODE: string = 'login.get_code';
   static readonly INVITE_ENTRY: string = 'login.invite.entry';
+  static readonly CONTINUE_CODE: string = 'login.code.continue';
   static readonly OTHER_METHODS: string = 'login.other_methods';
   static readonly HUAWEI: string = 'login.huawei';
   static readonly CONFIRM_TITLE: string = 'login.agree_confirm.title';
@@ -96,6 +97,12 @@ export class LoginPageConfig {
   };
   /** 系统返回（页面挂上后由 LoginView 设置）：验证码步先回手机号步，返回 true；手机号步返回 false，交给导航关闭。 */
   systemBack: () => boolean = () => false;
+  /**
+   * 页面重新出现（NavDestination onShown：从协议页等返回、回前台）由 entry 调用（F-HM-09，APP-05a 共性 20）：LoginView 出现时
+   * 设为「按当前时钟重算倒计时与限流状态，还有没到期的就重启计时器」。
+   */
+  pageShown: () => void = () => {
+  };
 
   constructor(service: LoginService, texts: LoginTexts) {
     this.service = service;
@@ -122,6 +129,8 @@ export class LoginModel {
   @Trace sentTo: string = '';
   /** 42901 禁用有变化时递增（禁用截止时刻在 LoginView.limits，发码与登录分开，R2-03）：让按钮状态重新计算。 */
   @Trace rateLimitStamp: number = 0;
+  /** 发码结束时递增：「继续输入验证码」入口重新判断（F-HM-08）。 */
+  @Trace entryStamp: number = 0;
   @Trace now: number = 0;
 
   static readonly STEP_PHONE: string = 'phone';
@@ -156,16 +165,19 @@ export struct LoginView {
   /** 验证码格子行的可用宽度（vp；onAreaChange 测得前为 0，按设计稿格宽）。 */
   @Local codeAreaWidth: number = 0;
   private agreement: AgreementState = new AgreementState(() => Date.now());
-  /** 发码与登录各自的 42901 截止时刻（R2-03：发码限流不禁用登录按钮）。 */
+  /**
+   * 登录按钮的 42901 截止时刻（R2-03：发码限流不禁用登录按钮）。发码的倒计时与 42901 禁用不在页面存：按号码读
+   * LoginService.sendState（F-HM-09，APP-05a 共性 21）。
+   */
   private limits: LoginRateLimits = new LoginRateLimits();
   private timer: number = -1;
-  private deadline: number = 0;
 
   aboutToAppear(): void {
     CouliFontScale.attach(this.getUIContext());
     this.agreement = new AgreementState(this.config.clock);
     this.model.now = this.config.clock();
     this.config.systemBack = (): boolean => this.systemBack();
+    this.config.pageShown = (): void => this.refreshTimers();
     if (this.config.sessionExpired) {
       setTimeout(() => {
         CouliToast.show(this.getUIContext(), this.t(LoginKeys.SESSION_EXPIRED));
@@ -175,6 +187,8 @@ export struct LoginView {
 
   aboutToDisappear(): void {
     this.config.systemBack = () => false;
+    this.config.pageShown = () => {
+    };
     this.stopTimer();
     // 离开登录页：在途的发码与登录结果不再改页面、不恢复 pending_action（会话若已保存照常生效）。
     this.config.service.invalidateAttempt();
@@ -201,18 +215,26 @@ export struct LoginView {
 
   // ---------------------------------------------------------------- 计时
 
-  private startCountdown(seconds: number): void {
-    this.deadline = this.config.clock() + seconds * 1000;
+  /**
+   * 按当前时钟与当前号码的截止时间重算倒计时、发码限流与登录限流；还有没到期的就（重新）启动每秒刷新，否则停掉。
+   * 进入验证码步、发码结果、换号、页面重新出现时都调（F-HM-09，APP-05a 共性 20、21）。
+   */
+  private refreshTimers(): void {
     this.tick();
-    this.stopTimer();
-    this.timer = setInterval(() => this.tick(), 1000);
+    if (this.timer < 0 && this.timerNeeded()) {
+      this.timer = setInterval(() => this.tick(), 1000);
+    }
+  }
+
+  private timerNeeded(): boolean {
+    return this.config.service.sendState(this.model.phoneText).needsTimer(this.limits.loginBlocked(this.model.now));
   }
 
   private tick(): void {
     const now: number = this.config.clock();
     this.model.now = now;
-    this.model.countdown = Math.max(0, Math.ceil((this.deadline - now) / 1000));
-    if (this.model.countdown <= 0 && !this.limits.anyActive(now)) {
+    this.model.countdown = this.config.service.sendState(this.model.phoneText).countdownSec;
+    if (!this.timerNeeded()) {
       this.stopTimer();
     }
   }
@@ -224,9 +246,9 @@ export struct LoginView {
     }
   }
 
-  /** 发码收到 42901：只禁用获取验证码 / 重新获取（R2-03，core LoginRateLimits.applySend）。 */
+  /** 发码收到 42901：只禁用这个号码的获取验证码 / 重新获取（截止时间已由 LoginService 按号码记下，R2-03、F-HM-09）。 */
   private disableSend(outcome: SendCodeOutcome): void {
-    if (this.limits.applySend(outcome, this.config.clock())) {
+    if (outcome.stateRaw === SmsCountdown.STATE_RATE_LIMITED) {
       this.rateLimitChanged();
     }
   }
@@ -239,16 +261,14 @@ export struct LoginView {
   }
 
   private rateLimitChanged(): void {
-    this.model.now = this.config.clock();
     this.model.rateLimitStamp++;
-    if (this.timer < 0) {
-      this.timer = setInterval(() => this.tick(), 1000);
-    }
+    this.refreshTimers();
   }
 
-  /** 发码入口是否因 42901 禁用（读 rateLimitStamp / now 让界面随之刷新）。 */
+  /** 当前号码的发码入口是否因 42901 禁用（按号码读 LoginService；读 rateLimitStamp / now / phoneText 让界面随之刷新）。 */
   private sendRateLimited(): boolean {
-    return this.model.rateLimitStamp >= 0 && this.limits.sendBlocked(this.model.now);
+    return this.model.rateLimitStamp >= 0 && this.model.now >= 0
+      && this.config.service.sendState(this.model.phoneText).rateLimitedSec > 0;
   }
 
   /** 手机号页的【获取验证码】：发码限流中只有这个号码还有有效的已收验证码时可点（点了回验证码步，R3-01）。 */
@@ -331,12 +351,19 @@ export struct LoginView {
     });
   }
 
-  private enterCodeStep(normalizedPhone: string, seconds: number): void {
+  /** 当前号码的「继续输入验证码」入口；没有为 null（读 phoneText 让界面随输入刷新）。 */
+  private continueEntry(): PhoneEntry | null {
+    const entry: PhoneEntry = this.config.service.continueEntry(this.model.phoneText);
+    return entry.kind === PhoneEntry.CONTINUE ? entry : null;
+  }
+
+  private enterCodeStep(normalizedPhone: string, _seconds: number): void {
     this.model.sentTo = PhoneNumber.masked(normalizedPhone);
     this.model.codeText = '';
     this.model.codeError = '';
     this.model.step = LoginModel.STEP_CODE;
-    this.startCountdown(seconds);
+    // 倒计时按这个号码保存的截止时间现算（_seconds 与之相同，只作说明）。
+    this.refreshTimers();
   }
 
   private async sendCode(): Promise<void> {
@@ -349,13 +376,14 @@ export struct LoginView {
       outcome = await this.config.service.sendCode(this.model.phoneText);
     } finally {
       this.model.sending = false;
+      this.model.entryStamp++;
     }
     switch (outcome.stateRaw) {
       case SmsCountdown.STATE_SENT:
       case LoginService.STATE_COUNTDOWN:
         // 发码成功，或这个号码的倒计时还没到（不再发出，R1-05）：进验证码步，倒计时按剩余秒数。
         if (this.model.step === LoginModel.STEP_CODE && outcome.stateRaw === LoginService.STATE_COUNTDOWN) {
-          this.startCountdown(outcome.countdownSec);
+          this.refreshTimers();
           return;
         }
         this.enterCodeStep(outcome.phone ?? '', outcome.countdownSec);
@@ -610,8 +638,9 @@ export struct LoginView {
           .accessibilityLevel('no')
         Divider().vertical(true).height(24).color(CouliColors.borderSubtle)
         TextInput({ text: this.model.phoneText, placeholder: this.t(LoginKeys.PHONE_PLACEHOLDER) })
-          .type(InputType.PhoneNumber)
-          .maxLength(20)
+          // F-HM-08（APP-05a 共性 15，BR-ID-05）：不预先过滤或截断字符——InputType.PhoneNumber 会吞掉字母等字符、maxLength
+          // 会截断粘贴，改为普通输入，原样交给 PhoneNumber.normalize 校验（含非法字符报 phone_invalid）。
+          .type(InputType.Normal)
           .fontSize(CouliTypography.title.fontSize)
           .fontColor(CouliColors.textPrimary)
           .backgroundColor(Color.Transparent)
@@ -623,8 +652,9 @@ export struct LoginView {
             if (value !== this.model.phoneText) {
               this.model.phoneText = value;
               this.model.phoneError = '';
-              // 换号：作废在途发码（旧号的结果不再改页面）。
+              // 换号：作废在途发码（旧号的结果不再改页面）；发码状态随号码切换（F-HM-09）。
               this.config.service.invalidateAttempt();
+              this.refreshTimers();
             }
           })
         if (this.model.phoneText.length > 0) {
@@ -640,6 +670,7 @@ export struct LoginView {
           .onClick(() => {
             this.model.phoneText = '';
             this.config.service.invalidateAttempt();
+            this.refreshTimers();
           })
         }
       }
@@ -779,6 +810,24 @@ export struct LoginView {
         buttonId: ID_GET_CODE,
         onTap: () => this.requestCode()
       })
+      // F-HM-08（APP-05a 共性 16）：独立的「继续输入验证码」入口——这个号码可能收到、仍有效的码就显示，不看能否重发
+      // （发码 50401 等结果不确定时同样提供）。entryStamp 让发码结束后重新判断。
+      if (this.model.entryStamp >= 0 && this.continueEntry() !== null) {
+        Text(this.t(LoginKeys.CONTINUE_CODE))
+          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis))
+          .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+          .textAlign(TextAlign.Center)
+          .accessibilityRole(AccessibilityRoleType.BUTTON)
+          .focusable(true)
+          .focusBox(CouliFocus.box)
+          .id('login_continue_code')
+          .onClick(() => {
+            const entry: PhoneEntry | null = this.continueEntry();
+            if (entry !== null && entry.phone !== null) {
+              this.enterCodeStep(entry.phone, entry.countdownSec);
+            }
+          })
+      }
       if (!this.config.restricted) {
         if (this.model.inviteOpen) {
           this.inviteField()
@@ -929,11 +978,16 @@ export struct LoginView {
     Column() {
       this.topBar()
       Scroll() {
-        if (this.model.step === LoginModel.STEP_CODE) {
-          this.codeStep()
-        } else {
-          this.phoneStep()
+        // F-HM-08（APP-05a 共性 17，03 §10.4）：大屏上内容限宽并水平居中（Scroll 的 Alignment.Top 即上方居中）。
+        Column() {
+          if (this.model.step === LoginModel.STEP_CODE) {
+            this.codeStep()
+          } else {
+            this.phoneStep()
+          }
         }
+        .width('100%')
+        .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
       }
       .layoutWeight(1)
       .width('100%')

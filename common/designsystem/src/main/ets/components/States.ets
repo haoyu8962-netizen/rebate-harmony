@@ -68,6 +68,8 @@ export struct ErrorState {
   @Param retryText: string = '';
   /** 【重试】按钮 id：出现时焦点移到这里并播报（adaptation-a11y-spec §10「加载失败」）。 */
   @Param retryId: string = 'couli-error-retry';
+  /** 【重试】暂不可用（如 42901 按 Retry-After 限时禁用）：按钮置灰，到期由调用方恢复。 */
+  @Param retryDisabled: boolean = false;
 
   aboutToAppear(): void {
     CouliAnnounce.say(this.getUIContext(), this.message.length > 0 ? this.title + PriceTerms.comma + this.message
@@ -99,6 +101,7 @@ export struct ErrorState {
         CouliButton({
           text: this.retryText,
           buttonId: this.retryId,
+          disabled: this.retryDisabled,
           onTap: () => {
             this.onRetry();
           }

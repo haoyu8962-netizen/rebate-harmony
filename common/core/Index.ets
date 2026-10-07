@@ -100,9 +100,20 @@ export {
   LoginErrorMapper, InviteDecision, InviteField, AfterLoginAction, AfterLoginUpdate, AfterLogin, LegalVersions
 } from './src/main/ets/login/LoginFlow';
 export {
-  LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry
+  LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry, LoginSendState
 } from './src/main/ets/login/LoginService';
 export { RouterLoginHost } from './src/main/ets/login/RouterLoginHost';
+export { SessionEffectHost, SessionEffectRouting } from './src/main/ets/login/SessionEffectRouting';
+// search（APP-06a）：搜索与商品详情的纯逻辑（向量 specs/search-product-vectors.json）与执行器（页面在 features/search、product）。
+export {
+  SearchQueryResult, SearchQuery, SearchTabs, SearchStateRaw, SearchPager, SearchResultView, SearchResultState,
+  SearchSession, ProductDetailView, ProductDetailState
+} from './src/main/ets/search/SearchProductFlow';
+export {
+  SearchApiPort, ApiClientSearchPort, SearchPhase, SearchSnapshot, SearchController, ProductPhase, ProductSnapshot,
+  ProductDetailController, SearchConfigPort, disableMillisOf, trace6Of,
+  SearchTextFormatter, SearchErrorText
+} from './src/main/ets/search/SearchController';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

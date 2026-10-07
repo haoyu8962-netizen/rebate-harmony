@@ -254,7 +254,8 @@ export class Router {
         return;
       case GuardDecisionKind.DEFER:
         // 外部带进来的请求排队，等条件满足后再交给 Router；App 内的操作不排队。
-        if (request.sourceKind !== RouteSource.IN_APP) {
+        // F-HM-09（APP-04 共性 65）：桥导航（nav.open）的结果以回复为准，deferred 时不进启动队列、事后也不补执行。
+        if (request.sourceKind !== RouteSource.IN_APP && request.sourceKind !== RouteSource.BRIDGE) {
           this.launchQueue.enqueue(LaunchIntent.route(request));
         }
         return;

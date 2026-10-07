@@ -8,6 +8,7 @@ import {
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip } from './Basics';
 import { CouliIcon } from './CouliIcon';
+import { DisclaimerNote } from './DisclaimerNote';
 import { CouliTextModifier, TABULAR_FEATURE } from './CouliText';
 
 export enum PriceTagSize {
@@ -244,6 +245,16 @@ export struct EstNetLine {
   }
 }
 
+/** 口径 i 按钮的 id 序号（每个实例唯一，弹层关闭后焦点回到它）。 */
+class DisclaimerIds {
+  private static counter: number = 0;
+
+  static next(): string {
+    DisclaimerIds.counter++;
+    return 'couli-disclaimer-info-' + DisclaimerIds.counter;
+  }
+}
+
 export enum DisclaimerMode {
   /** 详情 / 列表底部：常驻全文（每行一个图标 + 文字）。 */
   FULL = 'full',
@@ -266,7 +277,19 @@ export struct DisclaimerFooter {
   @Param buttonLabel: string = '';
   /** FULL 模式是否带浅底框（详情页说明区）。 */
   @Param boxed: boolean = false;
+  /**
+   * CARD 模式：给了弹层标题与关闭文字时，点 i 打开口径说明弹层（DisclaimerNote，设计稿 SearchDisclaimerNote：正文换行、可滚动、
+   * 【知道了】关闭、焦点回到 i）；没给时沿用气泡（DS-01 原行为）。
+   */
+  @Param noteTitle: string = '';
+  @Param noteCloseText: string = '';
   @Local expanded: boolean = false;
+  /** i 按钮的 id（弹层关闭后焦点回到这里）。 */
+  private infoId: string = DisclaimerIds.next();
+
+  private usesNote(): boolean {
+    return DisclaimerNote.available(this.noteTitle, this.lines, this.noteCloseText);
+  }
 
   @Builder
   fullText() {
@@ -309,13 +332,18 @@ export struct DisclaimerFooter {
         .height(CouliInteraction.minTouchTarget)
         .backgroundColor(Color.Transparent)
         .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, left: this.prefix.length > 0 ? -6 : -14 })
+        .id(this.infoId)
         .accessibilityText(this.buttonLabel)
         .focusable(true)
         .focusBox(CouliFocus.box)
         .onClick(() => {
+          if (this.usesNote()) {
+            DisclaimerNote.open(this.getUIContext(), this.noteTitle, this.lines, this.noteCloseText, this.infoId);
+            return;
+          }
           this.expanded = !this.expanded;
         })
-        .bindPopup(this.expanded, {
+        .bindPopup(this.expanded && !this.usesNote(), {
           builder: () => {
             this.popupContent()
           },

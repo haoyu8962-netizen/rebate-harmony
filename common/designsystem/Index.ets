@@ -35,3 +35,6 @@ export { NavBar, TabBar, TabBarItem } from './src/main/ets/components/Navigation
 export {
   CodeCellLayout, CouliTextSegment, CouliDialogLink, CouliLinkSegments
 } from './src/main/ets/components/CodeCells';
+export { ProductCardTexts, ProductCardKeys, ProductCardMapper } from './src/main/ets/format/ProductCardMapper';
+export { CouliLayout } from './src/main/ets/CouliLayout';
+export { DisclaimerNote } from './src/main/ets/components/DisclaimerNote';

@@ -92,7 +92,8 @@ export class BuildVariant {
     const fake: Object | undefined = want.parameters?.[DEBUG_FAKE_SERVER_KEY];
     if (fake === '1' || fake === 1 || fake === true) {
       DebugFakeServer.enabled = true;
-      hilog.info(0x0000, 'Couli', 'fake server on %{public}s', DebugFakeServer.marker);
+      hilog.info(0x0000, 'Couli', 'fake server on %{public}s %{public}s', DebugFakeServer.marker,
+        DebugFakeServer.searchMarker);
     }
     const raw: Object | undefined = want.parameters?.['couli_debug_font_scale'];
     if (typeof raw !== 'string' && typeof raw !== 'number') {

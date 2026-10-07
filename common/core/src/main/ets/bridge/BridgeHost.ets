@@ -28,11 +28,11 @@ export class BridgeReplyChannel {
     try {
       running = this.run(BridgeReplyChannel.receiveScript(json));
     } catch (e) {
-      return Promise.resolve();
+      return Promise.reject(e);
     }
-    return running.catch((): void => {
-      // 页面已离开：丢弃。
-    });
+    // F-HM-08（APP-04 共性 62）：执行失败（页面已离开等）原样以失败结束——不能当成「已执行」去触发 afterReply。
+    // 不关心结果的调用方（事件下发）自己 catch。
+    return running;
   }
 }
 
@@ -368,25 +368,48 @@ export class BridgeHost {
    * 页面已离开、会话失效、撤回同意、切换环境都不再导航）；导航本身由 afterReply 用当时的状态重新过 Router 守卫
    * （BridgeRouteOpening.rechecked）。
    */
+  /** 回复脚本执行确认的等待上限（共性 62）；超过按未执行处理，不触发 afterReply。 */
+  replyConfirmTimeoutMillis: number = BridgeHost.REPLY_CONFIRM_TIMEOUT_MILLIS;
+  static readonly REPLY_CONFIRM_TIMEOUT_MILLIS: number = 3000;
+
   async dispatch(raw: string, caller: BridgeCaller, deliver: (reply: string) => Promise<void>): Promise<void> {
     const settled: BridgeSettlement = await this.settle(raw, caller);
+    let confirmed: boolean = false;
     if (settled.reply !== null && this.samePage(caller)) {
-      let running: Promise<void> | null = null;
-      try {
-        running = deliver(settled.reply);
-      } catch (e) {
-        // 传输层出错不影响后续动作。
-        running = null;
-      }
-      if (running !== null) {
-        try {
-          await running;
-        } catch (e) {
-          // 脚本执行失败（页面已离开等）：照常走到下面的复核。
-        }
-      }
+      confirmed = await BridgeHost.confirmDelivery(deliver, settled.reply, this.replyConfirmTimeoutMillis);
+    }
+    if (settled.after !== null && !confirmed) {
+      // F-HM-08（APP-04 共性 62）：只有拿到「回复脚本已执行」的确认才执行破坏性导航；执行失败或超时都放弃这次导航
+      // （回复没交到网页手里时关掉容器，网页那边的调用就悬空了）。
+      return;
     }
     this.runAfterReply(settled, caller);
+  }
+
+  /**
+   * 等回复脚本执行的确认（共性 62）：deliver 的 Promise 兑现 = 已执行 → true；失败、抛错或超过 timeoutMillis 没有结论 → false。
+   */
+  static confirmDelivery(deliver: (reply: string) => Promise<void>, reply: string, timeoutMillis: number):
+    Promise<boolean> {
+    return new Promise<boolean>((resolve: (ok: boolean) => void): void => {
+      let done: boolean = false;
+      const finish: (ok: boolean) => void = (ok: boolean): void => {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve(ok);
+        }
+      };
+      const timer: number = setTimeout((): void => finish(false), timeoutMillis);
+      let running: Promise<void>;
+      try {
+        running = deliver(reply);
+      } catch (e) {
+        finish(false);
+        return;
+      }
+      running.then((): void => finish(true), (): void => finish(false));
+    });
   }
 
   /**

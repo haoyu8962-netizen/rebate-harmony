@@ -46,6 +46,7 @@ export class LoginDraftTexts {
     m.set('login.code.label', '验证码');
     m.set('login.code.countdown', '{sec} 秒后可重新获取');
     m.set('login.code.resend', '重新获取');
+    m.set('login.code.continue', '继续输入验证码');
     m.set('login.invite.label', '邀请码（选填）');
     m.set('login.invite.placeholder', '6 位邀请码');
     m.set('login.invite.clear', '清除邀请码');

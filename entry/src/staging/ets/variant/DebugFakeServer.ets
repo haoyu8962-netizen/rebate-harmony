@@ -4,6 +4,17 @@
 import {
   HttpTransport, RcpTransport, TransportFailure, TransportRequest, TransportResponse
 } from 'core';
+import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
+
+class Waiting {
+  readonly timer: number;
+  readonly resolve: (r: TransportResponse) => void;
+
+  constructor(timer: number, resolve: (r: TransportResponse) => void) {
+    this.timer = timer;
+    this.resolve = resolve;
+  }
+}
 
 /** 固定标记（release-scan 的内容标记；调试面板不显示）。 */
 export const DEBUG_FAKE_SERVER_MARKER: string = 'COULI_FAKE_LOGIN_SERVER_APP05A_9d2c41';
@@ -17,12 +28,17 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  *   200020 → 20002；200030 → 20003；444444 → 44001；100070 → 10007 processing；104050 → 10405 no_account；
  *   429010 → 42901（Retry-After 30）；其余 → 20002。
  * - 设备注册、退出登录 → 成功；其余接口 → 50001（不连任何地址）。
+ * - APP-06a：/v1/config（三个平台搜索开关都打开）、搜索与商品详情（场景见 DebugFakeSearch）。被 ApiClient 取消的请求
+ *   （换关键词、换 Tab、离开页面）立即按 cancelled 结束，不再回答（与真实传输层一样）。
  */
 export class DebugFakeServer implements HttpTransport {
   static enabled: boolean = false;
   static readonly marker: string = DEBUG_FAKE_SERVER_MARKER;
+  static readonly searchMarker: string = DebugFakeSearch.marker;
   private readonly real: HttpTransport = new RcpTransport();
   private serial: number = 0;
+  /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
+  private readonly waiting: Map<TransportRequest, Waiting> = new Map<TransportRequest, Waiting>();
 
   send(request: TransportRequest): Promise<TransportResponse> {
     if (!DebugFakeServer.enabled) {
@@ -31,15 +47,43 @@ export class DebugFakeServer implements HttpTransport {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
+    const search: FakeAnswer | null = this.searchAnswer(request.url);
+    const delay: number = search === null ? 400 : search.delayMillis;
     return new Promise<TransportResponse>((resolve: (r: TransportResponse) => void) => {
-      setTimeout(() => resolve(this.answer(request)), 400);
+      const timer: number = setTimeout(() => {
+        this.waiting.delete(request);
+        resolve(search === null ? this.answer(request) : DebugFakeServer.envelope(search.code, search.data,
+          search.retryAfter));
+      }, delay);
+      this.waiting.set(request, new Waiting(timer, resolve));
     });
   }
 
   cancel(request: TransportRequest): void {
     if (!DebugFakeServer.enabled) {
       this.real.cancel(request);
+      return;
     }
+    const w: Waiting | undefined = this.waiting.get(request);
+    if (w !== undefined) {
+      this.waiting.delete(request);
+      clearTimeout(w.timer);
+      w.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
+    }
+  }
+
+  /** APP-06a 的接口（配置、搜索、详情）；其余为 null。 */
+  private searchAnswer(url: string): FakeAnswer | null {
+    if (url.indexOf('/v1/config') >= 0) {
+      return DebugFakeSearch.config();
+    }
+    if (url.indexOf('/v1/products/search') >= 0) {
+      return DebugFakeSearch.search(url);
+    }
+    if (url.indexOf('/v1/products/') >= 0) {
+      return DebugFakeSearch.product(url);
+    }
+    return null;
   }
 
   private answer(request: TransportRequest): TransportResponse {

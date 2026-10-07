@@ -1,2 +1,2 @@
 export { HomeFeature } from './src/main/ets/HomeFeature';
-export { HomeTabRoot, homeTabRootBuilder } from './src/main/ets/HomeTabRoot';
+export { HomeTabRoot, HomeActions, homeTabRootBuilder } from './src/main/ets/HomeTabRoot';

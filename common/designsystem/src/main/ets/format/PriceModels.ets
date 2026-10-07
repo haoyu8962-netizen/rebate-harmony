@@ -80,6 +80,15 @@ export class PriceTagModel {
   }
 
   /**
+   * 没有可展示价格时的占位内容（价格不可用、amount_unknown）：不含任何金额，组件不显示 PriceTag（BR-PRICE-01 不把缺失价格当 0 元）。
+   * 预售标签照常给出（标签行用）。
+   */
+  static unpriced(isPresale: boolean): PriceTagContent {
+    return new PriceTagContent('', '', null, false, isPresale ? PriceTerms.presale : null, '', null,
+      isPresale ? PriceTerms.presaleNote : null);
+  }
+
+  /**
    * PriceTag 的读屏名称（合为一项）：INLINE 预售时「预售，券后 29.9 元，券前 39.9 元，券 10 元，定金与尾款以下单页为准」；
    * showSub = false 时不读副行；EXTERNAL 不读预售（由卡片的标签行、说明行各自朗读）。
    */

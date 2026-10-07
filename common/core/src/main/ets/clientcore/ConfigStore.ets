@@ -107,6 +107,10 @@ export class ConfigStore implements ConfigLayers {
   private listeners: ConfigListener[] = [];
   /** 已冷启动（开始过拉取）。 */
   private started: boolean = false;
+  /** 当前配置（current 层）来自哪一次拉取的编号；还没有成功拉取为 0。 */
+  private appliedId: number = 0;
+  /** requestFresh 时有拉取在途：在途的这次结算后再发一次（保证有一次拉取在请求之后才发出）。 */
+  private pendingFresh: boolean = false;
 
   constructor(readFile: () => string | null, writeFile: (value: string | null) => void, fetcher: ConfigFetcher,
     clock: () => number, bundled: string) {
@@ -179,6 +183,28 @@ export class ConfigStore implements ConfigLayers {
     this.startFetch();
   }
 
+  /**
+   * 要一份「此刻之后才发出」的配置（APP-06a R2-02：50304 search_disabled 刷新配置）：没有在途拉取就立即拉取；
+   * 有在途拉取时，它结算（成功或失败）后再发一次——在途的那次是此刻之前发出的，结果不能当作更新的配置。
+   */
+  requestFresh(): void {
+    if (this.inFlight !== 0) {
+      this.pendingFresh = true;
+      return;
+    }
+    this.startFetch();
+  }
+
+  /** 已发出的拉取的最大编号（单调递增）。编号大于它的拉取一定在此刻之后才发出。 */
+  get issuedFetchId(): number {
+    return this.sequence;
+  }
+
+  /** 当前配置（current 层）来自的拉取编号；还没有成功拉取为 0。 */
+  get appliedFetchId(): number {
+    return this.appliedId;
+  }
+
   /** 某一层的顶层键（JSON 文本）；这一层不存在或没有该键为 null。 */
   layerValue(source: string, key: string): string | null {
     let layer: JsonRecord | null = null;
@@ -225,6 +251,35 @@ export class ConfigStore implements ConfigLayers {
     return ConfigResolver.searchStatusIn(this.bundledObject, platformKey);
   }
 
+  /**
+   * 搜索 Tab 用的三层原始取值（APP-06a SearchTabs.resolve 的输入）：current 为本进程最近一次成功响应的
+   * features.search_status 原样对象（未知取值保留，由 SearchTabs 按 off 处理、不回落）；lkg 为历次成功响应按平台合并的
+   * on / off；bundled 为包内原样对象。某层没有 search_status 对象时不放该层。
+   * TODO(N-27)：LKG 文件只存 on / off，历史响应里的未知取值不会留到 lkg 层（rule-gaps：未知值三层口径待补）。
+   */
+  searchStatusLayers(): Record<string, Object> {
+    const out: Record<string, Object> = {};
+    const current: JsonRecord | null = this.current === null ? null : ConfigStore.rawSearchStatus(this.current);
+    if (current !== null) {
+      out['current'] = current;
+    }
+    const lkg: Record<string, Object> = {};
+    for (const key of Object.keys(this.lastSearch)) {
+      lkg[key] = this.lastSearch[key];
+    }
+    out['lkg'] = lkg;
+    const bundled: JsonRecord | null = ConfigStore.rawSearchStatus(this.bundledObject);
+    if (bundled !== null) {
+      out['bundled'] = bundled;
+    }
+    return out;
+  }
+
+  private static rawSearchStatus(layer: JsonRecord): JsonRecord | null {
+    const features: JsonRecord | null = ConfigResolver.objectOf(layer['features']);
+    return features === null ? null : ConfigResolver.objectOf(features['search_status']);
+  }
+
   /** 带版本的链接形态表：当前 → 上一次成功 → 包内（JSON 文本）。 */
   linkPatterns(): string | null {
     const current: JsonRecord | null = this.current === null ? null : ConfigResolver.linkPatternsIn(this.current);
@@ -239,10 +294,12 @@ export class ConfigStore implements ConfigLayers {
   clearForEnvironmentSwitch(): void {
     this.generation++;
     this.inFlight = 0;
+    this.pendingFresh = false;
     try {
       this.writeFile(null);
     } finally {
       this.current = null;
+      this.appliedId = 0;
       this.etag = null;
       this.lkg = null;
       this.lastPatterns = null;
@@ -273,6 +330,18 @@ export class ConfigStore implements ConfigLayers {
       return;
     }
     this.inFlight = 0;
+    this.apply(id, reply);
+    if (this.pendingFresh) {
+      this.pendingFresh = false;
+      this.startFetch();
+    }
+  }
+
+  private apply(id: number, reply: ConfigReply): void {
+    if (reply.kindRaw === ConfigReply.NOT_MODIFIED) {
+      this.confirmCurrent(id);
+      return;
+    }
     if (reply.kindRaw !== ConfigReply.OK) {
       return;
     }
@@ -292,9 +361,24 @@ export class ConfigStore implements ConfigLayers {
       this.lkg = this.current;
     }
     this.current = body;
+    this.appliedId = id;
     this.etag = reply.etag;
     this.lastPatterns = patterns;
     this.lastSearch = search;
+    this.publish();
+  }
+
+  /**
+   * 有效的 304（APP-06a R3-01）：服务端重新确认了当前配置——只有本进程已有当前配置时才带 If-None-Match，同一时刻只有
+   * 一个在途拉取、环境切换会作废在途结果，所以结算时 current 仍是发出时那一份。把本次拉取记为已应用并通知订阅者
+   * （search_disabled 分界之后的确认据此恢复明确为 on 的平台）；配置内容、LKG、ETag 都不变。没有当前配置时的 304
+   * 不改任何内容（rule-gaps 第 3 条）。
+   */
+  private confirmCurrent(id: number): void {
+    if (this.current === null) {
+      return;
+    }
+    this.appliedId = id;
     this.publish();
   }
 

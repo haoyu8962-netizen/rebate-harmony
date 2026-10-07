@@ -23,7 +23,7 @@
 #     （entry/src/staging/ets/variant/DebugBridge.ets）；回环支持 LOOPBACK_HOSTS 与回环字面量 127.0.0.1、localhost
 #     （core 的 src/staging/ets/bridge/DevOrigins.ets 与 DebugBridge.ets）。Release 编译的是 src/release 的同名替身，不含这些
 #   - 登录本机假服务（APP-05a）：标记 COULI_FAKE_LOGIN_SERVER_APP05A_9d2c41、启动参数键 couli_debug_fake_server
-#     （entry/src/staging/ets/variant/DebugFakeServer.ets）
+#     （entry/src/staging/ets/variant/DebugFakeServer.ets）；APP-06a 搜索与详情场景的标记 COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27（DebugFakeSearch.ets）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
 #     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
@@ -102,6 +102,8 @@ markers = [
     "AppBridgeOverrides", "assumeLoggedIn", "debugProbe", "LOOPBACK_HOSTS", "127.0.0.1", "localhost",
     # APP-05a：登录冒烟与截图用的本机假服务（entry/src/staging/ets/variant/DebugFakeServer.ets）。
     "COULI_FAKE_LOGIN_SERVER_APP05A_9d2c41", "couli_debug_fake_server",
+    # APP-06a：搜索与详情的本机假服务场景（entry/src/staging/ets/variant/DebugFakeSearch.ets）。
+    "COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27",
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:
