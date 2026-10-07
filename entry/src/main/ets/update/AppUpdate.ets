@@ -104,6 +104,12 @@ export class AppUpdate {
     return coordinator.routerStatus();
   }
 
+  /** 埋点上报的强更前提（R3-01）：按 routerStatus，检查中、未知（含复查失败）为 false；还没接上协调器为 false。 */
+  uploadReady(): boolean {
+    const coordinator: UpdateCheckCoordinator | null = this.coordinator;
+    return coordinator !== null && coordinator.uploadReady();
+  }
+
   /** App 内用户自己的操作用的强更结论（不等待）：检查中保留本进程已知结论，没有结论为 unknown。 */
   inAppUpdate(): UpdateState {
     const coordinator: UpdateCheckCoordinator | null = this.coordinator;

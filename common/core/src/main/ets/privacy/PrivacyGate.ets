@@ -156,6 +156,12 @@ export class PrivacyGate {
   private readonly bundledPolicyVersion: string;
   private stage: PrivacyPromptStage = PrivacyPromptStage.NONE;
   private readonly steps: Map<string, () => void> = new Map<string, () => void>();
+  /** 异步的设备注册步骤（APP-03b，DeviceRegistry.register）：兑现 true = 成功；false 或抛错 = 本次失败，按退避重试。 */
+  private deviceRegistration: (() => Promise<boolean>) | null = null;
+  /** 设备注册的退避循环正在跑（含排队中的重试）的同意周期；没有为 -1。 */
+  private deviceLoopCycle: number = -1;
+  /** 退避循环的编号：重新开始（restartDeviceRegistration immediate）加 1，旧循环排队中的重试与晚到结果作废。 */
+  private deviceLoop: number = 0;
   /** 同意周期：撤回时 +1，作废上一周期排队的重试；onConsented 每周期只跑一次。 */
   private cycle: number = 0;
   private initializedCycle: number = -1;
@@ -327,6 +333,7 @@ export class PrivacyGate {
    */
   withdraw(now?: number): boolean {
     this.cycle++;
+    this.deviceLoopCycle = -1;
     this.cleanupSucceededUnsaved = false;
     this.store.withdrawalIntent = true;
     this.intentUnsaved = !this.persistIntent();
@@ -355,6 +362,14 @@ export class PrivacyGate {
    * 会话层（TODO(APP-05)）读取令牌、device_id、install_secret 之前必须确认为 true：撤回同意的写入或清理没完成时为 false。
    * 每次调用先重试没落盘的撤回写入（R1-01）。
    */
+  /**
+   * 同意周期（隐私世代）：每次撤回同意加 1（APP-03b，cross-platform-lessons 12、16）。设备注册、埋点上报等后台任务开始时
+   * 记下它，之后每一步核对；撤回过就结束。
+   */
+  get consentCycle(): number {
+    return this.cycle;
+  }
+
   credentialsReadable(): boolean {
     this.retryWithdrawalPersist();
     return !this.withdrawalCleanupPending;
@@ -469,6 +484,41 @@ export class PrivacyGate {
   }
 
   /**
+   * 注册异步的设备注册步骤（APP-03b：DeviceRegistry.register，BR-ID-09）。设了它就代替同步的 DEVICE_REGISTER 步骤：
+   * onConsented 时先发起（不等结果，不阻塞后续步骤），兑现 false 或抛错按 1s、2s、4s…上限 60s 退避重试到成功（BR-ID-11）。
+   */
+  registerDeviceRegistration(action: () => Promise<boolean>): void {
+    this.deviceRegistration = action;
+  }
+
+  /**
+   * 重新开始设备注册（APP-03b；本同意周期已初始化时才做，未同意什么都不做）：
+   * - immediate = false：设备凭据丢失（10402 后重新注册失败，lessons 4）。交给退避流程：循环还在跑（含排队中的重试）时
+   *   不另起；否则从第一个退避间隔（1s）之后开始，不紧接着失败再发一次注册。
+   * - immediate = true：环境切换完成、新环境已提交（R1-02、lessons 5）。立即开始新的一轮（退避从头算）；旧循环排队中的
+   *   重试作废（它属于旧环境，结果也已被 DeviceRegistry 按环境世代作废）。
+   */
+  restartDeviceRegistration(immediate: boolean = false): void {
+    if (this.effectiveDecision() !== PrivacyDecision.CONSENTED || this.initializedCycle !== this.cycle) {
+      return;
+    }
+    if (!immediate) {
+      if (this.deviceLoopCycle === this.cycle) {
+        return;
+      }
+      const cycle: number = this.cycle;
+      const loop: number = ++this.deviceLoop;
+      this.deviceLoopCycle = cycle;
+      this.retryScheduler.schedule(PrivacyGate.retryDelay(0), () => {
+        this.registerDevice(cycle, 1, loop);
+      });
+      return;
+    }
+    this.deviceLoop++;
+    this.registerDevice(this.cycle, 0, this.deviceLoop);
+  }
+
+  /**
    * 注册本 App 的五个初始化步骤（App 启动时调一次）。步骤体写在本文件的 SdkInitSteps 里：
    * tools/ci/lint.py HM-LINT-4 只允许 PrivacyGate.ets 出现第三方 SDK 初始化调用。
    */
@@ -499,7 +549,8 @@ export class PrivacyGate {
     const cycle: number = this.cycle;
     for (const name of PrivacyInitSteps.ORDER) {
       if (name === PrivacyInitSteps.DEVICE_REGISTER) {
-        this.registerDevice(cycle, 0);
+        this.deviceLoop++;
+        this.registerDevice(cycle, 0, this.deviceLoop);
         continue;
       }
       const action: (() => void) | undefined = this.steps.get(name);
@@ -519,8 +570,39 @@ export class PrivacyGate {
     return Math.min(PrivacyGate.RETRY_BASE_MILLIS * Math.pow(2, retries), PrivacyGate.RETRY_MAX_MILLIS);
   }
 
-  private registerDevice(cycle: number, retries: number): void {
+  private registerDevice(cycle: number, retries: number, loop: number): void {
+    if (loop !== this.deviceLoop) {
+      // 已被重新开始的新一轮取代。
+      return;
+    }
     if (cycle !== this.cycle || this.effectiveDecision() !== PrivacyDecision.CONSENTED) {
+      if (cycle === this.cycle) {
+        this.deviceLoopCycle = -1;
+      }
+      return;
+    }
+    const registration: (() => Promise<boolean>) | null = this.deviceRegistration;
+    if (registration !== null) {
+      this.deviceLoopCycle = cycle;
+      let attempt: Promise<boolean>;
+      try {
+        attempt = registration();
+      } catch (e) {
+        attempt = Promise.resolve(false);
+      }
+      attempt.catch((): boolean => false).then((ok: boolean): void => {
+        if (cycle !== this.cycle || loop !== this.deviceLoop) {
+          // 撤回后（新周期）或已重新开始：这一轮结束，不再重试。
+          return;
+        }
+        if (ok) {
+          this.deviceLoopCycle = -1;
+          return;
+        }
+        this.retryScheduler.schedule(PrivacyGate.retryDelay(retries), () => {
+          this.registerDevice(cycle, retries + 1, loop);
+        });
+      });
       return;
     }
     const action: (() => void) | undefined = this.steps.get(PrivacyInitSteps.DEVICE_REGISTER);
@@ -537,7 +619,7 @@ export class PrivacyGate {
       return;
     }
     this.retryScheduler.schedule(PrivacyGate.retryDelay(retries), () => {
-      this.registerDevice(cycle, retries + 1);
+      this.registerDevice(cycle, retries + 1, loop);
     });
   }
 }
@@ -548,8 +630,8 @@ export class PrivacyGate {
  */
 class SdkInitSteps {
   /**
-   * TODO(APP-03)：设备注册（ODID 哈希，BR-ID-09）；失败抛错让 PrivacyGate 退避重试。成功后上报本地同意记录
-   * （consent_records，client_at = 同意的点击时间，BR-ID-12）与推送 token。
+   * 设备注册是异步的（APP-03b）：App 经 registerDeviceRegistration 接到 DeviceRegistry.register（ODID 哈希，BR-ID-09），
+   * 代替这里的同步步骤；没接时（单测、预览）什么都不做。成功后上报本地同意记录与推送 token 见 DeviceRegistry 的 TODO(APP-12)。
    */
   static registerDevice(): void {
   }

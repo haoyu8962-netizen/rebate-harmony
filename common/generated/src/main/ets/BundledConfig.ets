@@ -1,0 +1,11 @@
+// 生成物，禁止手改；来源 contract.lock（tools/codegen/gen.py 生成）
+
+// 包内默认配置（APP-03b；03 §4.3）：与 resources/rawfile/default_config.json 同一份文本（gen.py 同时产出，
+// --check 保证一致）。没有当前配置与 LKG 时 ConfigStore 用它；单测不需要 Context 读 rawfile。
+// 来源：openapi GET /v1/config 的 200 响应示例 data，去掉地址类字段，link_patterns 只留版本、规则为空。
+// TODO(N-21)：发布构建改为按生产配置当时的值生成（features.search_status、link_patterns 等），不用契约示例。
+
+export class BundledConfig {
+  /** /v1/config 的 data 对象（JSON 文本）。 */
+  static readonly DATA_JSON: string = '{\n  "dict_version": "2026100201",\n  "h5_release": {\n    "version": "1.4.2"\n  },\n  "features": {\n    "flags": {\n      "agent.entry.visible": true,\n      "clipboard.enabled.taobao": true,\n      "ui.grayscale": false,\n      "external_page.product_intercept": true,\n      "external_page.union_host_block": true,\n      "earnings.dashboard.visible": false\n    },\n    "platform_status": {\n      "taobao": "on",\n      "jd": "on",\n      "pdd": "not_launched"\n    },\n    "search_status": {\n      "taobao": "on",\n      "jd": "off"\n    }\n  },\n  "texts": {\n    "withdraw.sla_text": "工作日 24 小时内处理"\n  },\n  "legal": {\n    "privacy": {\n      "version": 3,\n      "min_version": 3\n    },\n    "agreement": {\n      "version": 2\n    }\n  },\n  "invite": {\n    "required": false,\n    "backfill_hours": 168,\n    "bind_phone_guide": true,\n    "before_buy_tip": true\n  },\n  "agent": {\n    "enabled": true,\n    "whitelist_only": true,\n    "filing_text": "",\n    "examples": [\n      "帮我找 500 元以内的降噪耳机"\n    ],\n    "guest_daily_quota": 3,\n    "require_phone": false\n  },\n  "jump_tip": {},\n  "clipboard": {},\n  "bridge_origins": {},\n  "auth_tips": {},\n  "compliance": {},\n  "display": {},\n  "external_page": {\n    "nav_host_sample_bp": 100\n  },\n  "link_patterns": {\n    "version": "2026100401",\n    "rules": []\n  },\n  "app_update": {\n    "recheck_interval_sec": 1800\n  },\n  "help_links": {\n    "price_compare": {\n      "route": "Help",\n      "params": {\n        "article_id": "example-article-one"\n      }\n    }\n  },\n  "claim": {\n    "window_days": 30\n  }\n}\n';
+}

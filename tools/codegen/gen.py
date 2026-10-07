@@ -26,7 +26,18 @@
                                                               x-min-version-gate、x-implementation）
     common/core/src/test/NetworkVectorsData.ets               specs/network-vectors.json 全文（APP-03a，网络向量单测用）
     common/core/src/test/RequestSignVectorsData.ets           契约快照 specs/request-sign.vectors.json 全文（APP-03a，签名向量单测用）
-不生成请求 / 响应模型、事件（specs/events.yaml）与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
+    common/generated/src/main/ets/ClientEvents.ets            specs/events.yaml → 事件构造函数 ClientEvents 与枚举字段类型（APP-03b，
+                                                              03 §4.7：业务代码只能调用生成函数）。字段名命中 FORBIDDEN_EVENT_FIELD
+                                                              （推广 URL、口令、推广位、relation_id、令牌、密钥、设备原始标识等）即失败
+    common/generated/src/main/ets/DeviceHashSeeds.ets         契约快照 specs/device-hash.vectors.json 的 invalid_hash_seeds（APP-03b，
+                                                              BR-ID-09 无效设备哈希清单的种子）
+    common/generated/src/main/ets/BundledConfig.ets           包内默认配置 default_config.json 的同一份文本（APP-03b，03 §4.3）
+    common/generated/src/main/resources/rawfile/default_config.json
+                                                              openapi GET /v1/config 的 200 响应示例 data（去掉示例里的地址类字段，
+                                                              link_patterns 只留版本；TODO(N-21)：发布构建改取生产配置当时的值）
+    common/core/src/test/ClientCoreVectorsData.ets            specs/client-core-vectors.json 全文（APP-03b，Codex 写的三端共用向量）
+    common/core/src/test/DeviceHashVectorsData.ets            契约快照 specs/device-hash.vectors.json 全文（APP-03b，设备哈希向量单测用）
+不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
 
@@ -46,6 +57,7 @@ HEADER = "// 生成物，禁止手改；来源 contract.lock（tools/codegen/gen
 RESERVED_TYPE_NAMES = {
     "ContractEnums", "RetryKind", "ErrorCodeInfo", "ErrorCodes", "RouteKind", "RouteSpec", "Routes",
     "DebugRoutes", "AppStoreSpec", "AppStores", "ApiOperation", "ApiOperations", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "DefaultTexts", "DesignTokens",
+    "ClientEvent", "ClientEvents", "ClientEventValue", "DeviceHashSeeds", "BundledConfig",
     "Object", "Function", "String", "Number", "Boolean", "Symbol", "Array", "Map", "Set", "Date",
     "Error", "Promise", "JSON", "Math", "RegExp", "Record", "Partial", "Required", "Readonly",
     "BigInt", "Intl", "Reflect", "Proxy", "WeakMap", "WeakSet", "Color", "Resource", "Context",
@@ -1094,6 +1106,307 @@ def gen_request_sign_vectors_data():
                             "供 RequestSignVector.test.ets 解析。只在 src/test，不进产物。")
 
 
+CLIENT_CORE_VECTORS = os.path.join("specs", "client-core-vectors.json")
+
+
+def gen_client_core_vectors_data():
+    """specs/client-core-vectors.json（APP-03b，Codex 先写的三端共用向量）。"""
+    return gen_vectors_data(CLIENT_CORE_VECTORS, "CLIENT_CORE_VECTORS_JSON",
+                            "客户端核心向量（APP-03b）：specs/client-core-vectors.json 全文，供 ClientCoreVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+DEVICE_HASH_VECTORS = os.path.join("contracts", "snapshot", "specs", "device-hash.vectors.json")
+
+
+def gen_device_hash_vectors_data():
+    """契约快照 specs/device-hash.vectors.json（BR-ID-09 设备哈希向量，APP-03b）。"""
+    return gen_vectors_data(DEVICE_HASH_VECTORS, "DEVICE_HASH_VECTORS_JSON",
+                            "设备哈希向量（APP-03b，BR-ID-09）：契约快照 specs/device-hash.vectors.json 全文，"
+                            "供 DeviceHashVector.test.ets 解析。只在 src/test，不进产物。")
+
+
+# ---------------------------------------------------------------- Tracker 事件（APP-03b）
+
+# 03 §4.7、02 §12.6：事件字段不带完整推广 URL、口令、推广位或 relation_id 等渠道标识，也不带令牌、密钥与设备原始标识
+# （三端同一份规则，与 Android 生成器一致）。字段名按 _ 分段，任一段命中即失败。
+FORBIDDEN_EVENT_FIELD = re.compile(
+    r"(^|_)(url|uri|href|tpwd|kouling|password|passwd|pwd|pid|adzone|adzone_id|position_id|relation_id|special_id|"
+    r"token|access_token|refresh_token|h5_token|secret|install_secret|sign|phone|mobile|id_card|idfa|idfv|oaid|odid|"
+    r"android_id|imei)($|_)")
+# 规则自检：这些字段名必须被拦下，这些必须放行（生成器每次运行都先核对，规则失效即失败）。
+FORBIDDEN_EVENT_FIELD_SAMPLES = ["promo_url", "tpwd", "pid", "relation_id", "access_token", "install_secret", "odid",
+                                 "phone", "share_url_text"]
+ALLOWED_EVENT_FIELD_SAMPLES = ["phase", "union_platform", "registered_domain", "duration_ms", "page_version", "reason"]
+# events.yaml 的字段类型 → ArkTS 类型。
+EVENT_FIELD_TYPES = {"string": "string", "integer": "number", "boolean": "boolean"}
+# 公共字段里由业务传入的部分（生成函数的参数）；其余由 TrackerQueue 补齐。
+EVENT_CALLER_COMMON = ["page", "spm", "trace_id"]
+# 生成函数参数名（避开 ArkTS 关键字；事件字段与它们同名时报错）。
+EVENT_RESERVED_PARAMS = {"page", "spm", "traceId", "fields"}
+
+
+def check_event_field_name(name, where):
+    if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+        raise GenError("%s 字段名不是小写蛇形：%r" % (where, name))
+    if FORBIDDEN_EVENT_FIELD.search(name):
+        raise GenError("%s 字段名 %r 命中禁用规则（03 §4.7：不为推广 URL、口令、推广位、relation_id、令牌、密钥、"
+                       "设备原始标识设字段）" % (where, name))
+
+
+def self_check_forbidden_rule():
+    for sample in FORBIDDEN_EVENT_FIELD_SAMPLES:
+        if not FORBIDDEN_EVENT_FIELD.search(sample):
+            raise GenError("事件字段禁用规则自检失败：%r 应被拦下" % sample)
+    for sample in ALLOWED_EVENT_FIELD_SAMPLES:
+        if FORBIDDEN_EVENT_FIELD.search(sample):
+            raise GenError("事件字段禁用规则自检失败：%r 不应被拦下" % sample)
+
+
+def lower_camel(snake):
+    name = upper_camel(snake)
+    return name[:1].lower() + name[1:]
+
+
+def gen_client_events(enum_type_names):
+    """specs/events.yaml → ClientEvents（每个事件一个静态构造函数）与枚举字段类型。"""
+    self_check_forbidden_rule()
+    data = load("specs/events.json")
+    common = data.get("common_fields")
+    events = data.get("events")
+    if not isinstance(common, dict) or not isinstance(events, dict) or not events:
+        raise GenError("events.json 缺 common_fields 或 events")
+    for name in common:
+        check_event_field_name(name, "events.json common_fields")
+    for name in EVENT_CALLER_COMMON:
+        if name not in common:
+            raise GenError("events.json common_fields 缺 %s" % name)
+    taken = set(enum_type_names) | RESERVED_TYPE_NAMES
+    enum_blocks = []
+    functions = []
+    names = []
+    for event, spec in events.items():
+        where = "events.json events.%s" % event
+        if not isinstance(event, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", event):
+            raise GenError("%s 事件名不是小写蛇形" % where)
+        if not isinstance(spec, dict) or not isinstance(spec.get("fields"), dict):
+            raise GenError("%s 缺 fields" % where)
+        names.append(event)
+        required, optional, checks, puts = [], [], [], []
+        params_seen = set()
+        for field, fspec in spec["fields"].items():
+            fwhere = "%s.fields.%s" % (where, field)
+            check_event_field_name(field, fwhere)
+            if field in common:
+                raise GenError("%s 与公共字段同名" % fwhere)
+            if not isinstance(fspec, dict):
+                raise GenError("%s 不是对象" % fwhere)
+            param = lower_camel(field)
+            if param in EVENT_RESERVED_PARAMS or param in params_seen:
+                raise GenError("%s 的参数名 %s 与其他参数冲突" % (fwhere, param))
+            params_seen.add(param)
+            ftype = fspec.get("type")
+            if ftype == "enum":
+                values = fspec.get("values")
+                if not isinstance(values, list) or not values or not all(isinstance(v, str) for v in values):
+                    raise GenError("%s 的 values 不是非空字符串列表" % fwhere)
+                type_name = "Event" + upper_camel(event) + upper_camel(field)
+                if type_name in taken:
+                    raise GenError("%s 的类型名 %s 与其他类型名冲突" % (fwhere, type_name))
+                taken.add(type_name)
+                members, used = [], set()
+                for value in values:
+                    member = upper_snake(value)
+                    if member in used:
+                        raise GenError("%s 的取值 %r 转成成员名后重复" % (fwhere, value))
+                    used.add(member)
+                    members.append("  %s = %s" % (member, ts_str(value)))
+                note = fspec.get("note", "")
+                enum_blocks.append("/** events.yaml %s.%s%s */\nexport enum %s {\n%s\n}" % (
+                    event, field, "：" + comment_text(note) if note else "", type_name, ",\n".join(members)))
+                ts_type = type_name
+            elif ftype in EVENT_FIELD_TYPES:
+                ts_type = EVENT_FIELD_TYPES[ftype]
+            else:
+                raise GenError("%s 的 type 不认识：%r" % (fwhere, ftype))
+            is_required = fspec.get("required") is True
+            required_when = fspec.get("required_when")
+            if required_when is not None:
+                if is_required or not isinstance(required_when, dict) or len(required_when) != 1:
+                    raise GenError("%s 的 required_when 只能是单个条件" % fwhere)
+                (cond_field, cond_value), = required_when.items()
+                cond = spec["fields"].get(cond_field)
+                if not isinstance(cond, dict) or cond.get("type") != "enum" or cond.get("required") is not True:
+                    raise GenError("%s 的 required_when 只能引用必填的枚举字段" % fwhere)
+                if cond_value not in cond.get("values", []):
+                    raise GenError("%s 的 required_when 取值 %r 不在 %s 的取值里" % (fwhere, cond_value, cond_field))
+                cond_type = "Event" + upper_camel(event) + upper_camel(cond_field)
+                checks.append("    if (%s === %s.%s && %s === null) {\n"
+                              "      throw new Error(%s);\n"
+                              "    }" % (lower_camel(cond_field), cond_type, upper_snake(cond_value), param,
+                                        ts_str("%s.%s 在 %s=%s 时必填" % (event, field, cond_field, cond_value))))
+            if ftype == "integer":
+                checks.append("    if (%s !== null && !Number.isInteger(%s)) {\n"
+                              "      throw new Error(%s);\n"
+                              "    }" % (param, param, ts_str("%s.%s 必须是整数" % (event, field))))
+            if is_required:
+                required.append("%s: %s" % (param, ts_type))
+                puts.append("    fields.set(%s, %s);" % (ts_str(field), param))
+            else:
+                optional.append("%s: %s | null = null" % (param, ts_type))
+                puts.append("    if (%s !== null) {\n      fields.set(%s, %s);\n    }" % (param, ts_str(field), param))
+        params = ["page: string"] + required + optional + ["spm: string | null = null", "traceId: string | null = null"]
+        description = comment_text(spec.get("description", ""))
+        source = comment_text(spec.get("source", ""))
+        doc = "%s%s" % (event, "：" + description if description else "")
+        if source:
+            doc += "（" + source + "）"
+        body = ["  /** %s */" % doc,
+                "  static %s(%s): ClientEvent {" % (lower_camel(event), ", ".join(params))]
+        body.extend(checks)
+        body.append("    const fields: Map<string, ClientEventValue> = new Map<string, ClientEventValue>();")
+        body.extend(puts)
+        body.append("    return new ClientEvent(EVENT_KEY, %s, page, spm, traceId, fields);" % ts_str(event))
+        body.append("  }")
+        functions.append("\n".join(body))
+    lines = [HEADER, "// 埋点事件（APP-03b）：specs/events.yaml（version %s）的事件构造函数与枚举字段类型。03 §4.7、拍板第二批 TECH-21：\n"
+                     "// 业务代码只能调用 ClientEvents 的生成函数；事件族（families）随各自任务补。字段名禁用规则见 gen.py FORBIDDEN_EVENT_FIELD。\n"
+             % comment_text(str(data.get("version")))]
+    lines.append("""/** 事件字段的取值类型（events.yaml 的 string / integer / boolean / enum）。 */
+export type ClientEventValue = string | number | boolean;
+
+/** 构造凭据：不导出，模块外造不出 ClientEvent（只能经 ClientEvents 的生成函数）。 */
+class ClientEventKey {
+  readonly generated: boolean = true;
+}
+
+const EVENT_KEY: ClientEventKey = new ClientEventKey();
+
+/**
+ * 一个待采集的事件：事件名、业务传入的公共字段（page、spm、trace_id）与事件字段（契约顺序）。
+ * 其余公共字段（event_id、client_at、session_id、device_id、user_id、platform、app_version、channel）由 TrackerQueue 补齐。
+ */
+export class ClientEvent {
+  readonly name: string;
+  readonly page: string;
+  readonly spm: string | null;
+  readonly traceId: string | null;
+  readonly fields: Map<string, ClientEventValue>;
+
+  constructor(key: ClientEventKey, name: string, page: string, spm: string | null, traceId: string | null,
+    fields: Map<string, ClientEventValue>) {
+    if (key !== EVENT_KEY) {
+      throw new Error('ClientEvent 只能由 ClientEvents 的生成函数构造');
+    }
+    this.name = name;
+    this.page = page;
+    this.spm = spm;
+    this.traceId = traceId;
+    this.fields = fields;
+  }
+}
+""")
+    lines.append("\n\n".join(enum_blocks))
+    lines.append("")
+    lines.append("/** specs/events.yaml 的事件构造函数（静态方法名为事件名的小驼峰）。 */")
+    lines.append("export class ClientEvents {")
+    lines.append("  /** 全部事件名（契约顺序）。 */")
+    lines.append("  static readonly names: string[] = [%s];" % ", ".join(ts_str(n) for n in names))
+    lines.append("")
+    lines.append("\n\n".join(functions))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def comment_text(text):
+    """放进 /** */ 注释的单行文本（去掉换行与注释结束符）。"""
+    return re.sub(r"\s+", " ", str(text)).replace("*/", "* /").strip()
+
+
+# ---------------------------------------------------------------- 设备哈希种子（APP-03b）
+
+
+def gen_device_hash_seeds():
+    data = load("specs/device-hash.vectors.json")
+    seeds = data.get("invalid_hash_seeds")
+    if not isinstance(seeds, list) or not seeds:
+        raise GenError("device-hash.vectors.json 缺 invalid_hash_seeds")
+    hashes = []
+    for index, item in enumerate(seeds):
+        value = item.get("device_hash") if isinstance(item, dict) else None
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise GenError("device-hash.vectors.json invalid_hash_seeds[%d] 的 device_hash 不是 64 位小写十六进制" % index)
+        hashes.append(value)
+    lines = [HEADER, "// 无效设备哈希清单的种子（APP-03b）：契约快照 specs/device-hash.vectors.json 的 invalid_hash_seeds\n"
+                     "// （BR-ID-09 细则「设备标识的无效值」，即配置 device.invalid_hashes 的初始值）。客户端在上报前排除命中的值。\n"]
+    lines.append("export class DeviceHashSeeds {")
+    lines.append("  static readonly INVALID_HASHES: string[] = [")
+    lines.append(",\n".join("    " + ts_str(h) for h in hashes))
+    lines.append("  ];")
+    lines.append("")
+    lines.append("  static has(deviceHash: string): boolean {")
+    lines.append("    return DeviceHashSeeds.INVALID_HASHES.indexOf(deviceHash) >= 0;")
+    lines.append("  }")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------- 包内默认配置（APP-03b）
+
+CONFIG_PATH = "/v1/config"
+# 示例里的地址类字段（示例域名不是生产地址，不进包）。
+BUNDLED_CONFIG_DROPPED_KEYS = ["h5_base_url", "share_domains", "kf", "external_hosts"]
+NON_PROD_ADDRESS = re.compile(r"(?i)https?://|\.test\b|\.invalid\b|\.example\b|\.local\b|example\.(com|net|org)\b")
+
+
+def string_leaves(node, path="$"):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            for item in string_leaves(value, "%s.%s" % (path, key)):
+                yield item
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            for item in string_leaves(value, "%s[%d]" % (path, index)):
+                yield item
+    elif isinstance(node, str):
+        yield path, node
+
+
+def bundled_config_text():
+    """openapi GET /v1/config 的 200 响应示例 data → 包内默认配置（03 §4.3）。
+    去掉示例里的地址类字段；link_patterns 只留版本、规则为空（示例规则里的主机是示例域名）；剩下的字符串里不得有非生产地址。
+    TODO(N-21)：发布构建改为按生产配置当时的值生成（features.search_status、link_patterns 等，03 §4.3）。"""
+    data = load("contracts/openapi.json")
+    try:
+        example = data["paths"][CONFIG_PATH]["get"]["responses"]["200"]["content"]["application/json"]["example"]
+    except (KeyError, TypeError) as e:
+        raise GenError("openapi.json 里没有 GET %s 的 200 响应示例（%r）" % (CONFIG_PATH, e))
+    body = example.get("data") if isinstance(example, dict) else None
+    if not isinstance(body, dict):
+        raise GenError("GET %s 的响应示例没有 data 对象" % CONFIG_PATH)
+    config = dict((k, v) for k, v in body.items() if k not in BUNDLED_CONFIG_DROPPED_KEYS)
+    patterns = config.get("link_patterns")
+    if not isinstance(patterns, dict) or not isinstance(patterns.get("version"), str):
+        raise GenError("GET %s 的响应示例缺 link_patterns.version" % CONFIG_PATH)
+    config["link_patterns"] = {"version": patterns["version"], "rules": []}
+    for path, text in string_leaves(config):
+        if NON_PROD_ADDRESS.search(text):
+            raise GenError("包内默认配置 %s 含非生产地址：%r" % (path, text))
+    return json.dumps(config, ensure_ascii=False, indent=2) + "\n"
+
+
+def gen_bundled_config(text):
+    lines = [HEADER, "// 包内默认配置（APP-03b；03 §4.3）：与 resources/rawfile/default_config.json 同一份文本（gen.py 同时产出，\n"
+                     "// --check 保证一致）。没有当前配置与 LKG 时 ConfigStore 用它；单测不需要 Context 读 rawfile。\n"
+                     "// 来源：openapi GET /v1/config 的 200 响应示例 data，去掉地址类字段，link_patterns 只留版本、规则为空。\n"
+                     "// TODO(N-21)：发布构建改为按生产配置当时的值生成（features.search_status、link_patterns 等），不用契约示例。\n"]
+    lines.append("export class BundledConfig {")
+    lines.append("  /** /v1/config 的 data 对象（JSON 文本）。 */")
+    lines.append("  static readonly DATA_JSON: string = %s;" % ts_str(text))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------- 汇总
 
 INDEX = HEADER + """// generated 模块统一导出（import { … } from 'generated'）。
@@ -1128,6 +1441,7 @@ def build_outputs():
     route_entry_type = type_names["route_entry"]
     route_entry_values = set(enum_values["route_entry"])
     main = os.path.join(MODULE, "src", "main", "ets")
+    bundled_text = bundled_config_text()
     outputs = {
         os.path.join(main, "ContractEnums.ets"): enum_src,
         os.path.join(main, "ErrorCodes.ets"): gen_error_codes(),
@@ -1151,6 +1465,12 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "UpdateGateVectorsData.ets"): gen_update_gate_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "NetworkVectorsData.ets"): gen_network_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "RequestSignVectorsData.ets"): gen_request_sign_vectors_data(),
+        os.path.join(main, "ClientEvents.ets"): gen_client_events(type_names.values()),
+        os.path.join(main, "DeviceHashSeeds.ets"): gen_device_hash_seeds(),
+        os.path.join(main, "BundledConfig.ets"): gen_bundled_config(bundled_text),
+        os.path.join(MODULE, "src", "main", "resources", "rawfile", "default_config.json"): bundled_text,
+        os.path.join(CORE_MODULE, "src", "test", "ClientCoreVectorsData.ets"): gen_client_core_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "DeviceHashVectorsData.ets"): gen_device_hash_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
@@ -1160,9 +1480,10 @@ def build_outputs():
 
 def index_exports(outputs, main):
     lines = []
-    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens", "AppStores", "ApiOperations"):
+    for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "DefaultTexts", "DesignTokens", "AppStores", "ApiOperations",
+                 "ClientEvents", "DeviceHashSeeds", "BundledConfig"):
         src = outputs[os.path.join(main, name + ".ets")]
-        names = re.findall(r"^export (?:enum|class|function|const) ([A-Za-z0-9_]+)", src, re.M)
+        names = re.findall(r"^export (?:enum|class|function|const|type) ([A-Za-z0-9_]+)", src, re.M)
         lines.append("export {\n%s\n} from './src/main/ets/%s';" % (",\n".join("  " + n for n in names), name))
     return "\n".join(lines)
 

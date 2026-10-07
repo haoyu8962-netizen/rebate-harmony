@@ -3,7 +3,8 @@ import {
   ApiAppIdentity, ApiClient, ApiClientDeps, ApiRequest, CredentialSource, DeviceRegistrar, ErrorEffect,
   EnvironmentEndpoints,
   HttpTransport, MemoryPendingKeyBackend, MemorySessionTokens, NetworkContext, NetworkHeaders, NetworkRandom,
-  NetworkTimer, PendingKeyStore, RcpRawResponse, RcpRequestSpec, RcpSender, SessionTokenSet, TransportRequest,
+  NetworkTimer, PendingKeyStore, RcpRawResponse, RcpRequestSpec, RcpSender, SessionTokens, SessionTokenSet,
+  TransportRequest,
   TransportResponse, UpdatePort
 } from '../../Index';
 import { ReferenceDigest } from './TestDigest';
@@ -158,10 +159,13 @@ export class FakeCredentials implements CredentialSource {
 /** 10402 的重新注册（APP-03b 的替身）：默认不能注册；result 可换成可控的 promise。 */
 export class FakeRegistrar implements DeviceRegistrar {
   calls: number = 0;
+  /** 每次调用时被拒请求带的 device_id。 */
+  usedDeviceIds: (string | null)[] = [];
   result: () => Promise<boolean> = () => Promise.resolve(false);
 
-  reregister(): Promise<boolean> {
+  reregister(usedDeviceId: string | null): Promise<boolean> {
     this.calls++;
+    this.usedDeviceIds.push(usedDeviceId);
     return this.result();
   }
 }
@@ -187,17 +191,21 @@ export class Rig {
 
   constructor(tokens: SessionTokenSet | null = new SessionTokenSet('old-access', 'old-refresh', 'full', 'user-1'),
     transport: HttpTransport | null = null, tokenStore: MemorySessionTokens | null = null,
-    pendingBackend: MemoryPendingKeyBackend | null = null, updatePort: UpdatePort | null = null) {
+    pendingBackend: MemoryPendingKeyBackend | null = null, updatePort: UpdatePort | null = null,
+    credentials: CredentialSource | null = null, registrar: DeviceRegistrar | null = null,
+    sessionTokens: SessionTokens | null = null) {
     this.tokens = tokenStore ?? new MemorySessionTokens(tokens);
     this.pendingBackend = pendingBackend ?? new MemoryPendingKeyBackend();
     this.pending = new PendingKeyStore(this.pendingBackend, (): number => this.nowMillis);
     this.pending.coldStart('user-1');
     const deps: ApiClientDeps = new ApiClientDeps(transport ?? this.server, this.context,
-      new ApiAppIdentity('couli', 'harmony', '1.2.0', '100', 'agc'), this.tokens, updatePort ?? this.update);
-    deps.credentials = this.credentials;
+      new ApiAppIdentity('couli', 'harmony', '1.2.0', '100', 'agc'), sessionTokens ?? this.tokens,
+      updatePort ?? this.update);
+    // APP-03b：可换成真实的 DeviceRegistry（凭据源与 10402 的重新注册）。
+    deps.credentials = credentials ?? this.credentials;
     deps.digest = new ReferenceDigest();
     deps.pendingKeys = this.pending;
-    deps.deviceRegistrar = this.registrar;
+    deps.deviceRegistrar = registrar ?? this.registrar;
     deps.timer = this.timer;
     deps.random = this.random;
     deps.clock = (): number => {

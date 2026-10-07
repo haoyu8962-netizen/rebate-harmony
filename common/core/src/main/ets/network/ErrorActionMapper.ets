@@ -59,9 +59,14 @@ export class EffectKind {
   static readonly KEEP_LOADING: string = 'keep_loading';
   /**
    * 20001：在对应字段旁提示（ErrorEffect.fields = data.fields；文案带 reason 先取子键）。不重放。
-   * data.fields 含 device_hash 时不向用户提示（textKey 为 null；客户端按 BR-ID-09 重新读取设备标识后再注册，APP-03b）。
+   * data.fields 含 device_hash 时不是字段提示，改为 REREAD_DEVICE_HASH。
    */
   static readonly FIELD_ERROR: string = 'field_error';
+  /**
+   * 20001 且 data.fields 含 device_hash（三端对齐的名字，iOS 先有；APP-03b）：不向用户提示（textKey 为 null），由设备注册
+   * （DeviceRegistry）按 BR-ID-09 重读一次设备标识再注册，读到的还是被拒的值就不再发（不带原值重试）。fields 照样带出。
+   */
+  static readonly REREAD_DEVICE_HASH: string = 'reread_device_hash';
   /**
    * 20004：回到登录页（三个第三方登录）或二次验证面板（stepUp），由用户重新发起第三方授权（重新取授权尝试，
    * 不复用原尝试与原凭证）；不自动重放、不登记 pending_action。去向见 ErrorEffect.reauthorizeIn。
@@ -318,8 +323,10 @@ export class ErrorActionMapper {
     }
     if (code === 20001) {
       const fields: string[] = ErrorActionMapper.fieldsOf(input.data);
-      const silent: boolean = fields.indexOf('device_hash') >= 0;
-      return new ErrorEffect(EffectKind.FIELD_ERROR, null, silent ? null : textKey, none, false, 0, false, fields);
+      if (fields.indexOf('device_hash') >= 0) {
+        return new ErrorEffect(EffectKind.REREAD_DEVICE_HASH, null, null, none, false, 0, false, fields);
+      }
+      return new ErrorEffect(EffectKind.FIELD_ERROR, null, textKey, none, false, 0, false, fields);
     }
     if (code === 20004) {
       const toStepUp: boolean = input.operation.operationId === 'stepUp';

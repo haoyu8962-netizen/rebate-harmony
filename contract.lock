@@ -27,6 +27,7 @@
     "specs/app-stores.json": "19ad122d9cf7b92044819edd30c615f4f111668a0388eea28814394e130822cf",
     "specs/client-public-ids.json": "1ef9e57a1a77dc849899ec72f53d7911ff57b6583cb3eaf78527a3bc6fb9f7b3",
     "specs/client-security-baseline.json": "25c48e505e0dee4afd7279ae9b7cbb029dbacb2585e68a7c52d3ad7e2738ff90",
+    "specs/device-hash.vectors.json": "9c679ba2d4a7a0c5723602dd8879f251ae5250663702b3ef6e3ad0ba359065aa",
     "specs/events.json": "c17a9a20cd18d9faca8227083904acb4244160f80173f2b99f9f4d7c77df7353",
     "specs/request-sign.vectors.json": "42512225bf4ada0642b761176d5cf5010c44c0d168f99b087166459518c1cbf9",
     "specs/system-permissions.json": "bd7c09ae405d0ed5493704be0a51e59ec2628bf7a0c24c2433c39acfe8175b2f"

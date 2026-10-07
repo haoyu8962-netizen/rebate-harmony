@@ -7,7 +7,7 @@
 | 目录 | 内容 |
 | --- | --- |
 | `entry/` | HAP：`EntryAbility`、首屏 `RootPage`（Navigation + NavPathStack）；`src/release` / `src/staging` 是按构建配置二选一的源码目录 |
-| `common/core/` | HAR：`config`（环境、本机数据清理注册表、启动对账；`src/staging` 里是环境切换实现与调试能力判断，Release 不编译）；其余子目录为占位 |
+| `common/core/` | HAR：`config`（环境、本机数据清理注册表、启动对账；`src/staging` 里是环境切换实现与调试能力判断，Release 不编译）；`router`、`privacy`、`update`、`network`、`session`、`storage`（APP-02 / APP-03a）；`clientcore`（APP-03b：`DeviceIdPolicy`、`ConfigStore` + LKG、`TrackerQueue`、`PermissionRequester`，向量见 `specs/client-core-vectors.json`）与 `device`（`DeviceRegistry`：设备注册、签名凭据、10402 重新注册）；其余子目录为占位 |
 | `common/designsystem/` | HAR：设计令牌 → ArkUI 常量（`CouliColors`、`CouliTypography`、`CouliSpacing`、`CouliRadius`、`CouliInteraction`）；格式化与组件模型（`CouliFormat`、`PriceTagModel`、`RebateTagModel`、`EstNetModel`、`BuyButtonModel`，术语表 `PriceTerms`，向量见 `specs/format-vectors.json`）；`@ComponentV2` 组件（`src/main/ets/components`）。组件目录页与设计对照页在 `entry/src/staging/ets/catalog`（调试面板 → Component catalog，只在 Debug / Staging） |
 | `common/generated/` | HAR：契约生成物（禁止手改），`python3 tools/codegen/gen.py` 生成 |
 | `features/*` | HAR 占位：home search product agent orders wallet me auth web，互不依赖 |

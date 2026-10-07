@@ -125,6 +125,16 @@ export class UpdateCheckCoordinator {
     return UpdateRouting.status(state, this.checkStartedAt);
   }
 
+  /**
+   * 埋点上报的强更前提（TrackerQueue 的 canUpload 一部分，APP-03b R3-01；03 §4.7）：按交给 Router 的状态判断，
+   * 不按 inAppUpdate（界面保留的旧结论）。检查中（含回前台复查）、未知（含复查失败）只入队、不上报，队列保留；
+   * 有确定结论（ok / below_recommended / below_min）才放行。
+   */
+  uploadReady(): boolean {
+    const status: UpdateCheckStatus = this.routerStatus();
+    return status.result !== null && status.result !== GuardUpdate.UNKNOWN;
+  }
+
   /** App 内用户自己的操作用的强更结论（不等待）：检查中保留本进程已知结论；没有结论为 unknown。 */
   inAppUpdate(): GuardUpdate {
     const status: UpdateCheckStatus = UpdateRouting.status(this.gate.state(this.clock()), 0);

@@ -268,8 +268,10 @@ export default function privacyBehaviorTest() {
       registry.register(tokens);
       PrivacyWithdrawalCleaners.registerPlaceholders(registry);
       // 已注册的真实清理器不被占位替换。
+      // APP-03b R1-06：撤回清理名单加入埋点队列（tracker_queue）。
       expect(JSON.stringify(registry.names())).assertEqual(JSON.stringify(['preferences',
-        PrivacyWithdrawalCleaners.SESSION_TOKENS, PrivacyWithdrawalCleaners.DEVICE_IDENTITY]));
+        PrivacyWithdrawalCleaners.SESSION_TOKENS, PrivacyWithdrawalCleaners.DEVICE_IDENTITY,
+        PrivacyWithdrawalCleaners.TRACKER_QUEUE]));
       const report: CleanReport = await PrivacyWithdrawalCleaners.run(registry);
       expect(report.ok).assertTrue();
       expect(JSON.stringify(report.cleaned)).assertEqual(JSON.stringify(PrivacyWithdrawalCleaners.NAMES));
@@ -277,14 +279,14 @@ export default function privacyBehaviorTest() {
       expect(prefs.calls).assertEqual(0);
       // 环境切换的全部清理同样包含凭据清理项（03 §3.6）。
       const all: CleanReport = await registry.cleanAll();
-      expect(all.cleaned.length).assertEqual(3);
+      expect(all.cleaned.length).assertEqual(4);
     });
 
     it('withdrawal_reports_missing_cleaner_as_failure', 0, async () => {
       const registry: LocalDataCleanerRegistry = new LocalDataCleanerRegistry();
       const report: CleanReport = await PrivacyWithdrawalCleaners.run(registry);
       expect(report.ok).assertFalse();
-      expect(report.failed.length).assertEqual(2);
+      expect(report.failed.length).assertEqual(PrivacyWithdrawalCleaners.NAMES.length);
     });
 
     it('gate_withdraw_uses_cleanup_then_basic_mode', 0, () => {

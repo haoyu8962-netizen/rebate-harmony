@@ -6,6 +6,7 @@ import {
   PrivacyWithdrawalCleaners
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
+import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
@@ -32,7 +33,11 @@ export default class EntryAbility extends UIAbility {
     // APP-03a 网络核心的组合处（harmony-review-r3 R3-04，lessons 35）：ApiClient 与它的会话令牌、未决键在这里创建；
     // 令牌用真实清理项同名替换占位，未决幂等键只在切换环境（cleanAll）时清；ApiClient.invalidate 登记为撤回同意与
     // 切换环境两条清理的第一步（在环境对账 AppConfig.start 之前登记）。返回的处理函数接到下面的 AppUpdate.onChanged。
-    const onUpdateChanged: () => void = AppNetwork.compose();
+    // APP-03b：设备注册（DeviceRegistry）在这里一并创建：它是 ApiClient 的凭据源与 10402 的重新注册，清理项同名替换
+    // device_identity 占位。
+    const onUpdateChanged: () => void = AppNetwork.compose(appContext);
+    // APP-03b：ConfigStore（LKG 登记进切换环境清理）、埋点队列、权限申请。配置在环境闸门 SETTLED 后冷启动（AppPrivacy）。
+    AppClientCore.shared.compose(this.context);
     // Debug / Staging：冒烟与截图用的启动参数（如字号倍数）；Release 什么都不做。
     BuildVariant.applyLaunchOptions(appContext, want);
     // X-01：上次生效的环境与本次不同（同 bundleName 覆盖安装）时先清理再记录；见 EnvironmentLaunchReconciler。
@@ -67,6 +72,9 @@ export default class EntryAbility extends UIAbility {
   /** 回前台（含冷启动后的第一次）：距上次成功的版本检查超过复查间隔再查（03 §4.1）。 */
   onForeground(): void {
     AppUpdate.shared.onForeground();
+    // 回前台带 ETag 拉配置（03 §4.3），埋点尝试上报一次；未完成的撤回清理再试一次（R1-06）。
+    AppClientCore.shared.onForeground();
+    AppPrivacy.shared.retryWithdrawalCleanup();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

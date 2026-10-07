@@ -6,6 +6,8 @@ import {
 } from 'designsystem';
 import { DefaultTexts } from 'generated';
 import { VariantDestination } from 'entry/ets/variant/BuildVariant';
+import { PermissionPrompt } from '../permission/PermissionPrompt';
+import { PermissionPromptModel } from '../permission/PermissionPromptModel';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { PrivacyPrompt } from '../privacy/PrivacyPrompt';
 import { AppRouting, UPGRADE_PROMPT_PAGE } from '../routing/AppRouting';
@@ -69,10 +71,16 @@ struct RootPage {
   @Local launch: LaunchGateModel = new LaunchGateModel();
   @Local privacy: AppPrivacy = AppPrivacy.shared;
   @Local update: AppUpdate = AppUpdate.shared;
+  @Local permissionPrompt: PermissionPromptModel = PermissionPromptModel.shared;
 
   /** 弹窗显示时吞掉返回键（不进入首页、不记为同意或拒绝）；协议页盖在上面时照常返回到弹窗。可关闭更新提示同样只能点按钮。 */
   onBackPress(): boolean {
-    return AppPrivacy.shared.blocksBack || this.updatePromptVisible();
+    return AppPrivacy.shared.blocksBack || this.updatePromptVisible() || this.permissionPromptVisible();
+  }
+
+  /** 权限用途说明 / 去设置引导（APP-03b，PermissionRequester）：隐私弹窗显示时让位。 */
+  private permissionPromptVisible(): boolean {
+    return this.permissionPrompt.visible && !this.promptVisible();
   }
 
   /** 可关闭更新提示：below_recommended 且该弹、外壳已显示、隐私弹窗没在显示。 */
@@ -170,7 +178,8 @@ struct RootPage {
         .navDestination(this.routeMap)
         .backgroundColor(CouliColors.backgroundCanvas)
         // 弹窗显示时底层（Tab 外壳与已推入的页面）对读屏隐藏，焦点只在弹窗内（adaptation-a11y-spec §8）。
-        .accessibilityLevel(this.promptVisible() || this.updatePromptVisible() ? 'no-hide-descendants' : 'auto')
+        .accessibilityLevel(this.promptVisible() || this.updatePromptVisible() || this.permissionPromptVisible() ?
+          'no-hide-descendants' : 'auto')
         .onAppear(() => {
           // 从弹窗里打开的协议页返回到宿主页（导航根，或强更页等 NavDestination，R2-02）：弹窗重新出现。
           this.pathStack.setInterception({
@@ -183,6 +192,8 @@ struct RootPage {
 
         if (this.promptVisible()) {
           PrivacyPrompt({ stage: this.privacy.stage })
+        } else if (this.permissionPromptVisible()) {
+          PermissionPrompt()
         } else if (this.updatePromptVisible()) {
           UpdatePrompt()
         }

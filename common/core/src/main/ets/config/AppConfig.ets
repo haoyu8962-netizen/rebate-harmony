@@ -2,6 +2,7 @@ import { AppEnvironment, EnvironmentEndpoints, EnvironmentSource } from './AppEn
 import { EnvironmentRecord } from './EnvironmentRecord';
 import { EnvironmentLaunchReconciler, LaunchOutcome, LaunchReport } from './EnvironmentLaunchReconciler';
 import { LocalDataCleanerRegistry } from './LocalDataCleaner';
+import { EnvironmentSwitchGate } from './EnvironmentSwitchGate';
 import { EnvironmentCatalog } from 'core/ets/config/EnvironmentCatalog';
 
 /**
@@ -173,7 +174,14 @@ export class AppConfig {
     return AppConfig.bootstrap.environment();
   }
 
+  /**
+   * 当前地址；非 SETTLED、或运行中切换环境（EnvironmentSwitchGate 关闭：清理与提交期间，R1-01）时为 undefined——
+   * 网络层据此在本地拒绝一切请求（含设备注册），不会向旧环境发出。
+   */
   static endpoints(): EnvironmentEndpoints | undefined {
+    if (!EnvironmentSwitchGate.shared.open) {
+      return undefined;
+    }
     return AppConfig.bootstrap.endpoints();
   }
 

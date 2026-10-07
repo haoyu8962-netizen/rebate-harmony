@@ -21,6 +21,8 @@ export class NetworkHeaders {
   static readonly SIGN: string = 'X-Sign';
   static readonly STEP_UP_TOKEN: string = 'X-Step-Up-Token';
   static readonly CONTENT_TYPE: string = 'Content-Type';
+  /** 条件请求（03 §4.3：回前台带 ETag 拉 /v1/config；APP-03b）。 */
+  static readonly IF_NONE_MATCH: string = 'If-None-Match';
 }
 
 /** 本地拒绝的原因（不发出请求）。 */
@@ -68,8 +70,21 @@ export class LocalRejectReason {
    * 晚到的 10002 也复用那次失败的结论返回本原因，不再刷新、不再清会话（lessons 37；与 session_changed 区分）。
    */
   static readonly SESSION_CLEARED: string = 'session_cleared';
-  /** 登录响应里的令牌没能写入安全存储：不算登录成功（lessons 40）。 */
-  static readonly SESSION_STORE_FAILED: string = 'session_store_failed';
+  /**
+   * 登录响应里的令牌没能写入安全存储：不算登录成功（lessons 40）。三端统一名（编排者裁定：鸿蒙原名 session_store_failed，
+   * APP-03b 改名）。
+   */
+  static readonly SESSION_SAVE_FAILED: string = 'session_save_failed';
+  /**
+   * 登录响应 code=0 但缺 data.tokens，或其中缺 access_token / refresh_token：不算登录成功，当前会话原样保留
+   * （harmony-review-r2 R2-03；三端统一名，APP-03a 名字对齐裁定）。与令牌写不进安全存储（session_save_failed）分开。
+   */
+  static readonly INVALID_SESSION_TOKENS: string = 'invalid_session_tokens';
+  /**
+   * 会话此刻读不出（安全存储读取失败；不是「没有会话」，也不是内容损坏）：需要会话的接口（x-auth 不为 none）本地拒绝，
+   * 不当成游客匿名发出（编排者裁定 iOS 第 2 轮，三端统一名；APP-03b）。下次请求重新读取。
+   */
+  static readonly SESSION_UNREADABLE: string = 'session_unreadable';
 }
 
 /** 未决键的作废接口给出的结局（ApiResult.pendingResolution；harmony-review-r2 R2-04，lessons 27）。 */

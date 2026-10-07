@@ -338,5 +338,24 @@ export default function updateBehaviorTest() {
       expect(w.router.open(RouteRequest.of('Agreement', RouteSource.DEEPLINK)).kind)
         .assertEqual(GuardDecisionKind.FORCE_UPDATE);
     });
+
+    // F-ALL-06（APP-03b 核对）：强更页上叠着隐私重新同意弹窗（隐私未决）时，弹窗里的协议链接带强更来源标记
+    // （AppPrivacy.openAgreement 在 below_min 时走 AppRouting.openFromForceUpdatePage），协议页能打开；不带标记则回强更页。
+    it('f_all_06_agreement_from_privacy_prompt_over_force_update', 0, () => {
+      const w: Wiring = new Wiring();
+      w.g.apply(forceResult('1.1.0'), w.clock.now);
+      w.privacy = PrivacyState.NOT_DECIDED;
+      w.router.open(RouteRequest.of('Home', RouteSource.IN_APP));
+      // 不带标记：协议页打不开（F-ALL-06 原问题）。
+      const unmarked: GuardDecision = w.router.open(RouteRequest.of('Agreement', RouteSource.IN_APP));
+      expect(unmarked.kind === GuardDecisionKind.OPEN || unmarked.kind === GuardDecisionKind.OPEN_READONLY).assertFalse();
+      w.fromForceUpdatePage = true;
+      const decision: GuardDecision = w.router.open(RouteRequest.of('Agreement', RouteSource.IN_APP));
+      expect(decision.kind === GuardDecisionKind.OPEN || decision.kind === GuardDecisionKind.OPEN_READONLY).assertTrue();
+      expect(decision.route).assertEqual('Agreement');
+      // 标记只放行强更页的次要入口：别的路由仍打不开。
+      const search: GuardDecision = w.router.open(RouteRequest.of('Search', RouteSource.IN_APP));
+      expect(search.kind === GuardDecisionKind.OPEN || search.kind === GuardDecisionKind.OPEN_READONLY).assertFalse();
+    });
   });
 }

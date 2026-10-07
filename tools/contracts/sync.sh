@@ -128,6 +128,7 @@ IFS="$OLDIFS"
 # APP-02c 加入 openapi.yaml（GET /v1/app-versions/check 的响应示例给调试假数据；OpenAPI 客户端仍归 APP-03）
 # 与 specs/app-stores.yaml（商店对照表，生成 AppStores 常量）。
 # APP-03a 加入 specs/request-sign.vectors.json（BR-ID-09 三端共用签名向量；core 单测经 gen.py 生成的数据模块读取）。
+# APP-03b 加入 specs/device-hash.vectors.json（BR-ID-09 device_hash 向量；events / system-permissions / client-security-baseline 已在列）。
 for f in \
     contracts/error-codes.yaml \
     contracts/routes.json \
@@ -141,7 +142,8 @@ for f in \
     specs/system-permissions.yaml \
     contracts/openapi.yaml \
     specs/app-stores.yaml \
-    specs/request-sign.vectors.json; do
+    specs/request-sign.vectors.json \
+    specs/device-hash.vectors.json; do
     take "$RP_REPO" "$RP_COMMIT" "$f" "$(json_name "$f")"
 done
 

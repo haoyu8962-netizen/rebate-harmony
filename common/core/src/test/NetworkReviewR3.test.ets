@@ -475,7 +475,7 @@ export default function networkReviewR3Test() {
       Promise.resolve(loginResponse('user-1', 'a-access'));
       const result: ApiResult = await rig.client.request(loginRequest());
       expect(result.ok).assertFalse();
-      expect(result.localRejectReason).assertEqual(LocalRejectReason.SESSION_STORE_FAILED);
+      expect(result.localRejectReason).assertEqual(LocalRejectReason.SESSION_SAVE_FAILED);
       expect(tokens.accessToken() === null).assertTrue();
     });
   });

@@ -249,4 +249,29 @@ export {
   ApiOperation,
   ApiOperations
 } from './src/main/ets/ApiOperations';
+export {
+  ClientEventValue,
+  ClientEvent,
+  EventLinkJumpPhase,
+  EventLinkJumpUnionPlatform,
+  EventLinkJumpStep,
+  EventLinkJumpResult,
+  EventLinkJumpInstalled,
+  EventExternalPageUnionHostUnionPlatform,
+  EventExternalPageUnionHostCategory,
+  EventExternalPageUnionHostFrame,
+  EventExternalPageUnionHostOutcome,
+  EventExternalPageNavHostFrame,
+  EventExternalPageBlockedNavKind,
+  EventExternalPageBlockedNavFrame,
+  EventRouteEntryBlockedEntry,
+  EventRouteParamsDroppedRoute,
+  ClientEvents
+} from './src/main/ets/ClientEvents';
+export {
+  DeviceHashSeeds
+} from './src/main/ets/DeviceHashSeeds';
+export {
+  BundledConfig
+} from './src/main/ets/BundledConfig';
 export * from 'generated/ets/DebugOnly';

@@ -2,7 +2,7 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
 import { ApiOperation, ApiOperations } from 'generated';
 import { EnvironmentEndpoints } from '../config/AppEnvironment';
-import { SessionTokens, SessionTokenSet } from '../session/SessionTokens';
+import { SessionReadStatus, SessionTokens, SessionTokenSet } from '../session/SessionTokens';
 import {
   EffectKind, ErrorActionInput, ErrorActionMapper, ErrorActionState, ErrorEffect, ErrorUpdateState, ReplayKind
 } from './ErrorActionMapper';
@@ -33,7 +33,10 @@ export class ApiAppIdentity {
   }
 }
 
-/** 设备凭据（device_id、install_secret；设备注册在 APP-03b）。只在需要时读，不缓存。 */
+/**
+ * 设备凭据（device_id、install_secret）。生产实现是 DeviceRegistry（APP-03b：服务端签发、install_secret 只在安全存储）；
+ * ApiClient 每次实际发送前现取（不缓存），签名用真实的 install_secret。
+ */
 export interface CredentialSource {
   deviceId(): string | null;
 
@@ -71,14 +74,17 @@ export interface UpdatePort {
   on10405(minSupported: string | null): void;
 }
 
-/** 10402 → 重新注册设备（APP-03b）。 */
+/**
+ * 10402 → 重新注册设备（APP-03b；生产实现是 DeviceRegistry）：单飞，同时收到 10402 的请求共用一次注册；
+ * usedDeviceId 是被拒请求带的 device_id（注册期间已换成别的 device_id 的直接算成功，复用那次结果）。兑现 true 后原请求重放 1 次。
+ */
 export interface DeviceRegistrar {
-  reregister(): Promise<boolean>;
+  reregister(usedDeviceId: string | null): Promise<boolean>;
 }
 
-/** APP-03b 之前：不能重新注册，10402 按兜底处理。 */
+/** 没有设备注册（单测替身的缺省）：不能重新注册，10402 按兜底处理。 */
 export class NoDeviceRegistrar implements DeviceRegistrar {
-  reregister(): Promise<boolean> {
+  reregister(_usedDeviceId: string | null): Promise<boolean> {
     return Promise.resolve(false);
   }
 }
@@ -163,6 +169,14 @@ export class ApiRequest {
   summary: string = '';
   /** 发起页有可重新转链的商品卡（30144 输出 refetch_product）；App 内链接落地页 LinkLanding 传 false（R1-08）。 */
   fromProductCard: boolean = true;
+  /** If-None-Match（只用于 GET；03 §4.3 回前台带 ETag 拉配置，APP-03b）。服务端回 304 时结果为 not_modified。 */
+  ifNoneMatch: string | null = null;
+  /**
+   * 调用方的归属守卫（cross-platform-lessons 13、16）：设备注册、埋点上报等后台任务带上开始时的 ticket（隐私、环境、清理
+   * 世代）。ApiClient 在每次实际发送前（含 TransportRequest.admit）、每次异步等待之后、每个响应处理之前与自己的调用归属
+   * 一起核对；返回 false（或抛错）就按 cancelled 结束，不改绑到当前环境或会话。null = 没有额外守卫。
+   */
+  owner: (() => boolean) | null = null;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -181,6 +195,8 @@ export class ApiOutcome {
   static readonly NETWORK_ERROR: string = 'network_error';
   /** 本地拒绝，没有发出。 */
   static readonly LOCAL_REJECT: string = 'local_reject';
+  /** 条件请求（带 If-None-Match）得到 304：内容没变（APP-03b）。 */
+  static readonly NOT_MODIFIED: string = 'not_modified';
 }
 
 /** 请求结果。 */
@@ -208,6 +224,8 @@ export class ApiResult {
    * 其余调用与没有明确结局时为 null（PendingResolution，R2-04）。
    */
   pendingResolution: string | null = null;
+  /** 成功与 304 时响应头 ETag 的原值（不透明字符串；没有为 null，APP-03b）。 */
+  etag: string | null = null;
 
   constructor(outcome: string, code: number, msg: string, data: Record<string, Object>, traceId: string,
     httpStatus: number, failure: string, localRejectReason: string | null, effect: ErrorEffect | null,
@@ -305,6 +323,8 @@ class CallContext {
   pendingAccount: string | null = null;
   /** 这次发送的是曾经结果未知的键（确认上一笔）：非终结的 2xxxx 改为「暂时确认不了」（lessons 39）。 */
   pendingEverUnknown: boolean = false;
+  /** 调用方的归属守卫（ApiRequest.owner；lessons 13、16）。 */
+  owner: (() => boolean) | null = null;
 
   constructor(id: number) {
     this.id = id;
@@ -319,6 +339,8 @@ class Attempt {
   /** 刷新请求本身：不按 mapper 再处理、不在这里保存令牌（performRefresh 核对后保存）。 */
   readonly internalRefresh: boolean;
   readonly ctx: CallContext;
+  /** 最近一次实际发送带的 device_id（刷新请求收到 10402 时交给重新注册，R1-03）。 */
+  sentDeviceId: string | null = null;
 
   constructor(request: ApiRequest, operation: ApiOperation, isReplay: boolean, internalRefresh: boolean,
     ctx: CallContext) {
@@ -466,7 +488,12 @@ class LiveRequest {
  * - 受限会话屏障（R1-06、R2-02）：冷启动后第一次请求、或强更状态由「低于 / 未知」恢复为「不低于」后，本机会话是
  *   deletion_only 的，先自动单飞刷新，其他带令牌的请求都等它。强更状态变更由 onUpdateStateChanged 通知（App 组合处
  *   经 NetworkComposition 把 AppUpdate.onChanged 接到这里），请求入口也会核对；登录或刷新在强更未知时拿到 deletion_only、按「低于」处理时同步记下。
- * - 10402：重新注册设备后原键重放 1 次（DeviceRegistrar，APP-03b）。
+ * - 10402：重新注册设备后原键重放 1 次（DeviceRegistrar，APP-03b：单飞，同时收到 10402 的请求共用一次注册；
+ *   注册请求本身收到 10402 不再触发重新注册）。重放前照常重新组头、取新凭据、重新签名。
+ * - 会话读取失败（SessionTokens.readStatus = unreadable，APP-03b）：x-auth 不为 none 的接口本地拒绝 session_unreadable，
+ *   不当成游客匿名发出；刷新时读不出 refresh_token 按没有结论（不清会话）。
+ * - 条件请求（ApiRequest.ifNoneMatch，只用于 GET）：原样带 If-None-Match；304 → ApiOutcome.NOT_MODIFIED。成功与 304 的
+ *   ApiResult.etag 是响应头 ETag 原值（APP-03b ConfigStore 用）。
  * - 10405：进强更（UpdatePort.on10405）；遗留受限令牌只刷新（refresh_only）。
  * - 登录 / 刷新成功：记下 session_scope；强更检查未知时拿到 deletion_only → 按低于处理（UpdatePort.on10405(null)），
  *   强更状态取处理响应那一刻的值（lessons 28）。
@@ -481,6 +508,8 @@ export class ApiClient {
   static readonly SESSION_ISSUING: string[] = ['loginBySms', 'loginByWechat', 'loginByApple', 'loginByHuawei',
     'refreshToken'];
   static readonly REFRESH_OPERATION: string = 'refreshToken';
+  /** 设备注册（APP-03b，DeviceRegistry 发出）。 */
+  static readonly REGISTER_DEVICE_OPERATION: string = 'registerDevice';
   static readonly ABANDON_OPERATION: string = 'abandonIdempotencyKey';
   /** BR-ID-09：Date 与本机相差超过 300 秒才校时重签。 */
   static readonly CLOCK_SKEW_LIMIT_SECONDS: number = 300;
@@ -592,7 +621,9 @@ export class ApiClient {
     // 冷启动 / 强更恢复后的受限会话刷新（R1-06、R2-02）先发起，再在任何等待之前绑定调用归属（R2-01）。
     this.observeUpdateState();
     this.ensureRestrictedBarrier();
-    return this.runCall(new Attempt(request, operation, false, false, this.bind(operation)));
+    const ctx: CallContext = this.bind(operation);
+    ctx.owner = request.owner;
+    return this.runCall(new Attempt(request, operation, false, false, ctx));
   }
 
   /**
@@ -609,6 +640,20 @@ export class ApiClient {
     }
     const outcome: RefreshOutcome = await round.promise;
     return outcome.kind === RefreshOutcome.OK;
+  }
+
+  /**
+   * 当前有效会话的账号（埋点 user_id 用，cross-platform-lessons 9）：与请求管线同一套判断——隐私已同意且撤回清理已完成、
+   * 本机有可用会话（SessionTokens 的清会话隔离期间、读不出时为没有），且不是刚因刷新明确失败而被清掉的那个令牌。
+   * 其余一律为 null（游客：只带 device_id）。
+   */
+  sessionAccount(): string | null {
+    const account: string | null = this.trustedAccount();
+    if (account === null) {
+      return null;
+    }
+    const failed: string | null = this.failedAccessToken;
+    return failed !== null && this.deps.tokens.accessToken() === failed ? null : account;
   }
 
   /** 发起页查询：当前会话账号该操作的未决记录（先核对账号，R1-02）。 */
@@ -892,7 +937,7 @@ export class ApiClient {
    * 或登录序号变了，同样结束（不改绑到新会话，lessons 23）。
    */
   private ownershipLost(ctx: CallContext): string | null {
-    if (ctx.epoch !== this.epoch) {
+    if (ctx.epoch !== this.epoch || !ApiClient.ownerValid(ctx)) {
       return LocalRejectReason.CANCELLED;
     }
     const allowed: boolean = this.credentialsAllowed();
@@ -922,6 +967,19 @@ export class ApiClient {
       return LocalRejectReason.SESSION_CHANGED;
     }
     return null;
+  }
+
+  /** 调用方的归属守卫仍成立（没有守卫为成立；守卫抛错按不成立）。 */
+  private static ownerValid(ctx: CallContext): boolean {
+    const owner: (() => boolean) | null = ctx.owner;
+    if (owner === null) {
+      return true;
+    }
+    try {
+      return owner();
+    } catch (e) {
+      return false;
+    }
   }
 
   // ------------------------------------------------------------------ 管线
@@ -957,6 +1015,11 @@ export class ApiClient {
     const decision: HeaderDecision = RequestHeaderPolicy.decide(state, op);
     if (!decision.send || endpoints === undefined) {
       return Prepared.reject(decision.localRejectReason ?? LocalRejectReason.ENVIRONMENT_UNSETTLED);
+    }
+    if (allowed && op.auth !== 'none' && accessToken === null
+      && this.deps.tokens.readStatus() === SessionReadStatus.UNREADABLE) {
+      // 会话此刻读不出（不是没有会话）：需要会话的接口不当成游客匿名发出（APP-03b session_unreadable，三端统一裁定）。
+      return Prepared.reject(LocalRejectReason.SESSION_UNREADABLE);
     }
     if (scope === SessionScope.DELETION_ONLY && !ApiClient.restrictedBodyAllowed(op.operationId, request.body)) {
       return Prepared.reject(LocalRejectReason.SESSION_SCOPE_BODY_DENIED);
@@ -1091,6 +1154,7 @@ export class ApiClient {
         }
       }
       const endpoints: EnvironmentEndpoints = prepared.endpoints as EnvironmentEndpoints;
+      attempt.sentDeviceId = prepared.deviceId;
       const headers: Record<string, string> = this.headers(prepared.decision as HeaderDecision, op, request,
         prepared.accessToken, prepared.deviceId, key, traceId);
       if (prepared.installSecret !== null) {
@@ -1128,6 +1192,14 @@ export class ApiClient {
       return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, traceId, 0, response.failure, null,
         ApiClient.networkEffect(), key);
     }
+    if (response.status === 304 && request.ifNoneMatch !== null && op.method === 'GET') {
+      // 条件请求的 304（03 §4.3）：内容没变，没有外壳。
+      this.settle(ctx, PendingResponseKind.NO_RESULT);
+      const notModified: ApiResult = new ApiResult(ApiOutcome.NOT_MODIFIED, -1, '', {}, traceId, response.status,
+        TransportFailure.NONE, null, null, key);
+      notModified.etag = ApiClient.headerValue(response.headers, 'etag');
+      return notModified;
+    }
     const envelope: Envelope | null = Envelope.parse(response.body);
     if (envelope === null) {
       this.settle(ctx, PendingResponseKind.NO_ENVELOPE);
@@ -1137,12 +1209,17 @@ export class ApiClient {
     const responseTrace: string = envelope.traceId.length > 0 ? envelope.traceId : traceId;
     if (envelope.code === 0) {
       this.settle(ctx, PendingResponseKind.SUCCESS);
-      if (!attempt.internalRefresh && !this.onSuccess(op, envelope.data, prepared.accessToken)) {
-        // 登录响应的令牌没能保存（lessons 40）：不返回登录成功。
-        return ApiResult.rejected(LocalRejectReason.SESSION_STORE_FAILED);
+      const notSaved: string | null = attempt.internalRefresh ? null :
+        this.onSuccess(op, envelope.data, prepared.accessToken);
+      if (notSaved !== null) {
+        // 登录响应缺令牌（invalid_session_tokens）或令牌没能保存（session_save_failed，lessons 40）：不返回登录成功
+        // （harmony-review-r2 R2-03、lessons 19）。
+        return ApiResult.rejected(notSaved);
       }
-      return new ApiResult(ApiOutcome.SUCCESS, 0, envelope.msg, envelope.data, responseTrace, response.status,
-        TransportFailure.NONE, null, null, key);
+      const success: ApiResult = new ApiResult(ApiOutcome.SUCCESS, 0, envelope.msg, envelope.data, responseTrace,
+        response.status, TransportFailure.NONE, null, null, key);
+      success.etag = ApiClient.headerValue(response.headers, 'etag');
+      return success;
     }
     const effect: ErrorEffect = ApiClient.unknownKeyEffect(ctx, envelope.code,
       ErrorActionMapper.map(new ErrorActionInput(envelope.code, envelope.data, op, response.headers, attempt.isReplay,
@@ -1158,7 +1235,8 @@ export class ApiClient {
     if (attempt.internalRefresh) {
       return failed;
     }
-    return this.applyEffect(attempt, effect, failed, key, prepared.carriesToken ? prepared.accessToken : null);
+    return this.applyEffect(attempt, effect, failed, key, prepared.carriesToken ? prepared.accessToken : null,
+      prepared.deviceId);
   }
 
   /**
@@ -1189,7 +1267,7 @@ export class ApiClient {
    * 副作用之前都核对调用归属（R2-08，lessons 30、34）。
    */
   private async applyEffect(attempt: Attempt, effect: ErrorEffect, failed: ApiResult, key: string | null,
-    usedToken: string | null): Promise<ApiResult> {
+    usedToken: string | null, usedDeviceId: string | null): Promise<ApiResult> {
     const op: ApiOperation = attempt.operation;
     const ctx: CallContext = attempt.ctx;
     switch (effect.effectKindRaw) {
@@ -1211,9 +1289,15 @@ export class ApiClient {
         return this.lostResult(lost ?? LocalRejectReason.SESSION_CHANGED);
       }
       case EffectKind.REGISTER_DEVICE_REPLAY: {
+        if (op.operationId === ApiClient.REGISTER_DEVICE_OPERATION) {
+          // 注册请求自己不会带被吊销的 device_id；万一收到 10402 也不再触发重新注册（否则会等自己这次注册，单飞死锁）。
+          this.settle(ctx, PendingResponseKind.NO_RESULT);
+          return this.withEffect(failed,
+            new ErrorEffect(EffectKind.GENERIC_ERROR, null, null, ReplayKind.NONE, false, 0, true));
+        }
         let registered: boolean = false;
         try {
-          registered = await this.deps.deviceRegistrar.reregister();
+          registered = await this.deps.deviceRegistrar.reregister(usedDeviceId);
         } catch (e) {
           registered = false;
         }
@@ -1301,6 +1385,7 @@ export class ApiClient {
     copy.stepUpToken = request.stepUpToken;
     copy.summary = request.summary;
     copy.fromProductCard = request.fromProductCard;
+    copy.ifNoneMatch = request.ifNoneMatch;
     return copy;
   }
 
@@ -1404,6 +1489,10 @@ export class ApiClient {
     if (request.body !== null) {
       headers[NetworkHeaders.CONTENT_TYPE] = 'application/json';
     }
+    if (request.ifNoneMatch !== null && request.ifNoneMatch.length > 0 && op.method === 'GET') {
+      // ETag 是不透明字符串：原样发送（不拆引号、不去 W/ 前缀）。
+      headers[NetworkHeaders.IF_NONE_MATCH] = request.ifNoneMatch;
+    }
     return headers;
   }
 
@@ -1415,6 +1504,17 @@ export class ApiClient {
     headers[NetworkHeaders.NONCE] = nonce;
     headers[NetworkHeaders.SIGN] = this.signer.sign(new SigningInput(method, pathWithQuery, body, timestamp, nonce),
       installSecret);
+  }
+
+  /** 响应头（名字不分大小写）；没有为 null。 */
+  private static headerValue(headers: Record<string, string>, name: string): string | null {
+    let value: string | null = null;
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === name) {
+        value = headers[key];
+      }
+    }
+    return value;
   }
 
   /** 响应头 Date 与本机相差超过 300 秒时记下偏移并返回 true（BR-ID-09）。 */
@@ -1485,10 +1585,13 @@ export class ApiClient {
    * 登录 / 刷新成功：保存令牌并记下作用域；强更检查未知时拿到 deletion_only → 按低于处理（强更状态取这一刻的值，
    * lessons 28）。调用方已核对调用归属（旧世代、撤回同意、切换环境之后到达的登录响应不会走到这里，lessons 23）。
    * 登录开始新的会话世代（旧世代的在途请求不再重放），未决记录切到新账号（R1-01、R1-02）。
+   * 返回 null = 成功（或不是签发会话的操作）；否则返回不算登录成功的本地原因（harmony-review-r2 R2-03、lessons 19，
+   * 三端同名）：登录响应缺 data.tokens 或其中的 access_token / refresh_token → invalid_session_tokens（当前会话原样保留，
+   * 不结束会话世代）；令牌写不进安全存储 → session_save_failed。页面直接调刷新接口时缺令牌按原样返回（与 Android 一致）。
    */
-  private onSuccess(op: ApiOperation, data: Record<string, Object>, usedAccess: string | null): boolean {
+  private onSuccess(op: ApiOperation, data: Record<string, Object>, usedAccess: string | null): string | null {
     if (ApiClient.SESSION_ISSUING.indexOf(op.operationId) < 0) {
-      return true;
+      return null;
     }
     // 登录：data = LoginData（令牌在 data.tokens，账号为 data.user_id）；刷新：data = TokenPair。
     const login: boolean = op.operationId !== ApiClient.REFRESH_OPERATION;
@@ -1497,15 +1600,15 @@ export class ApiClient {
     if (login) {
       const tokens: Object | undefined = data['tokens'];
       const userId: Object | undefined = data['user_id'];
-      if (tokens === undefined || tokens === null || typeof tokens !== 'object') {
-        return true;
+      if (tokens === undefined || tokens === null || typeof tokens !== 'object' || Array.isArray(tokens)) {
+        return LocalRejectReason.INVALID_SESSION_TOKENS;
       }
       pair = tokens as Record<string, Object>;
       account = typeof userId === 'string' ? userId as string : null;
     }
     const set: SessionTokenSet | null = ApiClient.tokenSet(pair, account);
     if (set === null) {
-      return true;
+      return login ? LocalRejectReason.INVALID_SESSION_TOKENS : null;
     }
     const previous: string | null = this.deps.tokens.accessToken();
     if (login) {
@@ -1516,7 +1619,7 @@ export class ApiClient {
       this.deps.tokens.save(set);
     } catch (e) {
       // 令牌写不进安全存储（lessons 40）：不算登录 / 刷新成功；登录已让旧世代失效，旧请求不会再被重放。
-      return false;
+      return LocalRejectReason.SESSION_SAVE_FAILED;
     }
     this.failedAccessToken = null;
     // 新登录或刷新拿到的作用域是服务端当下的结论：不需要再做受限会话屏障。
@@ -1529,7 +1632,7 @@ export class ApiClient {
       this.lineage.set(usedAccess, set.accessToken);
     }
     this.restrictedScopeIssued(set.scope);
-    return true;
+    return null;
   }
 
   /**
@@ -1559,7 +1662,8 @@ export class ApiClient {
     const access: Object | undefined = pair['access_token'];
     const refresh: Object | undefined = pair['refresh_token'];
     const scope: Object | undefined = pair['session_scope'];
-    if (typeof access !== 'string' || typeof refresh !== 'string') {
+    if (typeof access !== 'string' || typeof refresh !== 'string' || (access as string).length === 0
+      || (refresh as string).length === 0) {
       return null;
     }
     const scopeRaw: string = scope === SessionScope.DELETION_ONLY ? SessionScope.DELETION_ONLY : SessionScope.FULL;
@@ -1764,14 +1868,44 @@ export class ApiClient {
     }
     const refreshToken: string | null = round.refreshToken;
     if (refreshToken === null) {
-      return RefreshOutcome.of(RefreshOutcome.FAILED);
+      // 会话此刻读不出（session_unreadable）不是「刷新被拒」：没有结论，不清会话。
+      return this.deps.tokens.readStatus() === SessionReadStatus.UNREADABLE ? RefreshOutcome.of(RefreshOutcome.TRANSIENT) :
+      RefreshOutcome.of(RefreshOutcome.FAILED);
     }
     const body: string = JSON.stringify(new RefreshBody(refreshToken));
     const operation: ApiOperation = ApiOperations.byId(ApiClient.REFRESH_OPERATION) as ApiOperation;
-    const result: ApiResult = await this.execute(new Attempt(new ApiRequest(ApiClient.REFRESH_OPERATION, {}, '', body),
-      operation, true, true, this.bind(operation)));
+    const first: Attempt = new Attempt(new ApiRequest(ApiClient.REFRESH_OPERATION, {}, '', body), operation, true, true,
+      this.bind(operation));
+    let result: ApiResult = await this.execute(first);
     if (this.refreshStale(round)) {
       return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
+    }
+    if (ApiClient.isDeviceRejected(result)) {
+      // R1-03（lessons 6）：刷新请求的 10402 是设备凭据被拒，不是刷新被拒——不清会话。走与普通请求同一个设备注册单飞入口
+      // （DeviceRegistrar.reregister），成功后重新组头、用新凭据重新签名，沿用原键至多重放刷新 1 次。设备重放次数与令牌刷新
+      // 互不相干：这里不再触发刷新，也不经 applyEffect（不会等自己这轮刷新）。
+      let registered: boolean = false;
+      try {
+        registered = await this.deps.deviceRegistrar.reregister(first.sentDeviceId);
+      } catch (e) {
+        registered = false;
+      }
+      if (this.refreshStale(round)) {
+        return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
+      }
+      if (!registered) {
+        // 设备没注册上：会话有没有失效没有结论，保留会话（退避流程继续注册）。
+        return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+      }
+      result = await this.execute(new Attempt(ApiClient.sameKey(first.request, result.idempotencyKey), operation, true,
+        true, this.bind(operation)));
+      if (this.refreshStale(round)) {
+        return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
+      }
+      if (ApiClient.isDeviceRejected(result)) {
+        // 重放仍是 10402：不再重新注册（BR-TEXT-14 表 A 按其他 5xxxx），同样不清会话。
+        return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+      }
     }
     if (result.ok) {
       const set: SessionTokenSet | null = ApiClient.tokenSet(result.data, round.account);
@@ -1791,6 +1925,11 @@ export class ApiClient {
       return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
     }
     return RefreshOutcome.of(RefreshOutcome.FAILED);
+  }
+
+  /** 服务端以 10402 拒绝了设备凭据。 */
+  private static isDeviceRejected(result: ApiResult): boolean {
+    return result.outcome === ApiOutcome.BUSINESS_ERROR && result.code === 10402;
   }
 
   /** 刷新结果与入队快照不符（作废、换世代、凭据不可读、令牌或账号已换）。 */

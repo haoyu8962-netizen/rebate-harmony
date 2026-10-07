@@ -1,0 +1,637 @@
+{
+  "version": 1,
+  "sources": [
+    "couli@origin/main:规划/03_前端架构.md#§3.6,§4.1,§4.3,§4.7,§4.9",
+    "couli@origin/main:规划/08_业务规则/10_ID_身份授权与合规.md#BR-ID-07,BR-ID-09及细则,BR-ID-11,BR-ID-13",
+    "couli@origin/main:规划/08_业务规则/12_TEXT_话术与格式.md#BR-TEXT-14表D",
+    "rebate-platform@9cd1e6f:contracts/openapi.yaml#registerDevice,getConfig,ConfigFeatures,ConfigLinkPatterns",
+    "rebate-platform@9cd1e6f:specs/device-hash.vectors.json",
+    "rebate-platform@9cd1e6f:specs/events.yaml",
+    "rebate-platform@9cd1e6f:specs/system-permissions.yaml",
+    "rebate-platform@9cd1e6f:contracts/texts.default.json"
+  ],
+  "device": [
+    {
+      "name": "ios_consented",
+      "platform": "ios",
+      "rawId": "E621E1F8-C36C-495A-93FC-0C247A3E6E5F",
+      "privacy": "consented",
+      "expect": {"register": true},
+      "note": "BR-ID-09：有效 IDFV，已经同意。"
+    },
+    {
+      "name": "android_consented",
+      "platform": "android",
+      "rawId": "9774d56d682e549d",
+      "privacy": "consented",
+      "expect": {"register": true},
+      "note": "BR-ID-09：MVP 直接读取 ANDROID_ID，不读取 OAID；此值来自契约的有效哈希输入。"
+    },
+    {
+      "name": "harmony_consented",
+      "platform": "harmony",
+      "rawId": "3F2504E0-4F89-11D3-9A0C-0305E82C3301",
+      "privacy": "consented",
+      "expect": {"register": true},
+      "note": "BR-ID-09：有效 ODID，已经同意。"
+    },
+    {
+      "name": "ios_not_decided",
+      "platform": "ios",
+      "rawId": "E621E1F8-C36C-495A-93FC-0C247A3E6E5F",
+      "privacy": "not_decided",
+      "expect": {"register": false},
+      "note": "BR-ID-11：未同意不注册；这里传入的是合成测试输入，真实入口连标识读取也应禁止。"
+    },
+    {
+      "name": "android_not_decided",
+      "platform": "android",
+      "rawId": "9774d56d682e549d",
+      "privacy": "not_decided",
+      "expect": {"register": false},
+      "note": "BR-ID-11：未同意不注册，也不允许真实读取 ANDROID_ID。"
+    },
+    {
+      "name": "harmony_not_decided",
+      "platform": "harmony",
+      "rawId": "3F2504E0-4F89-11D3-9A0C-0305E82C3301",
+      "privacy": "not_decided",
+      "expect": {"register": false},
+      "note": "BR-ID-09、BR-ID-11：同意前不注册设备。"
+    },
+    {
+      "name": "ios_basic_mode",
+      "platform": "ios",
+      "rawId": "E621E1F8-C36C-495A-93FC-0C247A3E6E5F",
+      "privacy": "basic_mode",
+      "expect": {"register": false},
+      "note": "BR-ID-11：基本模式不注册。"
+    },
+    {
+      "name": "android_basic_mode",
+      "platform": "android",
+      "rawId": "9774d56d682e549d",
+      "privacy": "basic_mode",
+      "expect": {"register": false},
+      "note": "BR-ID-11：基本模式不注册。"
+    },
+    {
+      "name": "harmony_basic_mode",
+      "platform": "harmony",
+      "rawId": "3F2504E0-4F89-11D3-9A0C-0305E82C3301",
+      "privacy": "basic_mode",
+      "expect": {"register": false},
+      "note": "BR-ID-11：基本模式不注册。"
+    },
+    {
+      "name": "ios_null",
+      "platform": "ios",
+      "rawId": null,
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：取不到 IDFV 不注册，不得自造替代值或求哈希上报。"
+    },
+    {
+      "name": "android_null",
+      "platform": "android",
+      "rawId": null,
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：ANDROID_ID 也取不到时不注册，不回退到 OAID 或自造值。"
+    },
+    {
+      "name": "harmony_null",
+      "platform": "harmony",
+      "rawId": null,
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：取不到 ODID 不注册，不得自造替代值或求哈希上报。"
+    },
+    {
+      "name": "ios_empty",
+      "platform": "ios",
+      "rawId": "",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：空标识不得注册或求哈希上报。"
+    },
+    {
+      "name": "android_empty",
+      "platform": "android",
+      "rawId": "",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：空标识不得注册或求哈希上报。"
+    },
+    {
+      "name": "harmony_empty",
+      "platform": "harmony",
+      "rawId": "",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：空标识不得注册或求哈希上报。"
+    },
+    {
+      "name": "ios_zero_uuid",
+      "platform": "ios",
+      "rawId": "00000000-0000-0000-0000-000000000000",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：去掉 0 与 - 后为空，三端同一无效值规则。"
+    },
+    {
+      "name": "android_zero_uuid",
+      "platform": "android",
+      "rawId": "00000000-0000-0000-0000-000000000000",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：去掉 0 与 - 后为空；不依赖未定义的长度规则。"
+    },
+    {
+      "name": "harmony_zero_uuid",
+      "platform": "harmony",
+      "rawId": "00000000-0000-0000-0000-000000000000",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：去掉 0 与 - 后为空。"
+    },
+    {
+      "name": "ios_hyphens",
+      "platform": "ios",
+      "rawId": "----",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09、device-hash.vectors.json：只有连字符也属于无效值。"
+    },
+    {
+      "name": "android_hyphens",
+      "platform": "android",
+      "rawId": "----",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09、device-hash.vectors.json：只有连字符也属于无效值。"
+    },
+    {
+      "name": "harmony_hyphens",
+      "platform": "harmony",
+      "rawId": "----",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09、device-hash.vectors.json：只有连字符也属于无效值。"
+    },
+    {
+      "name": "android_whitespace",
+      "platform": "android",
+      "rawId": " \t\n",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：首尾空白归一化后为空。"
+    },
+    {
+      "name": "android_single_zero",
+      "platform": "android",
+      "rawId": "0",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：单个 0 也满足全零判定。"
+    },
+    {
+      "name": "android_zero16",
+      "platform": "android",
+      "rawId": "0000000000000000",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：全零，不注册也不求哈希上报。"
+    },
+    {
+      "name": "android_zero32",
+      "platform": "android",
+      "rawId": "00000000000000000000000000000000",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：全零，不注册也不求哈希上报。"
+    },
+    {
+      "name": "android_known_fixed",
+      "platform": "android",
+      "rawId": "9774d56d682e549c",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "锁定的 device-hash.vectors.json 将该公共固定值列入 invalid_hash_seeds。"
+    },
+    {
+      "name": "android_known_fixed_normalized",
+      "platform": "android",
+      "rawId": "  9774D56D682E549C\n",
+      "privacy": "consented",
+      "expect": {"register": false},
+      "note": "BR-ID-09：大小写与首尾空白不能绕过同一个公共固定值的拦截。"
+    }
+  ],
+  "config": [
+    {
+      "name": "value_current",
+      "current": {"dict_version": "current"},
+      "lkg": {"dict_version": "lkg"},
+      "bundled": {"dict_version": "bundled"},
+      "expect": {"value": "current"},
+      "note": "03 §4.3：当前值优先；value 组统一查询 dict_version，三个字符串只是测试输入。"
+    },
+    {
+      "name": "value_lkg",
+      "lkg": {"dict_version": "lkg"},
+      "bundled": {"dict_version": "bundled"},
+      "expect": {"value": "lkg"},
+      "note": "03 §4.3：没有当前配置时使用 LKG。"
+    },
+    {
+      "name": "value_bundled",
+      "bundled": {"dict_version": "bundled"},
+      "expect": {"value": "bundled"},
+      "note": "03 §4.3：没有当前配置与 LKG 时使用包内配置。"
+    },
+    {
+      "name": "search_explicit_current_off",
+      "current": {"features": {"search_status": {"taobao": "off"}}},
+      "lkg": {"features": {"search_status": {"taobao": "on"}}},
+      "bundled": {"features": {"search_status": {"taobao": "on"}}},
+      "platformKey": "taobao",
+      "expect": {"searchStatus": "off"},
+      "note": "03 §4.3：明确下发的 off 有效，不能当缺失继续回落。"
+    },
+    {
+      "name": "search_missing_field",
+      "current": {"features": {}},
+      "lkg": {"features": {"search_status": {"taobao": "on"}}},
+      "bundled": {"features": {"search_status": {"taobao": "off"}}},
+      "platformKey": "taobao",
+      "expect": {"searchStatus": "on"},
+      "note": "03 §4.3：当前缺字段，逐个平台回落到 LKG，不能默认 off。"
+    },
+    {
+      "name": "search_missing_platform",
+      "current": {"features": {"search_status": {"jd": "off"}}},
+      "lkg": {"features": {"search_status": {"taobao": "on", "jd": "on"}}},
+      "bundled": {"features": {"search_status": {"taobao": "off", "jd": "on"}}},
+      "platformKey": "taobao",
+      "expect": {"searchStatus": "on"},
+      "note": "03 §4.3：对象存在但缺淘宝值，仍回落到 LKG 的淘宝值。"
+    },
+    {
+      "name": "search_other_platform_stays_current",
+      "current": {"features": {"search_status": {"jd": "off"}}},
+      "lkg": {"features": {"search_status": {"taobao": "on", "jd": "on"}}},
+      "bundled": {"features": {"search_status": {"taobao": "off", "jd": "on"}}},
+      "platformKey": "jd",
+      "expect": {"searchStatus": "off"},
+      "note": "与上一条使用相同输入：京东取当前值，不能整块替换 search_status。"
+    },
+    {
+      "name": "search_bundled_on",
+      "current": {"features": {"search_status": {"jd": "off"}}},
+      "lkg": {"features": {}},
+      "bundled": {"features": {"search_status": {"taobao": "on"}}},
+      "platformKey": "taobao",
+      "expect": {"searchStatus": "on"},
+      "note": "03 §4.3：前两层缺淘宝值时取包内 on。"
+    },
+    {
+      "name": "search_lkg_off",
+      "current": {},
+      "lkg": {"features": {"search_status": {"taobao": "off"}}},
+      "bundled": {"features": {"search_status": {"taobao": "on"}}},
+      "platformKey": "taobao",
+      "expect": {"searchStatus": "off"},
+      "note": "03 §4.3：LKG 明确的 off 优先于包内 on。"
+    },
+    {
+      "name": "search_bundled_off",
+      "bundled": {"features": {"search_status": {"jd": "off"}}},
+      "platformKey": "jd",
+      "expect": {"searchStatus": "off"},
+      "note": "包内明确的 off 保持 off；示例不是生产配置的默认裁定。"
+    },
+    {
+      "name": "patterns_current",
+      "current": {"link_patterns": {"version": "current-patterns", "rules": []}},
+      "lkg": {"link_patterns": {"version": "last-successful-patterns", "rules": []}},
+      "bundled": {"link_patterns": {"version": "bundled-patterns", "rules": []}},
+      "expect": {"linkPatternsVersion": "current-patterns"},
+      "note": "03 §4.3：当前完整版本优先；明确的空规则数组不等于字段缺失。"
+    },
+    {
+      "name": "patterns_last_successful",
+      "current": {"dict_version": "new-config-without-patterns"},
+      "lkg": {"link_patterns": {"version": "last-successful-patterns", "rules": []}},
+      "bundled": {"link_patterns": {"version": "bundled-patterns", "rules": []}},
+      "expect": {"linkPatternsVersion": "last-successful-patterns"},
+      "note": "03 §4.3、ConfigLinkPatterns：当前没有链接表时使用上一次成功的完整版本。"
+    },
+    {
+      "name": "patterns_bundled",
+      "current": {},
+      "lkg": {},
+      "bundled": {"link_patterns": {"version": "bundled-patterns", "rules": []}},
+      "expect": {"linkPatternsVersion": "bundled-patterns"},
+      "note": "03 §4.3：当前与上一次成功版本都不可取时使用包内快照。"
+    }
+  ],
+  "configFetch": [
+    {
+      "name": "cold_start_before_response",
+      "steps": [{"op": "coldStart"}],
+      "expect": {"source": "bundled"},
+      "note": "03 §4.3：后台请求尚未完成时，无 LKG 也必须能立即读包内配置。"
+    },
+    {
+      "name": "first_fetch_failure",
+      "steps": [{"op": "coldStart"}, {"op": "fetchFail"}],
+      "expect": {"source": "bundled"},
+      "note": "03 §4.3：首次拉取失败继续使用包内配置。"
+    },
+    {
+      "name": "fetch_success",
+      "steps": [{"op": "coldStart"}, {"op": "fetchOk", "etag": "\"config-a\""}],
+      "expect": {"source": "current"},
+      "note": "03 §4.3：成功响应成为当前配置，并保存为可供重启读取的 LKG。"
+    },
+    {
+      "name": "restart_reads_lkg_before_network",
+      "steps": [
+        {"op": "coldStart"},
+        {"op": "fetchOk", "etag": "\"config-a\""},
+        {"op": "coldStart"}
+      ],
+      "expect": {"source": "lkg"},
+      "note": "coldStart 重建 ConfigStore 并复用文件替身；第二个请求未完成，已经读到之前成功的配置。"
+    },
+    {
+      "name": "restart_fetch_failure",
+      "steps": [
+        {"op": "coldStart"},
+        {"op": "fetchOk", "etag": "\"config-a\""},
+        {"op": "coldStart"},
+        {"op": "fetchFail"}
+      ],
+      "expect": {"source": "lkg"},
+      "note": "03 §4.3：重启后的拉取失败不覆盖 LKG。"
+    },
+    {
+      "name": "foreground_304",
+      "steps": [
+        {"op": "coldStart"},
+        {"op": "fetchOk", "etag": "\"config-a\""},
+        {"op": "foreground"},
+        {"op": "fetch304"}
+      ],
+      "expect": {"source": "current", "sentIfNoneMatch": "\"config-a\""},
+      "note": "03 §4.3 的 ETag 拉取及本任务的 304 要求：原样发送带引号的 ETag，304 不清空或替换内容；契约缺口见 gaps。"
+    },
+    {
+      "name": "foreground_uses_latest_etag",
+      "steps": [
+        {"op": "coldStart"},
+        {"op": "fetchOk", "etag": "\"config-a\""},
+        {"op": "foreground"},
+        {"op": "fetchOk", "etag": "W/\"config-b\""},
+        {"op": "foreground"},
+        {"op": "fetch304"}
+      ],
+      "expect": {"source": "current", "sentIfNoneMatch": "W/\"config-b\""},
+      "note": "新成功响应替换当前内容与 ETag；弱 ETag 作为不透明字符串原样传递，不拆引号或 W/ 前缀。"
+    }
+  ],
+  "tracker": [
+    {
+      "name": "not_decided_collects_nothing",
+      "privacy": "not_decided",
+      "loggedIn": false,
+      "steps": [{"op": "track", "count": 12}, {"op": "flush"}],
+      "expect": {"collected": 0, "uploaded": 0, "queueSize": 0},
+      "note": "BR-ID-11：未同意不采集、不上报；跨过批量阈值并主动 flush 也不能绕过。"
+    },
+    {
+      "name": "basic_mode_collects_nothing",
+      "privacy": "basic_mode",
+      "loggedIn": true,
+      "steps": [{"op": "track", "count": 12}, {"op": "flush"}],
+      "expect": {"collected": 0, "uploaded": 0, "queueSize": 0},
+      "note": "BR-ID-11：基本模式不能因残留登录上下文而采集或上报。"
+    },
+    {
+      "name": "guest_has_no_user_id",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [{"op": "track", "count": 1}, {"op": "flush"}],
+      "expect": {"collected": 1, "uploaded": 1, "queueSize": 0, "hasUserId": false},
+      "note": "03 §4.7、events.yaml：游客事件有 device_id，user_id 缺省或为空；上传字段由 sink 实测。"
+    },
+    {
+      "name": "guest_event_not_rewritten_after_login",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [{"op": "track", "count": 1}, {"op": "login"}, {"op": "flush"}],
+      "expect": {"collected": 1, "uploaded": 1, "queueSize": 0, "hasUserId": false},
+      "note": "03 §4.7：登录后由服务端关联，不回写已经采集的游客事件。"
+    },
+    {
+      "name": "member_event",
+      "privacy": "consented",
+      "loggedIn": true,
+      "steps": [{"op": "track", "count": 1}, {"op": "flush"}],
+      "expect": {"collected": 1, "uploaded": 1, "queueSize": 0},
+      "note": "已同意时允许采集；events.yaml 的 user_id 是可选字段，本条不额外要求非空。"
+    },
+    {
+      "name": "withdrawal_clears_persisted_queue",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [
+        {"op": "track", "count": 3},
+        {"op": "privacy", "state": "basic_mode"},
+        {"op": "track", "count": 12},
+        {"op": "restart"},
+        {"op": "privacy", "state": "consented"},
+        {"op": "flush"}
+      ],
+      "expect": {"collected": 3, "uploaded": 0, "queueSize": 0},
+      "note": "撤回时清队列；基本模式新事件不采集；重建对象再同意不能复活撤回前的事件。"
+    },
+    {
+      "name": "consent_enables_new_events",
+      "privacy": "not_decided",
+      "loggedIn": false,
+      "steps": [
+        {"op": "track", "count": 2},
+        {"op": "privacy", "state": "consented"},
+        {"op": "track", "count": 1},
+        {"op": "flush"}
+      ],
+      "expect": {"collected": 1, "uploaded": 1, "queueSize": 0, "hasUserId": false},
+      "note": "只采集同意后的事件，不追补未同意时的事件。"
+    },
+    {
+      "name": "offline_queue_survives_restart",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [
+        {"op": "sinkFail"},
+        {"op": "track", "count": 3},
+        {"op": "flush"},
+        {"op": "restart"},
+        {"op": "sinkOk"},
+        {"op": "flush"}
+      ],
+      "expect": {"collected": 3, "uploaded": 3, "queueSize": 0, "hasUserId": false},
+      "note": "03 §4.7：离线队列持久化；失败尝试不算成功上传，重启后由成功 sink 消费。"
+    },
+    {
+      "name": "ten_events_trigger_batch",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [{"op": "track", "count": 10}],
+      "expect": {"collected": 10, "uploaded": 10, "queueSize": 0, "hasUserId": false},
+      "note": "03 §4.7：每 10 条触发批量上报；本条没有手工 flush。"
+    },
+    {
+      "name": "offline_capacity_is_bounded",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [{"op": "sinkFail"}, {"op": "track", "count": 501}, {"op": "flush"}],
+      "expect": {
+        "collected": 501,
+        "uploaded": 0,
+        "queueSize": 500,
+        "upperBounds": ["collected", "queueSize"]
+      },
+      "note": "03 §4.7 只规定离线缓存不超过 500；upperBounds 是测试比较方式，不规定溢出时接受数、丢旧还是丢新。每次 track 后也检查上限。"
+    },
+    {
+      "name": "unknown_update_state_only_queues",
+      "privacy": "consented",
+      "loggedIn": false,
+      "steps": [
+        {"op": "uploadGate", "allowed": false},
+        {"op": "track", "count": 10},
+        {"op": "flush"}
+      ],
+      "expect": {"collected": 10, "uploaded": 0, "queueSize": 10},
+      "note": "03 §4.7：强更检查中或未知时只入队，不调用 sink；canUpload 替身模拟该外部闸门。"
+    }
+  ],
+  "permission": [
+    {
+      "name": "photos_granted",
+      "permission": "photos",
+      "steps": [{"op": "systemResult", "result": "granted"}, {"op": "request"}],
+      "expect": {"resultRaw": "granted", "showedRationale": true, "openSettingsGuide": false},
+      "note": "03 §4.9：先说明保存相册用途，再调用系统；systemResult 预置下一次系统申请的返回值。"
+    },
+    {
+      "name": "push_denied",
+      "permission": "push",
+      "steps": [{"op": "systemResult", "result": "denied"}, {"op": "request"}],
+      "expect": {"resultRaw": "denied", "showedRationale": true, "openSettingsGuide": false},
+      "note": "BR-TEXT-14：push 的用途键是 perm.push.card_hint，不是拼接得到的 perm.push.purpose。"
+    },
+    {
+      "name": "already_granted",
+      "permission": "photos",
+      "steps": [
+        {"op": "systemResult", "result": "granted"},
+        {"op": "request"},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "granted", "showedRationale": false, "openSettingsGuide": false},
+      "note": "03 §4.9：第二次查询到已授权直接返回；expect 中 UI 标志只描述最后一次 request。"
+    },
+    {
+      "name": "denied_before_48_hours",
+      "permission": "photos",
+      "steps": [
+        {"op": "systemResult", "result": "denied"},
+        {"op": "request"},
+        {"op": "advance", "millis": 172799999},
+        {"op": "systemResult", "result": "granted"},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "throttled", "showedRationale": false, "openSettingsGuide": true},
+      "note": "BR-ID-13：距拒绝尚差 1 毫秒满 48 小时，不再申请；advance 后重建组件，验证节流记录持久化。"
+    },
+    {
+      "name": "denied_exactly_48_hours",
+      "permission": "photos",
+      "steps": [
+        {"op": "systemResult", "result": "denied"},
+        {"op": "request"},
+        {"op": "advance", "millis": 172800000},
+        {"op": "systemResult", "result": "granted"},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "granted", "showedRationale": true, "openSettingsGuide": false},
+      "note": "BR-ID-13：已满 48 小时，不再处于 48 小时内；本例是用户再次保存图片。"
+    },
+    {
+      "name": "denied_after_48_hours",
+      "permission": "photos",
+      "steps": [
+        {"op": "systemResult", "result": "denied"},
+        {"op": "request"},
+        {"op": "advance", "millis": 172800001},
+        {"op": "systemResult", "result": "granted"},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "granted", "showedRationale": true, "openSettingsGuide": false},
+      "note": "BR-ID-13：超过 48 小时后可在对应功能入口再次申请。"
+    },
+    {
+      "name": "throttled_click_does_not_move_denial_time",
+      "permission": "photos",
+      "steps": [
+        {"op": "systemResult", "result": "denied"},
+        {"op": "request"},
+        {"op": "advance", "millis": 86400000},
+        {"op": "request"},
+        {"op": "advance", "millis": 86400000},
+        {"op": "systemResult", "result": "granted"},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "granted", "showedRationale": true, "openSettingsGuide": false},
+      "note": "03 §4.9 记录的是上次被拒的时刻；被节流的点击没有再次申请、没有新的系统拒绝，不能延长窗口。"
+    },
+    {
+      "name": "photos_permanently_denied",
+      "permission": "photos",
+      "steps": [
+        {"op": "systemResult", "result": "permanently_denied"},
+        {"op": "request"},
+        {"op": "advance", "millis": 172800001},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "permanently_denied", "showedRationale": false, "openSettingsGuide": true},
+      "note": "03 §4.9：系统仍报告永久拒绝时，即使超过节流期也不重复申请；显示 perm.photos.denied_forever 与 perm.go_settings。"
+    },
+    {
+      "name": "push_permanently_denied",
+      "permission": "push",
+      "steps": [
+        {"op": "systemResult", "result": "permanently_denied"},
+        {"op": "request"},
+        {"op": "advance", "millis": 172800001},
+        {"op": "request"}
+      ],
+      "expect": {"resultRaw": "permanently_denied", "showedRationale": false, "openSettingsGuide": true},
+      "note": "03 §4.9、BR-TEXT-14：通知永久拒绝后使用 perm.push.denied_forever 与 perm.go_settings。"
+    }
+  ],
+  "gaps": [
+    "BR-ID-09 未给出每种设备标识的完整长度与字符集规则，device-hash.vectors.json 也明确不覆盖这些格式检查；不自造正则。reasonRaw 没有稳定枚举，不断言具体原因字符串。",
+    "device_hash 的唯一预期数据是 sources 引用的锁定向量文件；不在本文件复制哈希值。该文件含 OAID 算法向量，不代表 MVP 可以采集 OAID。完整哈希向量读取测试按 brief §0 由实现任务补齐。",
+    "9cd1e6f 的 getConfig 尚未声明 If-None-Match、ETag 或 304。客户端携带 ETag 依据 03 §4.3，304 不变依据本任务要求；缺失的服务端声明需补齐。无缓存却收到 304、无 ETag 后续请求、ETag 跨进程持久化与并发响应乱序未明确，本组不裁定。",
+    "search_status 三层均缺平台、出现 null 或未知值时的最终结果未明确；link_patterns 损坏、同版本异内容与版本回退的处理未明确。包内生产值需要由发布时生产配置生成，不能把本向量的示例当默认值。",
+    "Tracker 溢出时丢旧还是丢新、失败重试与确认协议没有明确；upperBounds 中列出的计数只做上界断言，其他计数严格相等。collected 表示 track 接受数，uploaded 表示 sink 确认成功的事件数。",
+    "events.yaml 的 user_id 是可选字段，只明确游客为空及登录后不回写原事件；不强行要求登录事件携带非空 user_id。OpenAPI 没有 /v1/events，本组只测注入 sink。",
+    "system-permissions.yaml 尚未填 Android、鸿蒙系统权限名。本组使用 push/photos 逻辑类型，不猜系统权限名。unavailable 的具体映射、说明页取消、并发申请、时钟回拨未明确，不编造结果向量。",
+    "清除缓存不得清 LKG、权限节流记录；环境切换必须清 LKG、device_id、install_secret；install_secret 只能进各端安全存储。这些规则已明确，但给定纯函数 API 没有宿主清理器、设备读取器或安全存储接线面，需要在实现任务的集成测试中验证，不能用 DeviceIdPolicy 的布尔结果冒充已经验证实际系统调用。"
+  ]
+}

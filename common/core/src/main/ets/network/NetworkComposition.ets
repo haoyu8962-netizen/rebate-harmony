@@ -1,3 +1,4 @@
+import { EnvironmentSwitchGate } from '../config/EnvironmentSwitchGate';
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { UpdateState } from '../router/GuardState';
 import { ApiClient, UpdatePort } from './ApiClient';
@@ -43,6 +44,9 @@ export class UpdateNetworkPort implements UpdatePort {
  * 网络核心在 App 组合处的接线（EntryAbility 调用；Android 在 AppModule 里做同样的事）。
  * - ApiClient.invalidate 登记为清理注册表的「清理前第一步」：撤回同意（cleanOnly）与切换环境 / 覆盖安装对账
  *   （cleanAll）开始时最先执行，作废并取消在途请求、重试与刷新结果，然后才删令牌与设备身份（lessons 35）。
+ * - 运行中切换环境（harmony-review-r2 R2-01、lessons 17）：ApiClient.invalidate 同时登记为环境闸门的 onClosed 监听——
+ *   闸门在切换开始、任何 await 之前同步关闭时就作废网络世代并取消全部在途请求（等连接 / TLS 的不再发往旧环境），
+ *   不等到 cleanAll 的「清理前第一步」。实际的数据清理仍在切换标记持久化之后。
  * - 返回强更状态变更的处理函数：App 把它设为 AppUpdate.onChanged。每次强更结论变化先通知网络层
  *   （ApiClient.onUpdateStateChanged：由低于 / 未知恢复为不低于且本机会话是 deletion_only 时立即发起受限会话刷新屏障，
  *   R3-04、R2-02），再交给 next（AppRouting.stateChanged）。网络层通知出错不影响路由协调。
@@ -50,8 +54,10 @@ export class UpdateNetworkPort implements UpdatePort {
 export class NetworkComposition {
   static readonly INVALIDATE_STEP: string = 'network_in_flight';
 
-  static install(client: ApiClient, cleaners: LocalDataCleanerRegistry, next: () => void): () => void {
+  static install(client: ApiClient, cleaners: LocalDataCleanerRegistry, next: () => void,
+    gate: EnvironmentSwitchGate = EnvironmentSwitchGate.shared): () => void {
     cleaners.setBeforeClear(NetworkComposition.INVALIDATE_STEP, (): void => client.invalidate());
+    gate.onClosed((): void => client.invalidate());
     return (): void => {
       try {
         client.onUpdateStateChanged();

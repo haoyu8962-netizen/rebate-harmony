@@ -4,6 +4,8 @@ import {
   AppConfig, CleanReport, GuardDecision, GuardDecisionKind, parsePrivacyState, PreferencesPrivacyStore, PrivacyDecision,
   PrivacyGate, PrivacyGateState, PrivacyPromptCover, PrivacyPromptStage, PrivacyWithdrawalCleaners, RouteDestination
 } from 'core';
+import { AppClientCore } from '../clientcore/AppClientCore';
+import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
 import { ShellState } from '../shell/ShellState';
 import { AppUpdate } from '../update/AppUpdate';
@@ -104,6 +106,8 @@ export class AppPrivacy {
     routing.navigator.tabRootHandler = (destination: RouteDestination): boolean =>
       ShellState.shared.showRoot(destination);
     routing.privacyPromptShowing = (): boolean => this.isPrompting;
+    // 埋点批次的隐私世代（撤回同意加 1，lessons 16）：在第一次 publish 创建埋点队列之前接上。
+    AppClientCore.shared.consentCycle = (): number => this.consentCycle();
     this.publish(PrivacyEvent.NONE);
   }
 
@@ -118,11 +122,39 @@ export class AppPrivacy {
           report.failed.join(','));
         if (report.ok) {
           gate.withdrawalCleanupDone();
+          // 撤回清理（含埋点队列）确认完成：埋点按当前结论恢复（之前一律按未同意，R1-06）。
+          AppClientCore.shared.privacyChanged(AppRouting.shared.privacyState, gate.credentialsReadable());
         }
       });
     };
     gate.registerSdkInitSteps();
+    // 设备注册（APP-03b）：DeviceRegistry.register 是异步的，PrivacyGate 按 1s、2s、4s…上限 60s 退避重试到成功。
+    gate.registerDeviceRegistration((): Promise<boolean> => AppNetwork.registerDevice());
     return gate;
+  }
+
+  /**
+   * 重新开始设备注册（DeviceRegistry.onRestartNeeded）：immediate = false 是 10402 后重新注册失败（交给退避流程）；
+   * true 是运行中切换环境完成（新环境已提交，立即开始，R1-02）。
+   */
+  restartDeviceRegistration(immediate: boolean): void {
+    const gate: PrivacyGate | null = this.gate;
+    if (gate !== null) {
+      gate.restartDeviceRegistration(immediate);
+    }
+  }
+
+  /** 回前台：上次撤回同意的清理没确认完成（如埋点队列删除失败）就再跑一次（R1-06）。 */
+  retryWithdrawalCleanup(): void {
+    const gate: PrivacyGate | null = this.gate;
+    if (gate !== null) {
+      gate.retryPendingWithdrawalCleanup();
+    }
+  }
+
+  /** 隐私世代（PrivacyGate.consentCycle：撤回同意加 1）：设备注册与埋点上报的 ticket 用（lessons 12、16）。 */
+  consentCycle(): number {
+    return this.gate === null ? 0 : this.gate.consentCycle;
   }
 
   /** 会话层读取令牌、device_id、install_secret 前必须确认（撤回清理未完成时为 false）。TODO(APP-05) 接入。 */
@@ -130,9 +162,13 @@ export class AppPrivacy {
     return this.gate !== null && this.gate.credentialsReadable();
   }
 
-  /** 环境闸门 SETTLED（EntryAbility.loadRoot、阻断页重试成功后）：已同意当前版本时开始初始化。 */
+  /**
+   * 环境闸门 SETTLED（EntryAbility.loadRoot、阻断页重试成功后）：配置冷启动（读 LKG、后台拉 /v1/config，APP-03b），
+   * 已同意当前版本时开始初始化。
+   */
   environmentSettled(): void {
     this.environmentReady = true;
+    AppClientCore.shared.environmentSettled();
     this.initializeIfConsented();
     AppRouting.shared.stateChanged();
   }
@@ -254,6 +290,8 @@ export class AppPrivacy {
     this.loaded = true;
     const routing: AppRouting = AppRouting.shared;
     routing.privacyState = parsePrivacyState(state.decisionRaw);
+    // 埋点（APP-03b）：第一次按读出的结论创建队列；之后不是已同意（撤回、基本模式）立即清空队列、不再上报。
+    AppClientCore.shared.privacyChanged(routing.privacyState, gate.credentialsReadable());
     // 先按新结论同步版本检查（APP-02c R1-01 / R1-03）：进入基本模式按 unknown（保留已知 below_min）；同意（含离开基本模式）
     // 后立即发检查、Router 读到「检查中」。必须在 consentHandled 与任何待办恢复之前：恢复因此等检查结果（最长 5 秒），
     // 不会被同意那一刻的 unknown 判定删除。

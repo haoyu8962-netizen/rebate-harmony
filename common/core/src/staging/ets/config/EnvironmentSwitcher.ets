@@ -2,6 +2,7 @@
 import { AppEnvironment, EnvironmentEndpoints, EnvironmentSource } from '../../../main/ets/config/AppEnvironment';
 import { EnvironmentRecord, EnvironmentRecordKeys } from '../../../main/ets/config/EnvironmentRecord';
 import { CleanReport, LocalDataCleanerRegistry } from '../../../main/ets/config/LocalDataCleaner';
+import { EnvironmentSwitchGate } from '../../../main/ets/config/EnvironmentSwitchGate';
 
 /** 调试面板选择的环境（跨重启持久化）。键名是 release-scan 的标记之一：Release 产物里不得出现。 */
 export class EnvironmentSelection {
@@ -61,6 +62,12 @@ export class SwitchResult {
  * 3–5 任一步失败：内存环境不变、选择回滚；LAST_EFFECTIVE 留在 UNSETTLED_MARK，
  * 它与任何构建的本次环境都不同，于是之后不论 Debug 重启还是覆盖安装 Staging / Release，启动对账都会先清理再记录。
  * 回滚本身失败也只会让下次启动多清一次，不会跳过清理。
+ *
+ * 环境闸门（R1-01、R1-02）：开始切换时（第 1 步的任何 await 之前）同步关闭 EnvironmentSwitchGate，整个清理与提交期间
+ * AppConfig.endpoints() 为 undefined，设备注册与其余请求一律本地拒绝；关闭的同一个同步区里闸门通知 onClosed 监听方
+ * （harmony-review-r2 R2-01、lessons 17）：ApiClient 作废网络世代并取消全部在途请求，设备注册与埋点上报取消在途任务，
+ * 都在第一个 await（读环境记录）之前，不等 cleanAll；实际数据清理仍在切换标记持久化之后。结束时（成功提交新环境之后，或失败仍在原环境）
+ * 才重新打开并通知监听方（App 据此重新开始设备注册与配置拉取）。
  */
 export class EnvironmentSwitcher implements EnvironmentSource {
   readonly cleaners: LocalDataCleanerRegistry;
@@ -68,15 +75,18 @@ export class EnvironmentSwitcher implements EnvironmentSource {
   private readonly record: EnvironmentRecord;
   private currentEnvironment: AppEnvironment;
   private switching: boolean = false;
+  private readonly gate: EnvironmentSwitchGate;
 
   constructor(initial: AppEnvironment, table: Map<AppEnvironment, EnvironmentEndpoints>,
-    cleaners: LocalDataCleanerRegistry, record: EnvironmentRecord) {
+    cleaners: LocalDataCleanerRegistry, record: EnvironmentRecord,
+    gate: EnvironmentSwitchGate = EnvironmentSwitchGate.shared) {
     if (table.size === 0) {
       throw new Error('EnvironmentSwitcher: empty endpoint table');
     }
     this.table = table;
     this.cleaners = cleaners;
     this.record = record;
+    this.gate = gate;
     this.currentEnvironment = table.has(initial) ? initial : Array.from(table.keys())[0];
   }
 
@@ -107,6 +117,10 @@ export class EnvironmentSwitcher implements EnvironmentSource {
       return new SwitchResult(SwitchOutcome.BUSY, null);
     }
     this.switching = true;
+    // 同步关闭环境闸门（在任何 await 之前）：清理与提交期间不得有任何请求发往旧环境或新环境。close 同步通知监听方，
+    // 在途请求在这里就被作废并取消（R2-01），不等下面的 record.get / record.put。
+    this.gate.close();
+    let switched: boolean = false;
     try {
       let previousSelection: string | undefined = undefined;
       try {
@@ -127,9 +141,12 @@ export class EnvironmentSwitcher implements EnvironmentSource {
         return new SwitchResult(SwitchOutcome.RECORD_FAILED, report);
       }
       this.currentEnvironment = target;
+      switched = true;
       return new SwitchResult(SwitchOutcome.SWITCHED, report);
     } finally {
       this.switching = false;
+      // 新环境已提交（或失败仍是原环境）之后才打开闸门并通知：设备注册与配置拉取在这之后重新开始。
+      this.gate.reopen(switched);
     }
   }
 

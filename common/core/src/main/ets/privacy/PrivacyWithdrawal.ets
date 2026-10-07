@@ -11,7 +11,13 @@ export class PrivacyWithdrawalCleaners {
   static readonly SESSION_TOKENS: string = 'session_tokens';
   /** device_id 与 install_secret。TODO(APP-03)：设备注册接入后注册同名真实清理器。 */
   static readonly DEVICE_IDENTITY: string = 'device_identity';
-  static readonly NAMES: string[] = [PrivacyWithdrawalCleaners.SESSION_TOKENS, PrivacyWithdrawalCleaners.DEVICE_IDENTITY];
+  /**
+   * 埋点离线队列（APP-03b，R1-06）：撤回同意必须清空（03 §4.7、BR-ID-11）。登记在撤回清理名单里，删不掉时撤回清理不算完成、
+   * 撤回痕迹保留并在冷启动重试；真实清理项由 App 组合处同名替换占位（TrackerQueueCleaner）。
+   */
+  static readonly TRACKER_QUEUE: string = 'tracker_queue';
+  static readonly NAMES: string[] = [PrivacyWithdrawalCleaners.SESSION_TOKENS, PrivacyWithdrawalCleaners.DEVICE_IDENTITY,
+    PrivacyWithdrawalCleaners.TRACKER_QUEUE];
 
   /** 没有真实实现时注册占位（已注册的同名清理器不覆盖）。 */
   static registerPlaceholders(registry: LocalDataCleanerRegistry): void {
@@ -22,7 +28,7 @@ export class PrivacyWithdrawalCleaners {
     }
   }
 
-  /** 撤回同意时调用：只跑令牌与设备身份的清理项。 */
+  /** 撤回同意时调用：只跑令牌、设备身份与埋点队列的清理项。 */
   static run(registry: LocalDataCleanerRegistry): Promise<CleanReport> {
     return registry.cleanOnly(PrivacyWithdrawalCleaners.NAMES);
   }

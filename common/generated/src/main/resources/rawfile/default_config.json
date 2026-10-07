@@ -1,0 +1,80 @@
+{
+  "dict_version": "2026100201",
+  "h5_release": {
+    "version": "1.4.2"
+  },
+  "features": {
+    "flags": {
+      "agent.entry.visible": true,
+      "clipboard.enabled.taobao": true,
+      "ui.grayscale": false,
+      "external_page.product_intercept": true,
+      "external_page.union_host_block": true,
+      "earnings.dashboard.visible": false
+    },
+    "platform_status": {
+      "taobao": "on",
+      "jd": "on",
+      "pdd": "not_launched"
+    },
+    "search_status": {
+      "taobao": "on",
+      "jd": "off"
+    }
+  },
+  "texts": {
+    "withdraw.sla_text": "工作日 24 小时内处理"
+  },
+  "legal": {
+    "privacy": {
+      "version": 3,
+      "min_version": 3
+    },
+    "agreement": {
+      "version": 2
+    }
+  },
+  "invite": {
+    "required": false,
+    "backfill_hours": 168,
+    "bind_phone_guide": true,
+    "before_buy_tip": true
+  },
+  "agent": {
+    "enabled": true,
+    "whitelist_only": true,
+    "filing_text": "",
+    "examples": [
+      "帮我找 500 元以内的降噪耳机"
+    ],
+    "guest_daily_quota": 3,
+    "require_phone": false
+  },
+  "jump_tip": {},
+  "clipboard": {},
+  "bridge_origins": {},
+  "auth_tips": {},
+  "compliance": {},
+  "display": {},
+  "external_page": {
+    "nav_host_sample_bp": 100
+  },
+  "link_patterns": {
+    "version": "2026100401",
+    "rules": []
+  },
+  "app_update": {
+    "recheck_interval_sec": 1800
+  },
+  "help_links": {
+    "price_compare": {
+      "route": "Help",
+      "params": {
+        "article_id": "example-article-one"
+      }
+    }
+  },
+  "claim": {
+    "window_days": 30
+  }
+}

@@ -13,6 +13,12 @@ import networkIntegrationTest from './NetworkIntegration.test';
 import networkReviewR1Test from './NetworkReviewR1.test';
 import networkReviewR2Test from './NetworkReviewR2.test';
 import networkReviewR3Test from './NetworkReviewR3.test';
+import clientCoreVectorTest from './ClientCoreVector.test';
+import deviceHashVectorTest from './DeviceHashVector.test';
+import clientCoreIntegrationTest from './ClientCoreIntegration.test';
+import clientCoreReviewR1Test from './ClientCoreReviewR1.test';
+import clientCoreReviewR2Test from './ClientCoreReviewR2.test';
+import clientCoreReviewR3Test from './ClientCoreReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -35,4 +41,10 @@ export default function testsuite() {
   networkReviewR1Test();
   networkReviewR2Test();
   networkReviewR3Test();
+  clientCoreVectorTest();
+  deviceHashVectorTest();
+  clientCoreIntegrationTest();
+  clientCoreReviewR1Test();
+  clientCoreReviewR2Test();
+  clientCoreReviewR3Test();
 }
