@@ -25,6 +25,11 @@ import clientCoreFollowupTest from './ClientCoreFollowup.test';
 import bridgeReviewR1Test from './BridgeReviewR1.test';
 import bridgeReviewR2Test from './BridgeReviewR2.test';
 import bridgeReviewR3Test from './BridgeReviewR3.test';
+import bridgeFollowupHM07Test from './BridgeFollowupHM07.test';
+import loginVectorTest from './LoginVector.test';
+import loginIntegrationTest from './LoginIntegration.test';
+import app05aReviewR3Test from './App05aReviewR3.test';
+import app05aReviewR4Test from './App05aReviewR4.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -59,4 +64,9 @@ export default function testsuite() {
   bridgeReviewR1Test();
   bridgeReviewR2Test();
   bridgeReviewR3Test();
+  bridgeFollowupHM07Test();
+  loginVectorTest();
+  loginIntegrationTest();
+  app05aReviewR3Test();
+  app05aReviewR4Test();
 }

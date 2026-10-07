@@ -10,15 +10,13 @@ import { UPGRADE_PROMPT_PAGE } from '../routing/AppRouting';
  *
  * 强更状态下从强更页进入的次要入口（APP-02c，03 §4.1）：
  * - fromForceUpdate：强更状态标记。TODO(APP-12): 真实隐私中心按它只显示协议、两份清单与【撤回同意】，不显示个性化开关。
- * - restrictedLogin：受限登录标记。TODO(APP-05): 真实登录页按它不显示【设置】「登录遇到问题」与邀请码等业务输入，
- *   登录请求不带 invite_code（BR-ID-01 细则「受限会话」）。
+ * - 受限登录标记已交给真实登录页（APP-05a AppLoginPage.restrictedLogin），本页不再显示 Login。
  */
 @ComponentV2
 export struct RoutePlaceholderPage {
   @Param route: string = '';
   @Param readonlyMode: boolean = false;
   @Param fromForceUpdate: boolean = false;
-  @Param restrictedLogin: boolean = false;
 
   build() {
     NavDestination() {
@@ -34,12 +32,6 @@ export struct RoutePlaceholderPage {
             .fontSize(CouliTypography.footnote.fontSize)
             .fontColor(CouliColors.textSecondary)
             .id('route_from_force_update')
-        }
-        if (this.restrictedLogin) {
-          Text('restricted login (no invite code)')
-            .fontSize(CouliTypography.footnote.fontSize)
-            .fontColor(CouliColors.textSecondary)
-            .id('route_login_restricted')
         }
       }
       .width('100%')

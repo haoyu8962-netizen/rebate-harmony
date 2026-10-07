@@ -28,10 +28,16 @@ export class ExternalNavOutcome {
   readonly cancel: boolean;
   /** 要显示的提示文案键；没有为 null。 */
   readonly notice: string | null;
+  /**
+   * APP-04 共性 27（I-R1-02，F-HM-07）：主框架 / 新窗口导航时生效的规则表不能用来阻断（运行中变空或变坏、包内也没有可用表）：
+   * 取消加载并显示降级页（整页提示 + 去搜索），不能只弹一条提示后停在原页面当作「没有匹配」。
+   */
+  readonly degraded: boolean;
 
-  constructor(cancel: boolean, notice: string | null) {
+  constructor(cancel: boolean, notice: string | null, degraded: boolean = false) {
     this.cancel = cancel;
     this.notice = notice;
+    this.degraded = degraded;
   }
 
   /**
@@ -43,6 +49,10 @@ export class ExternalNavOutcome {
   }
 
   static readonly LOAD: ExternalNavOutcome = new ExternalNavOutcome(false, null);
+  /** 子框架文档按裁定取消（不提示、不降级，原页面保留）。 */
+  static readonly SUBFRAME_CANCELLED: ExternalNavOutcome = new ExternalNavOutcome(true, null);
+  /** 主框架 POST（非 GET）按裁定 (b) 在第一跳取消（不提示、不降级，原页面保留）。 */
+  static readonly POST_CANCELLED: ExternalNavOutcome = new ExternalNavOutcome(true, null);
 }
 
 /**
@@ -64,8 +74,32 @@ export class ExternalNavHooks {
   navHost: (registeredDomain: string, frame: string, hit: boolean) => void =
     (_domain: string, _frame: string, _hit: boolean) => {
     };
-  sampleBp: () => number = () => 0;
+  sampleBp: () => number = () => ExternalNavHooks.DEFAULT_SAMPLE_BP;
   random: () => number = () => Math.random();
+
+  /** nav_host_sample_bp 没有下发时的缺省（APP-04 共性 39，A-R1-09，BR-ATTR-29）：千分之一千，即 10%。 */
+  static readonly DEFAULT_SAMPLE_BP: number = 1000;
+
+  /**
+   * /v1/config external_page 段（JSON 文本，当前 → LKG → 包内）→ 采样万分比（F-HM-07 / 共性 39）：
+   * 段缺失、解析不了、没有 nav_host_sample_bp 或取值不合法 → 缺省 1000；显式下发 0 → 0（关闭采样）；合法值 0–10000 原样。
+   */
+  static sampleBpFrom(externalPageJson: string | null): number {
+    if (externalPageJson === null) {
+      return ExternalNavHooks.DEFAULT_SAMPLE_BP;
+    }
+    try {
+      const value: Object | null = JSON.parse(externalPageJson) as Object | null;
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return ExternalNavHooks.DEFAULT_SAMPLE_BP;
+      }
+      const bp: Object | undefined = (value as Record<string, Object>)['nav_host_sample_bp'];
+      return typeof bp === 'number' && Number.isInteger(bp) && (bp as number) >= 0 && (bp as number) <= 10000 ?
+        bp as number : ExternalNavHooks.DEFAULT_SAMPLE_BP;
+    } catch (e) {
+      return ExternalNavHooks.DEFAULT_SAMPLE_BP;
+    }
+  }
 }
 
 /**
@@ -180,10 +214,16 @@ export class ExternalPageNavigator {
     return outcome;
   }
 
-  /** 主框架文档导航（onLoadIntercept isMainFrame=true）：刚按新窗口放行的同一地址直接加载，其余按 MAIN 判定。 */
-  mainFrame(url: string): ExternalNavOutcome {
+  /**
+   * 主框架文档导航（onLoadIntercept isMainFrame=true）：method 不是 GET（表单 POST 等）一律在第一跳取消、原页面保留
+   * （裁定 (b)，ExternalNavPolicy.mainFrameMethodAllowed）；刚按新窗口放行的同一地址直接加载，其余按 MAIN 判定。
+   */
+  mainFrame(url: string, method: string | null = 'GET'): ExternalNavOutcome {
     const approved: string | null = this.approvedWindow;
     this.approvedWindow = null;
+    if (!ExternalNavPolicy.mainFrameMethodAllowed(method)) {
+      return ExternalNavOutcome.POST_CANCELLED;
+    }
     if (approved !== null && approved === url) {
       return ExternalNavOutcome.LOAD;
     }
@@ -195,11 +235,15 @@ export class ExternalPageNavigator {
     const patterns: string | null = this.safePatterns();
     const decision: ExternalNavDecision = this.policy.decide(url, !isSubframe, frame === ExternalNavFrame.NEW_WINDOW,
       patterns);
-    this.sampleNavHost(url, frame, decision);
+    this.sampleNavHost(url, frame, patterns);
     switch (decision.actionRaw) {
       case ExternalNavAction.LOAD:
         if (AuthPageRules.isAuthPage(url)) {
           return new ExternalNavOutcome(true, ExternalNoticeKey.UNION_HOST_BLOCKED);
+        }
+        if (isSubframe && !ExternalNavPolicy.subframeDocumentAllowed(url)) {
+          // 编排者裁定（拦不到子框架每一跳时）：子框架文档一律取消，原页面保留，不提示（不是平台页面）。
+          return ExternalNavOutcome.SUBFRAME_CANCELLED;
         }
         return ExternalNavOutcome.LOAD;
       case ExternalNavAction.CANCEL_REPORT:
@@ -209,9 +253,13 @@ export class ExternalPageNavigator {
         return this.product(url, frame, decision);
       default:
         this.safe(() => this.hooks.unionHost(decision, frame, ExternalUnionOutcome.BLOCK));
-        return new ExternalNavOutcome(true, ExternalNoticeKey.UNION_HOST_BLOCKED);
+        return new ExternalNavOutcome(true, ExternalNoticeKey.UNION_HOST_BLOCKED,
+          decision.reason === ExternalPageNavigator.NO_RULES && !isSubframe);
     }
   }
+
+  /** ExternalNavPolicy.decide 在规则表不可用时给出的 reason。 */
+  static readonly NO_RULES: string = 'no_rules';
 
   /** 标题栏的主机名：只显示 https 地址的主机名。 */
   static hostOf(url: string): string {
@@ -246,7 +294,7 @@ export class ExternalPageNavigator {
     return new ExternalNavOutcome(true, handled ? null : ExternalNoticeKey.PRODUCT_UNRESOLVED);
   }
 
-  private sampleNavHost(url: string, frame: string, decision: ExternalNavDecision): void {
+  private sampleNavHost(url: string, frame: string, patterns: string | null): void {
     const target: NormalizedHttpsUrl | null = NormalizedHttpsUrl.parse(url);
     if (target === null) {
       return;
@@ -262,7 +310,13 @@ export class ExternalPageNavigator {
     if (typeof bp !== 'number' || !Number.isFinite(bp) || bp <= 0 || roll * 10000 >= Math.min(bp, 10000)) {
       return;
     }
-    const hit: boolean = decision.rule !== null;
+    // hit = 是否命中规则表（含 promo），与导航动作分开（共性 49）。
+    let hit: boolean = false;
+    try {
+      hit = this.policy.ruleHit(url, patterns);
+    } catch (e) {
+      hit = false;
+    }
     this.safe(() => this.hooks.navHost(RegisteredDomain.of(target.host), frame, hit));
   }
 

@@ -40,6 +40,7 @@
     common/generated/src/main/ets/BridgeContract.ets          bridge.schema.json 的 params schema（JSON 文本）、signed_paths、not_exposed、
                                                               events 名单与 apps.json 的 trade_only 目标（APP-04，桥协议判定用）
     common/core/src/test/BridgeVectorsData.ets                specs/bridge-vectors.json 全文（APP-04，Codex 写的三端共用桥向量）
+    common/core/src/test/LoginVectorsData.ets                 specs/login-vectors.json 全文（APP-05a，Codex 写的三端共用登录向量）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -655,6 +656,16 @@ def gen_bridge_vectors_data():
     """specs/bridge-vectors.json（APP-04，Codex 先写的三端共用向量）。"""
     return gen_vectors_data(BRIDGE_VECTORS, "BRIDGE_VECTORS_JSON",
                             "桥协议与外部页导航向量（APP-04）：specs/bridge-vectors.json 全文，供 BridgeVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+LOGIN_VECTORS = os.path.join("specs", "login-vectors.json")
+
+
+def gen_login_vectors_data():
+    """specs/login-vectors.json（APP-05a，Codex 先写的三端共用登录向量）。"""
+    return gen_vectors_data(LOGIN_VECTORS, "LOGIN_VECTORS_JSON",
+                            "短信登录主链路向量（APP-05a）：specs/login-vectors.json 全文，供 LoginVector.test.ets 解析。"
                             "只在 src/test，不进产物。")
 
 
@@ -1558,6 +1569,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "ClientCoreVectorsData.ets"): gen_client_core_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "DeviceHashVectorsData.ets"): gen_device_hash_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "BridgeVectorsData.ets"): gen_bridge_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "LoginVectorsData.ets"): gen_login_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

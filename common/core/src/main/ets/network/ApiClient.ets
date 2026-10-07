@@ -79,7 +79,15 @@ export interface UpdatePort {
  * usedDeviceId 是被拒请求带的 device_id（注册期间已换成别的 device_id 的直接算成功，复用那次结果）。兑现 true 后原请求重放 1 次。
  */
 export interface DeviceRegistrar {
-  reregister(usedDeviceId: string | null): Promise<boolean>;
+  /**
+   * caller（harmony-review-r3 R3-03，APP-04 共性 58）：发起这次重新注册的调用方有效性——普通请求为 ApiRequest.owner
+   * （桥调用为 call.valid，到截止时间即失效，剩余预算由它体现），共享刷新为这一轮的「还有有效调用方」；null 为独立的
+   * 原生调用方。实现方在等待结束、读取标识前、实际发送前检查它。
+   */
+  reregister(usedDeviceId: string | null, caller: (() => boolean) | null): Promise<boolean>;
+
+  /** 调用方有效性可能变了（cancelOwned）：重新注册已没有有效调用方时取消它的底层请求（R3-03）。 */
+  callersChanged(): void;
 
   /**
    * 不走重新注册的 10402（重放里再收到、注册请求自己收到）：只把这次请求所用的凭据从可读凭据中隔离，恢复交给唯一一条
@@ -90,8 +98,11 @@ export interface DeviceRegistrar {
 
 /** 没有设备注册（单测替身的缺省）：不能重新注册，10402 按兜底处理。 */
 export class NoDeviceRegistrar implements DeviceRegistrar {
-  reregister(_usedDeviceId: string | null): Promise<boolean> {
+  reregister(_usedDeviceId: string | null, _caller: (() => boolean) | null): Promise<boolean> {
     return Promise.resolve(false);
+  }
+
+  callersChanged(): void {
   }
 
   isolate(_usedDeviceId: string | null): void {
@@ -444,6 +455,17 @@ class RefreshRound {
   readonly epoch: number;
   readonly credentialsAllowed: boolean;
   settled: boolean = false;
+  /**
+   * 登记在这一轮上的调用方（APP-04 共性 41，I-R2-02，F-HM-07）：发起刷新的调用、复用这一轮的 10002、等屏障的调用。
+   * system = true 表示 App 自己发起（冷启动 / 强更恢复的受限会话屏障、手动入口），不依赖调用方。
+   */
+  readonly callers: CallContext[] = [];
+  system: boolean = false;
+  /**
+   * 这一轮刷新请求（含校时重签、10402 重放）自己的归属守卫：「还有有效调用方」。所有发送共用这一个函数对象，
+   * cancelOwned 据此找到并取消底层刷新传输（harmony-review-r1 R1-11，APP-04 共性 54）。
+   */
+  owner: (() => boolean) | null = null;
   private resolver: (outcome: RefreshOutcome) => void = (_o: RefreshOutcome) => {
   };
 
@@ -469,10 +491,13 @@ class RefreshRound {
 class LiveRequest {
   readonly request: TransportRequest;
   readonly abort: () => void;
+  /** 发起调用的归属守卫（ApiRequest.owner；桥调用为 call.valid）；cancelOwned 按它取消。 */
+  readonly owner: (() => boolean) | null;
 
-  constructor(request: TransportRequest, abort: () => void) {
+  constructor(request: TransportRequest, abort: () => void, owner: (() => boolean) | null = null) {
     this.request = request;
     this.abort = abort;
+    this.owner = owner;
   }
 }
 
@@ -532,6 +557,8 @@ export class ApiClient {
   private readonly refresher: RefreshCoordinator;
   /** 在途的单飞刷新（屏障）；没有为 null。 */
   private refreshRound: RefreshRound | null = null;
+  /** 带归属守卫等待受限会话复查的调用方（refreshRestrictedSession(owner)，R2-02）：cancelOwned 按守卫立即结束等待。 */
+  private ownedWaits: Map<() => boolean, (() => void)[]> = new Map<() => boolean, (() => void)[]>();
   /** 最近一次明确失败的刷新所用的 access_token：同一旧令牌晚到的 10002 不再刷新、不再清会话（lessons R1-06）。 */
   private failedAccessToken: string | null = null;
   /**
@@ -599,6 +626,58 @@ export class ApiClient {
   }
 
   /**
+   * 取消归属于这个守卫的、已交给传输层还没有结果的请求（APP-04 共性 45：桥调用到截止时间时由 BridgeHost.onCallExpired 调用）。
+   * 被取消的发送按 cancelled 收口；之后的重试、恢复由归属核对（守卫此时已返回 false）结束。返回取消的个数。
+   */
+  cancelOwned(owner: () => boolean): number {
+    let count: number = this.cancelLive(owner);
+    // APP-05a R2-02：这个守卫在等受限会话复查——立即结束等待（结果按「没有复查结论」）。
+    const waits: (() => void)[] | undefined = this.ownedWaits.get(owner);
+    if (waits !== undefined) {
+      this.ownedWaits.delete(owner);
+      for (const wake of waits) {
+        wake();
+      }
+    }
+    // R1-11（APP-04 共性 54）：这个调用方登记在在途的共享刷新上，而它到期后这一轮已没有任何有效调用方——刷新请求用的是
+    // 这一轮自己的守卫（RefreshRound.owner），按它取消底层刷新传输；刷新随即以「没有结论」结束，等待者全部结算。
+    // 还有别的有效调用方时保留共享刷新。
+    const round: RefreshRound | null = this.refreshRound;
+    if (round !== null && !round.system) {
+      const roundOwner: (() => boolean) | null = round.owner;
+      if (roundOwner !== null && !this.roundHasLiveCaller(round)
+        && round.callers.some((caller: CallContext): boolean => caller.owner === owner)) {
+        count += this.cancelLive(roundOwner);
+      }
+    }
+    // R3-03（共性 58）：普通请求或共享刷新进入的设备重新注册，调用方全部失效时取消底层注册请求。
+    this.notifyRegistrar();
+    return count;
+  }
+
+  /** R3-03：设备重新注册已没有有效调用方时，取消它的底层注册请求（独立的启动注册不受影响）。 */
+  private notifyRegistrar(): void {
+    try {
+      this.deps.deviceRegistrar.callersChanged();
+    } catch (e) {
+      // 注册方出错不影响取消。
+    }
+  }
+
+  private cancelLive(owner: () => boolean): number {
+    let count: number = 0;
+    for (const entry of Array.from(this.live.values())) {
+      if (entry.owner === owner) {
+        this.live.delete(entry);
+        this.cancelQuietly(entry.request);
+        entry.abort();
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * 登录流程以外换了会话（退出登录、切换账号，APP-05 调用）：旧世代的请求不再重试或重放，未决记录跟随当前账号。
    */
   onSessionChanged(): void {
@@ -638,17 +717,86 @@ export class ApiClient {
   /**
    * 受限会话刷新屏障的手动入口（冷启动与强更恢复已自动接入，R1-06、R2-02）：本机会话是 deletion_only 的
    * 立即单飞刷新，刷新期间新发的请求等它结束。返回刷新后是否仍有会话。
+   *
+   * owner（APP-05a R2-02，共性 10）：登录触发的复查带本次尝试的归属守卫。这一轮刷新登记它为调用方（由它发起时不是 App 级
+   * 屏障：只为它而发，它失效且没有别的有效调用方就取消刷新传输，R1-11 同一口径）；cancelOwned(owner) 立即结束这次等待并
+   * 返回 false。守卫在等待前已失效时不发起、直接返回 false。
    */
-  async refreshRestrictedSession(): Promise<boolean> {
+  async refreshRestrictedSession(owner: (() => boolean) | null = null): Promise<boolean> {
+    if (owner !== null && !ApiClient.safeOwner(owner)) {
+      return false;
+    }
     this.observeUpdateState();
     this.restrictedChecked = false;
-    this.ensureRestrictedBarrier();
+    let caller: CallContext | null = null;
+    if (owner !== null) {
+      caller = this.bind(ApiOperations.byId(ApiClient.REFRESH_OPERATION) as ApiOperation);
+      caller.owner = owner;
+    }
+    this.ensureRestrictedBarrier(caller);
     const round: RefreshRound | null = this.refreshRound;
     if (round === null) {
       return this.credentialsAllowed() && this.deps.tokens.accessToken() !== null;
     }
-    const outcome: RefreshOutcome = await round.promise;
-    return outcome.kind === RefreshOutcome.OK;
+    if (owner === null || caller === null) {
+      const outcome: RefreshOutcome = await round.promise;
+      return outcome.kind === RefreshOutcome.OK;
+    }
+    if (round.callers.indexOf(caller) < 0) {
+      // 已有在途的一轮（App 级屏障或别的调用方发起）：登记为调用方，共用同一个结论。
+      round.callers.push(caller);
+    }
+    const outcome: RefreshOutcome | null = await this.waitOwned(round.promise, owner);
+    return outcome !== null && outcome.kind === RefreshOutcome.OK;
+  }
+
+  /** 等 promise；守卫被 cancelOwned 取消时立即以 null 结束。 */
+  private waitOwned(promise: Promise<RefreshOutcome>, owner: () => boolean): Promise<RefreshOutcome | null> {
+    return new Promise<RefreshOutcome | null>((resolve: (value: RefreshOutcome | null) => void): void => {
+      let done: boolean = false;
+      const wake: () => void = (): void => {
+        if (!done) {
+          done = true;
+          resolve(null);
+        }
+      };
+      const list: (() => void)[] = this.ownedWaits.get(owner) ?? [];
+      list.push(wake);
+      this.ownedWaits.set(owner, list);
+      const forget: () => void = (): void => {
+        const current: (() => void)[] | undefined = this.ownedWaits.get(owner);
+        if (current === undefined) {
+          return;
+        }
+        const rest: (() => void)[] = current.filter((w: () => void): boolean => w !== wake);
+        if (rest.length === 0) {
+          this.ownedWaits.delete(owner);
+        } else {
+          this.ownedWaits.set(owner, rest);
+        }
+      };
+      promise.then((outcome: RefreshOutcome): void => {
+        forget();
+        if (!done) {
+          done = true;
+          resolve(outcome);
+        }
+      }, (): void => {
+        forget();
+        if (!done) {
+          done = true;
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  private static safeOwner(owner: () => boolean): boolean {
+    try {
+      return owner();
+    } catch (e) {
+      return false;
+    }
   }
 
   /**
@@ -1063,6 +1211,7 @@ export class ApiClient {
   private async awaitBarrier(ctx: CallContext): Promise<ApiResult | null> {
     for (let waits: number = 0; waits < ApiClient.LINEAGE_DEPTH && this.refreshRound !== null; waits++) {
       const round: RefreshRound = this.refreshRound as RefreshRound;
+      round.callers.push(ctx);
       const outcome: RefreshOutcome = await round.promise;
       const lost: string | null = this.ownershipLost(ctx);
       if (lost === LocalRejectReason.CANCELLED) {
@@ -1178,7 +1327,7 @@ export class ApiClient {
         this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
       }
       response = await this.send(new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery, headers,
-        request.body, plan.timeoutMillis, (): boolean => this.ownershipLost(ctx) === null));
+        request.body, plan.timeoutMillis, (): boolean => this.ownershipLost(ctx) === null), ctx.owner);
       const afterSend: string | null = this.ownershipLost(ctx);
       if (afterSend !== null) {
         // 撤回同意、切换环境、换了会话：旧响应不改动当前会话（不保存登录令牌、不清会话、不刷新、不重试，lessons 23、34），
@@ -1324,7 +1473,8 @@ export class ApiClient {
         }
         let registered: boolean = false;
         try {
-          registered = await this.deps.deviceRegistrar.reregister(usedDeviceId);
+          // R3-03：调用方有效性一并传入（没有归属守卫的原生请求为 null = 独立调用方）。
+          registered = await this.deps.deviceRegistrar.reregister(usedDeviceId, ctx.owner);
         } catch (e) {
           registered = false;
         }
@@ -1571,14 +1721,14 @@ export class ApiClient {
    * 发送并按计划超时（传输层自己也设了超时；这里再兜一层，open 8 秒即结束；超时后取消底层请求）。
    * 登记为在途：invalidate 时取消并以 cancelled 收口（lessons 22）。
    */
-  private send(request: TransportRequest): Promise<TransportResponse> {
+  private send(request: TransportRequest, owner: (() => boolean) | null = null): Promise<TransportResponse> {
     let abort: () => void = () => {
     };
     const aborted: Promise<TransportResponse> = new Promise<TransportResponse>(
       (resolve: (response: TransportResponse) => void) => {
         abort = () => resolve(TransportResponse.failed(TransportFailure.CANCELLED));
       });
-    const entry: LiveRequest = new LiveRequest(request, abort);
+    const entry: LiveRequest = new LiveRequest(request, abort, owner);
     this.live.add(entry);
     const timeout: Promise<TransportResponse> = this.deps.timer.delay(request.timeoutMillis)
       .then((): TransportResponse => {
@@ -1721,7 +1871,7 @@ export class ApiClient {
    * 再发其他带令牌的请求（R1-06）。强更状态「低于」（或未知期间已按低于处理）时不刷新（停在强更页，恢复后再做）；
    * 环境未就绪不发。
    */
-  private ensureRestrictedBarrier(): void {
+  private ensureRestrictedBarrier(caller: CallContext | null = null): void {
     if (this.restrictedChecked || this.refreshRound !== null || !this.credentialsAllowed()) {
       return;
     }
@@ -1735,7 +1885,7 @@ export class ApiClient {
       return;
     }
     this.restrictedChecked = true;
-    this.startRefresh(access).then((outcome: RefreshOutcome): void => {
+    this.startRefresh(access, caller).then((outcome: RefreshOutcome): void => {
       if (outcome.kind === RefreshOutcome.TRANSIENT) {
         // 没有服务端结论：下一个请求再做一次屏障。
         this.restrictedChecked = false;
@@ -1757,6 +1907,7 @@ export class ApiClient {
     }
     const round: RefreshRound | null = this.refreshRound;
     if (round !== null) {
+      round.callers.push(ctx);
       return round.promise;
     }
     const current: string | null = this.credentialsAllowed() ? this.deps.tokens.accessToken() : null;
@@ -1771,7 +1922,23 @@ export class ApiClient {
       // 会话已被清掉（退出、撤回同意）：不再刷新，也不替别的会话重放。
       return Promise.resolve(RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED));
     }
-    return this.startRefresh(current);
+    return this.startRefresh(current, ctx);
+  }
+
+  /**
+   * 这一轮刷新还有没有有效的调用方（共性 41）：App 自己发起的一轮总是有；否则至少一个登记的调用方仍属于当前作废世代、
+   * 归属守卫（ApiRequest.owner，如桥调用的有效性）仍成立。都失效了就不再续发（刷新请求、校时重签、10402 重新注册与重放）。
+   */
+  private roundHasLiveCaller(round: RefreshRound): boolean {
+    if (round.system) {
+      return true;
+    }
+    for (const caller of round.callers) {
+      if (caller.epoch === this.epoch && ApiClient.ownerValid(caller)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** to 是 from 在本世代里经本客户端刷新（一次或多次）得到的令牌。 */
@@ -1791,10 +1958,15 @@ export class ApiClient {
   }
 
   /** 发起一轮单飞刷新（经 RefreshCoordinator 计数），返回屏障。账号、世代与令牌快照在这里固定（lessons 24）。 */
-  private startRefresh(usedAccess: string | null): Promise<RefreshOutcome> {
+  private startRefresh(usedAccess: string | null, caller: CallContext | null = null): Promise<RefreshOutcome> {
     const allowed: boolean = this.credentialsAllowed();
     const round: RefreshRound = new RefreshRound(usedAccess, allowed ? this.deps.tokens.refreshToken() : null,
       allowed ? this.deps.tokens.account() : null, this.sessionGeneration, this.epoch, allowed);
+    if (caller === null) {
+      round.system = true;
+    } else {
+      round.callers.push(caller);
+    }
     this.refreshRound = round;
     this.sequence++;
     const operation: ApiOperation = ApiOperations.byId(ApiClient.REFRESH_OPERATION) as ApiOperation;
@@ -1899,10 +2071,20 @@ export class ApiClient {
       return this.deps.tokens.readStatus() === SessionReadStatus.UNREADABLE ? RefreshOutcome.of(RefreshOutcome.TRANSIENT) :
       RefreshOutcome.of(RefreshOutcome.FAILED);
     }
+    if (!this.roundHasLiveCaller(round)) {
+      // 共性 41：调用方全部失效（页面关闭、桥调用作废）：不发刷新，也不清会话（没有结论）。
+      return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+    }
     const body: string = JSON.stringify(new RefreshBody(refreshToken));
     const operation: ApiOperation = ApiOperations.byId(ApiClient.REFRESH_OPERATION) as ApiOperation;
+    const firstCtx: CallContext = this.bind(operation);
+    // 刷新请求自己的归属守卫：每次实际发送（含 10401 校时重签）前都核对这一轮仍有有效调用方。同一个函数对象记在这一轮上，
+    // 最后一个有效调用方到期时 cancelOwned 按它取消刷新传输（R1-11）。
+    const roundOwner: () => boolean = (): boolean => this.roundHasLiveCaller(round);
+    round.owner = roundOwner;
+    firstCtx.owner = roundOwner;
     const first: Attempt = new Attempt(new ApiRequest(ApiClient.REFRESH_OPERATION, {}, '', body), operation, true, true,
-      this.bind(operation));
+      firstCtx);
     let result: ApiResult = await this.execute(first);
     if (this.refreshStale(round)) {
       return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
@@ -1911,9 +2093,19 @@ export class ApiClient {
       // R1-03（lessons 6）：刷新请求的 10402 是设备凭据被拒，不是刷新被拒——不清会话。走与普通请求同一个设备注册单飞入口
       // （DeviceRegistrar.reregister），成功后重新组头、用新凭据重新签名，沿用原键至多重放刷新 1 次。设备重放次数与令牌刷新
       // 互不相干：这里不再触发刷新，也不经 applyEffect（不会等自己这轮刷新）。
+      if (!this.roundHasLiveCaller(round)) {
+        // 没有有效调用方：不重新注册；被拒凭据仍隔离并交给唯一的退避链（R3-03，与 iOS、Android 一致）。
+        try {
+          this.deps.deviceRegistrar.isolate(first.sentDeviceId);
+        } catch (e) {
+          // 凭据源出错不影响结果。
+        }
+        return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+      }
       let registered: boolean = false;
       try {
-        registered = await this.deps.deviceRegistrar.reregister(first.sentDeviceId);
+        // R3-03：共享刷新以这一轮的「还有有效调用方」作为调用方（App 自己发起的一轮为独立调用方）。
+        registered = await this.deps.deviceRegistrar.reregister(first.sentDeviceId, round.system ? null : roundOwner);
       } catch (e) {
         registered = false;
       }
@@ -1924,8 +2116,13 @@ export class ApiClient {
         // 设备没注册上：会话有没有失效没有结论，保留会话（退避流程继续注册）。
         return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
       }
+      if (!this.roundHasLiveCaller(round)) {
+        return RefreshOutcome.of(RefreshOutcome.TRANSIENT);
+      }
+      const replayCtx: CallContext = this.bind(operation);
+      replayCtx.owner = roundOwner;
       const replay: Attempt = new Attempt(ApiClient.sameKey(first.request, result.idempotencyKey), operation, true,
-        true, this.bind(operation));
+        true, replayCtx);
       result = await this.execute(replay);
       if (this.refreshStale(round)) {
         return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);

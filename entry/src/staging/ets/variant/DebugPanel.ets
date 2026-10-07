@@ -10,6 +10,7 @@ import { AppVersionCheckExample, DebugRoutes } from 'generated';
 import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
 import { DEBUG_CONFORMANCE_URL, DEBUG_HARNESS_URL, DEBUG_WEB_ROUTE, DebugWebTarget } from './DebugBridge';
 import { AppPrivacy } from '../../../main/ets/privacy/AppPrivacy';
+import { AppLogin } from '../../../main/ets/login/AppLogin';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import { AppUpdate } from '../../../main/ets/update/AppUpdate';
 import { DEBUG_UPDATE_SCENARIOS, DebugUpdateScenario, DebugUpdateScenarioStore } from './DebugUpdate';
@@ -143,6 +144,25 @@ export struct DebugPanel {
               })
           }, (scenario: DebugUpdateScenario) => scenario)
         }
+        // 设置页（APP-05a 冒烟用：已登录时「我的」还是占位，从这里经 Router 打开 Settings 占位页的【退出登录】）。
+        Button('Settings (logout entry)')
+          .width('100%')
+          .height(CouliInteraction.minTouchTarget)
+          .borderRadius(CouliRadius.button)
+          .id('debug_open_settings')
+          .onClick(() => {
+            AppRouting.shared.openInApp('Settings');
+          })
+        // LoginSessionExpired 的展示（APP-05a）：与网络层刷新失败清会话时同一个入口（markSessionExpired → 打开 Login）。
+        Button('Login: session expired')
+          .width('100%')
+          .height(CouliInteraction.minTouchTarget)
+          .borderRadius(CouliRadius.button)
+          .id('debug_login_expired')
+          .onClick(() => {
+            AppLogin.shared.markSessionExpired();
+            AppRouting.shared.openInApp('Login');
+          })
         // 组件目录页（DS-01）：只是界面样例，不连任何服务，prod 环境下也可进入。
         Button('Component catalog')
           .width('100%')

@@ -103,6 +103,27 @@ export class BridgePageSession {
   }
 
   static readonly MIN_TOKEN_LENGTH: number = 16;
+
+  /**
+   * 主框架放行的这次导航会不会换文档（APP-04 共性 29 / 51，harmony-review-r1 R1-08）：只有「目标带 #、去掉片段后与当前地址
+   * 相同、且与当前地址不完全相同」的同文档片段跳转不换文档，旧页面的调用可以继续；其余一律按文档导航——包括重新加载当前
+   * 地址（目标与当前完全相同，或当前带片段而目标不带）——放行时就要作废旧调用。当前地址取不到（空串）按换文档。
+   */
+  static startsNewDocument(currentUrl: string, targetUrl: string): boolean {
+    if (currentUrl.length === 0 || targetUrl === currentUrl) {
+      return true;
+    }
+    const hash: number = targetUrl.indexOf('#');
+    if (hash < 0) {
+      return true;
+    }
+    return BridgePageSession.withoutFragment(currentUrl) !== targetUrl.substring(0, hash);
+  }
+
+  private static withoutFragment(url: string): string {
+    const hash: number = url.indexOf('#');
+    return hash >= 0 ? url.substring(0, hash) : url;
+  }
 }
 
 /**

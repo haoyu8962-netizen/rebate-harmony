@@ -239,8 +239,9 @@ export class ExternalPageOptions {
 }
 
 /**
- * 外部页视频全屏（R3-04；03 §5.1「全屏期间标题栏随系统隐藏，退出全屏后恢复」）。ArkWeb onFullScreenEnter 交来退出句柄，
- * onFullScreenExit 时恢复。全屏期间：标题栏不显示、网页铺满整个窗口（含系统栏区域）、窗口隐藏系统栏；系统返回先退出全屏。
+ * 外部页视频全屏（R3-04；03 §5.1「全屏期间标题栏随系统隐藏，退出全屏后恢复」）。APP-05a R1-09 起容器的 onFullScreenEnter 一律交给
+ * WebFullScreen.onFullScreenEnter 拒绝（确认不了是系统视频全屏，保守降级）；enter / exited / back 的状态模型保留给将来能确认视频全屏时用。
+ * ArkWeb onFullScreenEnter 交来退出句柄，onFullScreenExit 时恢复。全屏期间：标题栏不显示、网页铺满整个窗口（含系统栏区域）、窗口隐藏系统栏；系统返回先退出全屏。
  * window 回调由容器给（onWindow(true) 进入、onWindow(false) 恢复）。
  */
 export class WebFullScreen {
@@ -267,6 +268,22 @@ export class WebFullScreen {
   /** 网页是否铺满窗口所有边（含状态栏、导航条区域）。 */
   webExpandsAllEdges(): boolean {
     return this.activeValue;
+  }
+
+  /**
+   * onFullScreenEnter 的处理（APP-04 共性 42 / 52，harmony-review-r1 R1-09）：只有系统视频全屏才可以隐藏标题栏，但本端
+   * 确认不了全屏的是视频元素本身——FullScreenEnterEvent.videoWidth / videoHeight 描述的是「全屏元素里包含的视频」，一个包含
+   * 小视频的 div 请求全屏时同样大于 0；ArkWeb 在 API 20 内也没有区分系统视频全屏与元素全屏的接口。保守降级：一律不进入
+   * 全屏态、不隐藏标题栏，并立即退出元素全屏（视频在页面内播放）。与第 42 条「视频全屏隐藏标题栏」的冲突按保守降级处理，
+   * 记在 capability-harmony.md。videoWidth / videoHeight 原样传入但不作判据。返回是否进入了全屏（恒为 false）。
+   */
+  onFullScreenEnter(_videoWidth: number | undefined, _videoHeight: number | undefined, exit: () => void): boolean {
+    try {
+      exit();
+    } catch (e) {
+      // 网页已离开全屏。
+    }
+    return false;
   }
 
   /** onFullScreenEnter：记下退出句柄，隐藏标题栏、窗口进入全屏。 */

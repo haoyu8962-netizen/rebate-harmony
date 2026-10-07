@@ -145,13 +145,14 @@ export default function bridgeReviewR2Test() {
       }
       // 带用户信息、解析不了的 https 子框架也取消（保守）。
       expect(TrustedNavPolicy.decide('https://user@h5.example.test/x', false, TRUSTED).cancel).assertTrue();
-      // about:blank / about:srcdoc 的内容由父页面写入，同一主体，照常；跨源 https 子框架照常（调用桥仍按子框架拒绝）。
+      // about:blank / about:srcdoc 的内容由父页面写入，同一主体，照常。跨源 https 子框架：APP-05a F-HM-07 裁定 (a) 起同样在
+      // 第一跳取消（鸿蒙拿不到子框架每一跳，见 BridgeFollowupHM07.test ruling_a_*）。
       expect(TrustedNavPolicy.decide('about:blank', false, TRUSTED).action).assertEqual(TrustedNavAction.LOAD);
       expect(TrustedNavPolicy.decide('about:srcdoc', false, TRUSTED).action).assertEqual(TrustedNavAction.LOAD);
       expect(TrustedNavPolicy.decide('https://video.example.org/embed', false, TRUSTED).action)
-        .assertEqual(TrustedNavAction.LOAD);
+        .assertEqual(TrustedNavAction.CANCEL);
       expect(TrustedNavPolicy.decide('https://h5.example.test:8443/x', false, TRUSTED).action)
-        .assertEqual(TrustedNavAction.LOAD);
+        .assertEqual(TrustedNavAction.CANCEL);
       // 主框架令牌机制保留：主框架照常加载可信页。
       expect(TrustedNavPolicy.decide(PAGE_URL, true, TRUSTED).action).assertEqual(TrustedNavAction.LOAD);
       // 补充防线：带 Sec-Fetch-Dest=iframe 的非主框架请求按同一判定拦；子资源（image、script）不拦。
@@ -161,7 +162,7 @@ export default function bridgeReviewR2Test() {
       expect(TrustedNavPolicy.subframeDocumentBlocked(PAGE_URL, false, null, TRUSTED)).assertFalse();
       expect(TrustedNavPolicy.subframeDocumentBlocked(PAGE_URL, true, 'iframe', TRUSTED)).assertFalse();
       expect(TrustedNavPolicy.subframeDocumentBlocked('https://video.example.org/e', false, 'iframe', TRUSTED))
-        .assertFalse();
+        .assertTrue();
     });
 
     it('r2_02_permission_request_rechecks_validity_after_rationale_and_in_queue', 0, async () => {

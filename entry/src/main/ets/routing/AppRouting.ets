@@ -3,8 +3,9 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AppConfig, DeepLinkParser, EnvironmentGate, GuardDecision, GuardDecisionKind, GuardState, LaunchIntent, LaunchQueue,
   LaunchReadiness, MemoryPendingBackend, PendingActionBackend, PendingActionStore, PreferencesPendingBackend,
-  PrivacyState, PushLanding, RouteDestination, RouteNavigator, RouteRequest, RouteSource, RouteTable,
-  RouteTargetAllowlist, Router, RoutePolicy, SessionState, UpdateState
+  PrivacyState, PushLanding, RouteDestination, RouteRequest, RouteSource, RouteTable,
+  RouteTargetAllowlist, Router, RoutingSync, SessionState, StackNavigator, PathStack,
+  UPGRADE_PROMPT_PAGE as CORE_UPGRADE_PROMPT_PAGE, UpdateState
 } from 'core';
 import { RouteSpec } from 'generated';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -13,72 +14,46 @@ import { AppUpdate } from '../update/AppUpdate';
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliRouting';
 
-/** 内置升级提示页在 NavPathStack 里的名字（routes.json 没有它的路由名，rule-gaps G03）。 */
-export const UPGRADE_PROMPT_PAGE: string = 'CouliUpgradePrompt';
+/** 内置升级提示页在 NavPathStack 里的名字（routes.json 没有它的路由名，rule-gaps G03；常量在 Core）。 */
+export const UPGRADE_PROMPT_PAGE: string = CORE_UPGRADE_PROMPT_PAGE;
 
-/** NavPathStack 版的 RouteNavigator：只有 Router 往业务页面栈里推页（外部拉起不直接碰 Navigation）。 */
-export class NavStackNavigator implements RouteNavigator {
-  private stack: NavPathStack | null = null;
-  /** 守卫要求补隐私同意时调用（AppPrivacy.start 接上：弹首启弹窗）。 */
-  onConsentRequested: () => void = () => {
-  };
-  /**
-   * Tab 根路由（Home / AgentChat / OrderList / Me）不入栈：清空栈后交给外壳切 Tab（保留只读标记）。
-   * 返回 false 表示不是 Tab 根路由。AppPrivacy.start 接上 ShellState.showRoot。
-   */
-  tabRootHandler: (destination: RouteDestination) => boolean = (_d: RouteDestination) => false;
-  /** reset([]) 回首页时首页 Tab 的只读标记来源（AppRouting 接上：Router 最近结论或基本模式）。 */
-  homeReadonly: () => boolean = () => false;
+/** NavPathStack 适配成 Core 的 PathStack（ArkTS 不做结构类型匹配，逐个方法转交）。 */
+class NavPathStackAdapter implements PathStack {
+  private readonly stack: NavPathStack;
 
-  attach(stack: NavPathStack): void {
+  constructor(stack: NavPathStack) {
     this.stack = stack;
   }
 
-  /** 导航栈里有没有这一页（按 NavPathStack 的页面名）。 */
-  contains(name: string): boolean {
-    return this.stack !== null && this.stack.getAllPathName().indexOf(name) >= 0;
+  pushPathByName(name: string, param: Object): void {
+    this.stack.pushPathByName(name, param);
   }
 
-  /** 导航栈当前的页面名（自底向上；导航根为空数组）。 */
-  pathNames(): string[] {
-    return this.stack === null ? [] : this.stack.getAllPathName();
-  }
-
-  get attached(): boolean {
-    return this.stack !== null;
-  }
-
-  push(destination: RouteDestination): void {
-    if (this.stack === null) {
-      return;
-    }
-    if (this.tabRootHandler(destination)) {
-      // Tab 根页：回到导航根并切 Tab（03 §4.4 Tab 外壳；只读标记随 destination 保留）。
-      this.stack.clear();
-      return;
-    }
-    this.stack.pushPathByName(destination.route ?? UPGRADE_PROMPT_PAGE, destination);
-  }
-
-  reset(destinations: RouteDestination[]): void {
-    if (this.stack === null) {
-      return;
-    }
+  clear(): void {
     this.stack.clear();
-    if (destinations.length === 0) {
-      // 回到首页：Router 打开 Home 时调 reset([])，首页 Tab 的只读标记按当时的结论。
-      this.tabRootHandler(new RouteDestination('Home', {}, this.homeReadonly()));
-      return;
-    }
-    for (const d of destinations) {
-      this.push(d);
-    }
   }
 
-  /** 基本模式下点需同意的功能（BR-ID-11）：弹首启弹窗；结论出来后 AppPrivacy 调 router.consentHandled(granted)。 */
+  removeByName(name: string): void {
+    this.stack.removeByName(name);
+  }
+
+  getAllPathName(): string[] {
+    return this.stack.getAllPathName();
+  }
+}
+
+/**
+ * NavPathStack 版的 RouteNavigator：逻辑在 Core StackNavigator（登录集成测试用同一份代码，APP-05a R1-02）；这里只把
+ * NavPathStack 接上。只有 Router 往业务页面栈里推页（外部拉起不直接碰 Navigation）。
+ */
+export class NavStackNavigator extends StackNavigator {
+  attach(stack: NavPathStack): void {
+    this.attachStack(new NavPathStackAdapter(stack));
+  }
+
   requestConsent(): void {
     hilog.info(DOMAIN, TAG, '%{public}s', 'consent requested');
-    this.onConsentRequested();
+    super.requestConsent();
   }
 }
 
@@ -87,8 +62,8 @@ export class NavStackNavigator implements RouteNavigator {
  */
 export class RoutingPlaceholders {
   // 强更检查已接 AppUpdate（APP-02c）：readiness() / guardState() 读 AppUpdate.shared.routerStatus()。
-  // TODO(APP-05): 接 Session（游客 / 已登录 / 已绑手机 / 受限会话）。
-  session: SessionState = SessionState.GUEST;
+  // 会话（APP-05a）：EntryAbility 接上 AppLogin.sessionState（游客 / 已绑手机 / 受限会话，按 ApiClient 的有效会话现算）。
+  session: () => SessionState = () => SessionState.GUEST;
   // TODO(APP-05): 接实名结论；未知按未实名（auth=realname 进实名前置）。
   realnameVerified: boolean = false;
   /**
@@ -154,6 +129,16 @@ export class AppRouting {
     return this.routerInstance;
   }
 
+  private syncInstance: RoutingSync | null = null;
+
+  /** 状态变化后的路由同步（Core RoutingSync）。 */
+  get sync(): RoutingSync {
+    if (this.syncInstance === null) {
+      this.syncInstance = new RoutingSync(this.router, this.navigator, (): boolean => this.presentationReady);
+    }
+    return this.syncInstance;
+  }
+
   /** Navigation 已挂载（导航栈交给 Router）且 Tab 外壳已显示。 */
   get presentationReady(): boolean {
     return this.navigator.attached && this.shellReady;
@@ -205,9 +190,9 @@ export class AppRouting {
     return this.router.openWith(RouteRequest.of(route, RouteSource.IN_APP, params), this.guardState(true));
   }
 
-  /** 当前会话（强更页【注销账号】据此决定先进登录页还是注销页）。TODO(APP-05): 接 Session。 */
+  /** 当前会话（强更页【注销账号】据此决定先进登录页还是注销页）。 */
   get sessionState(): SessionState {
-    return this.placeholders.session;
+    return this.placeholders.session();
   }
 
   /**
@@ -273,7 +258,7 @@ export class AppRouting {
    */
   guardState(fromForceUpdatePage: boolean = false): GuardState {
     const update: UpdateState | null = LaunchQueue.effectiveUpdate(AppUpdate.shared.routerStatus(), Date.now());
-    return new GuardState(this.privacyState, update ?? AppUpdate.shared.inAppUpdate(), this.placeholders.session,
+    return new GuardState(this.privacyState, update ?? AppUpdate.shared.inAppUpdate(), this.placeholders.session(),
       AppConfig.gate() === EnvironmentGate.SETTLED, this.appVersion, BuildVariant.IS_DEBUG_BUILD, fromForceUpdatePage,
       this.placeholders.realnameVerified, this.placeholders.targets());
   }
@@ -283,8 +268,9 @@ export class AppRouting {
    * 先记下闸门通过的时刻（与外壳是否就绪无关，等待计时不因外壳未就绪推迟）；外壳就绪后交给 Router.stateChanged：
    * 冷启动与前置条件变化后恢复持久化的 pending_action（BR-ID-10），再放行排队的启动意图。
    * 强更仍在检查时只设一个到期定时器（满 5 秒按 unknown）；闸门未就绪或不在等待时不设定时器，不空转。
+   * resumePending = false：只同步状态、不恢复 pending_action（已作废的登录尝试通知会话变化时用，APP-05a R2-02）。
    */
-  stateChanged(): void {
+  stateChanged(resumePending: boolean = true): void {
     if (this.retryTimer >= 0) {
       clearTimeout(this.retryTimer);
       this.retryTimer = -1;
@@ -292,12 +278,9 @@ export class AppRouting {
     this.syncUpdateCheck();
     const readiness: LaunchReadiness = this.readiness();
     const now: number = Date.now();
-    this.router.observeReadiness(readiness, now);
-    // 03 §4.4：环境闸门 → 隐私闸门有结论 → 强更有结果 → Tab 就绪后才恢复 pending_action、执行启动意图。
-    // 全部由 Router 判定：闸门与强更按 readiness，Tab 就绪按 presentationReady（未就绪时 Router 什么都不放行）。
-    // below_min 时恢复 pending_action 的结论是 ForceUpdate：守卫删除持久化的待办并进入强更页（03 §4.4 状态表）。
-    this.router.stateChanged(readiness, now);
-    this.syncForceUpdatePage(readiness);
+    // Router 部分与强更页同步在 Core RoutingSync（登录集成测试用同一份代码，APP-05a R1-01 / R1-02）：
+    // 03 §4.4 闸门全部就绪且外壳就绪后才恢复 pending_action、放行启动意图；below_min 时强更页与结论同步。
+    this.sync.sync(readiness, now, resumePending);
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;
@@ -306,26 +289,6 @@ export class AppRouting {
       this.retryTimer = -1;
       this.stateChanged();
     }, Math.max(deadline - now, 0));
-  }
-
-  /**
-   * 强更页与结论同步（03 §4.1「命中最低支持版本时，无论当前在哪个页面都进入 ForceUpdate」）：
-   * - below_min 且导航栈里没有强更页 → 清栈后只留强更页（任何页面都回到强更页；之上只能再压从强更页进入的次要入口）；
-   * - 不再是 below_min（新的成功检查解除）而栈里还有强更页 → 清掉，经 Router 回首页。
-   * 外壳未就绪（隐私弹窗前）不动，外壳出现时 setShellReady 会再调 stateChanged。进入基本模式（「仍不同意」）、撤回同意时
-   * 外壳经 Router 重开 Home，守卫在 below_min 下给出的仍是 ForceUpdate，强更页不会被清掉。
-   */
-  private syncForceUpdatePage(readiness: LaunchReadiness): void {
-    if (!this.presentationReady) {
-      return;
-    }
-    const belowMin: boolean = readiness.update.result === UpdateState.BELOW_MIN;
-    const onForcePage: boolean = this.navigator.contains(RoutePolicy.FORCE_UPDATE);
-    if (belowMin && !onForcePage) {
-      this.navigator.reset([new RouteDestination(RoutePolicy.FORCE_UPDATE)]);
-    } else if (!belowMin && onForcePage) {
-      this.openInApp(RoutePolicy.HOME);
-    }
   }
 
   /** app.json5 的 versionName（1.0.0），与 routes.json since.harmony 比较；读不到时为空串（守卫按版本过低处理）。 */

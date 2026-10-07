@@ -1,0 +1,20 @@
+{
+  "$comment": "桥一致性页结果断言的期望（tools/ci/conformance-assert.py；APP-04 共性 44 / 55）。unsupported：本端暂不支持的方法——只有 <method>/normal 回 90001 按未实现通过，同一方法的 bad_params、no_gesture、negative、timeout 用例照常判定。environment_limited：受环境限制、本轮未完成的用例与原因（每条都要写原因）；确切 id 可以豁免有结论的失败，通配模式只用于没有结论的用例。",
+  "unsupported": {
+    "methods": [
+      "cs.open",
+      "ext.openBrowser",
+      "media.previewImage",
+      "media.saveImage",
+      "share.open"
+    ],
+    "code": 90001
+  },
+  "environment_limited": {
+    "auth.getUser/normal": "本机没有后端：假定已登录时取用户信息回 90003",
+    "auth.getH5Token/normal": "本机没有后端：假定已登录时换 H5 令牌回 90003",
+    "net.signedRequest/normal": "假定已登录时没有会话与设备凭据，ApiClient 本地拒绝（90500）",
+    "*/timeout": "harness 用例：要宿主压住回复到契约超时，本机一致性页没有接这个驱动，页面不自动触发",
+    "*/negative/logged_out": "harness 用例：要在页面运行中切成未登录，本机一致性页没有接这个驱动，页面不自动触发"
+  }
+}

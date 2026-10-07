@@ -61,17 +61,97 @@ class RegistrationTicket {
 }
 
 /**
+ * 一个注册窗口（一次单飞注册）的调用方（harmony-review-r3 R3-03，APP-04 共性 58）：10402 重新注册把发起它的调用方的有效性
+ * （ApiRequest.owner，桥调用为 call.valid——到截止时间即失效，剩余预算由它体现；共享刷新为这一轮的「还有有效调用方」）登记
+ * 进来；null 是独立的原生调用方（启动 / 退避注册、没有归属守卫的原生请求），一直有效。没有任何调用方的窗口（启动注册）也一直
+ * 有效。注册在等待结束、读取标识前、实际发送前检查 live()；注册请求的归属守卫是 owner（同一个函数对象），没有有效调用方时
+ * DeviceRegistry.callersChanged 按它取消底层请求。
+ */
+class RegistrationWindow {
+  readonly callers: ((() => boolean) | null)[] = [];
+  /** 这个窗口注册请求的归属守卫（send 设置；cancelOwned 按它取消）。 */
+  owner: (() => boolean) | null = null;
+  /** 已因没有有效调用方取消过（不重复取消）。 */
+  cancelled: boolean = false;
+
+  constructor(caller: (() => boolean) | null = null, independent: boolean = false) {
+    if (caller !== null || independent) {
+      this.callers.push(caller);
+    }
+  }
+
+  live(): boolean {
+    if (this.callers.length === 0) {
+      return true;
+    }
+    for (const caller of this.callers) {
+      if (RegistrationWindow.alive(caller)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static alive(caller: (() => boolean) | null): boolean {
+    if (caller === null) {
+      return true;
+    }
+    try {
+      return caller();
+    } catch (e) {
+      return false;
+    }
+  }
+}
+
+/**
  * 一次 10402 重新注册的完整结果，按「被拒的凭据世代」（被拒请求带的 device_id）与 ticket 保存（lessons 4、18；
  * harmony-review-r2 R2-02）：每个被拒凭据各一条，不只留最近一次——晚到的 10402 复用它所属凭据的那次结果（成功或失败），
  * 不覆盖别的凭据的记录，也不另发注册。
  */
 class ReregisterRecord {
   readonly ticket: RegistrationTicket;
-  readonly result: Promise<boolean>;
+  /** 结果所依赖的注册窗口（harmony-review-r4 R4-01）：记录进行中时，复用它的晚到 10402 把调用方登记到这个窗口。 */
+  readonly window: RegistrationWindow | null;
+  /** 等这条记录结果的调用方（并入在途窗口的记录按它们判定还要不要为这个被拒凭据重放）。 */
+  readonly callers: ((() => boolean) | null)[] = [];
+  /** 结果已兑现（已完成的记录直接复用结果，不再登记调用方）。 */
+  settled: boolean = false;
+  private outcome: Promise<boolean> = Promise.resolve(false);
 
-  constructor(ticket: RegistrationTicket, result: Promise<boolean>) {
+  constructor(ticket: RegistrationTicket, window: RegistrationWindow | null = null,
+    caller: (() => boolean) | null = null) {
     this.ticket = ticket;
-    this.result = result;
+    this.window = window;
+    this.callers.push(caller);
+  }
+
+  get result(): Promise<boolean> {
+    return this.outcome;
+  }
+
+  /** 绑定结果并在兑现时标记为已完成。 */
+  bind(result: Promise<boolean>): ReregisterRecord {
+    this.outcome = result;
+    result.then((): void => {
+      this.settled = true;
+    });
+    return this;
+  }
+
+  /** 进行中的记录又来一个调用方（R4-01）：同时登记到记录与它的注册窗口，窗口只在全部调用方失效时才取消。 */
+  join(caller: (() => boolean) | null): void {
+    this.callers.push(caller);
+    this.window?.callers.push(caller);
+  }
+
+  live(): boolean {
+    for (const caller of this.callers) {
+      if (RegistrationWindow.alive(caller)) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
@@ -137,6 +217,8 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
   private rejectedHashes: string[] = [];
   /** 在途的注册（单飞）。 */
   private running: Promise<boolean> | null = null;
+  /** 在途注册的窗口（调用方有效性，R3-03）；与 running 同生同灭。 */
+  private window: RegistrationWindow | null = null;
   /** 10402 重新注册的结果，按被拒的 device_id（凭据世代）逐条保存（R2-02）。键：device_id；被拒请求没带时为空串。 */
   private reregisters: Map<string, ReregisterRecord> = new Map<string, ReregisterRecord>();
   /** 实际发出的注册请求数（测试与诊断用）。 */
@@ -198,9 +280,13 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
   register(): Promise<boolean> {
     const running: Promise<boolean> | null = this.running;
     if (running !== null) {
+      // 独立的原生调用方并入：这个窗口不再因桥调用方全部失效而停下（R3-03）。
+      this.window?.callers.push(null);
       return running;
     }
-    const flight: Promise<boolean> = this.track(this.ensureRegistered());
+    // 独立的启动 / 退避注册：带一个独立调用方，一直有效（不因桥调用方失效而停下）。
+    const window: RegistrationWindow = new RegistrationWindow(null, true);
+    const flight: Promise<boolean> = this.track(this.ensureRegistered(window), window);
     const revoked: string | null = this.revokedDeviceId;
     const scope: RegistrationTicket | null = this.scope();
     if (revoked !== null && scope !== null) {
@@ -208,13 +294,18 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
         const now: string | null = this.deviceId();
         return ok && now !== null && now !== revoked;
       });
-      this.remember(DeviceRegistry.credentialKey(revoked), new ReregisterRecord(scope, recovery));
+      this.remember(DeviceRegistry.credentialKey(revoked), new ReregisterRecord(scope, window).bind(recovery));
     }
     return flight;
   }
 
-  /** 10402：重新注册 1 次（单飞；同一被拒凭据与世代复用结果）。不抛出。 */
-  reregister(usedDeviceId: string | null): Promise<boolean> {
+  /**
+   * 10402：重新注册 1 次（单飞；同一被拒凭据与世代复用结果）。不抛出。
+   * caller（R3-03，共性 58）：发起这次重新注册的调用方有效性（普通请求的 ApiRequest.owner、共享刷新这一轮的「还有有效
+   * 调用方」；null = 独立的原生调用方）。登记进注册窗口：等待结束、读取标识前、实际发送前都检查，没有有效调用方就停下，
+   * 并取消底层注册请求（callersChanged）。入口时调用方已失效：不注册，但被拒凭据照样隔离并交给唯一的退避链一次。
+   */
+  reregister(usedDeviceId: string | null, caller: (() => boolean) | null = null): Promise<boolean> {
     const scope: RegistrationTicket | null = this.scope();
     if (scope === null) {
       return Promise.resolve(false);
@@ -228,8 +319,17 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     const record: ReregisterRecord | undefined = this.reregisters.get(key);
     if (record !== undefined && record.ticket.same(scope)) {
       // 这个被拒凭据的晚到 10402（哪怕之后别的凭据又被拒过）：复用它那次的完整结果（成功或失败），不另发注册
-      // （lessons 4、18，R2-02）。
+      // （lessons 4、18，R2-02）。记录还在进行中时把这个调用方登记进它的注册窗口（R4-01）：先到的调用方失效不会再
+      // 取消仍有调用方在等的注册；已完成的记录直接复用结果。
+      if (!record.settled) {
+        record.join(caller);
+      }
       return record.result;
+    }
+    if (!RegistrationWindow.alive(caller)) {
+      // 调用方已失效（桥调用到期、页面离开）：不为它注册；被拒凭据仍隔离、恢复交给唯一的退避链（与 iOS、Android 一致）。
+      this.isolate(usedDeviceId);
+      return Promise.resolve(false);
     }
     // 被拒的 device_id 立刻从可读凭据里隔离（F-ALL-08 / APP-03b 共性 21，I-R1-01）：不论是新开一轮注册还是并入在途的
     // 注册，之后的请求（含这次注册请求）都不再带它。
@@ -238,10 +338,16 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     }
     const running: Promise<boolean> | null = this.running;
     if (running !== null) {
+      const joinedRecord: ReregisterRecord = new ReregisterRecord(scope, this.window, caller);
+      this.window?.callers.push(caller);
       // 并入在途的注册窗口：窗口结束后只有拿到了不是被拒那份的凭据才算成功。在途的是开始时还读得到旧凭据的普通注册
       // （它不会换凭据）时，这个被拒凭据的结果是失败，并且交给退避流程一次；窗口本身失败时由窗口自己通知退避，这里不重复。
       // 结果按被拒凭据保存，晚到的同一凭据 10402 复用它，不再另挂（退避通知只发一次）。
       const joined: Promise<boolean> = running.then((ok: boolean): boolean => {
+        if (!joinedRecord.live()) {
+          // 等待结束时这个被拒凭据的调用方都已失效：不再为它重放（退避由窗口自己的结局负责）。
+          return false;
+        }
         if (ok && this.deviceId() !== null) {
           return true;
         }
@@ -250,27 +356,30 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
         }
         return false;
       });
-      this.remember(key, new ReregisterRecord(scope, joined));
+      this.remember(key, joinedRecord.bind(joined));
       return joined;
     }
     // 再删旧凭据：删不掉不注册（旧凭据还在存储里）。
     let result: Promise<boolean>;
+    let started: RegistrationWindow | null = null;
     try {
       this.store.clear();
       this.cached = null;
       this.loaded = true;
-      result = this.track(this.ensureRegistered().then((ok: boolean): boolean => {
+      const window: RegistrationWindow = new RegistrationWindow(caller, true);
+      started = window;
+      result = this.track(this.ensureRegistered(window).then((ok: boolean): boolean => {
         if (!ok && this.valid(scope)) {
-          // 失败（且结果仍属于本世代）：交给退避流程；失效的结果不触发。
+          // 失败（含调用方全部失效而停下，被拒凭据已隔离；结果仍属于本世代）：交给唯一的退避链一次；失效的结果不触发。
           this.restart(false);
         }
         return ok;
-      }));
+      }), window);
     } catch (e) {
       this.restart(false);
       result = Promise.resolve(false);
     }
-    this.remember(key, new ReregisterRecord(scope, result));
+    this.remember(key, new ReregisterRecord(scope, started, caller).bind(result));
     return result;
   }
 
@@ -289,9 +398,27 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     this.restart(false);
   }
 
+  /**
+   * 调用方有效性变了（ApiClient.cancelOwned：桥调用到期、页面离开时）：在途注册窗口已没有有效调用方时，取消它已交给传输层的
+   * 注册请求（R3-03，共性 58）；启动注册等独立窗口不受影响。
+   */
+  callersChanged(): void {
+    const window: RegistrationWindow | null = this.window;
+    if (window === null || window.cancelled || window.live()) {
+      return;
+    }
+    window.cancelled = true;
+    const owner: (() => boolean) | null = window.owner;
+    const client: ApiClient | null = this.client();
+    if (owner !== null && client !== null) {
+      client.cancelOwned(owner);
+    }
+  }
+
   /** 环境闸门关闭（切换开始，同步）：放弃在途的注册任务与重新注册记录；它们的 ticket 已失效，结果一律不处理。 */
   abandonInFlight(): void {
     this.running = null;
+    this.window = null;
     this.reregisters.clear();
   }
 
@@ -321,16 +448,19 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     this.revokedDeviceId = null;
     this.rejectedHashes = [];
     this.running = null;
+    this.window = null;
     this.reregisters.clear();
     this.store.clear();
   }
 
-  private track(work: Promise<boolean>): Promise<boolean> {
+  private track(work: Promise<boolean>, window: RegistrationWindow): Promise<boolean> {
     const run: Promise<boolean> = work.catch((): boolean => false);
     this.running = run;
+    this.window = window;
     run.then((): void => {
       if (this.running === run) {
         this.running = null;
+        this.window = null;
       }
     });
     return run;
@@ -398,7 +528,7 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     return cached !== null && cached.deviceId !== this.revokedDeviceId ? cached : null;
   }
 
-  private async ensureRegistered(): Promise<boolean> {
+  private async ensureRegistered(window: RegistrationWindow): Promise<boolean> {
     const scope: RegistrationTicket | null = this.scope();
     if (scope === null) {
       return false;
@@ -412,11 +542,11 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     }
     // 第一次读；20001 device_hash 被拒后按 BR-ID-09 重读一次（共两次），被拒过的值一律不再发。
     for (let reads: number = 0; reads < 2; reads++) {
-      const hashed: HashedId | null = this.readHash(scope);
+      const hashed: HashedId | null = this.readHash(scope, window);
       if (hashed === null) {
         return false;
       }
-      const outcome: SendOutcome = await this.send(hashed, scope);
+      const outcome: SendOutcome = await this.send(hashed, scope, window);
       if (outcome !== SendOutcome.REREAD_HASH) {
         return outcome === SendOutcome.SAVED;
       }
@@ -430,8 +560,9 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
    * clear（撤回同意 / 切换环境的清理项）与撤回同意本身只能在两次 await 之间执行，所以撤回完成之后旧任务不会再开始读 ODID。
    * 本方法必须保持同步。
    */
-  private readHash(scope: RegistrationTicket): HashedId | null {
-    if (!this.valid(scope)) {
+  private readHash(scope: RegistrationTicket, window: RegistrationWindow): HashedId | null {
+    // R3-03：读取标识前检查调用方（没有有效调用方不读）。
+    if (!this.valid(scope) || !window.live()) {
       return null;
     }
     let raw: string | null = null;
@@ -457,19 +588,25 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
   /**
    * 发一次注册并处理结果。发出前、收到结果后都核对快照：失效时返回 FAILED 且不改任何状态（不保存、不记被拒哈希）。
    */
-  private async send(hashed: HashedId, scope: RegistrationTicket): Promise<SendOutcome> {
+  private async send(hashed: HashedId, scope: RegistrationTicket, window: RegistrationWindow): Promise<SendOutcome> {
     const client: ApiClient | null = this.client();
-    if (client === null || !this.valid(scope)) {
+    // R3-03：实际发送前检查调用方。
+    if (client === null || !this.valid(scope) || !window.live()) {
       return SendOutcome.FAILED;
     }
     this.registerRequests++;
     const body: string = JSON.stringify(new RegisterBody(hashed.hash, hashed.source));
     const request: ApiRequest = new ApiRequest(ApiClient.REGISTER_DEVICE_OPERATION, {}, '', body);
     // lessons 13：请求带上原始 ticket，ApiClient 在实际发送前（含传输层 admit）与每次等待之后都核对，不会改绑到当前环境。
-    request.owner = (): boolean => this.valid(scope);
+    // R3-03：守卫也要求窗口还有有效调用方（ApiClient 每次实际发送前核对）；同一个函数对象记在窗口上，调用方全部失效时
+    // callersChanged 按它取消底层请求。
+    const owner: () => boolean = (): boolean => this.valid(scope) && window.live();
+    window.owner = owner;
+    request.owner = owner;
     const result: ApiResult = await client.request(request);
-    if (!this.valid(scope)) {
-      // 注册期间撤回同意、切换环境或清理过：结果属于旧世代，一个分支都不处理。
+    if (!this.valid(scope) || !window.live()) {
+      // 注册期间撤回同意、切换环境或清理过，或调用方全部失效（等待结束）：结果一个分支都不处理（不记被拒哈希、不重读、
+      // 不再发送）。
       return SendOutcome.FAILED;
     }
     if (result.ok) {

@@ -43,6 +43,12 @@ export class ExternalWebConfig {
   /** 系统返回键或返回手势（R1-11）：容器出现后设置，NavDestination.onBackPressed 调用它。 */
   systemBack: () => boolean = () => false;
   /**
+   * 路由确定移出回退栈（NavDestination.onWillDisappear，早于退场动画）时由宿主页调用：同步撤销本容器的全部调用并停止加载
+   * （APP-04 共性 47，A-R2-03，F-HM-07）。容器挂上后设置；重复调用无副作用。
+   */
+  teardown: () => void = () => {
+  };
+  /**
    * 平台页面被拦时的「去搜索」（BR-ATTR-29 ②(b)，R2-09）：按钮文字（App 给；为空时不显示按钮）与动作（App 经 Router 打开
    * Search）。页内被拦时原页面保持不动，初始地址被拦时整页提示里提供同样的按钮。
    */
@@ -122,7 +128,7 @@ export struct ExternalWebView {
   private controller: webview.WebviewController = new webview.WebviewController();
   private navigator: ExternalPageNavigator | null = null;
   private colors: ExternalTitleColors = ExternalTitleColors.of(ExternalNavStyle.LIGHT);
-  /** 视频全屏（R3-04；状态在 core WebFullScreen）：进入时隐藏标题栏、窗口全屏并隐藏系统栏，退出时恢复。 */
+  /** 网页全屏（状态在 core WebFullScreen）：R1-09 起一律拒绝元素全屏、标题栏保持；退出与系统返回的恢复逻辑保留。 */
   private fullScreen: WebFullScreen = new WebFullScreen((on: boolean): void => this.fullScreenWindow(on));
 
   aboutToAppear(): void {
@@ -141,6 +147,14 @@ export struct ExternalWebView {
       this.state.blockedKey = first.notice ?? ExternalNoticeKey.UNION_HOST_BLOCKED;
       this.state.blockedSearch = first.offerSearch;
     }
+    this.config.teardown = (): void => {
+      this.navigator = null;
+      try {
+        this.controller.stop();
+      } catch (e) {
+        // 控制器未就绪或已销毁。
+      }
+    };
     this.config.systemBack = (): boolean => {
       this.goBack();
       return true;
@@ -148,6 +162,14 @@ export struct ExternalWebView {
   }
 
   aboutToDisappear(): void {
+    // 路由出栈（清栈、被替换、强更替换导航栈）时 teardown：停止加载（APP-04 共性 28，F-HM-07）。只被别的页面盖住时
+    // Navigation 不销毁本组件，不会走到这里。
+    try {
+      this.controller.stop();
+    } catch (e) {
+      // 控制器未就绪或已销毁。
+    }
+    this.navigator = null;
     this.config.systemBack = () => false;
     // 全屏中离开容器：恢复窗口。
     this.fullScreen.exited();
@@ -175,13 +197,26 @@ export struct ExternalWebView {
     }
   }
 
-  /** 文档级导航（onLoadIntercept）：返回 true = 取消。 */
-  private intercept(url: string, isMainFrame: boolean): boolean {
+  /**
+   * 文档级导航（onLoadIntercept）：返回 true = 取消。主框架带上请求方法：POST 在第一跳取消、原页面保留（裁定 (b)，F-HM-07）。
+   */
+  private intercept(request: WebResourceRequest): boolean {
+    let url: string = '';
+    let isMainFrame: boolean = true;
+    let method: string | null = null;
+    try {
+      url = request.getRequestUrl();
+      isMainFrame = request.isMainFrame();
+      method = request.getRequestMethod();
+    } catch (e) {
+      // 读不到请求信息：按取消处理（不放行）。
+      return true;
+    }
     const navigator: ExternalPageNavigator | null = this.navigator;
     if (navigator === null) {
       return true;
     }
-    const outcome: ExternalNavOutcome = isMainFrame ? navigator.mainFrame(url) :
+    const outcome: ExternalNavOutcome = isMainFrame ? navigator.mainFrame(url, method) :
       navigator.navigate(url, ExternalFrame.SUBFRAME);
     if (!outcome.cancel) {
       if (isMainFrame) {
@@ -191,6 +226,21 @@ export struct ExternalWebView {
     }
     this.showOutcome(outcome);
     return true;
+  }
+
+  /**
+   * 运行中规则表变空或变坏（APP-04 共性 27，F-HM-07）：主框架 / 新窗口导航已取消，再停掉当前页并显示降级页（整页提示 +
+   * 去搜索），不留在一个已无法判定的页面上。
+   */
+  private showDegraded(outcome: ExternalNavOutcome): void {
+    try {
+      this.controller.stop();
+    } catch (e) {
+      // 已离开。
+    }
+    this.state.blockedKey = outcome.notice ?? ExternalNoticeKey.UNION_HOST_BLOCKED;
+    this.state.blockedSearch = true;
+    this.state.blockedPage = true;
   }
 
   /**
@@ -215,6 +265,10 @@ export struct ExternalWebView {
   }
 
   private showOutcome(outcome: ExternalNavOutcome): void {
+    if (outcome.degraded) {
+      this.showDegraded(outcome);
+      return;
+    }
     if (outcome.notice !== null) {
       this.showNotice(DefaultTexts.text(outcome.notice) ?? '', outcome.offerSearch);
     }
@@ -223,9 +277,32 @@ export struct ExternalWebView {
   /** 整页拦截：任何非主框架请求去往平台域名 → 停止整页，显示 (b) 的提示（返回空响应，不让请求发出）。 */
   private interceptResource(request: WebResourceRequest): WebResourceResponse | null {
     if (request.isMainFrame()) {
-      return null;
+      // 裁定 (b) 的补充防线：onLoadIntercept 没拦到的主框架 POST（含重定向后的一跳）回空的 204——不提交新文档，原页面保留。
+      let method: string | null = null;
+      try {
+        method = request.getRequestMethod();
+      } catch (e) {
+        method = null;
+      }
+      return ExternalNavPolicy.mainFrameMethodAllowed(method) ? null : ExternalWebView.emptyResponse(204, 'No Content');
     }
     const url: string = request.getRequestUrl();
+    let dest: string | null = null;
+    try {
+      for (const header of request.getRequestHeader()) {
+        if (header.headerKey.toLowerCase() === 'sec-fetch-dest') {
+          dest = header.headerValue;
+        }
+      }
+    } catch (e) {
+      dest = null;
+    }
+    if (ExternalNavPolicy.isSubframeDocumentRequest(false, dest) && !ExternalNavPolicy.subframeDocumentAllowed(url)
+      && !this.config.policy.subresourceBlocked(url, this.config.linkPatterns())) {
+      // 编排者裁定（拦不到子框架每一跳时，F-HM-07）：onLoadIntercept 漏掉的子框架文档（如重定向后的一跳）在这里补拦，
+      // 只取消这个子框架、原页面保留（去平台域名的仍按下面的整页拦截）。
+      return ExternalWebView.emptyResponse(403, 'Forbidden');
+    }
     if (!this.config.policy.subresourceBlocked(url, this.config.linkPatterns())) {
       return null;
     }
@@ -253,6 +330,17 @@ export struct ExternalWebView {
     response.setResponseEncoding('utf-8');
     response.setResponseCode(204);
     response.setReasonMessage('No Content');
+    response.setResponseIsReady(true);
+    return response;
+  }
+
+  private static emptyResponse(code: number, reason: string): WebResourceResponse {
+    const response: WebResourceResponse = new WebResourceResponse();
+    response.setResponseData('');
+    response.setResponseMimeType('text/plain');
+    response.setResponseEncoding('utf-8');
+    response.setResponseCode(code);
+    response.setReasonMessage(reason);
     response.setResponseIsReady(true);
     return response;
   }
@@ -393,10 +481,17 @@ export struct ExternalWebView {
                 // 保持系统默认 UA。
               }
             })
-            .onLoadIntercept((event: OnLoadInterceptEvent): boolean =>
-            this.intercept(event.data.getRequestUrl(), event.data.isMainFrame()))
+            .onLoadIntercept((event: OnLoadInterceptEvent): boolean => this.intercept(event.data))
             .onInterceptRequest((event: OnInterceptRequestEvent): WebResourceResponse | null =>
             this.interceptResource(event.request))
+            .onRefreshAccessedHistory((event: OnRefreshAccessedHistoryEvent) => {
+              // APP-04 共性 48（A-R2-04，F-HM-07）：标题栏的「当前地址」跟上 SPA 页内跳转（pushState、replaceState、片段导航、
+              // 历史返回都会更新访问历史）。鸿蒙没有浏览器出口（R1-09），只有标题栏主机名要跟。
+              const host: string = ExternalWebView.hostOf(event.url);
+              if (host.length > 0) {
+                this.state.host = host;
+              }
+            })
             .onWindowNew((event: OnWindowNewEvent) => {
               // 不另开窗口（必须同步告知 ArkWeb，否则渲染进程阻塞）；目标按新窗口类型判定后在当前容器加载。
               event.handler.setWebController(null);
@@ -434,9 +529,10 @@ export struct ExternalWebView {
               }
             })
             .onFullScreenEnter((event: FullScreenEnterEvent) => {
-              // 页面请求全屏播放视频（API 9）：记下退出句柄（系统返回时用），隐藏标题栏、窗口全屏。
+              // 只有系统视频全屏才可以隐藏标题栏（APP-04 共性 42 / 52），本端确认不了全屏的是不是视频元素本身（videoWidth /
+              // videoHeight 只说明全屏元素里含视频，R1-09）：保守降级，一律立即退出元素全屏、标题栏保持（capability-harmony.md）。
               const handler: FullScreenExitHandler = event.handler;
-              this.fullScreen.enter((): void => handler.exitFullScreen());
+              this.fullScreen.onFullScreenEnter(event.videoWidth, event.videoHeight, (): void => handler.exitFullScreen());
             })
             .onFullScreenExit(() => {
               this.fullScreen.exited();

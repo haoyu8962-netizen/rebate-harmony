@@ -198,6 +198,10 @@ done
 [ "$FIXTURE_COUNT" -eq 9 ] || fail_fast "lint-fixtures" "应有 9 个违反样例，实际 ${FIXTURE_COUNT}"
 record "lint-fixtures" PASS "HM-LINT-1…9 均被拦下"
 
+step "一致性结果断言自测（APP-04 共性 44）"
+python3 "$ROOT/tools/ci/conformance-assert.py" --self-test || fail_fast "conformance-assert" "断言脚本自测失败"
+record "conformance-assert" PASS "逐条判定：未实现只豁免 normal；bad_params 回 90001、缺必测用例、空结果集都非零"
+
 step "桥启动脚本执行测试（node 沙箱，APP-04 R2-07）"
 "$NODE_BIN/node" "$ROOT/tools/ci/bridge-bootstrap-test.js" "$ROOT" || fail_fast "bridge-bootstrap-test" "见上方输出"
 record "bridge-bootstrap-test" PASS "启动脚本在途 id 行为"

@@ -2,7 +2,9 @@
 // 与 src/staging/ets/variant/BuildVariant.ets 同名同接口，由 hvigor 按 target 二选一编译；
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
-import { AppEnvironment, CouliPreferences, DeepLinkConfig, PlaceholderUpdateChecker, UpdateChecker } from 'core';
+import {
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, PlaceholderUpdateChecker, RcpTransport, UpdateChecker
+} from 'core';
 
 export class BuildVariant {
   static readonly CONFIG_NAME: string = 'Release';
@@ -16,6 +18,11 @@ export class BuildVariant {
   /** TODO(N-05): 正式 scheme 与 l. 子域由 apps.json inbound 给出后生成；在此之前 Release 不认任何深链。 */
   static deepLinkConfig(): DeepLinkConfig {
     return DeepLinkConfig.EMPTY;
+  }
+
+  /** 网络传输层：真实 RCP（没有本机假服务）。 */
+  static networkTransport(): HttpTransport {
+    return new RcpTransport();
   }
 
   /** Release 没有 debug_only 路由。 */
@@ -36,6 +43,11 @@ export class BuildVariant {
   /** Release 的可信容器没有任何额外 origin（本机一致性测试源只在 Debug 构建，APP-04）。 */
   static debugTrustedOrigins(): string[] {
     return [];
+  }
+
+  /** Release 的根布局按窗口宽度（没有调试用的窄屏宽度）。 */
+  static layoutWidthOverride(): number | null {
+    return null;
   }
 
   /** Release 不认任何调试启动参数。 */

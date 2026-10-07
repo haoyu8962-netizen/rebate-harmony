@@ -1,7 +1,8 @@
 import { ApiOperation, ApiOperations, ClientEvent, ClientEvents } from 'generated';
 import { ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { GuardDecision, GuardDecisionKind, GuardReason } from '../router/GuardDecision';
-import { UpdateState } from '../router/GuardState';
+import { GuardState, UpdateState } from '../router/GuardState';
+import { RouteRequest } from '../router/RouteRequest';
 import { BridgeCall, BridgeHandler, BridgeResult } from './BridgeHost';
 import { BridgeCode, BridgeProtocol } from './BridgeProtocol';
 import { BridgeJson, BridgeSchema } from './BridgeSchema';
@@ -11,6 +12,37 @@ export type BridgeApiPort = (request: ApiRequest) => Promise<ApiResult>;
 
 /** 打开路由（生产是 Router.openWith，来源 bridge，强更结论用本次调用守卫取得的值，不进启动排队）。 */
 export type BridgeRoutePort = (route: string, params: Record<string, Object>, update: UpdateState) => GuardDecision;
+
+/** nav.open 的判定结果与执行（R1-10）：decision 先定下，commit 在回复交出之后执行（可能让本容器出栈）。 */
+export class BridgeRouteOpening {
+  readonly decision: GuardDecision;
+  readonly commit: () => void;
+
+  constructor(decision: GuardDecision, commit: () => void) {
+    this.decision = decision;
+    this.commit = commit;
+  }
+
+  /**
+   * harmony-review-r3 R3-02（共性 60）：commit 不直接执行等待前算好的 decision，而是用执行那一刻的状态（current）重新过一遍
+   * Router 守卫（decide）。新结论与原结论一致（同一种类、同一路由）才执行；新结论是强更就照强更执行（回强更页）；
+   * 其余（会话失效后要求登录、隐私撤回后拦截等）这次调用不再导航。会话、隐私、环境的绑定另由 BridgeHost.runAfterReply 核对。
+   */
+  static rechecked(request: RouteRequest, decision: GuardDecision, current: () => GuardState,
+    decide: (request: RouteRequest, state: GuardState) => GuardDecision,
+    apply: (decision: GuardDecision, request: RouteRequest) => void): BridgeRouteOpening {
+    return new BridgeRouteOpening(decision, (): void => {
+      const fresh: GuardDecision = decide(request, current());
+      const same: boolean = fresh.kind === decision.kind && fresh.route === decision.route;
+      if (same || fresh.kind === GuardDecisionKind.FORCE_UPDATE) {
+        apply(fresh, request);
+      }
+    });
+  }
+}
+
+/** nav.open 的判定出口：只判定，返回判定与执行（App 接 Router.decide + Router.apply）。 */
+export type BridgeRouteDecider = (route: string, params: Record<string, Object>, update: UpdateState) => BridgeRouteOpening;
 
 /**
  * 桥调用绑定的 App 状态串（BridgeStatePort.binding；R1-04、R2-03）：隐私取值、同意周期、环境世代（切换中为 none）、
@@ -175,7 +207,10 @@ export class BridgeHandlers {
     };
   }
 
-  /** nav.open：经 Router（入口守卫、登录要求、只读清单、资金页参数丢弃都在那里）。未知状态下不在只读清单 → 90500。 */
+  /**
+   * nav.open：经 Router（入口守卫、登录要求、只读清单、资金页参数丢弃都在那里）。未知状态下不在只读清单 → 90500。
+   * 导航在处理函数里同步执行；会让容器出栈的接线用 navOpenAfterReply（R1-10）。
+   */
   static navOpen(open: BridgeRoutePort): BridgeHandler {
     return (call: BridgeCall): Promise<BridgeResult> => {
       const route: string = call.params['route'] as string;
@@ -188,6 +223,31 @@ export class BridgeHandlers {
       out['opened'] = decision.kind === GuardDecisionKind.OPEN || decision.kind === GuardDecisionKind.OPEN_READONLY;
       return Promise.resolve(BridgeResult.okObject(out));
     };
+  }
+
+  /**
+   * nav.open（容器用，APP-04 共性 43 / 53，R1-10）：先按 Router 判定定下结果，回复交出之后才执行导航——打开 Home 清栈等
+   * 让本容器出栈的导航不会让这次调用的回复被传输层丢掉。判定规则与 navOpen 相同。
+   */
+  static navOpenAfterReply(decide: BridgeRouteDecider): BridgeHandler {
+    return (call: BridgeCall): Promise<BridgeResult> => {
+      const route: string = call.params['route'] as string;
+      const nested: BridgeJson | null = BridgeSchema.objectOf(call.params['params']);
+      const opening: BridgeRouteOpening = decide(route, nested ?? {}, call.update);
+      const decision: GuardDecision = opening.decision;
+      if (decision.kind === GuardDecisionKind.FORCE_UPDATE || decision.reason === GuardReason.UPDATE_UNKNOWN_BLOCKED) {
+        // 不打开目标（强更时 Router 照常回到强更页）：90500，回复之后再执行。
+        return Promise.resolve(new BridgeResult(BridgeCode.NATIVE_ERROR, '{}', opening.commit));
+      }
+      const out: BridgeJson = {};
+      out['opened'] = decision.kind === GuardDecisionKind.OPEN || decision.kind === GuardDecisionKind.OPEN_READONLY;
+      return Promise.resolve(BridgeResult.okThen(out, opening.commit));
+    };
+  }
+
+  /** nav.close（R1-10）：成功回复交出之后再关闭本容器。 */
+  static closeAfterReply(close: () => void): BridgeHandler {
+    return (_call: BridgeCall): Promise<BridgeResult> => Promise.resolve(BridgeResult.okThen({}, close));
   }
 
   /** auth.login：打开登录页，用户完成或离开后兑现（logged_in 是那时的登录状态）。 */

@@ -191,10 +191,12 @@ export class ErrorActionMapper {
   /** 42901 无 Retry-After 时禁用 5 秒（03 §4.2）。 */
   static readonly DEFAULT_RETRY_AFTER_MILLIS: number = 5000;
   /**
-   * Retry-After 秒数的上限。TODO(N-19)：上限、HTTP-date、小数、负数的处理未规定（rule-gaps 第 5 条）；
-   * 只接受十进制非负整数秒，其余按缺省 5 秒，超过一小时按一小时（保守：不让按钮被一个异常值永久禁用）。
+   * Retry-After 秒数的上限。TODO(N-19)：HTTP-date、小数、负数的处理未规定（rule-gaps 第 5 条）；
+   * 只接受十进制非负整数秒，其余按缺省 5 秒。上限取 24 小时（APP-05a：BR-ID-05 发码每日额度与滑动 24 小时保护的
+   * Retry-After 可到次日，原先的一小时上限会让按钮提前解禁，向量 smsSend.rate_limit_86400）；超过按 24 小时（保守：不让
+   * 按钮被一个异常值永久禁用）。
    */
-  static readonly MAX_RETRY_AFTER_SECONDS: number = 3600;
+  static readonly MAX_RETRY_AFTER_SECONDS: number = 86400;
 
   private static readonly PREREQUISITES: Map<number, Prerequisite> = ErrorActionMapper.buildPrerequisites();
   /** 只跳说明页、不重放的码（error-codes.yaml action 里写明「跳 X」的）。 */

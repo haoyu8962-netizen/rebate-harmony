@@ -155,15 +155,18 @@ export class Router {
    * 闸门通过且强更有结果（或等满 5 秒按 unknown）时：先按 BR-ID-10 处理持久化的 pending_action
    * （过期删除；前置未满足保留、不自动弹前置页；满足则再过守卫、执行一次并删除），再放行排队的启动意图。
    * 仍在等待时什么都不动（不删除 pending_action）。返回推送回查的 Promise（没有时为 null）。
+   * resumePending = false：只同步状态（启动意图照常放行），这一次不恢复 pending_action、也不消耗「刚完成前置」的暂停标记——
+   * 已作废的登录尝试通知会话变化时用（APP-05a R2-02：「通知会话变了」与「允许恢复待办」分开），待办留给有效的流程处理。
    */
-  stateChanged(readiness: LaunchReadiness, now: number, pushLanding: PushLanding | null = null): Promise<void> | null {
+  stateChanged(readiness: LaunchReadiness, now: number, pushLanding: PushLanding | null = null,
+    resumePending: boolean = true): Promise<void> | null {
     if (!this.presentationReady()) {
       // Navigation / Tab 未就绪：只记闸门通过时刻，待办与启动意图都留着（R1-02 / R1-03）。
       this.launchQueue.observe(readiness, now);
       return null;
     }
     const update: UpdateState | null = this.launchQueue.updateFor(readiness, now);
-    if (update !== null) {
+    if (update !== null && resumePending) {
       const s: GuardState = this.state();
       // 前置完成后因强更等待而暂停的恢复：按「刚完成前置」的语义继续（R2-02）。
       const enterPrerequisite: boolean = this.prerequisiteResumeDeferred;
@@ -192,6 +195,13 @@ export class Router {
       return waiting;
     }
     return this.openWith(request, this.currentState());
+  }
+
+  /**
+   * 只判定、不执行（桥 nav.open 用，R1-10：先回复发起调用，再 apply；回复与执行之间是同步的，状态不会变）。
+   */
+  decide(request: RouteRequest, state: GuardState): GuardDecision {
+    return EntryGuard.decide(request, state, this.routes);
   }
 
   openWith(request: RouteRequest, state: GuardState): GuardDecision {
@@ -399,6 +409,20 @@ export class Router {
     if (this.state().privacyState !== PrivacyState.CONSENTED) {
       this.dropAgentCardPending();
     }
+  }
+
+  /** 本机有没有未过期的 pending_action（登录成功后的计划 AfterLogin.plan 用；过期的记录随读取删除）。 */
+  get hasPendingAction(): boolean {
+    return this.pendingStore.load(this.pendingStore.now()) !== null;
+  }
+
+  /**
+   * 登录拿到受限会话或强更低于时丢弃 pending_action（APP-05a AfterLogin discard_pending）：删除记录、不执行，
+   * 也清掉「刚完成前置、等待恢复」的标记，免得强更结论回来后再补执行。
+   */
+  discardPendingAction(): void {
+    this.pendingStore.clear();
+    this.resetResumeFlags();
   }
 
   /** 退出登录、切换账号：清除 pending_action（BR-ID-10），并作废进行中的推送回查。 */

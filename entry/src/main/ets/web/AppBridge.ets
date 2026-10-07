@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeHandlers, BridgeHost, BridgeOrigins,
+  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
   BridgeStatePort, ClientEvent, ConfigStore, CouliPreferences, EnvironmentGate, EnvironmentSwitchGate,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
   GuardDecisionKind,
@@ -161,6 +161,10 @@ export class AppBridge {
     host.track = (event: ClientEvent): void => {
       AppClientCore.shared.track(event);
     };
+    // APP-04 共性 45：调用到截止时间，取消它已交给传输层的请求（owner = call.valid）。
+    host.onCallExpired = (valid: () => boolean): void => {
+      AppNetwork.client?.cancelOwned(valid);
+    };
     const api = (request: ApiRequest): Promise<ApiResult> => {
       const client: ApiClient | null = AppNetwork.client;
       return client === null ? Promise.resolve(ApiResult.rejected(LocalRejectReason.CANCELLED)) : client.request(request);
@@ -173,8 +177,9 @@ export class AppBridge {
     host.register('auth.getH5Token', BridgeHandlers.h5Token(api));
     host.register('auth.login', BridgeHandlers.login((): Promise<boolean> => AppBridge.login()));
     host.register('net.signedRequest', BridgeHandlers.signedRequest(api));
-    host.register('nav.open', BridgeHandlers.navOpen((route: string, params: Record<string, Object>,
-      update: UpdateState): GuardDecision => AppBridge.openRoute(route, params, update)));
+    // R1-10：nav.open 先判定并回复，回复交出后再执行导航（打开 Home 清栈会让本容器出栈）。
+    host.register('nav.open', BridgeHandlers.navOpenAfterReply((route: string, params: Record<string, Object>,
+      update: UpdateState): BridgeRouteOpening => AppBridge.openRoute(route, params, update)));
     host.register('perm.getPushStatus', BridgeHandlers.pushStatus((): Promise<boolean> => {
       try {
         return Promise.resolve(notificationManager.isNotificationEnabledSync());
@@ -194,11 +199,16 @@ export class AppBridge {
   }
 
   /** nav.open：来源 bridge，强更结论用本次调用守卫取得的值，不进启动排队、不补执行。 */
-  static openRoute(route: string, params: Record<string, Object>, update: UpdateState): GuardDecision {
+  static openRoute(route: string, params: Record<string, Object>, update: UpdateState): BridgeRouteOpening {
     const routing: AppRouting = AppRouting.shared;
     const base: GuardState = routing.guardState();
     const state: GuardState = base.withLaunch(AppConfig.gate() === EnvironmentGate.SETTLED, base.privacyState, update);
-    return routing.router.openWith(RouteRequest.of(route, RouteSource.BRIDGE, params), state);
+    const request: RouteRequest = RouteRequest.of(route, RouteSource.BRIDGE, params);
+    const decision: GuardDecision = routing.router.decide(request, state);
+    // R3-02：回复执行完、真正导航前，用那时的会话、隐私、环境与强更状态重新过 Router 守卫（不执行等待前的结论）。
+    return BridgeRouteOpening.rechecked(request, decision, (): GuardState => routing.guardState(),
+      (r: RouteRequest, s: GuardState): GuardDecision => routing.router.decide(r, s),
+      (d: GuardDecision, r: RouteRequest): void => routing.router.apply(d, r));
   }
 
   /** auth.login：打开登录页（APP-05 前是占位页），用户离开后兑现当时的登录状态。 */
@@ -329,21 +339,13 @@ export class AppBridge {
     return config;
   }
 
-  /** /v1/config external_page.nav_host_sample_bp（万分比，当前 → LKG → 包内）；取不到或不合法为 0（不抽样）。 */
+  /**
+   * /v1/config external_page.nav_host_sample_bp（万分比，当前 → LKG → 包内）。没有下发或不合法按缺省 1000，显式 0 关闭采样
+   * （APP-04 共性 39，F-HM-07；core ExternalNavHooks.sampleBpFrom）。
+   */
   static navHostSampleBp(): number {
     const store: ConfigStore | null = AppClientCore.shared.config;
-    const text: string | null = store === null ? null : store.value('external_page');
-    if (text === null) {
-      return 0;
-    }
-    try {
-      const value: Record<string, Object> = JSON.parse(text) as Record<string, Object>;
-      const bp: Object | undefined = value['nav_host_sample_bp'];
-      return typeof bp === 'number' && Number.isInteger(bp) && (bp as number) >= 0 && (bp as number) <= 10000 ?
-        bp as number : 0;
-    } catch (e) {
-      return 0;
-    }
+    return ExternalNavHooks.sampleBpFrom(store === null ? null : store.value('external_page'));
   }
 
   /** features.flags.<name>（当前 → LKG → 包内）；取不到为 false。 */

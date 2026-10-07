@@ -3,9 +3,11 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner,
   DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
-  PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, RcpTransport, SecureDeviceCredentialStore,
+  PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
   SecurePendingKeyBackend, SecureSessionTokens, SessionTokens, SessionTokensCleaner, UpdateNetworkPort, UpdateState
 } from 'core';
+import { BuildVariant } from 'entry/ets/variant/BuildVariant';
+import { AppLogin } from '../login/AppLogin';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
 import { AppUpdate } from '../update/AppUpdate';
@@ -102,7 +104,8 @@ export class AppNetwork {
     const update: UpdateNetworkPort = new UpdateNetworkPort(
       (): UpdateState => AppUpdate.shared.inAppUpdate(),
       (minSupported: string | null): void => AppUpdate.shared.on10405(minSupported));
-    const deps: ApiClientDeps = new ApiClientDeps(new RcpTransport(), new AppNetworkContext(), AppNetwork.identity(),
+    // 传输层：Release 为 RcpTransport；Debug / Staging 外包一层只在启动参数打开时接管的本机假服务（APP-05a 冒烟与截图）。
+    const deps: ApiClientDeps = new ApiClientDeps(BuildVariant.networkTransport(), new AppNetworkContext(), AppNetwork.identity(),
       tokens, update);
     deps.pendingKeys = pendingKeys;
     const registry: DeviceRegistry = new DeviceRegistry(ClientPlatformRaw.HARMONY, new OdidReader(),
@@ -121,10 +124,16 @@ export class AppNetwork {
     deps.deviceRegistrar = registry;
     AppNetwork.registry = registry;
     deps.sessionEffect = (effect: ErrorEffect): void => {
-      // 刷新失败清会话：普通状态跳登录；强更状态下只清会话、停在强更页（route 为 null）。登录页本身在 APP-05。
+      // 刷新失败清会话：普通状态跳登录；强更状态下只清会话、停在强更页（route 为 null）。守卫的会话状态随之现算为游客。
       hilog.info(DOMAIN, TAG, 'session effect %{public}s', effect.effectKindRaw);
       if (effect.route !== null) {
+        // 跳登录（LoginSessionExpired）：登录页出现时提示「登录已失效」（error.10404）。
+        if (effect.route === 'Login') {
+          AppLogin.shared.markSessionExpired();
+        }
         AppRouting.shared.openInApp(effect.route);
+      } else {
+        AppRouting.shared.stateChanged();
       }
     };
     const client: ApiClient = new ApiClient(deps);

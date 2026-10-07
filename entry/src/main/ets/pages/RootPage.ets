@@ -6,7 +6,7 @@ import {
   CouliColors, CouliFontWeight, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography
 } from 'designsystem';
 import { DefaultTexts } from 'generated';
-import { VariantDestination } from 'entry/ets/variant/BuildVariant';
+import { BuildVariant, VariantDestination } from 'entry/ets/variant/BuildVariant';
 import { PermissionPrompt } from '../permission/PermissionPrompt';
 import { PermissionPromptModel } from '../permission/PermissionPromptModel';
 import { AppPrivacy } from '../privacy/AppPrivacy';
@@ -18,6 +18,8 @@ import { AppUpdate } from '../update/AppUpdate';
 import { ForceUpdatePage } from '../update/ForceUpdatePage';
 import { UpdatePrompt } from '../update/UpdatePrompt';
 import { RoutePlaceholderPage } from './RoutePlaceholderPage';
+import { AppLogin } from '../login/AppLogin';
+import { AppLoginPage, destinationReadonly, SettingsPlaceholderPage } from '../login/LoginPages';
 import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
@@ -32,6 +34,7 @@ const BRAND_MARK_FONT: number = 22;
  */
 const BLOCKED_MESSAGE_KEY: string = 'error.50001';
 const RETRY_KEY: string = 'external_page.retry';
+const SETTINGS_ROUTE: string = 'Settings';
 
 /** 首屏观察的环境闸门状态。 */
 @ObservedV2
@@ -132,14 +135,19 @@ struct RootPage {
     } else if (name === RoutePolicy.EXTERNAL_PAGE) {
       // 第三方页容器（APP-04）。
       AppExternalPage({ options: ExternalPageOptions.fromDestination(param) })
+    } else if (name === RoutePolicy.LOGIN) {
+      // 登录页（APP-05a）。强更状态下守卫只放行从强更页进入的 Login：带受限登录标记（不显示邀请码等业务输入）。
+      AppLoginPage({ restrictedLogin: AppUpdate.shared.belowMin })
+    } else if (name === SETTINGS_ROUTE) {
+      // 设置页占位 + 退出登录入口（APP-05a；设置页本身在 APP-12）。
+      SettingsPlaceholderPage({ readonlyMode: destinationReadonly(param) })
     } else if (name === UPGRADE_PROMPT_PAGE || RouteTable.has(name)) {
       // 业务路由与内置升级提示页：占位页（各 Feature 的入口视图接入前）。参数只认 Router 放进来的 RouteDestination。
       // 强更状态下守卫只放行从强更页进入的次要入口，所以 below_min 时出现的这几页都来自强更页：带强更状态 / 受限登录标记。
       RoutePlaceholderPage({
         route: name,
         readonlyMode: param instanceof RouteDestination ? (param as RouteDestination).readonly : false,
-        fromForceUpdate: AppUpdate.shared.belowMin && RoutePolicy.FORCE_UPDATE_SECONDARY_ROUTES.indexOf(name) >= 0,
-        restrictedLogin: AppUpdate.shared.belowMin && name === RoutePolicy.LOGIN
+        fromForceUpdate: AppUpdate.shared.belowMin && RoutePolicy.FORCE_UPDATE_SECONDARY_ROUTES.indexOf(name) >= 0
       })
     } else {
       VariantDestination(name, param)
@@ -170,6 +178,12 @@ struct RootPage {
     .backgroundColor(CouliColors.backgroundCanvas)
   }
 
+  /** 根布局宽度：窗口宽度；Debug / Staging 可用启动参数限制为窄屏宽度截图（BuildVariant.layoutWidthOverride）。 */
+  private rootWidth(): Length {
+    const width: number | null = BuildVariant.layoutWidthOverride();
+    return width === null ? '100%' : width;
+  }
+
   build() {
     if (this.launch.gate === EnvironmentGate.SETTLED) {
       Stack() {
@@ -196,6 +210,8 @@ struct RootPage {
             }
           });
           AppRouting.shared.attachNavigation(this.pathStack);
+          // 登录成功后的邀请结果提示用根页的界面上下文（登录页已出栈）。
+          AppLogin.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {
@@ -206,7 +222,7 @@ struct RootPage {
           UpdatePrompt()
         }
       }
-      .width('100%')
+      .width(this.rootWidth())
       .height('100%')
     } else if (this.launch.gate === EnvironmentGate.BLOCKED) {
       this.blockedPage()

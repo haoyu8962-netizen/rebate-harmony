@@ -8,9 +8,11 @@ export { OriginRules, StandardUrl, NormalizedHttpsUrl, LinkRule, LinkRuleTable }
 export { TrustedNavAction, TrustedNavDecision, TrustedNavPolicy } from './TrustedNavPolicy';
 export {
   BridgeResult, BridgeCall, BridgeHandler, BridgeCaller, BridgeStatePort, BridgeClock, SystemBridgeClock, BridgeGesture,
-  BridgeTouchKind, BridgeTrackPort, BridgeHost
+  BridgeTouchKind, BridgeTrackPort, BridgeHost, BridgeReplyChannel
 } from './BridgeHost';
-export { BridgeApiPort, BridgeRoutePort, BridgeBinding, BridgeHandlers } from './BridgeHandlers';
+export {
+  BridgeApiPort, BridgeRoutePort, BridgeRouteOpening, BridgeRouteDecider, BridgeBinding, BridgeHandlers
+} from './BridgeHandlers';
 export { BridgeFrames, BridgePageSession } from './BridgeFrames';
 export { BridgeOriginsVerifier, PendingContractBridgeOriginsVerifier, BridgeOrigins } from './BridgeOrigins';
 export {

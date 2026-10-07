@@ -6,14 +6,56 @@ import {
 } from './BridgeProtocol';
 import { BridgeJson, BridgeSchema } from './BridgeSchema';
 
+/**
+ * 原生 → H5 的回复通道（容器传输层用；harmony-review-r2 R2-04，共性 59）：把回复包成主框架接收函数的调用脚本，交给
+ * run（容器接 runJavaScriptExt），返回「脚本执行完」的 Promise——BridgeHost.dispatch 等它兑现后才执行破坏性导航。
+ * 执行失败（页面已离开、控制器未就绪）按已结束处理，不抛出。
+ */
+export class BridgeReplyChannel {
+  private readonly run: (script: string) => Promise<void>;
+
+  constructor(run: (script: string) => Promise<void>) {
+    this.run = run;
+  }
+
+  /** 主框架里启动脚本定义的接收函数。 */
+  static receiveScript(json: string): string {
+    return 'window.__couliBridgeReceive && window.__couliBridgeReceive(' + JSON.stringify(json) + ');';
+  }
+
+  deliver(json: string): Promise<void> {
+    let running: Promise<void>;
+    try {
+      running = this.run(BridgeReplyChannel.receiveScript(json));
+    } catch (e) {
+      return Promise.resolve();
+    }
+    return running.catch((): void => {
+      // 页面已离开：丢弃。
+    });
+  }
+}
+
 /** 一个能力的执行结果：code 0 时 dataJson 是结果对象的 JSON 文本，否则是桥错误码。 */
 export class BridgeResult {
   readonly code: number;
   readonly dataJson: string;
+  /**
+   * 回复交出之后才执行的动作（APP-04 共性 43 / 53，harmony-review-r1 R1-10）：会让本容器出栈的导航（nav.close 关闭容器、
+   * nav.open 打开 Home 清栈）放在这里，宿主先把这次调用的回复交给传输层，再执行它——传输层不会因页面世代变化丢掉这条回复。
+   * 没有为 null。
+   */
+  readonly afterReply: (() => void) | null;
 
-  constructor(code: number, dataJson: string) {
+  constructor(code: number, dataJson: string, afterReply: (() => void) | null = null) {
     this.code = code;
     this.dataJson = dataJson;
+    this.afterReply = afterReply;
+  }
+
+  /** 成功，回复交出后再执行 after。 */
+  static okThen(data: BridgeJson, after: () => void): BridgeResult {
+    return new BridgeResult(BridgeCode.OK, JSON.stringify(data), after);
   }
 
   static ok(dataJson: string = '{}'): BridgeResult {
@@ -26,6 +68,20 @@ export class BridgeResult {
 
   static fail(code: number): BridgeResult {
     return new BridgeResult(code, '{}');
+  }
+}
+
+/** 一次调用的结算：回复文本（不回复为 null）与回复交出后的动作。 */
+class BridgeSettlement {
+  readonly reply: string | null;
+  readonly after: (() => void) | null;
+  /** 调用发起时绑定的隐私、环境、会话（BridgeStatePort.binding）；回复执行完、执行 after 之前再核对（R3-02）。 */
+  readonly binding: string;
+
+  constructor(reply: string | null, after: (() => void) | null, binding: string = '') {
+    this.reply = reply;
+    this.after = after;
+    this.binding = binding;
   }
 }
 
@@ -109,6 +165,20 @@ export interface BridgeClock {
   now(): number;
 
   sleep(ms: number): Promise<void>;
+}
+
+/** 一次桥调用的统一截止时间（共性 45）。deadline 为 null 表示该方法契约没有超时。 */
+class CallBudget {
+  readonly deadline: number | null;
+  expired: boolean = false;
+
+  constructor(deadline: number | null) {
+    this.deadline = deadline;
+  }
+
+  passed(now: number): boolean {
+    return this.deadline !== null && now >= this.deadline;
+  }
 }
 
 export class SystemBridgeClock implements BridgeClock {
@@ -239,6 +309,12 @@ export class BridgeHost {
   page: string = 'WebPage';
   /** 容器当前的页面世代（BridgePageSession.generation）；调用所属的世代不是它时作废（R1-04）。不分页面时恒为 0。 */
   pageGeneration: () => number = () => 0;
+  /**
+   * 调用到了截止时间（APP-04 共性 45，A-R2-01，F-HM-07）：调用的有效性已撤销；App 接到 ApiClient.cancelOwned，取消这次调用
+   * 已交给传输层的请求（owner = call.valid）。
+   */
+  onCallExpired: (valid: () => boolean) => void = (_v: () => boolean) => {
+  };
 
   constructor(state: BridgeStatePort, clock: BridgeClock = new SystemBridgeClock()) {
     this.state = state;
@@ -282,29 +358,82 @@ export class BridgeHost {
   }
 
   /**
-   * 处理一条 H5 → 原生消息；返回响应 JSON 文本。拿不到合法 id 时为 null（没法配回请求，不回复）；调用所属的页面已经离开
-   * （页面世代变了）时也为 null（不把结果交给另一个页面）。
+   * 处理一条 H5 → 原生消息并交出回复（传输层用；R1-10）：回复只在调用所属的页面仍是当前页面时交给 deliver（页面世代变了
+   * 就不把结果交给另一个页面）；结果带 afterReply（关闭本容器等破坏性导航）时，先交出回复、再执行它，所以发起导航的这次调用
+   * 一定先按结果结算，同一页面里别的在途调用随后照常作废。拿不到合法 id 时不回复。
+   *
+   * deliver 返回「回复脚本真正执行完」的 Promise（runJavaScriptExt 的 Promise 兑现，harmony-review-r2 R2-04，共性 59）：
+   * 等它兑现（或失败）之后才执行 afterReply——只排进网页执行队列还不算交出，网页线程繁忙时破坏性导航会先把页面销毁。
+   * 等待结束后 runAfterReply 再复核一次页面归属与调用绑定的会话、隐私、环境（harmony-review-r3 R3-02，共性 60：等待期间
+   * 页面已离开、会话失效、撤回同意、切换环境都不再导航）；导航本身由 afterReply 用当时的状态重新过 Router 守卫
+   * （BridgeRouteOpening.rechecked）。
+   */
+  async dispatch(raw: string, caller: BridgeCaller, deliver: (reply: string) => Promise<void>): Promise<void> {
+    const settled: BridgeSettlement = await this.settle(raw, caller);
+    if (settled.reply !== null && this.samePage(caller)) {
+      let running: Promise<void> | null = null;
+      try {
+        running = deliver(settled.reply);
+      } catch (e) {
+        // 传输层出错不影响后续动作。
+        running = null;
+      }
+      if (running !== null) {
+        try {
+          await running;
+        } catch (e) {
+          // 脚本执行失败（页面已离开等）：照常走到下面的复核。
+        }
+      }
+    }
+    this.runAfterReply(settled, caller);
+  }
+
+  /**
+   * 处理一条 H5 → 原生消息；返回响应 JSON 文本（单测与不分页面的宿主用；容器传输层用 dispatch）。拿不到合法 id 时为 null；
+   * 调用所属的页面已经离开时也为 null。结果带 afterReply 时，回复定下之后才执行它。
    */
   async handle(raw: string, caller: BridgeCaller): Promise<string | null> {
+    const settled: BridgeSettlement = await this.settle(raw, caller);
+    this.runAfterReply(settled, caller);
+    return settled.reply;
+  }
+
+  private runAfterReply(settled: BridgeSettlement, caller: BridgeCaller): void {
+    const after: (() => void) | null = settled.after;
+    if (after === null || !this.samePage(caller) || this.currentBinding() !== settled.binding) {
+      return;
+    }
+    try {
+      after();
+    } catch (e) {
+      // 导航出错不影响已交出的回复。
+    }
+  }
+
+  private async settle(raw: string, caller: BridgeCaller): Promise<BridgeSettlement> {
     const envelope: BridgeEnvelope = BridgeProtocol.parseEnvelope(raw);
     const id: string | null = envelope.id;
     if (id === null) {
-      return null;
+      return new BridgeSettlement(null, null);
     }
     const method: string = envelope.method ?? '';
     if (!envelope.valid && !envelope.paramsInvalid) {
-      return this.reply(id, method, BridgeResult.fail(BridgeCode.INVALID_PARAMS));
+      return new BridgeSettlement(this.reply(id, method, BridgeResult.fail(BridgeCode.INVALID_PARAMS)), null);
     }
     if (this.inFlight.has(id)) {
-      return this.reply(id, method, BridgeResult.fail(BridgeCode.INVALID_PARAMS));
+      return new BridgeSettlement(this.reply(id, method, BridgeResult.fail(BridgeCode.INVALID_PARAMS)), null);
     }
     this.inFlight.add(id);
     try {
-      const result: BridgeResult | null = await this.process(id, method, envelope.params ?? '{}', caller);
+      // R1-04：调用绑定发起时的隐私、环境、会话（binding）；process 在执行前、runAfterReply 在导航前各核对一次。
+      const binding: string = this.currentBinding();
+      const result: BridgeResult | null = await this.process(id, method, envelope.params ?? '{}', caller, binding);
       if (result === null || !this.samePage(caller)) {
-        return null;
+        // 页面已离开：作废、不回复，也不再执行它的导航。
+        return new BridgeSettlement(null, null);
       }
-      return this.reply(id, method, result);
+      return new BridgeSettlement(this.reply(id, method, result), result.afterReply, binding);
     } finally {
       this.inFlight.delete(id);
     }
@@ -316,9 +445,12 @@ export class BridgeHost {
   }
 
   private async process(id: string, method: string, paramsJson: string,
-    caller: BridgeCaller): Promise<BridgeResult | null> {
-    // R1-04：调用绑定发起时的隐私、环境、会话（binding）与页面世代（caller.generation）。
-    const binding: string = this.currentBinding();
+    caller: BridgeCaller, binding: string): Promise<BridgeResult | null> {
+    // R1-04：调用绑定发起时的隐私、环境、会话（binding，settle 取得）与页面世代（caller.generation）。
+    // 共性 45：统一截止时间从调用到达时起算，强更等待、HTTP、退避、恢复都算在里面。
+    const spec: BridgeMethodSpec | undefined = BridgeMethods.spec(method);
+    const budget: CallBudget = new CallBudget(spec === undefined || spec.timeoutMs === null ? null :
+      this.clock.now() + spec.timeoutMs);
     const decision: BridgeDecision = this.decide(method, paramsJson, caller);
     if (!decision.allow) {
       return BridgeResult.fail(decision.errorCode ?? BridgeCode.FORBIDDEN);
@@ -329,7 +461,11 @@ export class BridgeHost {
       // clipboard.read 本端 since 为 null（页面用输入框代替）。
       return BridgeResult.fail(BridgeCode.NOT_SUPPORTED);
     }
-    const update: UpdateState | null = await this.waitUpdate();
+    const update: UpdateState | null = await this.waitUpdate(budget);
+    if (budget.passed(this.clock.now())) {
+      budget.expired = true;
+      return BridgeResult.fail(BridgeCode.TIMEOUT);
+    }
     // 等完之后、执行之前再核对一次：页面已离开 → 作废、不回复；撤回同意、切换环境、换了会话 → 作废；协议准入按当时的状态
     // 重判（基本模式、退出登录等），不通过按它的错误码。
     if (!this.samePage(caller)) {
@@ -353,8 +489,8 @@ export class BridgeHost {
       params = {};
     }
     const call: BridgeCall = new BridgeCall(id, method, params, update ?? UpdateState.UNKNOWN,
-      (): boolean => this.samePage(caller) && this.currentBinding() === binding);
-    return this.runWithTimeout(handler, call);
+      (): boolean => !budget.expired && this.samePage(caller) && this.currentBinding() === binding);
+    return this.runWithTimeout(handler, call, budget);
   }
 
   private decide(method: string, paramsJson: string, caller: BridgeCaller): BridgeDecision {
@@ -403,9 +539,12 @@ export class BridgeHost {
   }
 
   /** 强更检查中最多等 5 秒（自本次调用开始），到时按 unknown；不排队、不补执行。 */
-  private async waitUpdate(): Promise<UpdateState | null> {
+  private async waitUpdate(budget: CallBudget): Promise<UpdateState | null> {
     const start: number = this.clock.now();
     for (;;) {
+      if (budget.passed(this.clock.now())) {
+        return null;
+      }
       const status: UpdateCheckStatus = this.state.update();
       const now: number = this.clock.now();
       const effective: UpdateState | null = LaunchQueue.effectiveUpdate(status, now, start);
@@ -419,8 +558,7 @@ export class BridgeHost {
     }
   }
 
-  private runWithTimeout(handler: BridgeHandler, call: BridgeCall): Promise<BridgeResult> {
-    const spec: BridgeMethodSpec | undefined = BridgeMethods.spec(call.method);
+  private runWithTimeout(handler: BridgeHandler, call: BridgeCall, budget: CallBudget): Promise<BridgeResult> {
     let work: Promise<BridgeResult>;
     if (!call.valid()) {
       return Promise.resolve(BridgeResult.fail(BridgeCode.NATIVE_ERROR));
@@ -430,12 +568,21 @@ export class BridgeHost {
     } catch (e) {
       work = Promise.resolve(BridgeResult.fail(BridgeCode.NATIVE_ERROR));
     }
-    const timeout: number | null = spec === undefined ? null : spec.timeoutMs;
-    if (timeout === null) {
+    const deadline: number | null = budget.deadline;
+    if (deadline === null) {
       return work;
     }
-    const timer: Promise<BridgeResult> = this.clock.sleep(timeout)
-      .then((): BridgeResult => BridgeResult.fail(BridgeCode.TIMEOUT));
+    const timer: Promise<BridgeResult> = this.clock.sleep(Math.max(0, deadline - this.clock.now()))
+      .then((): BridgeResult => {
+        // 到截止时间：立即撤销调用的有效性（之后的发送、重试、恢复都按失效处理），并取消已交给传输层的请求。
+        budget.expired = true;
+        try {
+          this.onCallExpired(call.valid);
+        } catch (e) {
+          // 取消出口出错不影响按超时结算。
+        }
+        return BridgeResult.fail(BridgeCode.TIMEOUT);
+      });
     return Promise.race([work, timer]);
   }
 

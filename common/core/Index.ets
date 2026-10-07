@@ -45,6 +45,7 @@ export {
   PushLookupKind, PushLookupResult, PushLookup, PushLandingResult, PushLanding
 } from './src/main/ets/router/PushLanding';
 export { RouteDestination, RouteNavigator, Router } from './src/main/ets/router/Router';
+export { PathStack, UPGRADE_PROMPT_PAGE, StackNavigator, RoutingSync } from './src/main/ets/router/StackNavigator';
 // update：UpdateGate 的 UpdateState 与 router 的强更结果枚举 UpdateState 同名，这里导出为 UpdateGateState。
 export {
   DEFAULT_RECHECK_INTERVAL_SEC, UpdateStatusRaw, UpdateStoreListing, UpdateCheckResult, UpdateState as UpdateGateState,
@@ -93,6 +94,15 @@ export {
   KeyValueSlot, PreferencesSlot, SecureDeviceCredentialStore
 } from './src/main/ets/device/DeviceCredentialStore';
 export { DeviceRegistry, DeviceIdentityCleaner } from './src/main/ets/device/DeviceRegistry';
+// login（APP-05a）：短信登录纯逻辑（向量 specs/login-vectors.json）与执行器（页面在 features/auth）。
+export {
+  PhoneResult, PhoneNumber, AgreementState, SmsCountdownResult, SmsCountdown, CodeShape, CodeInput, LoginErrorResult,
+  LoginErrorMapper, InviteDecision, InviteField, AfterLoginAction, AfterLoginUpdate, AfterLogin, LegalVersions
+} from './src/main/ets/login/LoginFlow';
+export {
+  LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry
+} from './src/main/ets/login/LoginService';
+export { RouterLoginHost } from './src/main/ets/login/RouterLoginHost';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

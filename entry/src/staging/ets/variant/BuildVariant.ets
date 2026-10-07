@@ -2,12 +2,14 @@
 // 只在 product=staging 编译；Release 产物里没有本目录的任何代码与字符串。
 import { common, Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
-import { AppEnvironment, CouliPreferences, DeepLinkConfig, RouteTable, UpdateChecker } from 'core';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, RouteTable, UpdateChecker } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
 import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget } from './DebugBridge';
 import { DebugUpdateChecker } from './DebugUpdate';
+import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer } from './DebugFakeServer';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -18,6 +20,13 @@ import {
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
 
 export class BuildVariant {
+  /** 调试用的根布局宽度（vp）；没给为 null（按窗口宽度）。 */
+  private static debugLayoutWidth: number | null = null;
+
+  static layoutWidthOverride(): number | null {
+    return BuildVariant.debugLayoutWidth;
+  }
+
   /** buildMode=debug → Debug；buildMode=release → Staging（映射见工程根 build-profile.json5）。 */
   static readonly CONFIG_NAME: string = BUILD_MODE === 'debug' ? 'Debug' : 'Staging';
 
@@ -48,6 +57,11 @@ export class BuildVariant {
   /** 强更结论存储：调试假结果只写 couli_update_debug，不写 Release 读取的 couli_update（三端统一裁定）。 */
   static readonly UPDATE_NAMESPACE: string = CouliPreferences.UPDATE_DEBUG_NAMESPACE;
 
+  /** 网络传输层：Debug / Staging 外面包一层本机假服务（只有启动参数打开时接管，APP-05a）；Release 是 RcpTransport。 */
+  static networkTransport(): HttpTransport {
+    return new DebugFakeServer();
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -67,6 +81,19 @@ export class BuildVariant {
    * fontSizeScale（DS-01 compare-harmony §0）。只读这一个调试键，不影响 AppRouting 只认 want.uri 的规则。
    */
   static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
+    // APP-05a R1-07：`--pd couli_debug_layout_width 320` 把根布局限制为该宽度（vp，居中），模拟器没有 320vp 宽实例时
+    // 用来截窄屏图（只影响页面布局宽度；系统弹窗仍按窗口宽度）。
+    const width: Object | undefined = want.parameters?.['couli_debug_layout_width'];
+    const vp: number = typeof width === 'string' || typeof width === 'number' ? Number(width) : NaN;
+    if (!Number.isNaN(vp) && vp >= 240 && vp <= 600) {
+      BuildVariant.debugLayoutWidth = vp;
+    }
+    // APP-05a：`--pd couli_debug_fake_server 1` 打开本机假服务（登录冒烟与截图；不连任何地址）。
+    const fake: Object | undefined = want.parameters?.[DEBUG_FAKE_SERVER_KEY];
+    if (fake === '1' || fake === 1 || fake === true) {
+      DebugFakeServer.enabled = true;
+      hilog.info(0x0000, 'Couli', 'fake server on %{public}s', DebugFakeServer.marker);
+    }
     const raw: Object | undefined = want.parameters?.['couli_debug_font_scale'];
     if (typeof raw !== 'string' && typeof raw !== 'number') {
       return;

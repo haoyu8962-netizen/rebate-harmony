@@ -32,3 +32,6 @@ export {
   CouliDialogPanel, CouliDialog, CouliDialogOptions, CouliSheetPanel, CouliFocusReturn, CouliShadowMask
 } from './src/main/ets/components/Overlays';
 export { NavBar, TabBar, TabBarItem } from './src/main/ets/components/Navigation';
+export {
+  CodeCellLayout, CouliTextSegment, CouliDialogLink, CouliLinkSegments
+} from './src/main/ets/components/CodeCells';

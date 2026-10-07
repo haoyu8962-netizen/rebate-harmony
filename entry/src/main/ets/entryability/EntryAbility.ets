@@ -3,10 +3,11 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import {
   AppConfig, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner, PrivacyState,
-  PrivacyWithdrawalCleaners
+  PrivacyWithdrawalCleaners, SessionState
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
+import { AppLogin } from '../login/AppLogin';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
@@ -42,6 +43,8 @@ export default class EntryAbility extends UIAbility {
     // APP-04：JSBridge 与两类 WebView 容器的接线（可信 origin、链接形态表、Router 目标白名单都读 ConfigStore）。
     AppBridge.attach(this.context);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
+    // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
+    AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
     // Debug / Staging：冒烟与截图用的启动参数（如字号倍数）；Release 什么都不做。
     BuildVariant.applyLaunchOptions(appContext, want);
     // X-01：上次生效的环境与本次不同（同 bundleName 覆盖安装）时先清理再记录；见 EnvironmentLaunchReconciler。

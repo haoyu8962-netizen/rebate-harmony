@@ -5,7 +5,8 @@ import { systemDateTime } from '@kit.BasicServicesKit';
 import { window } from '@kit.ArkUI';
 import {
   BridgeCall, BridgeCaller, BridgeCode, BridgeFrames, BridgeGesture, BridgeHandlers, BridgeHost, BridgeJson, BridgePageSession,
-  BridgeResult, BridgeTouchKind, NavBarHandler, NavBarPort, NavBarState, OriginRules, StatusBarStyle, TrustedNavAction,
+  BridgeReplyChannel, BridgeResult, BridgeTouchKind, NavBarHandler, NavBarPort, NavBarState, OriginRules, StatusBarStyle,
+  TrustedNavAction,
   TrustedNavDecision, TrustedNavPolicy, WebBackPolicy
 } from 'core';
 import { CouliColors, CouliIcon, CouliInteraction, CouliSpacing, CouliTypography, ErrorState } from 'designsystem';
@@ -56,6 +57,12 @@ export class TrustedWebConfig {
    * 返回事件），否则关闭容器并返回 true；容器还没出现时为 false（交给导航栈）。
    */
   systemBack: () => boolean = () => false;
+  /**
+   * 路由确定移出回退栈（NavDestination.onWillDisappear，早于退场动画）时由宿主页调用：同步撤销本容器的全部调用并停止加载
+   * （APP-04 共性 47，A-R2-03，F-HM-07）。容器挂上后设置；重复调用无副作用。
+   */
+  teardown: () => void = () => {
+  };
   /** 加载失败、证书错误、被拦等诊断（只给日志用，不带完整 URL）。 */
   onDiagnostic: (kind: string) => void = (_kind: string) => {
   };
@@ -141,6 +148,8 @@ export class BridgeTransport {
   private readonly trustedOrigins: () => string[];
   /** 最近一次调用方判定（调试面板显示用）。 */
   lastCaller: BridgeCaller | null = null;
+  /** 回复通道：返回脚本执行完的 Promise（R2-04）。 */
+  private readonly replies: BridgeReplyChannel;
   /** 每次回复的诊断（只有错误码与调用方是否主框架，不带方法参数与 URL）。 */
   private readonly diagnostic: (kind: string) => void;
 
@@ -154,12 +163,42 @@ export class BridgeTransport {
     this.nativeObject = new BridgeNativeObject((token: string, text: string): void => this.receive(token, text),
       (): void => this.deliverToken());
     this.host.pageGeneration = (): number => this.session.generation;
+    this.replies = new BridgeReplyChannel((script: string): Promise<void> =>
+    this.controller.runJavaScriptExt(script).then((): void => {
+    }));
   }
 
   /** 主框架开始加载新页面：换令牌（旧页面的令牌与排队调用作废）、清除手势资格，再把新令牌送进主框架。 */
   pageStarted(): void {
     this.session.rotate();
     this.gesture.clear();
+    this.deliverToken();
+  }
+
+  /**
+   * 主框架放行一次导航（onLoadIntercept 放行的那一刻，早于新文档提交与 onPageBegin，APP-04 共性 29 / 51，R1-08）：
+   * 会换文档的（含重新加载当前地址）立即作废旧页面的令牌与排队调用、清除手势资格——导航慢或失败时旧调用也不能再发请求或
+   * 走权限流程；新令牌在 onPageBegin 再换一次并送进新页面。只有同一文档内的片段跳转不作废（BridgePageSession.startsNewDocument）。
+   */
+  navigationStarted(target: string): void {
+    let current: string = '';
+    try {
+      current = this.controller.getUrl();
+    } catch (e) {
+      current = '';
+    }
+    if (!BridgePageSession.startsNewDocument(current, target)) {
+      return;
+    }
+    this.session.rotate();
+    this.gesture.clear();
+  }
+
+  /**
+   * 主框架提交了一次同文档导航（onNavigationEntryCommitted.isSameDocument：片段、pushState、同页历史）：文档没换，不会有
+   * onPageBegin。放行时若按保守口径换过令牌（目标与当前地址完全相同的片段跳转），在这里把当前令牌送进这个文档。
+   */
+  sameDocumentCommitted(): void {
     this.deliverToken();
   }
 
@@ -211,11 +250,10 @@ export class BridgeTransport {
     const now: number = monotonicMillis();
     const caller: BridgeCaller = BridgeFrames.callerOf(frameUrl, token, this.session, now >= 0 && this.gesture.recent(now));
     this.lastCaller = caller;
-    this.host.handle(text, caller).then((reply: string | null): void => {
+    // 回复只交给调用所属的页面（宿主按页面世代判断）；带破坏性导航的调用（nav.close、nav.open 清栈）先交出回复再导航（R1-10）。
+    this.host.dispatch(text, caller, (reply: string): Promise<void> => {
       this.diagnostic('bridge_reply ' + BridgeTransport.codeOf(reply) + (caller.isMainFrame ? ' main' : ' subframe'));
-      if (reply !== null && caller.generation === this.session.generation) {
-        this.deliver(reply);
-      }
+      return this.deliver(reply);
     }).catch((): void => {
       // 宿主内部已把异常转成 90500；这里不再处理。
     });
@@ -233,16 +271,12 @@ export class BridgeTransport {
     }
   }
 
-  /** 原生 → H5：只在主框架里执行启动脚本定义的接收函数。 */
-  deliver(json: string): void {
-    const script: string = 'window.__couliBridgeReceive && window.__couliBridgeReceive(' + JSON.stringify(json) + ');';
-    try {
-      this.controller.runJavaScriptExt(script).catch((): void => {
-        // 页面已离开：丢弃。
-      });
-    } catch (e) {
-      // 控制器未就绪：丢弃。
-    }
+  /**
+   * 原生 → H5：只在主框架里执行启动脚本定义的接收函数（core BridgeReplyChannel）。返回脚本真正执行完的 Promise
+   * （runJavaScriptExt 的 Promise 兑现；R2-04，共性 59）：BridgeHost.dispatch 等它之后才关闭容器或清栈。
+   */
+  deliver(json: string): Promise<void> {
+    return this.replies.deliver(json);
   }
 
   /** 下发事件（只下发 events 白名单里、data 满足 schema 的事件）。 */
@@ -258,9 +292,10 @@ export class BridgeTransport {
  * 可信 H5 容器（03 §5.1 TrustedWebView；CSB-02、CSB-03、CSB-10）：
  * - 只加载可信 origin 的主框架（https；Debug 构建另有本机一致性测试源）：第一个 URL 不在白名单或是授权页不加载；主框架跳到
  *   白名单外的 https 交给 App 在新的 ExternalWebView 打开，授权页与非 https 一律取消（core TrustedNavPolicy）；
- * - 子框架（R2-01、R2-04）：指向可信 bridge origin 的子框架文档一律取消（同源 iframe 能以父页面身份调用桥，令牌挡不住），
- *   about:blank / about:srcdoc 照常（父页面写入的内容，同一主体）；授权页取消；其余只放行 https。onLoadIntercept 之外，
- *   onInterceptRequest 对带 Sec-Fetch-Dest=iframe/frame/embed/object 的子框架文档请求再判一次；
+ * - 子框架（R2-01、R2-04；编排者裁定「看不到每一跳时一律在第一跳取消」(a)，F-HM-07）：网络子框架文档在第一跳一律取消
+ *   （ArkWeb 不保证子框架每一跳都回调，跨源子框架重定向到可信源就能借父页面的桥），只有 about:blank / about:srcdoc 照常
+ *   （父页面写入的内容，同一主体）。onLoadIntercept 之外，onInterceptRequest 对带 Sec-Fetch-Dest=iframe/frame/embed/object
+ *   的子框架文档请求再判一次；
  * - 注入：javaScriptProxy（permission 限可信 origin）+ javaScriptOnDocumentStart 的随包启动脚本（scriptRules 限可信 origin）；
  * - UA：系统默认 UA 末尾追加 Couli/<版本>；
  * - 证书错误一律取消并显示原生错误页（不提供继续）；客户端证书、HTTP 认证请求一律取消；
@@ -290,6 +325,14 @@ export struct TrustedWebView {
       (): string[] => this.config.trustedOrigins(), (kind: string): void => this.config.onDiagnostic(kind));
     this.transport = transport;
     this.nativeObject = transport.nativeObject;
+    this.config.teardown = (): void => {
+      this.transport?.dispose();
+      try {
+        this.controller.stop();
+      } catch (e) {
+        // 控制器未就绪或已销毁。
+      }
+    };
     this.config.systemBack = (): boolean => {
       this.goBack();
       return true;
@@ -305,7 +348,13 @@ export struct TrustedWebView {
   }
 
   aboutToDisappear(): void {
+    // 路由真正出栈时 teardown（APP-04 共性 28，F-HM-07）：先作废全部调用，再停止加载。只被盖住时不会走到这里。
     this.transport?.dispose();
+    try {
+      this.controller.stop();
+    } catch (e) {
+      // 控制器未就绪或已销毁。
+    }
     this.restoreStatusBar();
     this.config.systemBack = () => false;
     if (this.appListener !== null) {
@@ -354,9 +403,9 @@ export struct TrustedWebView {
       return true;
     }));
     host.register('ui.setNavBar', NavBarHandler.of(this.navBarPort()));
-    host.register('nav.close', BridgeHandlers.sync((_p: BridgeJson): boolean => {
+    // R1-10：先把成功回复交给页面，再关闭本容器（回复不会因页面世代变化被丢掉）。
+    host.register('nav.close', BridgeHandlers.closeAfterReply((): void => {
       this.config.onClose();
-      return true;
     }));
   }
 
@@ -447,12 +496,14 @@ export struct TrustedWebView {
   /**
    * 文档级导航（onLoadIntercept；返回 true = 取消），判定在 core TrustedNavPolicy：
    * - 主框架：授权页取消（R2-04）；可信 origin 放行；白名单外的 https 交 ExternalWebView；其余取消；
-   * - 子框架：about:blank / about:srcdoc 放行；指向可信 bridge origin 的一律取消（R2-01，同源 iframe 不载入独立内容）；
-   *   授权页取消（R2-04）；其余只放行 https。
+   * - 子框架：about:blank / about:srcdoc 放行；其余网络子框架文档在第一跳一律取消（R2-01；裁定 (a)，F-HM-07）。
    */
   private intercept(url: string, isMainFrame: boolean): boolean {
     const decision: TrustedNavDecision = TrustedNavPolicy.decide(url, isMainFrame, this.config.trustedOrigins());
     if (decision.action === TrustedNavAction.LOAD) {
+      if (isMainFrame) {
+        this.transport?.navigationStarted(url);
+      }
       return false;
     }
     if (decision.action === TrustedNavAction.EXTERNAL) {
@@ -697,6 +748,12 @@ export struct TrustedWebView {
               .onPageEnd((_event: OnPageEndEvent) => {
                 // 启动脚本的 hello 早于代理对象就绪时，由这里补送令牌（同一世代，同一令牌）。
                 this.transport?.deliverToken();
+              })
+              .onNavigationEntryCommitted((details: LoadCommittedDetails) => {
+                // 同文档导航不会有 onPageBegin（R1-08）：把当前令牌送进这个文档。
+                if (details.isMainFrame && details.isSameDocument) {
+                  this.transport?.sameDocumentCommitted();
+                }
               })
               .onVisibleAreaChange([0.0, 1.0], (isVisible: boolean, _ratio: number) => {
                 const data: BridgeJson = {};

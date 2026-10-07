@@ -36,6 +36,10 @@ export struct AppWebPage {
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => this.config !== null && this.config.systemBack())
+    // 共性 47：路由一确定出栈就同步撤销调用、停止加载（onWillDisappear 早于退场动画；只被盖住时不触发）。
+    .onWillDisappear((): void => {
+      this.config?.teardown();
+    })
   }
 }
 
@@ -63,5 +67,9 @@ export struct AppExternalPage {
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => this.config !== null && this.config.systemBack())
+    // 共性 47：路由一确定出栈就同步撤销调用、停止加载（onWillDisappear 早于退场动画；只被盖住时不触发）。
+    .onWillDisappear((): void => {
+      this.config?.teardown();
+    })
   }
 }

@@ -34,12 +34,12 @@ export class TrustedNavDecision {
  * 主框架：授权页（AuthPageRules）一律取消（授权页不进任何容器，R2-04）→ 可信 origin 加载 → 其余 https 交 ExternalWebView →
  * 非 https 取消。
  *
- * 子框架：
+ * 子框架（编排者裁定「看不到每一跳时一律在第一跳取消」(a)，F-HM-07，APP-04 共性 56）：
  * 1. about:blank / about:srcdoc 加载：内容由父页面写入，与主页面是同一主体，不算越权（编排者裁定）；
- * 2. 按浏览器口径（StandardUrl：去用户信息之外的 WHATWG 主机与端口规范化，主机末尾的点也算同一主机）解析不了的一律取消；
- * 3. 指向任一可信 bridge origin 的子框架文档一律取消（R2-01）：同源且不加 sandbox 的 iframe 可以经 parent 以父页面身份
- *    调用桥，原生看到的就是主框架，令牌也挡不住，所以不让同源 iframe 载入独立内容；
- * 4. 非 https 取消；授权页取消（R2-04）；其余 https 加载（跨源子框架调用桥仍按子框架 90403 拒绝）。
+ * 2. 其余一切网络子框架文档在第一跳取消——包括跨源 https。ArkWeb 的 onLoadIntercept 不保证对子框架的每一跳（含服务器
+ *    重定向）都回调，onInterceptRequest 也不保证重定向后的下一跳再次进入（capability-harmony.md）：跨源子框架被 302 到
+ *    可信源后就成了同源 iframe，能经 parent 以父页面身份调用桥（R2-01），所以不能靠后续跳判定。reason 仍区分可信源
+ *    （subframe_trusted_origin）、授权页、非 https 与其余网络文档（subframe_network_document），只给诊断用。
  */
 export class TrustedNavPolicy {
   /** 子框架文档请求的 Sec-Fetch-Dest 取值（onInterceptRequest 的补充防线用）。 */
@@ -127,7 +127,7 @@ export class TrustedNavPolicy {
     if (AuthPageRules.isAuthPage(url)) {
       return new TrustedNavDecision(TrustedNavAction.CANCEL, 'auth_page');
     }
-    return new TrustedNavDecision(TrustedNavAction.LOAD, 'subframe_https');
+    return new TrustedNavDecision(TrustedNavAction.CANCEL, 'subframe_network_document');
   }
 
   /** 主框架：原有的严格 origin 口径（带用户信息、非 https 非回环等解析不了的不算可信）。 */

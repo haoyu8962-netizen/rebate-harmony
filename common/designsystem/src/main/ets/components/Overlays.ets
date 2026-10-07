@@ -1,11 +1,13 @@
 import { accessibility } from '@kit.AccessibilityKit';
 import { ComponentContent, display, LengthMetrics } from '@kit.ArkUI';
 import { CouliColors } from '../CouliColors';
-import { CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliFocus } from '../CouliMetrics';
+import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliFocus } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliButton, CouliButtonVariant } from './Basics';
 import { CouliIcon } from './CouliIcon';
+import { CouliDialogLink, CouliLinkSegments, CouliTextSegment } from './CodeCells';
 import { CouliTextModifier } from './CouliText';
+import { CouliFontScale } from './FontScale';
 
 /** 读屏焦点请求的延迟（ms）：等目标节点挂进无障碍树（弹层出现动画、页面刚挂载）后再请求。 */
 const A11Y_FOCUS_DELAY_MS: number = 120;
@@ -63,18 +65,73 @@ export struct CouliDialogPanel {
   @Param maxPanelHeight: Length = '100%';
   /** 标题 id：打开时焦点进入标题（adaptation-a11y-spec §8）。 */
   @Param titleId: string = 'couli-dialog-title';
+  /**
+   * 正文里做成链接的文字（R1-13：如 LoginAgreeConfirm 的《用户协议》《隐私政策》）：每个链接单独可点、读屏单独聚焦
+   * （超链接角色），命中区不低于 48vp；点了交给 onLink(id)。
+   */
+  @Param links: CouliDialogLink[] = [];
+  @Event onLink: (id: string) => void = (_id: string) => {
+  };
   @Event onPrimary: () => void = () => {
   };
   @Event onSecondary: () => void = () => {
   };
+  @Local fontScale: CouliFontScale = CouliFontScale.shared();
+  @Local panelWidth: number = 0;
+
+  /**
+   * 两颗按钮按文字宽度并排放不下（字号放大、窄屏）就整块换行。文字宽度按「字数 × 字号 × 字号倍数」估（中文字宽约等于字号；
+   * 拉丁字母更窄，估大只会更早换行，不会截断）；面板宽度未测得前按并排。
+   */
+  aboutToAppear(): void {
+    CouliFontScale.attach(this.getUIContext());
+  }
+
+  private stackButtons(): boolean {
+    if (this.secondaryText.length === 0 || this.panelWidth <= 0) {
+      return false;
+    }
+    const fontPx: number = CouliTypography.body.size * this.fontScale.scale;
+    const need: number = (this.primaryText.length + this.secondaryText.length) * fontPx
+      + 4 * CouliComponentMetrics.buttonPaddingInline + CouliSpacing.space3 + 2 * CouliComponentMetrics.controlBorderWidth;
+    return need > this.panelWidth - 2 * CouliSpacing.space5;
+  }
+
+  /** 带链接的正文：按节排成可换行的一行行；链接各自 48vp 命中区（窄屏 / 大字号时整节换行，命中区不重叠）。 */
+  @Builder
+  linkedMessage() {
+    Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
+      ForEach(CouliLinkSegments.split(this.message, this.links), (segment: CouliTextSegment) => {
+        if (segment.link === null) {
+          Text(segment.text)
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+        } else {
+          Text(segment.text)
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textLink))
+            .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+            .textAlign(TextAlign.Center)
+            .accessibilityRole(AccessibilityRoleType.HYPERLINK)
+            .focusable(true)
+            .focusBox(CouliFocus.box)
+            .id('couli-dialog-link-' + segment.link)
+            .onClick(() => {
+              this.onLink(segment.link ?? '');
+            })
+        }
+      }, (segment: CouliTextSegment, index: number) => index + ':' + (segment.link ?? '') + ':' + segment.text)
+    }
+    .width('100%')
+  }
 
   build() {
-    // Flex 纵向：标题与按钮行不收缩，正文 Scroll 收缩并滚动（窄屏 + 200% + 长正文时按钮仍可见）。
-    Flex({ direction: FlexDirection.Column, space: { main: LengthMetrics.vp(CouliSpacing.space4) } }) {
+    // 纵向：标题与按钮行不收缩，正文 Scroll 收缩并滚动（窄屏 + 200% + 长正文时按钮仍可见）。面板高度随内容（Column 按内容
+    // 定高，F-HM-04：原先的纵向 Flex 撑满面板最大高，短正文下方留一大片空白）。
+    Column({ space: CouliSpacing.space4 }) {
       Text(this.title)
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary, CouliFontWeight.semibold))
         .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
         .flexShrink(0)
+        .width('100%')
         .id(this.titleId)
         .focusable(true)
         .focusBox(CouliFocus.box)
@@ -83,43 +140,72 @@ export struct CouliDialogPanel {
         })
       if (this.message.length > 0) {
         Scroll() {
-          Text(this.message)
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
-            .width('100%')
+          if (this.links.length > 0) {
+            this.linkedMessage()
+          } else {
+            Text(this.message)
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+              .width('100%')
+          }
         }
         .flexShrink(1)
         .align(Alignment.TopStart)
         .edgeEffect(EdgeEffect.None)
         .scrollBar(BarState.Auto)
       }
-      // 按钮行：同一行时次按钮在左、主按钮在右；放不下时整块换行、各占通栏、主按钮在上
-      // （RowReverse + Wrap，源码顺序主 → 次；ArkUI 的 WrapReverse 实测不能把主按钮放到上方）。
-      Flex({ direction: FlexDirection.RowReverse, wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space3),
-        cross: LengthMetrics.vp(CouliSpacing.space3) } }) {
-        CouliButton({
-          text: this.primaryText,
-          fullWidth: true,
-          onTap: () => {
-            this.onPrimary();
-          }
-        })
-          .flexGrow(1)
-          .flexBasis('auto')
-        if (this.secondaryText.length > 0) {
+      // 按钮行（GUIDE §6「一主一次并排」；设计稿 AdaptLargeTextLoginAgreeConfirm）：并排时次按钮在左、占其余宽度，主按钮在右、
+      // 按文字取最小宽度；两颗按文字宽度放不下时整块换行、各占通栏、主按钮在上。按钮内文字不截断（放不下时换行增高）。
+      if (this.stackButtons()) {
+        Column({ space: CouliSpacing.space3 }) {
           CouliButton({
-            text: this.secondaryText,
-            variant: CouliButtonVariant.SECONDARY,
+            text: this.primaryText,
             fullWidth: true,
             onTap: () => {
-              this.onSecondary();
+              this.onPrimary();
             }
           })
-            .flexGrow(1)
-            .flexBasis('auto')
+          if (this.secondaryText.length > 0) {
+            CouliButton({
+              text: this.secondaryText,
+              variant: CouliButtonVariant.SECONDARY,
+              fullWidth: true,
+              onTap: () => {
+                this.onSecondary();
+              }
+            })
+          }
         }
+        .width('100%')
+        .flexShrink(0)
+      } else {
+        Row({ space: CouliSpacing.space3 }) {
+          if (this.secondaryText.length > 0) {
+            CouliButton({
+              text: this.secondaryText,
+              variant: CouliButtonVariant.SECONDARY,
+              fullWidth: true,
+              onTap: () => {
+                this.onSecondary();
+              }
+            })
+              .layoutWeight(1)
+          }
+          CouliButton({
+            text: this.primaryText,
+            fullWidth: this.secondaryText.length === 0,
+            onTap: () => {
+              this.onPrimary();
+            }
+          })
+            .layoutWeight(this.secondaryText.length === 0 ? 1 : 0)
+        }
+        .width('100%')
+        .flexShrink(0)
       }
-      .flexShrink(0)
     }
+    .onAreaChange((_old: Area, now: Area) => {
+      this.panelWidth = now.width as number;
+    })
     .constraintSize({ maxHeight: this.maxPanelHeight })
     .padding(CouliSpacing.space5)
     .backgroundColor(CouliColors.backgroundSurface)
@@ -139,6 +225,10 @@ export class CouliDialogOptions {
   dismissOnMask: boolean = true;
   /** 关闭后焦点回到的控件 id（打开弹窗的按钮；CouliButton 的 buttonId）。 */
   returnFocusId: string = '';
+  /** 正文里做成链接的文字（见 CouliDialogPanel.links）。点链接先关弹窗，再调 onLink(id)。 */
+  links: CouliDialogLink[] = [];
+  onLink: (id: string) => void = (_id: string) => {
+  };
   onPrimary: () => void = () => {
   };
   onSecondary: () => void = () => {
@@ -165,6 +255,11 @@ function dialogBuilder(params: DialogParams) {
       primaryText: params.options.primaryText,
       secondaryText: params.options.secondaryText,
       maxPanelHeight: params.maxHeight,
+      links: params.options.links,
+      onLink: (id: string) => {
+        params.close();
+        params.options.onLink(id);
+      },
       onPrimary: () => {
         params.close();
         params.options.onPrimary();

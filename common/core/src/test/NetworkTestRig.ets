@@ -163,10 +163,17 @@ export class FakeRegistrar implements DeviceRegistrar {
   usedDeviceIds: (string | null)[] = [];
   result: () => Promise<boolean> = () => Promise.resolve(false);
 
-  reregister(usedDeviceId: string | null): Promise<boolean> {
+  /** 每次调用带的调用方有效性（R3-03；null = 独立调用方）。 */
+  callers: ((() => boolean) | null)[] = [];
+
+  reregister(usedDeviceId: string | null, caller: (() => boolean) | null): Promise<boolean> {
     this.calls++;
     this.usedDeviceIds.push(usedDeviceId);
+    this.callers.push(caller);
     return this.result();
+  }
+
+  callersChanged(): void {
   }
 
   /** 不走重新注册的 10402 隔离（F-ALL-08 共性 25）：只记下来。 */

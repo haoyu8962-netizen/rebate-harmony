@@ -119,6 +119,48 @@ export class ExternalNavPolicy {
     return table.matchUrl(target, [LinkRuleTable.UNION_HOST, LinkRuleTable.PRODUCT]) !== null;
   }
 
+  /**
+   * external_page_nav_host 的 hit（APP-04 共性 49，A-R2-06，F-HM-07）：地址是否命中规则表的任一类别（union_host、product、
+   * promo），与这次导航放行还是拦下无关（promo 放行时 hit 仍为 true）。规则表不可用时为 false。
+   */
+  ruleHit(url: string, linkPatterns: string | null): boolean {
+    const target: NormalizedHttpsUrl | null = NormalizedHttpsUrl.parse(url);
+    const table: LinkRuleTable | null = this.tableFor(linkPatterns);
+    if (target === null || table === null) {
+      return false;
+    }
+    return table.matchUrl(target,
+      [LinkRuleTable.UNION_HOST, LinkRuleTable.PRODUCT, LinkRuleTable.PROMO]) !== null;
+  }
+
+  /**
+   * 子框架文档能否加载（编排者裁定「拦不到子框架重定向时」，F-HM-07）：鸿蒙 ArkWeb 的 onLoadIntercept 不保证对子框架的
+   * 每一跳（含服务器重定向）都回调（capability-harmony.md），所以 ExternalWebView 一律取消子框架文档加载；只放行内容由
+   * 父页面写入、没有网络来源的 about:blank / about:srcdoc。主框架照常判定。
+   */
+  static subframeDocumentAllowed(url: string): boolean {
+    const lower: string = url.toLowerCase();
+    return lower === 'about:blank' || lower === 'about:srcdoc';
+  }
+
+  /**
+   * 主框架导航的请求方法能否放行（编排者裁定「看不到每一跳时一律在第一跳取消」(b)，F-HM-07，APP-04 共性 57）：ArkWeb 不保证
+   * POST 经 307 / 308 重定向后的每一跳都回调 onLoadIntercept，重定向目标可能是平台域或授权页，所以 ExternalWebView 的主框架
+   * 只放行 GET；POST（及其余方法、读不到方法）在第一跳取消，原页面保留。
+   */
+  static mainFrameMethodAllowed(method: string | null): boolean {
+    return method !== null && method.trim().toUpperCase() === 'GET';
+  }
+
+  /** onInterceptRequest 看到的子框架文档请求（Sec-Fetch-Dest = iframe / frame / embed / object）。 */
+  static isSubframeDocumentRequest(isMainFrame: boolean, secFetchDest: string | null): boolean {
+    if (isMainFrame || secFetchDest === null) {
+      return false;
+    }
+    const dest: string = secFetchDest.toLowerCase();
+    return dest === 'iframe' || dest === 'frame' || dest === 'embed' || dest === 'object';
+  }
+
   /** 非 https 跳转的埋点类别（events.yaml external_page_blocked_nav.kind）。 */
   static blockedKind(url: string): string {
     const scheme: string | null = ExternalNavPolicy.schemeOf(url);
