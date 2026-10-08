@@ -1,6 +1,6 @@
 import {
-  AgreementState, CodeInput, InviteDecision, InviteField, LoginOutcome, LoginRateLimits, LoginService, PhoneNumber,
-  PhoneEntry, PhoneResult, SendCodeOutcome, SmsCountdown
+  AgreementState, AuthFeedback, CodeInput, InviteDecision, InviteField, LoginOutcome, LoginRateLimits, LoginService, OAuthLoginErrorAction,
+  OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, PhoneResult, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
   CodeCellLayout, CouliButton, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
@@ -34,6 +34,13 @@ export class LoginKeys {
   static readonly CONTINUE_CODE: string = 'login.code.continue';
   static readonly OTHER_METHODS: string = 'login.other_methods';
   static readonly HUAWEI: string = 'login.huawei';
+  /** 微信登录按钮的读屏名称（Login 画板 aria-label「微信登录」）。 */
+  static readonly WECHAT: string = 'login.wechat';
+  /** 微信按钮下方的短标签（「微信」）。 */
+  static readonly WECHAT_SHORT: string = 'login.wechat.short';
+  /** 文案变量 {provider_name} 的取值（error.50305、error.30411.mergeable）。 */
+  static readonly PROVIDER_PREFIX: string = 'login.provider.';
+  static readonly WECHAT_UNAVAILABLE: string = 'login.wechat_unavailable';
   static readonly CONFIRM_TITLE: string = 'login.agree_confirm.title';
   static readonly CONFIRM_BODY: string = 'login.agree_confirm.body';
   static readonly CONFIRM_CANCEL: string = 'login.agree_confirm.cancel';
@@ -75,8 +82,16 @@ export class LoginPageConfig {
   restricted: boolean = false;
   /** 刷新失败清会话后进入（LoginSessionExpired）：进入时提示 error.10404。 */
   sessionExpired: boolean = false;
-  /** 第三方登录的位置（LoginPublicHarmony「其他登录方式」）：APP-05b 实现前只在 Debug 构建显示占位，便于版式比对。 */
+  /**
+   * LoginPublicHarmony 的【华为账号登录】占位：华为账号登录在 HM-08 / APP-13，本任务不做；只在 Debug 构建显示（版式比对用，
+   * 点了不做事），Release 不显示。
+   */
   showThirdPartySlot: boolean = false;
+  /** 第三方登录执行器（APP-05b）；没有为 null（不显示第三方按钮）。显示哪些按钮由它的适配器决定（visibleProviders）。 */
+  oauth: OAuthLoginService | null = null;
+  /** 第三方登录成功（页面已由执行器关闭）：entry 弹绑手机引导（routeRaw = bind_phone_guide）等。 */
+  onOAuthLoggedIn: (outcome: OAuthLoginOutcome) => void = (_o: OAuthLoginOutcome) => {
+  };
   clock: () => number = () => Date.now();
   onClose: () => void = () => {
   };
@@ -132,6 +147,8 @@ export class LoginModel {
   /** 发码结束时递增：「继续输入验证码」入口重新判断（F-HM-08）。 */
   @Trace entryStamp: number = 0;
   @Trace now: number = 0;
+  /** 第三方授权进行中（按钮显示加载、不重复点击）。 */
+  @Trace oauthBusy: boolean = false;
 
   static readonly STEP_PHONE: string = 'phone';
   static readonly STEP_CODE: string = 'code';
@@ -170,6 +187,8 @@ export struct LoginView {
    * LoginService.sendState（F-HM-09，APP-05a 共性 21）。
    */
   private limits: LoginRateLimits = new LoginRateLimits();
+  /** 第三方登录收到 42901 的禁用截止时刻（只禁第三方按钮，与短信发码 / 登录分开）。 */
+  private oauthUntil: number = 0;
   private timer: number = -1;
 
   aboutToAppear(): void {
@@ -227,7 +246,8 @@ export struct LoginView {
   }
 
   private timerNeeded(): boolean {
-    return this.config.service.sendState(this.model.phoneText).needsTimer(this.limits.loginBlocked(this.model.now));
+    return this.config.service.sendState(this.model.phoneText).needsTimer(this.limits.loginBlocked(this.model.now)
+      || this.model.now < this.oauthUntil);
   }
 
   private tick(): void {
@@ -509,6 +529,101 @@ export struct LoginView {
     CouliDialog.open(this.getUIContext(), options);
   }
 
+  // ---------------------------------------------------------------- 第三方登录（APP-05b）
+
+  private providers(): string[] {
+    const oauth: OAuthLoginService | null = this.config.oauth;
+    return oauth === null || this.config.restricted ? [] : oauth.visibleProviders();
+  }
+
+  private oauthBlocked(): boolean {
+    return this.model.rateLimitStamp >= 0 && this.model.now < this.oauthUntil;
+  }
+
+  private providerName(provider: string): string {
+    return this.t(LoginKeys.PROVIDER_PREFIX + provider);
+  }
+
+  /** 点第三方按钮：与短信登录同一套协议确认（未勾选先弹确认框，同意时刻作 consent_at，BR-ID-04 例）。 */
+  private tapProvider(provider: string, focusId: string): void {
+    if (this.model.oauthBusy || this.oauthBlocked() || this.model.sending || this.model.submitting) {
+      return;
+    }
+    this.withAgreement(focusId, () => {
+      this.loginWith(provider);
+    });
+  }
+
+  private async loginWith(provider: string): Promise<void> {
+    const oauth: OAuthLoginService | null = this.config.oauth;
+    if (oauth === null) {
+      return;
+    }
+    this.model.oauthBusy = true;
+    let outcome: OAuthLoginOutcome;
+    try {
+      outcome = await oauth.loginWith(provider, this.agreement.consentAtMillis);
+    } finally {
+      this.model.oauthBusy = false;
+    }
+    switch (outcome.stateRaw) {
+      case OAuthLoginOutcome.LOGGED_IN:
+        this.stopTimer();
+        this.config.onOAuthLoggedIn(outcome);
+        return;
+      case OAuthLoginOutcome.CANCELLED:
+      case LoginOutcome.STALE:
+      case LoginOutcome.BUSY:
+      case LoginOutcome.AGREEMENT_REQUIRED:
+        // 用户自己取消、离页或迟到：不提示，保留全部登录方式。
+        return;
+      case OAuthLoginErrorAction.RETRY_AFTER:
+        this.oauthUntil = Math.max(this.oauthUntil, this.config.clock() + Math.max(0, outcome.disableMillis));
+        this.rateLimitChanged();
+        this.oauthToast(outcome, provider);
+        return;
+      case OAuthLoginErrorAction.FORCE_UPDATE:
+        this.stopTimer();
+        this.oauthToast(outcome, provider);
+        this.config.onForceUpdate();
+        return;
+      default: {
+        // risk_blocked（44001，R1-05）：弹窗给申诉入口（BR-TEXT-14 表 A），不套用短信登录专用说明。
+        const feedback: AuthFeedback = AuthFeedback.ofOAuth(outcome);
+        if (feedback.kind === AuthFeedback.RISK_DIALOG) {
+          this.showOAuthRiskBlocked(feedback, provider);
+          return;
+        }
+        // reauthorize（20004、超时、state 不符：用户重新点一次即重新取尝试）、provider_unavailable（50305：改用其他方式）、
+        // unavailable（拉不起）、service_error 等：提示，不自动重试。
+        this.oauthToast(outcome, provider);
+      }
+    }
+  }
+
+  /** 第三方登录 44001：标题 error.44001，【知道了】/【联系客服申诉】（统一客服出口）；焦点回到该登录方式按钮。 */
+  private showOAuthRiskBlocked(feedback: AuthFeedback, provider: string): void {
+    const options: CouliDialogOptions = new CouliDialogOptions();
+    options.title = this.t(feedback.textKey ?? AuthFeedback.RISK_KEY);
+    options.message = feedback.descKey === null ? '' : this.t(feedback.descKey);
+    options.primaryText = this.t(LoginKeys.RISK_BLOCKED_OK);
+    options.secondaryText = this.t(LoginKeys.APPEAL);
+    options.dismissOnMask = false;
+    options.returnFocusId = 'login_oauth_' + provider;
+    options.onSecondary = () => this.config.onCustomerService();
+    CouliDialog.open(this.getUIContext(), options);
+  }
+
+  private oauthToast(outcome: OAuthLoginOutcome, provider: string): void {
+    const vars: Map<string, string> = new Map<string, string>();
+    vars.set('trace6', outcome.trace6);
+    vars.set('provider_name', this.providerName(provider));
+    const text: string = this.config.texts.format(outcome.textKey ?? LoginKeys.GENERIC, vars);
+    if (text.length > 0) {
+      CouliToast.show(this.getUIContext(), text);
+    }
+  }
+
   private backToPhone(): void {
     this.config.service.invalidateAttempt();
     this.model.step = LoginModel.STEP_PHONE;
@@ -742,20 +857,66 @@ export struct LoginView {
     return InviteField.decide(this.model.inviteText, context);
   }
 
+  /** 圆形图标 + 短标签的第三方按钮（Login 画板「微信」：48vp 圆、描边、下方 12 号标签；整体一个读屏单元）。 */
+  @Builder
+  providerButton(provider: string) {
+    Column({ space: CouliSpacing.space1 }) {
+      Row() {
+        if (this.model.oauthBusy) {
+          LoadingProgress().width(24).height(24).color(CouliColors.textSecondary)
+        } else {
+          CouliIcon({ name: 'chat', iconSize: 24, color: CouliColors.textSecondary })
+        }
+      }
+      .width(CouliInteraction.minTouchTarget)
+      .height(CouliInteraction.minTouchTarget)
+      .justifyContent(FlexAlign.Center)
+      .borderRadius(CouliRadius.pill)
+      .border({ width: 1, color: CouliColors.borderSubtle })
+      .backgroundColor(CouliColors.backgroundSurface)
+      Text(this.t(LoginKeys.WECHAT_SHORT))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+    }
+    .constraintSize({ minWidth: 64, minHeight: CouliInteraction.minTouchTarget })
+    .opacity(this.oauthBlocked() ? 0.4 : 1)
+    .accessibilityGroup(true)
+    .accessibilityText(this.t(LoginKeys.WECHAT))
+    .accessibilityRole(AccessibilityRoleType.BUTTON)
+    .enabled(!this.oauthBlocked())
+    .focusable(true)
+    .focusBox(CouliFocus.box)
+    .id('login_oauth_' + provider)
+    .onClick(() => this.tapProvider(provider, 'login_oauth_' + provider))
+  }
+
   @Builder
   thirdPartySlot() {
-    // LoginPublicHarmony：分隔线「其他登录方式」+ 华为账号登录（描边按钮）。TODO(APP-05b)：华为 / 微信登录在 APP-05b 实现；
-    // 本机未装微信时不显示微信入口（BR-ID-04 细则）。实现前 Release 不显示本区（不放点不动的按钮）。
-    Column({ space: CouliSpacing.space4 }) {
+    // 「其他登录方式」（Login 画板的第三方按钮区；鸿蒙按 LoginPublicHarmony）。微信按钮只在适配器可用、本机装了微信（检测未知
+    // 按照常显示）时出现（BR-ID-04 细则）：鸿蒙正式适配器不可用，Release 不显示；Debug 假适配器只用于测试与截图。
+    // 鸿蒙没有 Apple 登录（向量 appleButton）；华为账号登录在 HM-08，Debug 只放版式占位（showThirdPartySlot）。
+    Column({ space: CouliSpacing.space3 }) {
       Row({ space: CouliSpacing.space3 }) {
         Divider().color(CouliColors.borderSubtle).layoutWeight(1)
         Text(this.t(LoginKeys.OTHER_METHODS))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
           .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
         Divider().color(CouliColors.borderSubtle).layoutWeight(1)
       }
       .width('100%')
-      CouliButton({ text: this.t(LoginKeys.HUAWEI), variant: CouliButtonVariant.SECONDARY, fullWidth: true, disabled: false })
+      if (this.providers().length > 0) {
+        Row({ space: 40 }) {
+          ForEach(this.providers(), (provider: string) => {
+            if (provider === OAuthProvider.WECHAT) {
+              this.providerButton(provider)
+            }
+          }, (provider: string) => provider)
+        }
+        .justifyContent(FlexAlign.Center)
+        .width('100%')
+      }
+      if (this.config.showThirdPartySlot) {
+        CouliButton({ text: this.t(LoginKeys.HUAWEI), variant: CouliButtonVariant.SECONDARY, fullWidth: true, disabled: false })
+      }
     }
     .width('100%')
   }
@@ -846,7 +1007,7 @@ export struct LoginView {
         }
       }
       Blank().layoutWeight(1)
-      if (this.config.showThirdPartySlot && !this.config.restricted) {
+      if (!this.config.restricted && (this.config.showThirdPartySlot || this.providers().length > 0)) {
         this.thirdPartySlot()
       }
       this.helpEntry()

@@ -63,6 +63,16 @@ export class Router {
   /** 会话 / 环境代次：退出登录、切换账号、切换环境时递增，进行中的推送回查结果据此作废。 */
   private generation: number = 0;
   /**
+   * pending_action 的登记序号（APP-05a 共性 25，本进程内存）：每次登记推进；savedPendingSerial 是现存记录的序号（冷启动读到的
+   * 旧记录为 0）。sessionClearedBoundary 是网络层清掉会话（10404、刷新失败）那一刻的登记序号——之后登记的待办属于游客或
+   * 新会话，不归原会话。-1 = 本进程没有记下过「原会话被别处清除」。
+   */
+  private pendingSerial: number = 0;
+  private savedPendingSerial: number = 0;
+  private sessionClearedBoundary: number = -1;
+  /** 被网络层清除的会话世代（ApiClient 的会话世代，随 Effect 传入；诊断与测试用）。 */
+  private clearedSessionGeneration: number = -1;
+  /**
    * 排队推送的回查器（R2-01）：openPush 时记下（或由 App 用 setPushLanding 注入），等待结束后 stateChanged /
    * drainLaunchQueue 未传回查器时用它继续回查，不把推送永远留在队列里。
    */
@@ -83,6 +93,13 @@ export class Router {
    * 记为「刚完成前置」）、stateChanged 与 drainLaunchQueue 什么都不放行；就绪后 App 调 stateChanged 继续。
    */
   presentationReady: () => boolean = () => true;
+  /**
+   * 待办暂缓中（APP-05b harmony-review-r2 R2-02，共性 9）：第三方新号等绑手机引导、老用户等 phone_bound 查清期间为 true（登录
+   * 出口 RouterLoginHost 接 LoginService.pendingHeld，绑定在当前会话世代上）。为 true 时所有自动恢复入口——stateChanged（含
+   * 版本检查完成、等满 5 秒、外壳就绪、会话同步）、resumePending、prerequisiteCompleted——都只保留记录、不执行；也不消耗
+   * 「刚完成前置」的暂停标记。只有引导跳过、关闭或绑定完成时由登录流程明确释放。缺省恒为 false。
+   */
+  pendingHold: () => boolean = () => false;
 
   constructor(pendingStore: PendingActionStore, state: () => GuardState, navigator: RouteNavigator,
     routes: RouteLookup = (name: string): RouteSpec | undefined => RouteTable.spec(name),
@@ -166,7 +183,7 @@ export class Router {
       return null;
     }
     const update: UpdateState | null = this.launchQueue.updateFor(readiness, now);
-    if (update !== null && resumePending) {
+    if (update !== null && resumePending && !this.pendingHold()) {
       const s: GuardState = this.state();
       // 前置完成后因强更等待而暂停的恢复：按「刚完成前置」的语义继续（R2-02）。
       const enterPrerequisite: boolean = this.prerequisiteResumeDeferred;
@@ -315,7 +332,10 @@ export class Router {
     if (paramCount(params) > 0) {
       values['params'] = params;
     }
-    this.pendingStore.save(Router.OPEN_ROUTE_ACTION, values, this.pendingStore.now(), request.sourceKind);
+    if (this.pendingStore.save(Router.OPEN_ROUTE_ACTION, values, this.pendingStore.now(), request.sourceKind)) {
+      this.pendingSerial++;
+      this.savedPendingSerial = this.pendingSerial;
+    }
   }
 
   // ---------------------------------------------------------------- pending_action
@@ -327,11 +347,24 @@ export class Router {
   }
 
   /**
+   * 完成了一个前置步骤、但暂缓恢复（APP-05b harmony-review-r1 R1-03，BR-ID-10、BR-INV-03）：第三方新号登录成功时先弹绑手机
+   * 引导、老用户登录先查 phone_bound——这一刻只把未超时的待办计时重置为现在（已超时的删除，不得续活），不执行；之后由
+   * resumePending 只恢复、不再重置。
+   */
+  prerequisiteDoneHeld(): void {
+    this.pendingStore.markStepDone(this.pendingStore.now());
+  }
+
+  /**
    * 恢复 pending_action：再过一次守卫（source=pending_action，用当时最新状态）。
    * 还缺前置时保留记录并进前置页；其余情况执行 1 次后删除。
    * Agent 卡片登记的动作遇隐私阻断直接删除，不自动执行（BR-ID-10）。
    */
   resumePending(): void {
+    if (this.pendingHold()) {
+      // R2-02：待办暂缓中（绑手机引导未结束）：保留记录，等登录流程明确释放后再恢复。
+      return;
+    }
     if (!this.resumeAllowed()) {
       // 强更检查中（R2-02），或环境 / 隐私闸门未通过、Navigation / Tab 未就绪（APP-02b R1-02）：保留记录，
       // 全部就绪（强更有结果或满 5 秒）后由 stateChanged 按「刚完成前置」恢复（还缺前置时进下一个前置页）。
@@ -431,6 +464,41 @@ export class Router {
     this.pendingStore.clear();
     this.resetResumeFlags();
     this.generation++;
+  }
+
+  /**
+   * 网络层清掉了会话（10404、刷新失败；APP-05a 共性 25、26）：在会话级 Effect 的同步回调里调用，记下这一刻的待办登记序号
+   * 作为「原会话」与之后（游客、新会话）的分界。clearedGeneration 是网络层确定清理时随 Effect 传出的被清世代。
+   */
+  markSessionCleared(clearedGeneration: number): void {
+    this.sessionClearedBoundary = this.pendingSerial;
+    this.clearedSessionGeneration = clearedGeneration;
+  }
+
+  /** 最近一次被网络层清除的会话世代（没有为 -1）。 */
+  get lastClearedSessionGeneration(): number {
+    return this.clearedSessionGeneration;
+  }
+
+  /**
+   * 登出收尾时原会话已被清除（APP-05a 共性 25；APP-05b harmony-review-r1 R1-04）：originalGeneration 是登出开始时的会话世代
+   * （即本次要清的那个会话）。分界只认绑定在这个会话上的那次清除：网络层清掉的正是它（markSessionCleared 记下的被清世代与
+   * originalGeneration 相同），且现存待办是那之后才登记的（游客点了需登录的入口等）→ 保留、推送回查照常作废，返回 true。
+   * 被清的是别的（更早的）会话、或登出请求自己回 10404 清掉了它（网络层对登出不发会话 Effect）：把本次清理记为这个会话的
+   * 分界（现存待办都在它之前，归原会话），返回 false，由调用方按原会话完成 sessionEnded。
+   */
+  sessionEndedOriginal(originalGeneration: number): boolean {
+    if (this.clearedSessionGeneration !== originalGeneration) {
+      // 不沿用历史分界：本次清理归属登出的原会话。
+      this.markSessionCleared(originalGeneration);
+      return false;
+    }
+    const boundary: number = this.sessionClearedBoundary;
+    if (boundary >= 0 && this.savedPendingSerial > boundary && this.pendingStore.load(this.pendingStore.now()) !== null) {
+      this.generation++;
+      return true;
+    }
+    return false;
   }
 
   /** 切换环境：作废进行中的推送回查与排队的启动意图（pending_action 随命名空间清理一并删除，这里也清）。 */

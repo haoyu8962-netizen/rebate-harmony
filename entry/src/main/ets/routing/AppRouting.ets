@@ -102,6 +102,12 @@ export class AppRouting {
    */
   syncUpdateCheck: () => void = () => {
   };
+  /**
+   * 会话的 phone_bound 没查清时补查（APP-05b R2-01：冷启动未知按未验证，AppLogin.ensurePhoneBindingKnown）。stateChanged 开头
+   * 调一次；查清后由登录模块再触发一次 stateChanged。缺省什么都不做。
+   */
+  syncSession: () => void = () => {
+  };
 
   /** EntryAbility.onCreate 调一次：注册调试路由（仅 Debug / Staging）、pending_action 落 Preferences、读版本号。 */
   start(context: common.Context): void {
@@ -276,6 +282,7 @@ export class AppRouting {
       this.retryTimer = -1;
     }
     this.syncUpdateCheck();
+    this.syncSession();
     const readiness: LaunchReadiness = this.readiness();
     const now: number = Date.now();
     // Router 部分与强更页同步在 Core RoutingSync（登录集成测试用同一份代码，APP-05a R1-01 / R1-02）：

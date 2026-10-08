@@ -3,7 +3,7 @@ import { ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { GuardDecision, GuardDecisionKind, GuardReason } from '../router/GuardDecision';
 import { GuardState, UpdateState } from '../router/GuardState';
 import { RouteRequest } from '../router/RouteRequest';
-import { BridgeCall, BridgeHandler, BridgeResult } from './BridgeHost';
+import { BridgeCall, BridgeHandler, BridgeHost, BridgeResult } from './BridgeHost';
 import { BridgeCode, BridgeProtocol } from './BridgeProtocol';
 import { BridgeJson, BridgeSchema } from './BridgeSchema';
 
@@ -66,6 +66,11 @@ export class BridgeBinding {
     account: string | null): string {
     return privacy + '|' + consentCycle + '|' + (environment === null ? 'none' : String(environment)) + '|'
       + (sessionGeneration === null ? 'none' : String(sessionGeneration)) + '|' + (account ?? '');
+  }
+
+  /** 绑定串里不含会话的部分（隐私、同意周期、环境；F-HM-10 BridgeCall.hostValid 用）。格式不认识时原样返回。 */
+  static hostPart(binding: string): string {
+    return BridgeHost.bindingHostPart(binding);
   }
 }
 
@@ -262,10 +267,13 @@ export class BridgeHandlers {
     return (_call: BridgeCall): Promise<BridgeResult> => Promise.resolve(BridgeResult.okThen({}, close));
   }
 
-  /** auth.login：打开登录页，用户完成或离开后兑现（logged_in 是那时的登录状态）。 */
-  static login(run: () => Promise<boolean>): BridgeHandler {
-    return async (_call: BridgeCall): Promise<BridgeResult> => {
-      const loggedIn: boolean = await run();
+  /**
+   * auth.login：打开登录页，等这次登录完成（会话已保存 → true）或取消 / 离开登录页（→ false）之后再结算（F-HM-10，APP-04
+   * 共性 66–68）。run 拿到调用不含会话的有效性（call.hostValid：截止时间、页面世代、隐私、环境），等待期间据此核对。
+   */
+  static login(run: (hostValid: () => boolean) => Promise<boolean>): BridgeHandler {
+    return async (call: BridgeCall): Promise<BridgeResult> => {
+      const loggedIn: boolean = await run(call.hostValid);
       const out: BridgeJson = {};
       out['logged_in'] = loggedIn;
       return BridgeResult.okObject(out);

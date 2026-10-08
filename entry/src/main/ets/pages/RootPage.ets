@@ -19,7 +19,7 @@ import { ForceUpdatePage } from '../update/ForceUpdatePage';
 import { UpdatePrompt } from '../update/UpdatePrompt';
 import { RoutePlaceholderPage } from './RoutePlaceholderPage';
 import { AppLogin } from '../login/AppLogin';
-import { AppLoginPage, destinationReadonly, SettingsPlaceholderPage } from '../login/LoginPages';
+import { AppBindPhonePage, AppLoginPage, destinationReadonly, SettingsPlaceholderPage } from '../login/LoginPages';
 import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 import { AppProductPage, AppSearch, AppSearchPage } from '../search/AppSearch';
 
@@ -141,6 +141,9 @@ struct RootPage {
     } else if (name === RoutePolicy.LOGIN) {
       // 登录页（APP-05a）。强更状态下守卫只放行从强更页进入的 Login：带受限登录标记（不显示邀请码等业务输入）。
       AppLoginPage({ restrictedLogin: AppUpdate.shared.belowMin })
+    } else if (name === RoutePolicy.BIND_PHONE) {
+      // 绑手机页（APP-05b）。
+      AppBindPhonePage()
     } else if (name === SEARCH_ROUTE) {
       // 搜索页（APP-06a）。参数只认 Router 放进来的 RouteDestination（q、platform）。
       AppSearchPage({ param: param })

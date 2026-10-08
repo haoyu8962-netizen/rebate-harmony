@@ -158,8 +158,12 @@ export class ApiClientDeps {
   random: NetworkRandom = new SystemNetworkRandom();
   /** 毫秒时钟。 */
   clock: () => number = () => Date.now();
-  /** 刷新失败（清会话）时的会话级 Effect：跳登录或停在强更页（每次刷新失败一次）。 */
-  sessionEffect: (effect: ErrorEffect) => void = (_e: ErrorEffect) => {
+  /**
+   * 刷新失败（清会话）时的会话级 Effect：跳登录或停在强更页（每次刷新失败一次）。clearedGeneration（APP-05a 共性 26）：
+   * 网络层在同一同步区里确定清理确实已发生的那一刻，被清掉的那个会话世代；旧世代的清理没有发生就不发。App 用它绑定
+   * 这次清理（Router 记下「原会话被清除」的分界），不在回调里读「当前世代」补作归属。
+   */
+  sessionEffect: (effect: ErrorEffect, clearedGeneration: number) => void = (_e: ErrorEffect, _g: number) => {
   };
   /**
    * 异步刷新（受限会话屏障、10002 单飞刷新）保存了新令牌、且作用域变了（如 deletion_only → full）时的状态通知
@@ -211,6 +215,12 @@ export class ApiRequest {
    * 一起核对；返回 false（或抛错）就按 cancelled 结束，不改绑到当前环境或会话。null = 没有额外守卫。
    */
   owner: (() => boolean) | null = null;
+  /**
+   * 写出观察（F-HM-10，APP-05a 共性 22）：传输层每次在真正发出前核对（TransportRequest.admit）后，以核对结果调用它；
+   * 最后一次为 true 表示这次发送已交给底层发出（之后结果可能未知），false 表示没有发出。发码用它区分「请求还没写出」与
+   * 「已写出但结果未知」。null = 不观察。
+   */
+  onAdmit: ((admitted: boolean) => void) | null = null;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -551,6 +561,32 @@ class LiveRequest {
  *   账号（R1-02）；确认 / 放弃先持久化成功再发送（R2-05）；放弃得到 completed 时按原操作解包并映射（R2-04）。
  * 单线程（UI 线程）使用。
  */
+/**
+ * 调用方自己固定的归属快照（APP-05b harmony-review-r1 R1-01，APP-05b 共性 1）：跨越多次请求与第三方 SDK 等待的流程（第三方
+ * 登录：取授权尝试 → 等授权 → 提交凭证）在开始时记下会话、登录、隐私、环境归属，每次异步返回后用 ApiClient.scopeValid
+ * 复核；变了就终止整个流程，后续请求不在新上下文里重新绑定。不含任何凭据（账号只用于比较）。
+ */
+export class ClientScope {
+  readonly epoch: number;
+  readonly loginSerial: number;
+  readonly sessionGeneration: number;
+  readonly credentialsAllowed: boolean;
+  readonly privacy: string;
+  readonly apiBase: string;
+  readonly account: string | null;
+
+  constructor(epoch: number, loginSerial: number, sessionGeneration: number, credentialsAllowed: boolean,
+    privacy: string, apiBase: string, account: string | null) {
+    this.epoch = epoch;
+    this.loginSerial = loginSerial;
+    this.sessionGeneration = sessionGeneration;
+    this.credentialsAllowed = credentialsAllowed;
+    this.privacy = privacy;
+    this.apiBase = apiBase;
+    this.account = account;
+  }
+}
+
 export class ApiClient {
   /** 签发会话的操作（响应 data 为 TokenPair）。 */
   static readonly SESSION_ISSUING: string[] = ['loginBySms', 'loginByWechat', 'loginByApple', 'loginByHuawei',
@@ -714,6 +750,41 @@ export class ApiClient {
   }
 
   /**
+   * 登录世代（F-HM-10，APP-05a 共性 23）：登录保存成功、onSessionChanged、作废时推进的计数（即 loginSerial）。刷新失败清会话
+   * 不推进它——原会话被清除不等于换成了新会话。登出在发请求之前记下它，回来后交给 clearSessionIfEpoch。
+   */
+  loginEpoch(): number {
+    return this.loginSerial;
+  }
+
+  /**
+   * 按登录世代清会话（F-HM-10，APP-05a 共性 23）：核对世代与删除会话在同一同步区内完成，与登录响应保存令牌（onSuccess）
+   * 用同一个 UI 线程同步区（「同一把锁」）——两者之间不可能插进别的登录保存。expected 与当前登录世代相同（期间没有新登录
+   * 保存，可能有刷新失败清会话）→ 结束会话世代、删除令牌，返回 true；不同（已换成新登录）→ 什么都不动，返回 false，
+   * 新会话不会被旧会话的登出删除。删除失败按 SecureSessionTokens 的隔离与重试处理（lessons 38），仍返回 true。
+   * afterClear 在同一同步区内执行（Router 的清理绑定这次被清除的原会话）。
+   */
+  clearSessionIfEpoch(expected: number, afterClear: () => void = () => {
+  }): boolean {
+    if (expected !== this.loginSerial) {
+      return false;
+    }
+    this.onSessionChanged();
+    try {
+      this.deps.tokens.clear();
+    } catch (e) {
+      // 删除失败：SecureSessionTokens 已在内存里作废旧令牌并持续重试删除（lessons 38），按已清除处理。
+    }
+    this.syncPendingAccount();
+    try {
+      afterClear();
+    } catch (e) {
+      // 清理出口出错不影响已清除的会话。
+    }
+    return true;
+  }
+
+  /**
    * 强更状态变更通知（R2-02、R3-04；App 组合处经 NetworkComposition.install 把 AppUpdate.onChanged 接到这里）。
    * 由「低于 / 未知」恢复为「不低于」且本机会话是 deletion_only：立即发起受限会话刷新屏障，不等下一个请求。
    */
@@ -846,6 +917,26 @@ export class ApiClient {
    */
   sessionGenerationId(): number {
     return this.sessionGeneration;
+  }
+
+  /** 固定此刻的会话、登录、隐私、环境归属（ClientScope；APP-05b R1-01）。 */
+  captureScope(): ClientScope {
+    const allowed: boolean = this.credentialsAllowed();
+    const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
+    return new ClientScope(this.epoch, this.loginSerial, this.sessionGeneration, allowed,
+      RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()), endpoints === undefined ? '' : endpoints.apiBase,
+      allowed && this.deps.tokens.accessToken() !== null ? this.deps.tokens.account() : null);
+  }
+
+  /**
+   * 归属快照此刻仍成立：撤回同意 / 切换环境（作废世代）、登录保存或换会话（登录序号、会话世代）、清会话、隐私或凭据状态、
+   * 环境端点、会话账号，任何一项变了都返回 false。
+   */
+  scopeValid(scope: ClientScope): boolean {
+    const now: ClientScope = this.captureScope();
+    return now.epoch === scope.epoch && now.loginSerial === scope.loginSerial
+      && now.sessionGeneration === scope.sessionGeneration && now.credentialsAllowed === scope.credentialsAllowed
+      && now.privacy === scope.privacy && now.apiBase === scope.apiBase && now.account === scope.account;
   }
 
   /** 发起页查询：当前会话账号该操作的未决记录（先核对账号，R1-02）。 */
@@ -1161,6 +1252,19 @@ export class ApiClient {
     return null;
   }
 
+  /** 把传输层发出前的核对结果交给调用方的写出观察（ApiRequest.onAdmit；观察方出错不影响发送）。 */
+  private static observeAdmit(request: ApiRequest, admitted: boolean): boolean {
+    const observe: ((admitted: boolean) => void) | null = request.onAdmit;
+    if (observe !== null) {
+      try {
+        observe(admitted);
+      } catch (e) {
+        // 观察方出错不影响发送判定。
+      }
+    }
+    return admitted;
+  }
+
   /** 调用方的归属守卫仍成立（没有守卫为成立；守卫抛错按不成立）。 */
   private static ownerValid(ctx: CallContext): boolean {
     const owner: (() => boolean) | null = ctx.owner;
@@ -1354,7 +1458,8 @@ export class ApiClient {
         this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
       }
       response = await this.send(new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery, headers,
-        request.body, plan.timeoutMillis, (): boolean => this.ownershipLost(ctx) === null), ctx.owner);
+        request.body, plan.timeoutMillis, (): boolean => ApiClient.observeAdmit(request, this.ownershipLost(ctx) === null)),
+        ctx.owner);
       const afterSend: string | null = this.ownershipLost(ctx);
       if (afterSend !== null) {
         // 撤回同意、切换环境、换了会话：旧响应不改动当前会话（不保存登录令牌、不清会话、不刷新、不重试，lessons 23、34），
@@ -1545,6 +1650,7 @@ export class ApiClient {
         } catch (e) {
           hadSession = true;
         }
+        const clearedGeneration: number = this.sessionGeneration;
         try {
           this.deps.tokens.clear();
         } catch (e) {
@@ -1557,7 +1663,7 @@ export class ApiClient {
         // 不靠发起页自己处理 Effect（搜索等页面不认识它）。登出请求回 10404 是用户自己在退出，不跳登录（LoginService 完成登出清理）。
         if (hadSession && op.operationId !== ApiClient.LOGOUT_OPERATION) {
           try {
-            this.deps.sessionEffect(this.sessionFailureEffect());
+            this.deps.sessionEffect(this.sessionFailureEffect(), clearedGeneration);
           } catch (e) {
             // App 的回调出错不影响本次结果。
           }
@@ -2073,6 +2179,7 @@ export class ApiClient {
         result = RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
       } else if (outcome.kind === RefreshOutcome.FAILED) {
         this.failedAccessToken = round.usedAccess;
+        const clearedGeneration: number = this.sessionGeneration;
         let cleanupFailed: boolean = false;
         try {
           this.deps.tokens.clear();
@@ -2087,7 +2194,7 @@ export class ApiClient {
         this.clearedOutcome = result;
         try {
           // 03 §4.2：刷新失败清会话并跳登录；强更状态下只清会话、停在 ForceUpdate（每次刷新失败一次）。
-          this.deps.sessionEffect(effect);
+          this.deps.sessionEffect(effect, clearedGeneration);
         } catch (e) {
           // App 的回调出错不影响等待者结算。
         }

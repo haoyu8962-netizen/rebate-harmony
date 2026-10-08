@@ -78,7 +78,7 @@ export {
 export {
   ApiAppIdentity, CredentialSource, NoDeviceCredentials, NetworkContext, UpdatePort, DeviceRegistrar, NoDeviceRegistrar,
   NetworkTimer, SystemNetworkTimer, NetworkRandom, SystemNetworkRandom, ApiClientDeps, ApiRequest, ApiOutcome, ApiResult,
-  ApiClient
+  ApiClient, ClientScope
 } from './src/main/ets/network/ApiClient';
 export { UpdateNetworkPort, NetworkComposition } from './src/main/ets/network/NetworkComposition';
 export {
@@ -100,8 +100,22 @@ export {
   LoginErrorMapper, InviteDecision, InviteField, AfterLoginAction, AfterLoginUpdate, AfterLogin, LegalVersions
 } from './src/main/ets/login/LoginFlow';
 export {
-  LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry, LoginSendState
+  LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry, LoginSendState,
+  AttemptTicket, WriteObserver, SendDeadline
 } from './src/main/ets/login/LoginService';
+// login（APP-05b）：第三方登录、绑手机与并号的纯逻辑（向量 specs/oauth-login-vectors.json）与执行器；桥 auth.login 的等待（F-HM-10）。
+export {
+  OAuthProvider, DroppedCallback, OAuthAttemptSession, OAuthRouteResult, OAuthLoginRoute, OAuthErrorResult,
+  OAuthLoginErrorAction, ThirdPartyButtons, BindActionResult, BindPhoneAction, MergeResult, MergeDecision
+} from './src/main/ets/login/OAuthLoginFlow';
+export {
+  ThirdPartyAuthKind, ThirdPartyAuthResult, ThirdPartyAuthAdapter, UnavailableWechatAdapter, PhoneBindingState,
+  OAuthLoginOutcome, OAuthLoginService
+} from './src/main/ets/login/OAuthLoginService';
+export { BindOutcome, BindPhoneHost, BindPhoneService } from './src/main/ets/login/BindPhoneService';
+export { AuthFeedback } from './src/main/ets/login/AuthFeedback';
+export { AuthAnnouncement, BindPhoneAnnouncer } from './src/main/ets/login/BindPhoneAnnouncer';
+export { BridgeLoginWait } from './src/main/ets/login/BridgeLoginWait';
 export { RouterLoginHost } from './src/main/ets/login/RouterLoginHost';
 export { SessionEffectHost, SessionEffectRouting } from './src/main/ets/login/SessionEffectRouting';
 // search（APP-06a）：搜索与商品详情的纯逻辑（向量 specs/search-product-vectors.json）与执行器（页面在 features/search、product）。

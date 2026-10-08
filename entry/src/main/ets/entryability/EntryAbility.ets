@@ -45,6 +45,8 @@ export default class EntryAbility extends UIAbility {
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
+    // APP-05b R2-01：冷启动后 phone_bound 未知按未验证；每次状态同步前补查 getMe，查清后经 Router 恢复待办。
+    AppRouting.shared.syncSession = (): void => AppLogin.shared.ensurePhoneBindingKnown();
     // Debug / Staging：冒烟与截图用的启动参数（如字号倍数）；Release 什么都不做。
     BuildVariant.applyLaunchOptions(appContext, want);
     // X-01：上次生效的环境与本次不同（同 bundleName 覆盖安装）时先清理再记录；见 EnvironmentLaunchReconciler。

@@ -28,11 +28,17 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  *   200020 → 20002；200030 → 20003；444444 → 44001；100070 → 10007 processing；104050 → 10405 no_account；
  *   429010 → 42901（Retry-After 30）；其余 → 20002。
  * - 设备注册、退出登录 → 成功；其余接口 → 50001（不连任何地址）。
+ * - APP-05b：授权尝试 → 成功；微信登录 → 第三方新号；getMe → phone_bound；bindPhone 场景见 bindPhone()。
  * - APP-06a：/v1/config（三个平台搜索开关都打开）、搜索与商品详情（场景见 DebugFakeSearch）。被 ApiClient 取消的请求
  *   （换关键词、换 Tab、离开页面）立即按 cancelled 结束，不再回答（与真实传输层一样）。
+ * - APP-05b 第 2 轮：`--pd couli_debug_wechat_scene risk` → 微信登录 44001（风控弹窗与申诉入口）；`old` → 老用户、未绑手机
+ *   （先查 phone_bound 再恢复待办）。bindPhone 验证码 444444 → 44001、200030 → 20003。
+ * - APP-05b 第 3 轮：bindPhone 验证码 100071 → 10007 stage=cooling（跳 DeleteAccount）、100070 → 10007 stage=processing（仅提示）。
  */
 export class DebugFakeServer implements HttpTransport {
   static enabled: boolean = false;
+  /** 微信登录场景（APP-05b 第 2 轮截图用）：'' = 第三方新号；risk = 44001；old = 老用户未绑手机。 */
+  static wechatScene: string = '';
   static readonly marker: string = DEBUG_FAKE_SERVER_MARKER;
   static readonly searchMarker: string = DebugFakeSearch.marker;
   private readonly real: HttpTransport = new RcpTransport();
@@ -106,7 +112,71 @@ export class DebugFakeServer implements HttpTransport {
     if (url.indexOf('/v1/auth/logout') >= 0) {
       return DebugFakeServer.envelope(0, '{}');
     }
+    if (url.indexOf('/v1/auth/oauth-attempts') >= 0) {
+      // APP-05b：一次性授权尝试（nonce 由假微信适配器原样作 state 带回）。
+      this.serial++;
+      return DebugFakeServer.envelope(0, '{"attempt_id":"debug-stub-attempt-' + this.serial
+        + '","nonce":"debug-stub-nonce-' + this.serial + '","expire_at":"2026-10-08T09:40:00+08:00"}');
+    }
+    if (url.indexOf('/v1/auth/login/wechat') >= 0) {
+      // APP-05b：微信登录 → 第三方新号（is_new_user=true，进绑手机引导）；未绑手机。
+      if (DebugFakeServer.wechatScene === 'risk') {
+        return DebugFakeServer.envelope(44001, '{}');
+      }
+      this.serial++;
+      this.phoneBound = false;
+      const isNew: string = DebugFakeServer.wechatScene === 'old' ? 'false' : 'true';
+      return DebugFakeServer.envelope(0, '{"user_id":"debug-stub-user-' + this.serial + '","is_new_user":' + isNew + ','
+        + '"tokens":{"access_token":"stub-access-' + this.serial + '","access_expires_at":"2026-10-08T11:30:00+08:00",'
+        + '"refresh_token":"stub-refresh-' + this.serial + '","refresh_expires_at":"2026-11-07T09:30:00+08:00",'
+        + '"session_scope":"full"}}');
+    }
+    if (url.indexOf('/v1/me/phone') >= 0) {
+      return this.bindPhone(body);
+    }
+    if (url.indexOf('/v1/me') >= 0) {
+      return DebugFakeServer.envelope(0, '{"user_id":"debug-stub-user","phone_bound":' + this.phoneBound + '}');
+    }
     return DebugFakeServer.envelope(50001, '{}');
+  }
+
+  /** 假服务记的「当前账号是否绑了手机」（短信登录为 true，微信新号为 false，bindPhone 成功后为 true）。 */
+  private phoneBound: boolean = true;
+
+  /**
+   * APP-05b bindPhone：13800005678 → 30411 mergeable（带 merge_ticket，进并号确认）；13800001111 → 30411（不能并号）；
+   * 验证码 123456 → 成功；42901x → 42901；100071 → 10007 cooling；100070 → 10007 processing；其余 → 20002。
+   */
+  private bindPhone(body: Record<string, Object>): TransportResponse {
+    const phone: Object | undefined = body['phone'];
+    const code: Object | undefined = body['code'];
+    if (phone === '13800005678') {
+      return DebugFakeServer.envelope(30411, '{"reason":"mergeable","merge_ticket":"debug-stub-merge-ticket"}');
+    }
+    if (phone === '13800001111') {
+      return DebugFakeServer.envelope(30411, '{}');
+    }
+    if (code === '123456') {
+      this.phoneBound = true;
+      return DebugFakeServer.envelope(0, '{}');
+    }
+    if (code === '429010') {
+      return DebugFakeServer.envelope(42901, '{}', '30');
+    }
+    if (code === '444444') {
+      return DebugFakeServer.envelope(44001, '{}');
+    }
+    if (code === '200030') {
+      return DebugFakeServer.envelope(20003, '{}');
+    }
+    // APP-05b 第 3 轮（R2-03）：注销冷静期 → 跳注销进度页；处理中 → 仅提示。
+    if (code === '100071') {
+      return DebugFakeServer.envelope(10007, '{"stage":"cooling"}');
+    }
+    if (code === '100070') {
+      return DebugFakeServer.envelope(10007, '{"stage":"processing"}');
+    }
+    return DebugFakeServer.envelope(20002, '{}');
   }
 
   private login(body: Record<string, Object>): TransportResponse {
@@ -124,6 +194,7 @@ export class DebugFakeServer implements HttpTransport {
           bind = ',"invite_bind":' + result;
         }
         this.serial++;
+        this.phoneBound = true;
         return DebugFakeServer.envelope(0, '{"user_id":"debug-stub-user-' + this.serial + '","is_new_user":' + isNew
           + ',"tokens":{"access_token":"stub-access-' + this.serial + '","access_expires_at":"2026-10-08T11:30:00+08:00",'
           + '"refresh_token":"stub-refresh-' + this.serial + '","refresh_expires_at":"2026-11-07T09:30:00+08:00",'

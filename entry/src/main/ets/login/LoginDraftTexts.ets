@@ -68,6 +68,29 @@ export class LoginDraftTexts {
     m.set('login.invite_failed.rate_limited', '尝试次数过多，请明天再试');
     m.set('login.invite_failed.ok', '知道了');
     m.set('login.invite_failed.backfill', '去补填');
+    // ---- APP-05b：第三方登录按钮（Login 画板「微信」，aria-label「微信登录」）、{provider_name} 的取值
+    m.set('login.wechat', '微信登录');
+    m.set('login.wechat.short', '微信');
+    m.set('login.provider.wechat', '微信');
+    m.set('login.provider.apple', 'Apple');
+    m.set('login.provider.huawei', '华为账号');
+    // ---- APP-05b：LoginBindPhoneGuide 按钮（标题、正文用契约 invite.bind_phone_guide.*）
+    m.set('invite.bind_phone_guide.skip', '暂不');
+    m.set('invite.bind_phone_guide.go', '去绑定');
+    // ---- APP-05b：BindPhone / BindPhoneMerge（标题、说明用契约 invite.bind_phone_guide.*；并号正文用 error.30411.mergeable）
+    m.set('bind_phone.code.placeholder', '6 位验证码');
+    m.set('bind_phone.countdown', '{sec} 秒后重新获取');
+    m.set('bind_phone.submit', '绑定');
+    m.set('bind_phone.done', '手机号已绑定');
+    // R2-04：读屏播报（倒计时结束、可重发时一次；发送成功复用 login.code.sent_to）。
+    m.set('bind_phone.a11y.resend_ready', '可以重新获取验证码');
+    m.set('bind_phone.merge.title', '并入原账号');
+    m.set('bind_phone.merge.into', '并入到');
+    m.set('bind_phone.merge.account', '手机号账号 {phone}');
+    m.set('bind_phone.merge.cancel', '取消');
+    m.set('bind_phone.merge.ok', '并入');
+    // TODO(N-29) MERGE-SUCCESS：锁定契约没有并号接口，确认后给明确的「暂不可用」（不发请求、不并号）。
+    m.set('bind_phone.merge.unavailable', '暂时无法并入原账号，请稍后再试，或退出后用手机号登录');
     // ---- 设置页·退出登录（BR-TEXT-14 表 C settings.logout.*，契约快照未同步）
     m.set('settings.logout', '退出登录');
     m.set('settings.logout.confirm', '确定退出登录？');

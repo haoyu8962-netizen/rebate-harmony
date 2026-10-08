@@ -3,7 +3,7 @@ import {
   CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliSpacing, CouliTextModifier,
   CouliTypography
 } from 'designsystem';
-import { LoginPageConfig, LoginView } from 'auth';
+import { BindPhonePageConfig, BindPhoneView, LoginPageConfig, LoginView } from 'auth';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppLogin } from './AppLogin';
 import { LoginDraftTexts } from './LoginDraftTexts';
@@ -39,6 +39,34 @@ export struct AppLoginPage {
       // R2-01（共性 9）：页面确定出栈（系统返回、任何不经 StackNavigator 的出栈）在退场动画开始前就作废本次登录尝试，
       // 不等 aboutToDisappear（动画结束才执行）；经 StackNavigator 的移除在同步出口已作废，这里重复调用无害。
       this.config?.service.invalidateAttempt();
+    })
+  }
+}
+
+/**
+ * 路由 BindPhone（APP-05b；BindPhone / BindPhoneMerge 画板）：features/auth BindPhoneView。页面确定出栈（返回、系统返回、清栈）时
+ * 作废在途请求并清除并号凭据；没绑定就离开时，登录时为绑手机引导保留的待办照常恢复（BR-INV-03 细则 ①「暂不」）。
+ */
+@ComponentV2
+export struct AppBindPhonePage {
+  private config: BindPhonePageConfig | null = null;
+
+  aboutToAppear(): void {
+    this.config = AppLogin.shared.bindPageConfig();
+  }
+
+  build() {
+    NavDestination() {
+      if (this.config !== null) {
+        BindPhoneView({ config: this.config })
+      }
+    }
+    .hideTitleBar(true)
+    .backgroundColor(CouliColors.backgroundCanvas)
+    .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
+    .onWillDisappear(() => {
+      this.config?.service.invalidate();
+      AppLogin.shared.bindPageLeft();
     })
   }
 }

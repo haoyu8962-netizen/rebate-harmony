@@ -42,6 +42,7 @@
     common/core/src/test/BridgeVectorsData.ets                specs/bridge-vectors.json 全文（APP-04，Codex 写的三端共用桥向量）
     common/core/src/test/LoginVectorsData.ets                 specs/login-vectors.json 全文（APP-05a，Codex 写的三端共用登录向量）
     common/core/src/test/SearchProductVectorsData.ets         specs/search-product-vectors.json 全文（APP-06a，Codex 写的三端共用搜索与详情向量）
+    common/core/src/test/OAuthLoginVectorsData.ets            specs/oauth-login-vectors.json 全文（APP-05b，Codex 写的三端共用第三方登录、绑手机与并号向量）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -677,6 +678,16 @@ def gen_search_product_vectors_data():
     """specs/search-product-vectors.json（APP-06a，Codex 先写的三端共用搜索与详情向量）。"""
     return gen_vectors_data(SEARCH_PRODUCT_VECTORS, "SEARCH_PRODUCT_VECTORS_JSON",
                             "搜索与商品详情向量（APP-06a）：specs/search-product-vectors.json 全文，供 SearchProductVector.test.ets "
+                            "解析。只在 src/test，不进产物。")
+
+
+OAUTH_LOGIN_VECTORS = os.path.join("specs", "oauth-login-vectors.json")
+
+
+def gen_oauth_login_vectors_data():
+    """specs/oauth-login-vectors.json（APP-05b，Codex 先写的三端共用第三方登录、绑手机与并号向量）。"""
+    return gen_vectors_data(OAUTH_LOGIN_VECTORS, "OAUTH_LOGIN_VECTORS_JSON",
+                            "第三方登录、绑手机与并号向量（APP-05b）：specs/oauth-login-vectors.json 全文，供 OAuthLoginVector.test.ets "
                             "解析。只在 src/test，不进产物。")
 
 
@@ -1582,6 +1593,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "BridgeVectorsData.ets"): gen_bridge_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "LoginVectorsData.ets"): gen_login_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "SearchProductVectorsData.ets"): gen_search_product_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "OAuthLoginVectorsData.ets"): gen_oauth_login_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

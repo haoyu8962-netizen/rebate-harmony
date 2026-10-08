@@ -44,8 +44,19 @@ export class StackNavigator implements RouteNavigator {
    */
   private readonly removalListeners: Map<string, (() => void)[]> = new Map<string, (() => void)[]>();
 
+  /**
+   * 每个页面名实际压栈的次数（F-HM-10，APP-04 共性 67）：只在 push 真正调用 pushPathByName 时推进。桥 auth.login 用它判断
+   * 「本次导航是否真的打开了登录页」——比较导航前后的计数（本次导航的执行结果），不比较路由状态对象。
+   */
+  private readonly pushCounts: Map<string, number> = new Map<string, number>();
+
   attachStack(stack: PathStack): void {
     this.stack = stack;
+  }
+
+  /** 这个页面名到目前为止实际压栈的次数。 */
+  pushCount(name: string): number {
+    return this.pushCounts.get(name) ?? 0;
   }
 
   /** 导航栈里有没有这一页（按页面名）。 */
@@ -54,10 +65,14 @@ export class StackNavigator implements RouteNavigator {
   }
 
   /** 某个页面确定被移出导航栈时同步调用 listener（见 removalListeners）。 */
-  onRemoved(name: string, listener: () => void): void {
+  onRemoved(name: string, listener: () => void): () => void {
     const list: (() => void)[] = this.removalListeners.get(name) ?? [];
     list.push(listener);
     this.removalListeners.set(name, list);
+    return (): void => {
+      const current: (() => void)[] = this.removalListeners.get(name) ?? [];
+      this.removalListeners.set(name, current.filter((l: () => void): boolean => l !== listener));
+    };
   }
 
   /** 移除栈里这个名字的页面（登录成功、关闭登录页）。 */
@@ -116,7 +131,9 @@ export class StackNavigator implements RouteNavigator {
       this.clearStack(this.stack);
       return;
     }
-    this.stack.pushPathByName(destination.route ?? UPGRADE_PROMPT_PAGE, destination);
+    const name: string = destination.route ?? UPGRADE_PROMPT_PAGE;
+    this.stack.pushPathByName(name, destination);
+    this.pushCounts.set(name, this.pushCount(name) + 1);
   }
 
   reset(destinations: RouteDestination[]): void {

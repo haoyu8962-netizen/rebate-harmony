@@ -98,14 +98,20 @@ export class BridgeCall {
    * 等完之后先调它，失效就不做副作用。
    */
   readonly valid: () => boolean;
+  /**
+   * 不含会话的有效性（F-HM-10，APP-04 共性 66、68）：截止时间没到、页面世代没变、隐私（含同意周期）与环境没变。
+   * 给会「造成会话变化」的调用（auth.login 等这次登录完成）在等待期间核对——本次登录造成的账号与会话世代变化不算失效。
+   */
+  readonly hostValid: () => boolean;
 
   constructor(id: string, method: string, params: BridgeJson, update: UpdateState,
-    valid: () => boolean = () => true) {
+    valid: () => boolean = () => true, hostValid: (() => boolean) | null = null) {
     this.id = id;
     this.method = method;
     this.params = params;
     this.update = update;
     this.valid = valid;
+    this.hostValid = hostValid ?? valid;
   }
 }
 
@@ -511,8 +517,11 @@ export class BridgeHost {
     } catch (e) {
       params = {};
     }
+    const hostBinding: string = BridgeHost.bindingHostPart(binding);
     const call: BridgeCall = new BridgeCall(id, method, params, update ?? UpdateState.UNKNOWN,
-      (): boolean => !budget.expired && this.samePage(caller) && this.currentBinding() === binding);
+      (): boolean => !budget.expired && this.samePage(caller) && this.currentBinding() === binding,
+      (): boolean => !budget.expired && this.samePage(caller)
+        && BridgeHost.bindingHostPart(this.currentBinding()) === hostBinding);
     return this.runWithTimeout(handler, call, budget);
   }
 
@@ -531,6 +540,12 @@ export class BridgeHost {
       current = -1;
     }
     return current === caller.generation;
+  }
+
+  /** 绑定串里不含会话的部分（与 BridgeBinding.hostPart 同一规则；本文件不依赖 BridgeHandlers，免得循环引用）。 */
+  static bindingHostPart(binding: string): string {
+    const parts: string[] = binding.split('|');
+    return parts.length >= 5 ? parts.slice(0, parts.length - 2).join('|') : binding;
   }
 
   private currentBinding(): string {

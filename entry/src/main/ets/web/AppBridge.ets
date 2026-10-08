@@ -4,10 +4,9 @@ import { preferences } from '@kit.ArkData';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
+  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
   BridgeStatePort, ClientEvent, ConfigStore, CouliPreferences, EnvironmentGate, EnvironmentSwitchGate,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
-  GuardDecisionKind,
   GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
   PrivacyState, RequestSigner, RouteRequest, RouteSource, RouteTargetAllowlist, Sha256, UpdateCheckStatus, UpdateState
 } from 'core';
@@ -15,6 +14,7 @@ import { BundledConfig } from 'generated';
 import { BridgeEnvInfo, ExternalWebConfig, TrustedWebConfig } from 'web';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
+import { AppLogin } from '../login/AppLogin';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
@@ -27,7 +27,6 @@ const TAG: string = 'CouliBridge';
 /** 剪贴板自动识别开关（clipboard.setAutoDetect）在 couli_app 里的键；随环境清理（TODO(APP-剪贴板识别)：识别器读它）。 */
 const AUTO_DETECT_KEY: string = 'clipboard.auto_detect';
 const LOGIN_ROUTE: string = 'Login';
-const LOGIN_POLL_MILLIS: number = 300;
 
 /**
  * 宿主读取的 App 状态（每次调用取当时的值）。生产容器一律用它；Debug / Staging 的一致性入口在 entry/src/staging 里包一层
@@ -175,7 +174,8 @@ export class AppBridge {
     }));
     host.register('auth.getUser', BridgeHandlers.user(api));
     host.register('auth.getH5Token', BridgeHandlers.h5Token(api));
-    host.register('auth.login', BridgeHandlers.login((): Promise<boolean> => AppBridge.login()));
+    host.register('auth.login', BridgeHandlers.login((hostValid: () => boolean): Promise<boolean> =>
+    AppBridge.login(hostValid)));
     host.register('net.signedRequest', BridgeHandlers.signedRequest(api));
     // R1-10：nav.open 先判定并回复，回复交出后再执行导航（打开 Home 清栈会让本容器出栈）。
     host.register('nav.open', BridgeHandlers.navOpenAfterReply((route: string, params: Record<string, Object>,
@@ -213,24 +213,19 @@ export class AppBridge {
       (): boolean => AppUpdate.shared.routerStatus().result === null);
   }
 
-  /** auth.login：打开登录页（APP-05 前是占位页），用户离开后兑现当时的登录状态。 */
-  static login(): Promise<boolean> {
+  /**
+   * auth.login（F-HM-10，APP-04 共性 66–68；core BridgeLoginWait）：经 Router 打开登录页，以本次导航是否真的压入登录页为准；
+   * 等这次登录完成（会话已保存 → true，绑定这次登录保存的会话世代）或离开登录页（→ false）再结算；等待期间核对页面、隐私、
+   * 环境与截止时间（hostValid）。
+   */
+  static login(hostValid: () => boolean): Promise<boolean> {
     const routing: AppRouting = AppRouting.shared;
-    const decision: GuardDecision = routing.openInApp(LOGIN_ROUTE);
-    const state: AppBridgeState = new AppBridgeState(false);
-    if (decision.kind !== GuardDecisionKind.OPEN && decision.kind !== GuardDecisionKind.OPEN_READONLY) {
-      return Promise.resolve(state.loggedIn());
-    }
-    return new Promise<boolean>((resolve: (v: boolean) => void) => {
-      const poll = (): void => {
-        if (routing.navigator.pathNames().indexOf(LOGIN_ROUTE) < 0) {
-          resolve(state.loggedIn());
-          return;
-        }
-        setTimeout(poll, LOGIN_POLL_MILLIS);
-      };
-      setTimeout(poll, LOGIN_POLL_MILLIS);
-    });
+    const wait: BridgeLoginWait = new BridgeLoginWait(routing.navigator, (): LoginService | null =>
+    AppLogin.shared.loginService(), (): number => AppNetwork.client?.sessionGenerationId() ?? -1,
+      (): boolean => new AppBridgeState(false).loggedIn(), (): void => {
+        routing.openInApp(LOGIN_ROUTE);
+      });
+    return wait.run(hostValid);
   }
 
   /** 剪贴板最近一次由本 App 写入的文本哈希（03 §4.6：之后识别时不把它当成用户复制的口令）。 */

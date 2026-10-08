@@ -8,6 +8,7 @@ import { StackNavigator } from '../router/StackNavigator';
 import { SessionTokens } from '../session/SessionTokens';
 import { AfterLoginUpdate } from './LoginFlow';
 import { LoginHost, LoginService } from './LoginService';
+import { PhoneBindingState } from './OAuthLoginService';
 
 /**
  * LoginService 的生产出口（APP-05a；原 entry AppLoginHost 的逻辑移到 Core，登录集成测试用同一份代码，harmony-review-r1
@@ -52,13 +53,23 @@ export class RouterLoginHost implements LoginHost {
 
   /**
    * 守卫用的会话状态：按 ApiClient.sessionAccount（经过隐私、撤回清理与会话隔离判断）与令牌作用域现算：没有 → 游客；
-   * deletion_only → 受限；其余 → 已绑手机（TODO(APP-05b)：第三方登录的会话按 getMe.phone_bound 区分）。
+   * deletion_only → 受限；给了 PhoneBindingState 时只有查清已绑手机（短信登录、getMe phone_bound=true、绑定成功）才是已绑手机，
+   * 其余（第三方新号、待查、冷启动还没 getMe 的未知）一律按已登录未绑手机（harmony-review-r2 R2-01，共性 8：未知 = 未验证）；
+   * 没给 PhoneBindingState（APP-05a 以前的调用方）沿用已绑手机。
    */
-  static sessionState(client: ApiClient | null, tokens: SessionTokens | null): SessionState {
-    if (client === null || tokens === null || client.sessionAccount() === null) {
+  static sessionState(client: ApiClient | null, tokens: SessionTokens | null,
+    phone: PhoneBindingState | null = null): SessionState {
+    const account: string | null = client === null ? null : client.sessionAccount();
+    if (client === null || tokens === null || account === null) {
       return SessionState.GUEST;
     }
-    return tokens.scope() === SessionScope.DELETION_ONLY ? SessionState.RESTRICTED : SessionState.PHONE_BOUND;
+    if (tokens.scope() === SessionScope.DELETION_ONLY) {
+      return SessionState.RESTRICTED;
+    }
+    // APP-05b：没查清已绑手机的账号 → 已登录未绑手机（BR-ID-02；需要手机号的路由先进 BindPhone，或冷启动时保留待办）。
+    // R2-01：冷启动后内存里的 phone_bound 丢了，未知按未验证；App 随状态同步查 getMe（OAuthLoginService.verifyPhoneBinding），
+    // 查清已绑后经 Router 守卫恢复。
+    return phone !== null && phone.treatAsUnbound(account) ? SessionState.LOGGED_IN : SessionState.PHONE_BOUND;
   }
 
   /**
@@ -68,6 +79,14 @@ export class RouterLoginHost implements LoginHost {
    */
   watchLoginPage(service: LoginService): void {
     this.navigator.onRemoved(RoutePolicy.LOGIN, (): void => service.invalidateAttempt());
+    // APP-05a 共性 25：登出收尾时原会话已被网络层清除——Router 只清原会话归属的待办。
+    service.onOriginalSessionEnded = (originalGeneration: number): boolean =>
+    this.router.sessionEndedOriginal(originalGeneration);
+    // APP-05b R1-03：暂缓的待办——登录成功时只重置计时，引导结束 / phone_bound 查清时只恢复。
+    service.onLoginStepHeld = (): void => this.router.prerequisiteDoneHeld();
+    service.onResumeHeld = (): void => this.router.resumePending();
+    // R2-02：暂缓是持续状态——Router 的所有自动恢复入口都遵守，直到登录流程明确释放。
+    this.router.pendingHold = (): boolean => service.pendingHeld();
   }
 
   updateState(): string {

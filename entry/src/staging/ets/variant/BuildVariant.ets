@@ -3,13 +3,17 @@
 import { common, Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, RouteTable, UpdateChecker } from 'core';
+import {
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, RouteTable,
+  ThirdPartyAuthAdapter, UpdateChecker
+} from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
 import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget } from './DebugBridge';
 import { DebugUpdateChecker } from './DebugUpdate';
 import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer } from './DebugFakeServer';
+import { DebugWechatAdapter } from './DebugWechatAdapter';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -62,6 +66,22 @@ export class BuildVariant {
     return new DebugFakeServer();
   }
 
+  /**
+   * 微信登录适配器（APP-05b）：Debug / Staging 用假适配器，只有本机假服务打开时可用（按钮出现，供测试与截图）；没打开时与
+   * Release 一样不可用、按钮不显示。Release 的同名函数恒为不可用实现。
+   */
+  static wechatAdapter(): ThirdPartyAuthAdapter {
+    return new DebugWechatAdapter();
+  }
+
+  /**
+   * 未决记录的存储（APP-05b）：本机假服务打开时放内存——模拟器的 Asset 不支持批量查询（Batch secret query is not supported），
+   * 绑手机等 step-up 操作的未决记录写不进去、请求发不出（rule-gaps【鸿蒙实现发现】EMU-ASSET）。没打开时与 Release 一样用 Asset。
+   */
+  static pendingKeyBackend(secure: PendingKeyBackend): PendingKeyBackend {
+    return new DebugPendingKeyBackend(secure);
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -92,8 +112,12 @@ export class BuildVariant {
     const fake: Object | undefined = want.parameters?.[DEBUG_FAKE_SERVER_KEY];
     if (fake === '1' || fake === 1 || fake === true) {
       DebugFakeServer.enabled = true;
-      hilog.info(0x0000, 'Couli', 'fake server on %{public}s %{public}s', DebugFakeServer.marker,
-        DebugFakeServer.searchMarker);
+      hilog.info(0x0000, 'Couli', 'fake server on %{public}s %{public}s %{public}s', DebugFakeServer.marker,
+        DebugFakeServer.searchMarker, DebugWechatAdapter.marker);
+    }
+    const scene: Object | undefined = want.parameters?.['couli_debug_wechat_scene'];
+    if (typeof scene === 'string') {
+      DebugFakeServer.wechatScene = scene;
     }
     const raw: Object | undefined = want.parameters?.['couli_debug_font_scale'];
     if (typeof raw !== 'string' && typeof raw !== 'number') {
@@ -108,6 +132,41 @@ export class BuildVariant {
     } catch (e) {
       // 设置失败时按系统字号继续。
     }
+  }
+}
+
+/** 每次调用按「本机假服务是否打开」选内存或 Asset（启动参数在网络组合之后才读到）。 */
+class DebugPendingKeyBackend implements PendingKeyBackend {
+  private readonly secure: PendingKeyBackend;
+  private readonly memory: MemoryPendingKeyBackend = new MemoryPendingKeyBackend();
+
+  constructor(secure: PendingKeyBackend) {
+    this.secure = secure;
+  }
+
+  private pick(): PendingKeyBackend {
+    return DebugFakeServer.enabled ? this.memory : this.secure;
+  }
+
+  read(account: string, key: string): PendingKeyRecord | null {
+    return this.pick().read(account, key);
+  }
+
+  list(account: string): PendingKeyRecord[] {
+    return this.pick().list(account);
+  }
+
+  write(record: PendingKeyRecord): void {
+    this.pick().write(record);
+  }
+
+  remove(account: string, key: string): void {
+    this.pick().remove(account, key);
+  }
+
+  clear(): void {
+    this.memory.clear();
+    this.secure.clear();
   }
 }
 

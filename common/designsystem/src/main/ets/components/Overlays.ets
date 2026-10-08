@@ -70,6 +70,13 @@ export struct CouliDialogPanel {
    * （超链接角色），命中区不低于 48vp；点了交给 onLink(id)。
    */
   @Param links: CouliDialogLink[] = [];
+  /**
+   * 正文下方的信息块（BindPhoneMerge「并入到 / 手机号账号 138****5678」）：浅底圆角、左侧图标，小字标签 + 加粗值，读屏合成
+   * 一句。detailValue 为空时不显示。
+   */
+  @Param detailLabel: string = '';
+  @Param detailValue: string = '';
+  @Param detailIcon: string = '';
   @Event onLink: (id: string) => void = (_id: string) => {
   };
   @Event onPrimary: () => void = () => {
@@ -153,6 +160,29 @@ export struct CouliDialogPanel {
         .edgeEffect(EdgeEffect.None)
         .scrollBar(BarState.Auto)
       }
+      if (this.detailValue.length > 0) {
+        Row({ space: CouliSpacing.space3 }) {
+          if (this.detailIcon.length > 0) {
+            CouliIcon({ name: this.detailIcon, iconSize: 24, color: CouliColors.textSecondary })
+          }
+          Column() {
+            Text(this.detailLabel)
+              .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+            Text(this.detailValue)
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary,
+                CouliFontWeight.semibold, true))
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .width('100%')
+        .padding(CouliSpacing.space3)
+        .borderRadius(CouliRadius.button)
+        .backgroundColor(CouliColors.backgroundMuted)
+        .flexShrink(0)
+        .accessibilityGroup(true)
+        .accessibilityText(this.detailLabel + ' ' + this.detailValue)
+      }
       // 按钮行（GUIDE §6「一主一次并排」；设计稿 AdaptLargeTextLoginAgreeConfirm）：并排时次按钮在左、占其余宽度，主按钮在右、
       // 按文字取最小宽度；两颗按文字宽度放不下时整块换行、各占通栏、主按钮在上。按钮内文字不截断（放不下时换行增高）。
       if (this.stackButtons()) {
@@ -227,17 +257,26 @@ export class CouliDialogOptions {
   returnFocusId: string = '';
   /** 正文里做成链接的文字（见 CouliDialogPanel.links）。点链接先关弹窗，再调 onLink(id)。 */
   links: CouliDialogLink[] = [];
+  /** 正文下方的信息块（见 CouliDialogPanel.detailLabel）。 */
+  detailLabel: string = '';
+  detailValue: string = '';
+  detailIcon: string = '';
   onLink: (id: string) => void = (_id: string) => {
   };
   onPrimary: () => void = () => {
   };
   onSecondary: () => void = () => {
   };
+  /** 不经按钮关闭（点遮罩、系统返回）时调用；按钮关闭不调。 */
+  onDismissed: () => void = () => {
+  };
 }
 
 class DialogParams {
   options: CouliDialogOptions;
   maxHeight: number = 0;
+  /** 已由按钮或链接处理（之后的消失不再算「不经按钮关闭」）。 */
+  handled: boolean = false;
   close: () => void = () => {
   };
 
@@ -256,15 +295,21 @@ function dialogBuilder(params: DialogParams) {
       secondaryText: params.options.secondaryText,
       maxPanelHeight: params.maxHeight,
       links: params.options.links,
+      detailLabel: params.options.detailLabel,
+      detailValue: params.options.detailValue,
+      detailIcon: params.options.detailIcon,
       onLink: (id: string) => {
+        params.handled = true;
         params.close();
         params.options.onLink(id);
       },
       onPrimary: () => {
+        params.handled = true;
         params.close();
         params.options.onPrimary();
       },
       onSecondary: () => {
+        params.handled = true;
         params.close();
         params.options.onSecondary();
       }
@@ -307,6 +352,10 @@ export class CouliDialog {
       onDidDisappear: () => {
         // 不论按钮、遮罩还是系统返回关闭，焦点都回到触发控件。
         CouliFocusReturn.to(ui, options.returnFocusId);
+        if (!params.handled) {
+          params.handled = true;
+          options.onDismissed();
+        }
       }
     }).catch(() => {
       // 打开失败（页面已销毁等）不影响调用方；不弹第二层兜底。

@@ -3,7 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner,
   DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
-  PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
+  PendingKeyBackend, PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
   SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionTokens, SessionTokensCleaner,
   UpdateNetworkPort, UpdateState
 } from 'core';
@@ -112,8 +112,10 @@ export class AppNetwork {
     }
     const tokens: SecureSessionTokens = new SecureSessionTokens(new AssetSecureStore('couli_session'));
     AppNetwork.sessionTokens = tokens;
-    const pendingBackend: SecurePendingKeyBackend =
-      new SecurePendingKeyBackend(new AssetSecureStore('couli_pending_keys'));
+    // APP-05b：Debug / Staging 打开本机假服务时，未决记录放内存（模拟器的 Asset 不支持批量查询，step-up 操作发不出）；
+    // Release 恒为 Asset。
+    const pendingBackend: PendingKeyBackend =
+      BuildVariant.pendingKeyBackend(new SecurePendingKeyBackend(new AssetSecureStore('couli_pending_keys')));
     const pendingKeys: PendingKeyStore = new PendingKeyStore(pendingBackend, (): number => Date.now());
     SessionTokensCleaner.register(AppConfig.cleaners, tokens);
     AppConfig.cleaners.register(new PendingKeysCleaner(pendingBackend, pendingKeys));
@@ -139,7 +141,10 @@ export class AppNetwork {
     deps.credentials = registry;
     deps.deviceRegistrar = registry;
     AppNetwork.registry = registry;
-    deps.sessionEffect = (effect: ErrorEffect): void => {
+    deps.sessionEffect = (effect: ErrorEffect, clearedGeneration: number): void => {
+      // APP-05a 共性 25、26：网络层在确定清理的同步区里传出被清的会话世代；Router 记下「原会话被清除」的分界（之后新建的
+      // pending_action 属于游客 / 新会话，登出收尾不清它）。不在这里读「当前世代」补作归属。
+      AppRouting.shared.router.markSessionCleared(clearedGeneration);
       // 10404 与刷新失败清会话（F-HM-09，APP-05a 共性 18）：普通状态经 Router 打开 Login 并提示失效；强更状态下只清会话、
       // 停在强更页。守卫的会话状态随之现算为游客。判定在 Core 的 SessionEffectRouting（测试从真实 ApiClient 回调触发）。
       hilog.info(DOMAIN, TAG, 'session effect %{public}s', effect.effectKindRaw);

@@ -196,6 +196,10 @@ export class Rig {
   readonly registrar: FakeRegistrar = new FakeRegistrar();
   readonly pending: PendingKeyStore;
   readonly sessionEffects: ErrorEffect[] = [];
+  /** 与 sessionEffects 一一对应：网络层确定清理时被清掉的会话世代（APP-05a 共性 26）。 */
+  readonly clearedGenerations: number[] = [];
+  /** App 的会话级回调（APP-05a 共性 25、26：测试把它接到 Router 的「原会话被清除」分界）。 */
+  onSessionEffect: ((effect: ErrorEffect, clearedGeneration: number) => void) | null = null;
   /** 异步刷新的作用域变化通知（世代:作用域）。 */
   readonly refreshNotices: string[] = [];
   /** 与 refreshNotices 一一对应：这次通知是否要恢复待办（F-HM-09）。 */
@@ -234,8 +238,13 @@ export class Rig {
       }
       return this.nowMillis;
     };
-    deps.sessionEffect = (effect: ErrorEffect): void => {
+    deps.sessionEffect = (effect: ErrorEffect, clearedGeneration: number): void => {
       this.sessionEffects.push(effect);
+      this.clearedGenerations.push(clearedGeneration);
+      const hook: ((effect: ErrorEffect, clearedGeneration: number) => void) | null = this.onSessionEffect;
+      if (hook !== null) {
+        hook(effect, clearedGeneration);
+      }
       if (this.throwOnSessionEffect) {
         throw new Error('session effect handler failed');
       }

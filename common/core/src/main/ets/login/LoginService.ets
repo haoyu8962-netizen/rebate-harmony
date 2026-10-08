@@ -1,6 +1,7 @@
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { ErrorEffect } from '../network/ErrorActionMapper';
 import { LocalRejectReason } from '../network/NetworkPolicy';
+import { TransportFailure } from '../network/HttpTransport';
 import { SessionTokens } from '../session/SessionTokens';
 import {
   AfterLogin, AfterLoginAction, CodeInput, InviteField, LegalVersions, LoginErrorMapper, LoginErrorResult, PhoneNumber,
@@ -40,6 +41,34 @@ export interface LoginHost {
   sessionEnded(): void;
 }
 
+/** 其他登录方式（第三方登录）借用的尝试归属（LoginService.attemptTicket；APP-05b）。 */
+export class AttemptTicket {
+  readonly issued: number;
+  /** 交给 ApiRequest.owner 的守卫（作废时 LoginService 经 cancelOwned 取消它的请求）。 */
+  readonly owner: () => boolean;
+
+  constructor(issued: number, owner: () => boolean) {
+    this.issued = issued;
+    this.owner = owner;
+  }
+}
+
+/**
+ * 请求的写出观察（F-HM-10，APP-05a 共性 22）：written = 传输层最后一次发出前核对的结果。核对通过后交给底层发出，
+ * 之后即使被取消，服务端也可能已经受理（结果未知）；核对没通过或没走到核对 = 没写出。
+ */
+export class WriteObserver {
+  written: boolean = false;
+
+  static attach(request: ApiRequest): WriteObserver {
+    const observer: WriteObserver = new WriteObserver();
+    request.onAdmit = (admitted: boolean): void => {
+      observer.written = admitted;
+    };
+    return observer;
+  }
+}
+
 /** 发码结果。 */
 export class SendCodeOutcome {
   /**
@@ -54,20 +83,23 @@ export class SendCodeOutcome {
   readonly phone: string | null;
   /** 服务端外壳的 trace_id 后 6 位（通用错误态附注，BR-TEXT-14）；没有为空串。 */
   readonly trace6: string;
+  /** 错误码要求跳转的路由（ErrorActionMapper navigate，如 10007 冷静期 → DeleteAccount；APP-05b R2-03）；不跳为 null。 */
+  readonly route: string | null;
 
   constructor(stateRaw: string, countdownSec: number, textKey: string | null, field: string | null,
-    phone: string | null, trace6: string = '') {
+    phone: string | null, trace6: string = '', route: string | null = null) {
     this.stateRaw = stateRaw;
     this.countdownSec = countdownSec;
     this.textKey = textKey;
     this.field = field;
     this.phone = phone;
     this.trace6 = trace6;
+    this.route = route;
   }
 }
 
 /** 某个号码的发码截止时刻（毫秒）与种类。 */
-class SendDeadline {
+export class SendDeadline {
   readonly untilMillis: number;
   /** code_sent（成功发码后的重发倒计时）/ rate_limited（42901 的 Retry-After）。 */
   readonly kind: string;
@@ -278,6 +310,31 @@ export class LoginService {
   private sending: boolean = false;
   private loggingIn: boolean = false;
   private loggingOut: boolean = false;
+  private invalidationListeners: (() => void)[] = [];
+  private completionListeners: ((sessionGeneration: number) => void)[] = [];
+  /**
+   * 登出收尾遇到「原会话已被别处清除」时的 Router 清理（APP-05a 共性 25）：只清原会话归属的待办（RouterLoginHost.watchLoginPage
+   * 接到 Router.sessionEndedOriginal：现存待办是清除之后新建的就保留并返回 true）。没接或返回 false 时按 host.sessionEnded。
+   */
+  onOriginalSessionEnded: ((originalGeneration: number) => boolean) | null = null;
+  /**
+   * 登录成功、待办暂缓执行时的计时重置（APP-05b R1-03：Router.prerequisiteDoneHeld，只重置有效待办的计时、不执行）。
+   * 没接时不重置。
+   */
+  onLoginStepHeld: (() => void) | null = null;
+  /** 恢复暂缓的待办（R1-03：Router.resumePending，只恢复、不再重置计时）。没接时按 host.resumePending。 */
+  onResumeHeld: (() => void) | null = null;
+  /**
+   * 短信登录成功、会话已保存（APP-05b harmony-review-r2 R2-01）：短信登录的账号一定有手机号——App 据此把这个账号记为已绑手机
+   * （PhoneBindingState.set(account, true)）。在登录后计划（会话变化、恢复待办）之前同步调用。没接时不记。
+   */
+  onPhoneVerifiedSession: ((account: string | null) => void) | null = null;
+  /**
+   * 待办暂缓所属的会话世代（APP-05b harmony-review-r2 R2-02，共性 9）：第三方登录成功、待办暂缓时记下当时的会话世代；-1 = 没有暂缓。
+   * 暂缓是持续状态：Router 的所有自动恢复入口（状态同步、版本检查完成、前置完成）经 pendingHeld 遵守它，只有引导跳过、关闭、
+   * 绑定完成（resumeHeldPending / endHold）明确释放；会话换了（登出、换号、清会话推进世代）自动失效。
+   */
+  private heldGeneration: number = -1;
 
   constructor(client: ApiClient, tokens: SessionTokens, host: LoginHost, legal: LegalVersions = LegalVersions.bundled(),
     clock: () => number = () => Date.now()) {
@@ -299,6 +356,87 @@ export class LoginService {
     for (const owner of owners) {
       this.client.cancelOwned(owner);
     }
+    for (const listener of this.invalidationListeners.slice()) {
+      try {
+        listener();
+      } catch (e) {
+        // 监听方出错不影响作废。
+      }
+    }
+  }
+
+  /** 尝试作废时同步通知（第三方登录 OAuthLoginService 据此把授权尝试按「离开」作废，APP-05b）。 */
+  onAttemptInvalidated(listener: () => void): void {
+    this.invalidationListeners.push(listener);
+  }
+
+  /**
+   * 登录完成（会话已由 ApiClient 保存、本次尝试仍有效、即将执行登录后计划）时同步通知，参数是这次登录保存的会话世代
+   * （F-HM-10，APP-04 共性 66、68：桥 auth.login 等这次登录完成后按 true 结算，并绑定这次登录造成的会话变化）。
+   * 返回取消登记的函数。
+   */
+  onLoginCompleted(listener: (sessionGeneration: number) => void): () => void {
+    this.completionListeners.push(listener);
+    return (): void => {
+      this.completionListeners = this.completionListeners.filter((l: (g: number) => void): boolean => l !== listener);
+    };
+  }
+
+  /** 第三方登录等其他登录方式的归属守卫（与短信登录同一套尝试序号：换页、离开、登出一并作废，APP-05b）。 */
+  attemptTicket(): AttemptTicket {
+    const issued: number = this.serial;
+    return new AttemptTicket(issued, this.ownerFor(issued));
+  }
+
+  /** 释放 attemptTicket 登记的守卫（请求结束后）。 */
+  releaseTicket(ticket: AttemptTicket): void {
+    this.release(ticket.owner);
+  }
+
+  /** 这张票据的尝试仍有效（没有被换号、离页、登出作废）。 */
+  ticketValid(ticket: AttemptTicket): boolean {
+    return ticket.issued === this.serial;
+  }
+
+  /**
+   * 第三方登录的会话已由 ApiClient 保存（APP-05b）：与短信登录同一套登录后流程（R1-01 / R1-02 / R1-04、R2-02）。
+   * holdPending：第三方新号要先弹绑手机引导（BR-INV-03 细则 ①「用户点【暂不】或完成绑定后继续执行 pending_action」）——
+   * 这次不恢复待办，由引导结束时调 resumeHeldPending。
+   */
+  finishSessionLogin(result: ApiResult, ticket: AttemptTicket, holdPending: boolean): Promise<LoginOutcome> {
+    return this.loggedIn(result, ticket.issued, false, holdPending);
+  }
+
+  /** 绑手机引导结束（【暂不】、绑定完成）：把登录时保留的待办交给 Router 守卫恢复（敏感操作由守卫与 BR-ID-10 规则把关）。 */
+  resumeHeldPending(): void {
+    // R2-02：先明确释放暂缓，再恢复。
+    this.heldGeneration = -1;
+    // R1-03：计时已在登录成功时重置；这里只恢复（经 Router 守卫），不再重置，已过期的待办随读取删除、不复活。
+    const resume: (() => void) | null = this.onResumeHeld;
+    if (resume !== null) {
+      resume();
+      return;
+    }
+    this.host.resumePending();
+  }
+
+  /**
+   * 待办是否处于暂缓中（R2-02）：暂缓记在当前会话世代上、且会话仍在。Router.pendingHold 接这里——为 true 时状态同步与
+   * 版本检查完成等自动入口一律不恢复待办（记录保留）。
+   */
+  pendingHeld(): boolean {
+    return this.heldGeneration >= 0 && this.heldGeneration === this.client.sessionGenerationId()
+      && this.client.sessionAccount() !== null;
+  }
+
+  /** 只释放暂缓、不恢复（绑定完成时由 Router.prerequisiteCompleted 接着恢复；老用户 phone_bound 没查清时交给守卫）。 */
+  endHold(): void {
+    this.heldGeneration = -1;
+  }
+
+  /** 会话状态变了（phone_bound 查清等，R2-01）：守卫重算并按自动恢复的口径同步（冷启动语义：前置未满足只保留，不弹前置页）。 */
+  notifySessionState(): void {
+    this.host.sessionChanged();
   }
 
   get busy(): boolean {
@@ -387,6 +525,15 @@ export class LoginService {
       || (result.outcome === ApiOutcome.BUSINESS_ERROR && result.code >= 50000);
   }
 
+  /** 调用被取消（归属作废、传输被取消）：本地 cancelled / session_changed，或传输层 cancelled。 */
+  private static cancelledResult(result: ApiResult): boolean {
+    if (result.outcome === ApiOutcome.LOCAL_REJECT) {
+      return result.localRejectReason === LocalRejectReason.CANCELLED
+        || result.localRejectReason === LocalRejectReason.SESSION_CHANGED;
+    }
+    return result.outcome === ApiOutcome.NETWORK_ERROR && result.failure === TransportFailure.CANCELLED;
+  }
+
   /** 本次尝试的归属守卫：序号没变才算有效；登记下来，作废时据此取消传输。 */
   private ownerFor(issued: number): () => boolean {
     const owner: () => boolean = (): boolean => issued === this.serial;
@@ -429,6 +576,8 @@ export class LoginService {
     const request: ApiRequest = new ApiRequest(LoginErrorMapper.SEND_SMS_CODE, {}, '', JSON.stringify(body));
     const owner: () => boolean = this.ownerFor(issued);
     request.owner = owner;
+    // F-HM-10（APP-05a 共性 22）：记下这次发码有没有真正写出（传输层发出前最后一次核对的结果）。
+    const written: WriteObserver = WriteObserver.attach(request);
     this.sending = true;
     let result: ApiResult;
     try {
@@ -447,8 +596,10 @@ export class LoginService {
       }
       return new SendCodeOutcome(sent.stateRaw, sent.countdownSec, null, null, normalized);
     }
-    if (LoginService.sendUncertain(result)) {
+    if (LoginService.sendUncertain(result) || (written.written && LoginService.cancelledResult(result))) {
       // F-HM-08（共性 16）：结果不确定，用户可能已收到码——记下有效期，手机号页提供「继续输入验证码」（不设重发倒计时）。
+      // F-HM-10（共性 22）：已写出、之后因换号 / 离页被取消的发码同样结果未知，按号码保留这段期限；没写出的不记。
+      // 旧请求不改页面：下面按作废返回 stale。
       this.issuedCodes.set(normalized, this.clock() + LoginService.CODE_VALIDITY_SEC * 1000);
     }
     if (result.outcome === ApiOutcome.BUSINESS_ERROR && result.effect !== null) {
@@ -520,6 +671,11 @@ export class LoginService {
     if (result.ok) {
       // 码已用掉：手机号页不再提供「继续输入」。
       this.issuedCodes.delete(phone.normalized);
+      // R2-01：短信登录的会话一定有手机号（会话已由 ApiClient 保存，这里取的是它的账号）。
+      const verified: ((account: string | null) => void) | null = this.onPhoneVerifiedSession;
+      if (verified !== null && this.tokens.accessToken() !== null) {
+        verified(this.client.sessionAccount());
+      }
       return this.loggedIn(result, issued, restricted);
     }
     if (issued !== this.serial) {
@@ -556,7 +712,10 @@ export class LoginService {
       return false;
     }
     this.invalidateAttempt();
-    const generation: number = this.client.sessionGenerationId();
+    // F-HM-10（APP-05a 共性 23）：记下登录世代，回来后交给 ApiClient 在同一同步区里核对并删除。
+    const epoch: number = this.client.loginEpoch();
+    // R1-04：本次要清的原会话（清理分界绑定它，不沿用更早那次会话清除的边界）。
+    const originalGeneration: number = this.client.sessionGenerationId();
     this.loggingOut = true;
     try {
       if (this.tokens.accessToken() !== null) {
@@ -569,14 +728,22 @@ export class LoginService {
     } finally {
       this.loggingOut = false;
     }
-    if (this.client.sessionGenerationId() !== generation && this.client.sessionAccount() !== null) {
-      // 等待期间已经换成了新会话（新登录）：不清新会话，只通知会话变化。
+    // 原会话此刻是否还在（在同一同步区里与下面的核对、删除一起判断）：不在 = 已被别处清除（10404、刷新失败、撤回同意）。
+    const originalPresent: boolean = this.tokens.accessToken() !== null || this.tokens.refreshToken() !== null;
+    const cleared: boolean = this.client.clearSessionIfEpoch(epoch, (): void => {
+      // 同一同步区：Router 的清理绑定这次被清除的原会话（共性 23）。原会话已被别处清掉时只清它归属的待办，
+      // 不清用户随后新建的 pending_action（共性 25）。
+      const kept: ((originalGeneration: number) => boolean) | null = originalPresent ? null : this.onOriginalSessionEnded;
+      if (kept === null || !kept(originalGeneration)) {
+        this.host.sessionEnded();
+      }
+    });
+    if (!cleared) {
+      // 等待期间已经换成了新会话（新登录已保存，登录世代变了）：不删新会话、不清它的待办，只通知会话变化。
       this.host.sessionChanged();
       return false;
     }
-    // 会话世代没变，或原会话已被清除（logout 回 10404、刷新失败清会话、撤回同意）：都要完成同一套登出清理——
-    // Router.sessionEnded 让 pending_action 与旧回查全部失效（R1-03）。
-    this.clearLocalSession();
+    this.host.sessionChanged();
     return true;
   }
 
@@ -607,7 +774,8 @@ export class LoginService {
     return state;
   }
 
-  private async loggedIn(result: ApiResult, issued: number, restricted: boolean): Promise<LoginOutcome> {
+  private async loggedIn(result: ApiResult, issued: number, restricted: boolean,
+    holdPending: boolean = false): Promise<LoginOutcome> {
     // ApiClient 已核对归属并保存成功（作废的尝试在保存前就以 cancelled 结束，不会走到这里）；再确认本机确有令牌。
     if (this.tokens.accessToken() === null) {
       return new LoginOutcome('service_error', LoginService.GENERIC_KEY);
@@ -652,7 +820,14 @@ export class LoginService {
       actions = [AfterLoginAction.SAVE_SESSION, AfterLoginAction.REFRESH_RESTRICTED]
         .concat(replanned.filter((a: string) => a !== AfterLoginAction.SAVE_SESSION));
     }
-    this.execute(actions);
+    let held: boolean = false;
+    if (holdPending) {
+      // 第三方登录：待办先保留（新号等绑手机引导结束、老用户等 phone_bound 查清），之后由 resumeHeldPending 恢复。
+      held = actions.indexOf(AfterLoginAction.RESUME_PENDING) >= 0;
+      actions = actions.filter((a: string): boolean => a !== AfterLoginAction.RESUME_PENDING);
+    }
+    this.notifyCompleted();
+    this.execute(actions, holdPending, held);
     let inviteResult: string | null = null;
     let inviteCode: number | null = null;
     const bind: Object | undefined = result.data['invite_bind'];
@@ -664,16 +839,41 @@ export class LoginService {
     return new LoginOutcome(LoginOutcome.LOGGED_IN, null, null, 0, actions, inviteResult, inviteCode);
   }
 
+  private notifyCompleted(): void {
+    const generation: number = this.client.sessionGenerationId();
+    for (const listener of this.completionListeners.slice()) {
+      try {
+        listener(generation);
+      } catch (e) {
+        // 监听方出错不影响登录后计划。
+      }
+    }
+  }
+
   /**
    * 执行登录后计划（R1-02）：先删要丢弃的待办（免得会话变化的路由同步把它执行掉）→ 明确移除登录页（含从强更页进入的受限
    * 登录）→ 通知会话变化（守卫的会话状态、Router 的状态同步）→ 交 Router 恢复待办，或进入 / 同步强更页。
    */
-  private execute(actions: string[]): void {
+  private execute(actions: string[], holdPending: boolean = false, held: boolean = false): void {
     if (actions.indexOf(AfterLoginAction.DISCARD_PENDING) >= 0) {
       this.host.discardPending();
     }
+    if (held) {
+      // R2-02：暂缓是持续状态，记在这次登录保存的会话世代上（在下面的状态同步之前记下），由引导结束 / 绑定完成明确释放。
+      this.heldGeneration = this.client.sessionGenerationId();
+      // R1-03（BR-ID-10、BR-INV-03）：登录成功即完成一个前置步骤——此刻重置有效待办的计时，但暂缓执行。
+      const mark: (() => void) | null = this.onLoginStepHeld;
+      if (mark !== null) {
+        mark();
+      }
+    }
     this.host.closeLogin();
-    this.host.sessionChanged();
+    if (holdPending) {
+      // 第三方新号先弹绑手机引导：只同步会话状态，不顺带恢复待办（引导结束时 resumeHeldPending）。
+      this.host.sessionSynced();
+    } else {
+      this.host.sessionChanged();
+    }
     for (const action of actions) {
       switch (action) {
         case AfterLoginAction.RESUME_PENDING:

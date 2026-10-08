@@ -3,7 +3,8 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, PlaceholderUpdateChecker, RcpTransport, UpdateChecker
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, PendingKeyBackend, PlaceholderUpdateChecker, RcpTransport,
+  ThirdPartyAuthAdapter, UnavailableWechatAdapter, UpdateChecker
 } from 'core';
 
 export class BuildVariant {
@@ -23,6 +24,19 @@ export class BuildVariant {
   /** 网络传输层：真实 RCP（没有本机假服务）。 */
   static networkTransport(): HttpTransport {
     return new RcpTransport();
+  }
+
+  /**
+   * 微信登录适配器（APP-05b）：Release 恒为不可用实现（不引入微信 SDK、没有 AppID / 通用链接，06 Q-C12 验证前不启用），
+   * 登录页不显示微信按钮。
+   */
+  static wechatAdapter(): ThirdPartyAuthAdapter {
+    return new UnavailableWechatAdapter();
+  }
+
+  /** Release 的未决记录一律在 Asset（原样返回 SecurePendingKeyBackend）。 */
+  static pendingKeyBackend(secure: PendingKeyBackend): PendingKeyBackend {
+    return secure;
   }
 
   /** Release 没有 debug_only 路由。 */

@@ -37,6 +37,12 @@ import searchReviewR2Test from './SearchReviewR2.test';
 import searchReviewR3Test from './SearchReviewR3.test';
 import followupHM09Test from './FollowupHM09.test';
 import followupHM08Test from './FollowupHM08.test';
+import oauthLoginVectorTest from './OAuthLoginVector.test';
+import oauthLoginIntegrationTest from './OAuthLoginIntegration.test';
+import followupHM10Test from './FollowupHM10.test';
+import app05bReviewR1Test from './App05bReviewR1.test';
+import app05bReviewR2Test from './App05bReviewR2.test';
+import app05bReviewR3Test from './App05bReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -83,4 +89,10 @@ export default function testsuite() {
   searchReviewR2Test();
   searchReviewR3Test();
   followupHM09Test();
+  oauthLoginVectorTest();
+  oauthLoginIntegrationTest();
+  followupHM10Test();
+  app05bReviewR1Test();
+  app05bReviewR2Test();
+  app05bReviewR3Test();
 }
