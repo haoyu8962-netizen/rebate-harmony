@@ -74,6 +74,8 @@ export class SearchDraftTexts {
     m.set('product.ask_ai', '问问 AI');
     m.set('product.image', '商品图片，{title}');
     m.set('product.research', '重新搜索');
+    // 入账说明（BR-TEXT-04、F-PROD-05 原文；APP-06a 共性第 15 条，契约无键）
+    m.set('product.credit_note', '确认收货后随联盟月度结算入账');
     // ---- 购买意图（只在 Debug / Staging 冒烟时提示；TODO(APP-06b) 换成 open 流程）
     m.set('product.buy_intent.debug', '已发出购买意图（APP-06b 接 open 流程）');
     return m;

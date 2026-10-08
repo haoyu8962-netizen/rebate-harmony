@@ -276,6 +276,10 @@ export class AppRouting {
    * 强更仍在检查时只设一个到期定时器（满 5 秒按 unknown）；闸门未就绪或不在等待时不设定时器，不空转。
    * resumePending = false：只同步状态、不恢复 pending_action（已作废的登录尝试通知会话变化时用，APP-05a R2-02）。
    */
+  /** 每次状态同步之后调用（AppSearch 接页面恢复）；缺省什么都不做。 */
+  afterSync: () => void = () => {
+  };
+
   stateChanged(resumePending: boolean = true): void {
     if (this.retryTimer >= 0) {
       clearTimeout(this.retryTimer);
@@ -288,6 +292,8 @@ export class AppRouting {
     // Router 部分与强更页同步在 Core RoutingSync（登录集成测试用同一份代码，APP-05a R1-01 / R1-02）：
     // 03 §4.4 闸门全部就绪且外壳就绪后才恢复 pending_action、放行启动意图；below_min 时强更页与结论同步。
     this.sync.sync(readiness, now, resumePending);
+    // 进程回收后的页面恢复（FU-HM-1112 共性第 28 条）：同样等闸门与本轮版本检查，由 PageRestorer 判定。
+    this.afterSync();
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;

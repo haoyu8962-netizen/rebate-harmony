@@ -1,12 +1,14 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
-  SearchController, SearchErrorText, SearchPhase, SearchResultView, SearchSnapshot, SearchTextFormatter
+  PURCHASE_NOT_LAUNCHED, PURCHASE_ON, ScrollKeeperHost, SearchController, SearchDraft, SearchErrorText, SearchLayout,
+  SearchPageLife, SearchPageRecord, SearchPhase, SearchResultView, SearchRows, SearchScrollKeeper, SearchSnapshot,
+  SearchTextFormatter, ViewportTop
 } from 'core';
 import {
   CouliButton, CouliButtonSize, CouliLayout, CouliButtonVariant, CouliColors, CouliFocus, CouliFontWeight, CouliFormat, CouliIcon,
   CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography, DisclaimerFooter, DisclaimerMode,
   EmptyState, ErrorState, ProductCard, ProductCardData, ProductCardKeys, ProductCardMapper, ProductCardTexts,
-  ProductCardVariant, SkeletonProductCard
+  ProductCardVariant, SkeletonProductCard, CouliAnnounce, CouliFocusReturn, SearchDisclaimers
 } from 'designsystem';
 
 /**
@@ -64,6 +66,11 @@ export interface SearchTexts extends ProductCardTexts, SearchTextFormatter {
 export class SearchPageConfig {
   readonly controller: SearchController;
   readonly texts: SearchTexts;
+  /**
+   * 这个页面实例的生命周期（共性第 39 条）：entry 在 onWillDisappear 经 SearchPageStates.willDisappear 调 exit，同步作废执行器、
+   * 滚动恢复任务与页面回调；entry 的持久化入口凭它拒绝已出栈页面的写入。
+   */
+  readonly life: SearchPageLife;
   /** 路由参数（routes.json Search：q、platform 都可选）。 */
   initialQuery: string | null = null;
   initialPlatform: string | null = null;
@@ -82,10 +89,30 @@ export class SearchPageConfig {
   /** 卡片上的购买：只发出购买意图（TODO(APP-06b)：open 流程）。 */
   onBuyIntent: (card: Record<string, Object>) => void = (_c: Record<string, Object>) => {
   };
+  /**
+   * 进程被系统回收后重开时恢复的页面状态（共性第 20 条；entry 的 PageRestorer 交接，只给恢复出来的那一个页面实例）。
+   * 有它时不看路由参数，按它恢复条件、未提交的输入与弹层草稿、滚动锚点。
+   */
+  restored: SearchPageRecord | null = null;
+  /** 页面被覆盖 / 回到前台（entry 的 NavDestination onHidden / onShown 调；页面接上后由 SearchView 设置）。 */
+  onCovered: (covered: boolean) => void = (_c: boolean) => {
+  };
+  /** 页面状态变化（条件、草稿、滚动锚点）：entry 持久化（共性第 17、20、29 条）。 */
+  onPersist: (record: SearchPageRecord) => void = (_r: SearchPageRecord) => {
+  };
+  /** 同上，但要同步落盘后才返回（被覆盖、进后台前；共性第 33 条）。 */
+  onPersistNow: (record: SearchPageRecord) => void = (_r: SearchPageRecord) => {
+  };
+  /**
+   * 进后台前（EntryAbility.onBackground 经 entry 调）：按实际视口采集最新位置并同步落盘。页面接上后由 SearchView 设置。
+   */
+  saveNow: () => void = () => {
+  };
 
   constructor(controller: SearchController, texts: SearchTexts) {
     this.controller = controller;
     this.texts = texts;
+    this.life = new SearchPageLife(controller);
   }
 }
 
@@ -123,11 +150,18 @@ export class SearchModel {
   @Trace errorText: string = '';
   /** 50304 search_disabled 的提示（该平台 Tab 已移除；不带重试）。 */
   @Trace noticeText: string = '';
+  /** 平台 Tab、排序、筛选行是否显示（SearchLayout.showsConditionRows：平台恢复后等待用户操作时也显示，共性第 36 条）。 */
+  @Trace showConditions: boolean = false;
+  /** 输入态上方显示保留的关闭提示（SearchLayout.showsIdleNotice）。 */
+  @Trace idleNotice: boolean = false;
   /** 结果里有缓存降级报价：顶部「价格可能已变化」提示。 */
   @Trace stale: boolean = false;
   /** 42901 限时禁用：搜索、Tab、排序、筛选、翻页、重试都置灰。 */
   @Trace blocked: boolean = false;
+  /** 常驻说明区当前显示的句子（按可见卡片选，共性第 14 条）。 */
   @Trace disclaimers: string[] = [];
+  /** 常驻说明区预留高度用的句子（已加载结果的全部适用说明，共性第 21 条：高度不随可见卡片来回变化）。 */
+  @Trace reserveDisclaimers: string[] = [];
   @Trace history: string[] = [];
   @Trace sheetOpen: boolean = false;
   @Trace sheetMin: string = '';
@@ -143,6 +177,9 @@ const ID_SUBMIT: string = 'search_submit';
 const ID_FILTER_COUPON: string = 'search_filter_coupon';
 const ID_FILTER_PRICE: string = 'search_filter_price';
 const CHIP_HEIGHT: number = 36;
+const ID_LOAD_MORE_RETRY: string = 'search_load_more_retry';
+/** 常驻说明区最多占结果区的比例（窄屏、200% 字号下句子多时区内滚动，不挤掉列表）。 */
+const DISCLAIMER_MAX_RATIO: number = 0.3;
 const TAB_BAR_HEIGHT: number = 3;
 /** 价格输入：元，最多两位小数（整数分在 BR-PRICE-15 边界内另由 SearchQuery 判）。 */
 const YUAN_PATTERN: RegExp = /^(\d{1,8})(?:\.(\d{1,2}))?$/;
@@ -183,12 +220,76 @@ export struct SearchView {
   @Local model: SearchModel = new SearchModel();
   private inputController: TextInputController = new TextInputController();
   private listScroller: Scroller = new Scroller();
+  /** 已处理到的失败序号（共性第 16 条）。 */
+  private shownFailure: number = 0;
+  /** 当前显示的卡片（列表结果，或无结果时的推荐）。 */
+  private shownItems: Record<string, Object>[] = [];
+  /** 每一行对应的卡片（不是卡片为 null），与 results() 的行顺序一致（SearchRows.of）。 */
+  private rows: (Record<string, Object> | null)[] = [];
+  /**
+   * 滚动保持（共性第 17、20、29、32、33、37 条）：锚点按实际视口记、覆盖时冻结、只有新一轮查询才清；进程回收后的恢复是
+   * 一个任务对象（轮次 + 目标卡 + 偏移 + 生命周期标识），拖动 / 新查询 / 出栈即取消，被覆盖暂停，按布局就绪推进。
+   */
+  private keeper: SearchScrollKeeper = new SearchScrollKeeper(new ListScrollHost(
+    (): void => this.listScroller.scrollToIndex(0),
+    (row: number, extra: number): void => this.listScroller.scrollToIndex(row, false, ScrollAlign.START,
+      { extraOffset: LengthMetrics.vp(extra) }),
+    (): boolean => this.config.controller.loadMore(),
+    (): ViewportTop | null => this.measureTop()));
+  /** 最近一次 onScrollIndex 给的可见行范围（量视口时的兜底）。 */
+  private visibleFirst: number = 0;
+  private visibleLast: number = -1;
+  /** 布局完成的回调（UIObserver didLayout）：推进等布局的恢复任务。 */
+  private layoutListener: () => void = (): void => {
+    this.keeper.layoutReady();
+  };
+  /** 各平台购买状态（快照里的 purchase）。 */
+  private purchase: Record<string, string> = {};
+  /** 平台 not_launched 的卡不显示返利（共性第 31 条）：说明区也不放它的返利句。 */
+  private rebateHidden: (item: Record<string, Object>) => boolean = (item: Record<string, Object>): boolean => {
+    const platform: Object | undefined = item['platform'];
+    return typeof platform === 'string' && this.purchase[platform as string] === PURCHASE_NOT_LAUNCHED;
+  };
+  /** 结果区高度（常驻说明区的上限按它算）。 */
+  @Local resultsHeight: number = 0;
 
   aboutToAppear(): void {
+    const life: SearchPageLife = this.config.life;
+    // 出栈的同步出口（onWillDisappear → life.exit）同时作废：恢复任务、布局观察、被覆盖 / 进后台回调（共性第 39 条）。
+    this.keeper.bindLife(life);
+    life.onExit((): void => this.detach());
+    // 恢复任务发现列表被读屏、键盘等移动而让位时，保存用户当前的位置（共性第 38 条）。
+    this.keeper.onTakeover = (): void => this.persist();
+    this.config.onCovered = (covered: boolean): void => this.setCovered(covered);
+    this.config.saveNow = (): void => {
+      if (!life.alive) {
+        return;
+      }
+      this.keeper.capture();
+      this.config.onPersistNow(this.record());
+    };
+    try {
+      this.getUIContext().getUIObserver().on('didLayout', this.layoutListener);
+    } catch (e) {
+      // 拿不到观察者时只靠列表自己的回调（onAreaChange、onScrollIndex）推进。
+    }
     this.model.history = this.config.history.slice();
     this.config.controller.onChange = (s: SearchSnapshot): void => {
       this.apply(s);
     };
+    const restored: SearchPageRecord | null = this.config.restored;
+    // 先完整装入恢复条件（锚点、轮次、恢复任务）再让执行器打开并订阅配置（共性第 37 条）。同时恢复了详情时页面一打开就被覆盖：
+    // 恢复任务暂停，等 onShown（返回本页）再推进。
+    this.keeper.begin(restored, restored !== null && restored.detail !== null);
+    if (restored !== null) {
+      // 进程回收后恢复（共性第 20 条）：输入、弹层草稿照保存的值；条件交给执行器（轮次不变，不算新查询）。
+      this.model.inputText = restored.draft.inputText;
+      this.model.sheetMin = restored.draft.sheetMin;
+      this.model.sheetMax = restored.draft.sheetMax;
+      this.model.sheetOpen = restored.draft.sheetOpen;
+      this.config.controller.open(null, null, restored.conditions);
+      return;
+    }
     if (this.config.initialQuery !== null) {
       this.model.inputText = this.config.initialQuery;
     }
@@ -198,8 +299,43 @@ export struct SearchView {
     }
   }
 
+  /** 当前页面状态（持久化用）。 */
+  private record(): SearchPageRecord {
+    const r: SearchPageRecord = new SearchPageRecord();
+    r.conditions = this.config.controller.conditions();
+    const d: SearchDraft = new SearchDraft();
+    d.inputText = this.model.inputText;
+    d.sheetOpen = this.model.sheetOpen;
+    d.sheetMin = this.model.sheetMin;
+    d.sheetMax = this.model.sheetMax;
+    r.draft = d;
+    this.keeper.anchor.fill(r);
+    return r;
+  }
+
+  private persist(): void {
+    if (!this.config.life.alive) {
+      return;
+    }
+    this.config.onPersist(this.record());
+  }
+
+  /** 页面出栈（life.exit）：注销布局观察，被覆盖 / 进后台的回调改成什么都不做。 */
+  private detach(): void {
+    try {
+      this.getUIContext().getUIObserver().off('didLayout', this.layoutListener);
+    } catch (e) {
+      // 没注册成功，无需注销。
+    }
+    this.config.onCovered = (_c: boolean): void => {
+    };
+    this.config.saveNow = (): void => {
+    };
+  }
+
   aboutToDisappear(): void {
-    this.config.controller.leave();
+    // onWillDisappear 已执行过时这里什么都不做（exit 只执行一次）；没走到 onWillDisappear 的销毁由这里兜底。
+    this.config.life.exit();
   }
 
   private t(key: string): string {
@@ -210,20 +346,20 @@ export struct SearchView {
     return platform === null ? '' : this.t(ProductCardKeys.platform(platform));
   }
 
-  private toCards(items: Record<string, Object>[], prefix: string): ResultCard[] {
+  private toCards(items: Record<string, Object>[], prefix: string, purchase: Record<string, string>): ResultCard[] {
+    const now: number = Date.now();
     return items.map((raw: Record<string, Object>, index: number) => {
       const key: Object | undefined = raw['product_key'];
-      return new ResultCard(raw, ProductCardMapper.fromCard(raw, this.config.texts),
+      const platform: Object | undefined = raw['platform'];
+      // 平台购买状态（features.platform_status，共性第 27 条）：点击前就按状态展示。
+      const status: string = typeof platform === 'string' ? (purchase[platform as string] ?? PURCHASE_ON) : PURCHASE_ON;
+      return new ResultCard(raw, ProductCardMapper.fromCard(raw, this.config.texts, true, now, status),
         prefix + this.model.generation + ':' + index + ':' + (typeof key === 'string' ? key as string : ''));
     });
   }
 
   private apply(s: SearchSnapshot): void {
     const m: SearchModel = this.model;
-    if (s.phase === SearchPhase.LOADING && m.phase !== SearchPhase.LOADING) {
-      // 新条件的第一页：列表回到顶部（不沿用上一组结果的滚动位置）。
-      this.listScroller.scrollToIndex(0);
-    }
     m.generation++;
     m.phase = s.phase;
     m.tabs = s.tabs.slice();
@@ -232,8 +368,8 @@ export struct SearchView {
     m.hasCoupon = s.hasCoupon;
     m.priceMinFen = s.priceMinFen;
     m.priceMaxFen = s.priceMaxFen;
-    m.cards = this.toCards(s.items, 'r');
-    m.fallbackCards = this.toCards(s.fallbackItems, 'f');
+    m.cards = this.toCards(s.items, 'r', s.purchase);
+    m.fallbackCards = this.toCards(s.fallbackItems, 'f', s.purchase);
     m.endReached = s.endReached;
     m.loadingMore = s.loadingMore;
     m.loadMoreFailed = s.loadMoreFailed;
@@ -241,40 +377,107 @@ export struct SearchView {
       (platform: string | null): string => this.platformName(platform), SearchKeys.GENERIC);
     m.errorText = this.errorText(s.error);
     m.noticeText = s.notice === null ? '' : this.errorText(s.notice);
+    m.showConditions = SearchLayout.showsConditionRows(s);
+    m.idleNotice = SearchLayout.showsIdleNotice(s);
     m.stale = s.stale;
     m.blocked = s.blocked;
-    m.disclaimers = this.disclaimerLines(s.items.length > 0 ? s.items : s.fallbackItems);
+    this.shownItems = SearchRows.cards(s);
+    this.rows = SearchRows.of(s);
+    // 常驻说明区（共性第 13、14、21、25 条）：高度按已加载结果的全部句子预留；显示的句子先按全部结果，滚动后按可见卡片更新。
+    this.purchase = s.purchase;
+    m.reserveDisclaimers = SearchDisclaimers.lines(this.shownItems, this.config.texts, this.rebateHidden);
+    m.disclaimers = m.reserveDisclaimers.slice(0, m.reserveDisclaimers.length);
+    this.announceFailure(s);
+    // 滚动保持：新一轮查询回到顶部并取消恢复；同一轮里推进恢复任务（等结果、补翻页、等布局）。
+    this.keeper.onSnapshot(s);
+    this.persist();
   }
 
-  /** 错误文案（SearchErrorText.of）：平台名用页面的显示名。 */
-  private errorText(error: SearchResultView | null): string {
-    return SearchErrorText.of(error, this.config.texts, (platform: string | null): string => this.platformName(platform),
-      this.model.platform.length > 0 ? this.model.platform : null, SearchKeys.GENERIC);
+  /**
+   * 加载失败（共性第 16 条）：首屏失败由 ErrorState 立即播报并把焦点移到【重试】；翻页失败在这里做同样的事——底部错误文案
+   * （带 trace6）assertive 播报一次，焦点移到底部【重试】（42901 时按钮保持禁用）。
+   */
+  private announceFailure(s: SearchSnapshot): void {
+    if (s.failureSeq === this.shownFailure) {
+      return;
+    }
+    this.shownFailure = s.failureSeq;
+    if (s.loadMoreFailed && this.model.loadMoreErrorText.length > 0) {
+      CouliAnnounce.say(this.getUIContext(), this.model.loadMoreErrorText);
+      setTimeout(() => {
+        CouliFocusReturn.to(this.getUIContext(), ID_LOAD_MORE_RETRY);
+      }, 0);
+    }
   }
 
-  /** 页面底部口径说明：本页卡片 disclaimer_keys 的并集，按首次出现的顺序（BR-PRICE-17）。 */
-  private disclaimerLines(items: Record<string, Object>[]): string[] {
-    const keys: string[] = [];
-    for (const item of items) {
-      for (const key of ProductCardMapper.disclaimerKeys(item)) {
-        if (keys.indexOf(key) < 0) {
-          keys.push(key);
-        }
+  /**
+   * 列表滚动（onScrollIndex）：说明区按可见卡片选句（没有可见卡片时保留上一次的句子）；锚点按实际视口记顶部第一张可见卡
+   * （恢复任务进行中、被覆盖时不记；没有可见卡片时保留最后有效的锚点，共性第 29 条）。
+   */
+  private onVisibleRows(first: number, last: number): void {
+    this.visibleFirst = first;
+    this.visibleLast = last;
+    const visible: Record<string, Object>[] | null = SearchDisclaimers.visible(this.rows, first, last);
+    if (visible !== null) {
+      const lines: string[] = SearchDisclaimers.lines(visible, this.config.texts, this.rebateHidden);
+      if (JSON.stringify(lines) !== JSON.stringify(this.model.disclaimers)) {
+        this.model.disclaimers = lines;
       }
     }
-    // 有券、无券混排的列表只放一条价格口径：price_basis.general（BR-PRICE-03 细则「无券商品与混排列表的口径说明」）。
-    const mixed: boolean = keys.indexOf('price_basis') >= 0 && keys.indexOf('price_basis.general') >= 0;
-    const out: string[] = [];
-    for (const key of keys) {
-      if (mixed && key === 'price_basis') {
+    this.keeper.track();
+  }
+
+  /**
+   * 按实际视口量出顶部第一张可见卡及它顶边相对视口顶部的位置（vp）。列表顶部内边距算在视口里；先按坐标取顶部那一行
+   * （getItemIndex），落在行间距里时用 onScrollIndex 的首行兜底。
+   */
+  private measureTop(): ViewportTop | null {
+    const rows: (Record<string, Object> | null)[] = this.keeper.currentRows;
+    let first: number = this.visibleFirst;
+    try {
+      const index: number = this.listScroller.getItemIndex(CouliSpacing.space4 + 8, CouliSpacing.space3 + 1);
+      if (index >= 0) {
+        first = index;
+      }
+    } catch (e) {
+      // 没有布局：按 onScrollIndex 的首行。
+    }
+    const last: number = Math.max(this.visibleLast, first) + 1;
+    for (let i: number = Math.max(0, first); i <= last && i < rows.length; i++) {
+      if (rows[i] === null) {
         continue;
       }
-      const line: string = ProductCardMapper.disclaimerText(key, this.config.texts);
-      if (line.length > 0 && out.indexOf(line) < 0) {
-        out.push(line);
+      try {
+        // getItemRect：相对列表组件左上角的位置（vp）。
+        const top: number = this.listScroller.getItemRect(i).y - CouliSpacing.space3;
+        const card: number = this.keeper.cardIndexOfRow(i);
+        return card < 0 ? null : new ViewportTop(card, top);
+      } catch (e) {
+        return null;
       }
     }
-    return out;
+    return null;
+  }
+
+  /**
+   * 被详情覆盖 / 回到前台（AppSearchPage 的 onHidden / onShown；进后台也会 onHidden）：覆盖前先按实际视口采集再冻结，并同步落盘
+   * （进程随后可能被回收，共性第 33 条）；覆盖期间恢复任务暂停，回到前台继续。
+   */
+  setCovered(covered: boolean): void {
+    if (!this.config.life.alive) {
+      return;
+    }
+    this.keeper.setCovered(covered);
+    if (covered) {
+      this.config.onPersistNow(this.record());
+    }
+  }
+
+  /** 错误文案（SearchErrorText.display：统一补 trace6，共性第 12 条）：平台名用页面的显示名。 */
+  private errorText(error: SearchResultView | null): string {
+    return SearchErrorText.display(error, this.config.texts,
+      (platform: string | null): string => this.platformName(platform),
+      this.model.platform.length > 0 ? this.model.platform : null, SearchKeys.GENERIC);
   }
 
   private remember(keyword: string): void {
@@ -330,6 +533,7 @@ export struct SearchView {
     this.model.sheetMax = fenToYuanText(this.model.priceMaxFen);
     this.model.sheetError = '';
     this.model.sheetOpen = true;
+    this.persist();
   }
 
   private confirmSheet(): void {
@@ -341,6 +545,7 @@ export struct SearchView {
       return;
     }
     this.model.sheetOpen = false;
+    this.persist();
   }
 
   @Builder
@@ -377,10 +582,12 @@ export struct SearchView {
           .placeholderColor(CouliColors.textSecondary)
           .maxLength(100)
           .enterKeyType(EnterKeyType.Search)
-          .defaultFocus(this.config.initialQuery === null)
+          // 进程回收后恢复的页面不自动弹键盘（恢复的是结果列表与滚动位置）。
+          .defaultFocus(this.config.initialQuery === null && this.config.restored === null)
           .accessibilityText(this.t(SearchKeys.PLACEHOLDER))
           .onChange((value: string) => {
             this.model.inputText = value;
+            this.persist();
           })
           .onSubmit(() => {
             this.submit();
@@ -551,6 +758,7 @@ export struct SearchView {
       showClose: false,
       onDisappear: () => {
         this.model.sheetOpen = false;
+        this.persist();
       }
     })
   }
@@ -579,11 +787,13 @@ export struct SearchView {
       Row({ space: CouliSpacing.space2 }) {
         this.priceInput(this.model.sheetMin, this.t(SearchKeys.SHEET_MIN), 'search_price_min', (v: string) => {
           this.model.sheetMin = v;
+          this.persist();
         })
         Text('–').attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
           .accessibilityLevel('no')
         this.priceInput(this.model.sheetMax, this.t(SearchKeys.SHEET_MAX), 'search_price_max', (v: string) => {
           this.model.sheetMax = v;
+          this.persist();
         })
       }
       .width('100%')
@@ -619,13 +829,23 @@ export struct SearchView {
     .width('100%')
   }
 
+  /** 购买：发出意图前再核对一次该平台此刻的购买状态（共性第 27 条）；不是 on 就不发出（卡片随配置刷新显示禁用）。 */
+  private buy(card: ResultCard): void {
+    const platform: Object | undefined = card.raw['platform'];
+    if (typeof platform !== 'string' || this.config.controller.purchaseStatus(platform as string) !== PURCHASE_ON) {
+      this.config.controller.configChanged();
+      return;
+    }
+    this.config.onBuyIntent(card.raw);
+  }
+
   @Builder
   cardItem(card: ResultCard) {
     Column() {
       ProductCard({
         data: card.data,
         variant: ProductCardVariant.LIST,
-        onBuy: () => this.config.onBuyIntent(card.raw)
+        onBuy: () => this.buy(card)
       })
     }
     .width('100%')
@@ -653,7 +873,7 @@ export struct SearchView {
           text: this.t(SearchKeys.RETRY),
           variant: CouliButtonVariant.SECONDARY,
           buttonSize: CouliButtonSize.COMPACT,
-          buttonId: 'search_load_more_retry',
+          buttonId: ID_LOAD_MORE_RETRY,
           disabled: this.model.blocked,
           onTap: () => this.config.controller.retry()
         })
@@ -670,11 +890,38 @@ export struct SearchView {
           .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
           .padding({ top: CouliSpacing.space2 })
       }
-      if (this.model.disclaimers.length > 0) {
-        DisclaimerFooter({ lines: this.model.disclaimers, mode: DisclaimerMode.FULL })
-      }
     }
     .width('100%')
+  }
+
+  /**
+   * 常驻说明区（BR-PRICE-03 搜索列表每屏底部显示一次全文；共性第 14、21 条）：放在列表下方、不随列表滚走。按已加载结果的全部
+   * 句子预留高度（隐藏的一层撑高度），上面一层显示当前可见卡片的句子；最多占结果区的三成，句子多（窄屏、200% 字号）时区内滚动。
+   */
+  @Builder
+  disclaimerArea() {
+    Scroll() {
+      Stack({ alignContent: Alignment.TopStart }) {
+        Column() {
+          DisclaimerFooter({ lines: this.model.reserveDisclaimers, mode: DisclaimerMode.FULL })
+        }
+        .opacity(0)
+        .accessibilityLevel('no-hide-descendants')
+        Column() {
+          DisclaimerFooter({ lines: this.model.disclaimers, mode: DisclaimerMode.FULL })
+        }
+        .id('search_disclaimer_area')
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .constraintSize({ maxWidth: CouliLayout.maxContentWidth,
+      maxHeight: this.resultsHeight > 0 ? this.resultsHeight * DISCLAIMER_MAX_RATIO : undefined })
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
+    .scrollBar(BarState.Auto)
+    .align(Alignment.Top)
+    .backgroundColor(CouliColors.backgroundCanvas)
+    .border({ width: { top: 1 }, color: CouliColors.borderSubtle })
   }
 
   @Builder
@@ -760,6 +1007,24 @@ export struct SearchView {
         this.config.controller.loadMore();
       }
     })
+    .onScrollIndex((first: number, last: number) => {
+      this.onVisibleRows(first, last);
+    })
+    .onScrollStop(() => {
+      // 滚动停下：按实际视口重记顶部商品与偏移（同一张卡内的滑动 onScrollIndex 不会回调），再持久化。覆盖期间、恢复中不记。
+      if (this.keeper.track()) {
+        this.persist();
+      }
+    })
+    .onTouch((event: TouchEvent) => {
+      // 用户拖动 / 触摸列表：取消进行中的滚动恢复（共性第 33 条），之后按用户的滚动记录。
+      if (event.type === TouchType.Down || event.type === TouchType.Move) {
+        this.keeper.userScroll();
+      }
+    })
+    .onAreaChange(() => {
+      this.keeper.layoutReady();
+    })
   }
 
   /** 结果顶部的一行提示（search_disabled、缓存降级）：图标 + 正文，按宽度换行，读屏合为一项。 */
@@ -792,7 +1057,7 @@ export struct SearchView {
     Column() {
       Column() {
         this.header()
-        if (this.model.phase !== SearchPhase.IDLE) {
+        if (this.model.showConditions) {
           this.tabsRow()
           this.sortRow()
           this.filterRow()
@@ -804,13 +1069,34 @@ export struct SearchView {
 
       if (this.model.phase === SearchPhase.IDLE) {
         Scroll() {
-          this.history()
+          Column() {
+            if (this.model.idleNotice && this.model.noticeText.length > 0) {
+              // 平台恢复后等待用户操作（共性第 36 条）：保留的关闭提示与恢复的 Tab 一起显示，仍不自动重搜。
+              Column() {
+                this.banner(this.model.noticeText, 'search_notice')
+              }
+              .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space3 })
+            }
+            this.history()
+          }
+          .width('100%')
         }
         .layoutWeight(1)
         .align(Alignment.Top)
         .backgroundColor(CouliColors.backgroundCanvas)
       } else {
-        this.results()
+        Column() {
+          this.results()
+          if ((this.model.phase === SearchPhase.CONTENT || this.model.phase === SearchPhase.EMPTY)
+            && this.model.reserveDisclaimers.length > 0) {
+            this.disclaimerArea()
+          }
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .onAreaChange((_old: Area, now: Area) => {
+          this.resultsHeight = now.height as number;
+        })
       }
     }
     .width('100%')
@@ -858,5 +1144,41 @@ struct SearchChip {
     .focusable(true)
     .focusBox(CouliFocus.box)
     .onClick(() => this.onTap())
+  }
+}
+
+/** 滚动保持的页面能力（List 的 Scroller；异步一律 setTimeout 0，回调前由 SearchScrollKeeper 复核归属）。 */
+class ListScrollHost implements ScrollKeeperHost {
+  private readonly toTop: () => void;
+  private readonly toRow: (row: number, extra: number) => void;
+  private readonly more: () => boolean;
+  private readonly measureFn: () => ViewportTop | null;
+
+  constructor(toTop: () => void, toRow: (row: number, extra: number) => void, more: () => boolean,
+    measureFn: () => ViewportTop | null) {
+    this.toTop = toTop;
+    this.toRow = toRow;
+    this.more = more;
+    this.measureFn = measureFn;
+  }
+
+  scrollToTop(): void {
+    this.toTop();
+  }
+
+  scrollToRow(row: number, extra: number): void {
+    this.toRow(row, extra);
+  }
+
+  loadMore(): boolean {
+    return this.more();
+  }
+
+  later(task: () => void): void {
+    setTimeout(task, 0);
+  }
+
+  measure(): ViewportTop | null {
+    return this.measureFn();
   }
 }

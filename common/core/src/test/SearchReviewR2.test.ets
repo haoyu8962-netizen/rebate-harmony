@@ -175,7 +175,9 @@ export default function searchReviewR2Test() {
       expect(port.calls[port.calls.length - 1].request.query).assertEqual('q=milk&platform=jd&sort=relevance');
     });
 
-    it('r2_02_only_platform_reopened_resumes_search', 0, async () => {
+    // FU-HM-1112 改：原断言「唯一平台恢复后自动重搜」与 APP-06a 共性第 18 条（A-R1-01）冲突——配置与联盟搜索开关不同步时会
+    // 「隐藏 → 恢复 → 再 50304」无限循环。现在恢复 Tab，但同一轮不再自动重搜刚返回 search_disabled 的平台，下一次由用户触发。
+    it('r2_02_only_platform_reopened_restores_tab_and_waits_for_user', 0, async () => {
       const status: MutableStatus = new MutableStatus(['jd']);
       const config: FakeConfig = new FakeConfig();
       const port: LeakyPort = new LeakyPort();
@@ -187,6 +189,8 @@ export default function searchReviewR2Test() {
       config.applied = 1;
       config.changed();
       expect(c.snapshot.platform).assertEqual('jd');
+      expect(port.calls.length).assertEqual(1);
+      expect(c.submit('milk')).assertTrue();
       expect(c.snapshot.phase).assertEqual(SearchPhase.LOADING);
       expect(port.calls[1].request.query).assertEqual('q=milk&platform=jd&sort=relevance');
     });

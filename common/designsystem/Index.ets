@@ -21,8 +21,9 @@ export {
 } from './src/main/ets/components/Price';
 export {
   ProductCard, ProductCardData, ProductCardTags, ProductCardVariant, ProductTag, SkeletonProductCard, SkeletonBlock,
-  ProductCardGrid
+  ProductCardGrid, ProductCardA11y
 } from './src/main/ets/components/ProductCard';
+export { SearchDisclaimers } from './src/main/ets/format/SearchDisclaimers';
 export {
   AmountGrid, AmountGridItem, AmountGridLayout, AmountMeasure, AmountTone, WalletHeroCard, EntryGrid, EntryGridItem
 } from './src/main/ets/components/Wallet';

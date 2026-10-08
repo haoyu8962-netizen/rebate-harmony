@@ -1,8 +1,8 @@
-import { ProductDetailController, ProductPhase, ProductSnapshot, trace6Of } from 'core';
+import { CreditNote, DetailNotes, ProductDetailController, ProductPhase, ProductSnapshot, trace6Of, withTrace6 } from 'core';
 import {
   BuyButton, BuyButtonState, CouliColors, CouliLayout, CouliFocus, CouliIcon, CouliInteraction, CouliSpacing, CouliTextModifier, CouliTypography, DisclaimerFooter, DisclaimerMode, EmptyState,
-  ErrorState, NavBar, ProductCard, ProductCardData, ProductCardMapper, ProductCardTexts, ProductCardVariant,
-  SkeletonBlock
+  ErrorState, NavBar, ProductCard, ProductCardA11y, ProductCardData, ProductCardMapper, ProductCardTexts,
+  ProductCardVariant, SearchDisclaimers, SkeletonBlock
 } from 'designsystem';
 
 /** 详情页文案键（三端同名）。契约已有的（error.*、external_page.retry）直接取；其余在 entry 草稿表（TODO(N-27)）。 */
@@ -14,6 +14,8 @@ export class ProductKeys {
   static readonly RESEARCH: string = 'product.research';
   static readonly RETRY: string = 'external_page.retry';
   static readonly GENERIC: string = 'error.50001';
+  /** 入账说明「确认收货后随联盟月度结算入账」（BR-TEXT-04、F-PROD-05；契约无键，草稿表，TODO(N-27)）。 */
+  static readonly CREDIT_NOTE: string = CreditNote.TEXT_KEY;
 }
 
 /** 文案来源（entry 实现）。 */
@@ -43,7 +45,6 @@ export class ProductPageConfig {
   onBuyIntent: (product: Record<string, Object>, publicMode: boolean) => void =
     (_p: Record<string, Object>, _m: boolean) => {
     };
-
   constructor(controller: ProductDetailController, texts: ProductTexts) {
     this.controller = controller;
     this.texts = texts;
@@ -64,6 +65,11 @@ export class ProductModel {
   @Trace buyState: BuyButtonState = BuyButtonState.DISABLED;
   /** 42901 限时禁用中：【重试】置灰。 */
   @Trace retryBlocked: boolean = false;
+  /** 购买按钮「稍后再试」状态下的文字（平台 not_launched 时为「{平台}返利即将开放」；空串用「稍后再试」）。 */
+  @Trace retryText: string = '';
+  /** 商品图（契约 image）：已加载 / 加载失败。 */
+  @Trace imageLoaded: boolean = false;
+  @Trace imageFailed: boolean = false;
 }
 
 const HERO_RADIUS: number = 12;
@@ -103,16 +109,28 @@ export struct ProductDetailView {
     m.errorCode = s.errorCode;
     m.retryBlocked = s.retryBlocked;
     if (s.phase === ProductPhase.CONTENT && s.product !== null && s.view !== null) {
+      if (this.product !== s.product) {
+        m.imageLoaded = false;
+        m.imageFailed = false;
+      }
       this.product = s.product;
-      m.card = ProductCardMapper.fromCard(s.product, this.config.texts, s.view.buyEnabled);
+      // 平台购买状态（features.platform_status，共性第 27 条）：maintenance「稍后再试」、not_launched「{平台}返利即将开放」，都禁用。
+      m.card = ProductCardMapper.fromCard(s.product, this.config.texts, s.view.buyEnabled, Date.now(), s.purchaseStatus);
       m.title = m.card.title;
       m.buyEnabled = s.view.buyEnabled;
       m.buyState = m.card.priceUnavailable || s.view.priceUnavailable ? BuyButtonState.RETRY_LATER
-        : (s.view.buyEnabled ? BuyButtonState.NORMAL : BuyButtonState.DISABLED);
+        : (m.card.buyState === BuyButtonState.RETRY_LATER ? BuyButtonState.RETRY_LATER
+        : (s.view.buyEnabled ? BuyButtonState.NORMAL : BuyButtonState.DISABLED));
+      m.retryText = m.card.retryText;
       m.publicMode = s.view.publicMode;
+      // 说明区（DetailNotes.keys）：平台 not_launched 只去掉返利句（共性第 31 条）；入账说明独立按快照里的 creditNote
+      // （商品有返利 + 入账开关，BR-TEXT-04；共性第 15、34、35 条），不受购买状态影响，入账开关单独变化也随快照更新。
       const lines: string[] = [];
-      for (const key of ProductCardMapper.disclaimerKeys(s.product)) {
-        const line: string = ProductCardMapper.disclaimerText(key, this.config.texts);
+      const keys: string[] = DetailNotes.keys(ProductCardMapper.disclaimerKeys(s.product),
+        (key: string): boolean => SearchDisclaimers.isRebateKey(key), s.purchaseStatus, s.creditNote);
+      for (const key of keys) {
+        const line: string = key === CreditNote.TEXT_KEY ? this.t(ProductKeys.CREDIT_NOTE)
+          : ProductCardMapper.disclaimerText(key, this.config.texts);
         if (line.length > 0 && lines.indexOf(line) < 0) {
           lines.push(line);
         }
@@ -123,7 +141,8 @@ export struct ProductDetailView {
       const vars: Map<string, string> = new Map<string, string>();
       vars.set('trace6', trace6Of(s.traceId));
       const text: string = s.errorTextKey === null ? '' : this.config.texts.format(s.errorTextKey, vars);
-      m.errorText = text.length > 0 ? text : this.config.texts.format(ProductKeys.GENERIC, vars);
+      // 追踪编号统一补上（共性第 12 条）：键里没有 {trace6} 的 42901、30141 等也带，已带的不重复。
+      m.errorText = withTrace6(text.length > 0 ? text : this.config.texts.format(ProductKeys.GENERIC, vars), s.traceId);
     }
   }
 
@@ -137,8 +156,25 @@ export struct ProductDetailView {
   @Builder
   hero() {
     Stack() {
-      CouliIcon({ name: 'image', iconSize: 48, color: CouliColors.textSecondary })
+      // 商品图（契约 image，共性第 22 条）：字段为空、加载中、加载失败时显示占位。
+      if (ProductCardA11y.showsPlaceholder(this.model.card.imageUrl, this.model.imageLoaded, this.model.imageFailed)) {
+        CouliIcon({ name: 'image', iconSize: 48, color: CouliColors.textSecondary })
+      }
+      if (this.model.card.imageUrl.length > 0 && !this.model.imageFailed) {
+        Image(this.model.card.imageUrl)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+          .onComplete(() => {
+            this.model.imageLoaded = true;
+          })
+          .onError(() => {
+            this.model.imageFailed = true;
+          })
+      }
     }
+    .clip(true)
     .width('100%')
     .aspectRatio(1.4)
     .backgroundColor(CouliColors.backgroundPlaceholder)
@@ -209,10 +245,12 @@ export struct ProductDetailView {
           amountHidden: this.model.card.amountHidden,
           context: 'detail',
           state: this.model.buyState,
+          retryText: this.model.retryText,
           compact: false,
           fullWidth: true,
           onTap: () => {
-            if (this.product !== null) {
+            // 发出购买意图前再核对一次（共性第 27 条）：配置里该平台已不可买时不发出，按钮随最新状态显示。
+            if (this.product !== null && this.config.controller.buyAllowed()) {
               this.config.onBuyIntent(this.product, this.model.publicMode);
             }
           }

@@ -126,8 +126,16 @@ export {
 export {
   SearchApiPort, ApiClientSearchPort, SearchPhase, SearchSnapshot, SearchController, ProductPhase, ProductSnapshot,
   ProductDetailController, SearchConfigPort, disableMillisOf, trace6Of,
-  SearchTextFormatter, SearchErrorText
+  SearchTextFormatter, SearchErrorText, withTrace6, SearchConditions, DetailPurchasePort
 } from './src/main/ets/search/SearchController';
+// FU-HM-1112：搜索与详情的页面级规则（购买状态、入账说明、路由名、页面状态持久化与自动恢复）。
+export {
+  PURCHASE_ON, PURCHASE_MAINTENANCE, PURCHASE_NOT_LAUNCHED, PlatformPurchase, PurchaseStatusPort, CreditNote,
+  SearchRoutes, SearchDraft, DetailIdentity, SearchPageRecord, PageStateStore, ScrollRestoreStep, ScrollRestore,
+  ScrollAnchorTracker,
+  PageRestorer, DetailNotes, SearchLayout, SearchRows, ViewportTop, ScrollKeeperHost, RestoreStage, ScrollRestoreJob,
+  SearchScrollKeeper, RestoreExpectation, SearchPageLife, SearchPageStates
+} from './src/main/ets/search/SearchPageState';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

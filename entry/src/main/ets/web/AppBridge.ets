@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
+  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
   BridgeStatePort, ClientEvent, ConfigStore, CouliPreferences, EnvironmentGate, EnvironmentSwitchGate,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
   GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
@@ -60,8 +60,8 @@ export class AppBridgeState implements BridgeStatePort {
   }
 
   loggedIn(): boolean {
-    const client: ApiClient | null = AppNetwork.client;
-    return client !== null && client.sessionAccount() !== null;
+    // APP-05b 共性第 18 条：已绑手机与已登录未绑手机都算已登录（Core RouterLoginHost.bridgeLoggedIn，测试核对）。
+    return RouterLoginHost.bridgeLoggedIn(AppNetwork.client);
   }
 
   update(): UpdateCheckStatus {

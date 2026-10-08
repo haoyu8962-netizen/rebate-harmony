@@ -73,6 +73,15 @@ export class RouterLoginHost implements LoginHost {
   }
 
   /**
+   * 桥 auth.login 的「已登录」（APP-05b 共性第 18 条）：有效 full 会话都算——已绑手机（PHONE_BOUND）与已登录未绑手机
+   * （LOGGED_IN，如第三方新号跳过绑手机引导）都是 true，不能只认 PHONE_BOUND；游客为 false。受限会话（deletion_only）单独处理：
+   * 它只在版本过低时出现，那时桥的 auth.login 已先按强更规则以 90500 拒绝（03 §4.4），走不到这里；这里按「有会话」计。
+   */
+  static bridgeLoggedIn(client: ApiClient | null): boolean {
+    return client !== null && client.sessionAccount() !== null;
+  }
+
+  /**
    * 登录页确定出栈的同步出口（R2-01，共性 9）：导航栈移除 Login（关闭、清栈、强更替换导航栈）的同一同步区内作废本次登录
    * 尝试并取消它的请求——不等组件 aboutToDisappear（退场动画结束才执行），出栈之后到达的响应不保存会话、不恢复待办。
    * 登录成功时执行器自己 closeLogin 也会走到这里：那时会话已保存、计划已定，作废不影响后续步骤。

@@ -434,6 +434,9 @@ export class OAuthLoginService {
       } else {
         // 查询失败保留待办（守卫按未验证：需要手机号的待办不执行）；暂缓释放给守卫，之后的状态同步由 verifyPhoneBinding 重查。
         this.login.endHold();
+        // APP-05b 共性第 14 条（A-R1-03）：解除暂缓后立即经 Router 守卫按自动恢复的口径同步一次——只要求登录的待办（如 OrderList）
+        // 正常恢复；需要手机号的待办按未验证保留（不弹前置页），不能一直挂到过期。
+        this.login.notifySessionState();
       }
     }
     return new OAuthLoginOutcome(OAuthLoginOutcome.LOGGED_IN, guide ? OAuthLoginRoute.BIND_PHONE_GUIDE :

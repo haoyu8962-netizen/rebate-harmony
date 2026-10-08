@@ -82,6 +82,22 @@ export class ProductCardTags {
   }
 }
 
+/** 商品卡的读屏与图片占位规则（纯函数，测试核对）。 */
+export class ProductCardA11y {
+  /**
+   * 「平台 + 商品名」合并项是否标为读屏标题（A11yFocusProduct 第 10 项「平台、商品名，标题」；APP-06a 共性第 30 条）：详情大卡是
+   * 标题（角色 TITLE_BAR，鸿蒙没有单独的 heading 角色，全仓库的标题都用它）；其余卡片是普通文本（TEXT）。
+   */
+  static titleIsHeading(large: boolean): boolean {
+    return large;
+  }
+
+  /** 图片占位：字段为空、加载中、加载失败时显示（共性第 22 条）。 */
+  static showsPlaceholder(imageUrl: string, loaded: boolean, failed: boolean): boolean {
+    return imageUrl.length === 0 || !loaded || failed;
+  }
+}
+
 export enum ProductCardVariant {
   /** 搜索结果列表卡（GUIDE §7.2.1 定稿）：主价 22。 */
   LIST = 'list',
@@ -97,8 +113,10 @@ export enum ProductCardVariant {
 export class ProductCardData {
   platformLabel: string = '';
   title: string = '';
-  /** 图片占位里的文字（素材未接入；真实图片接入后换 Image）。 */
+  /** 图片占位里的文字（字段为空、加载中、加载失败时显示）。 */
   imageLabel: string = '';
+  /** 商品图（契约 image；APP-06a 共性第 22 条）：空串不加载、只显示占位。 */
+  imageUrl: string = '';
   tags: ProductTag[] = [];
   price: PriceTagContent = PriceTagModel.make('taobao', 0, 0, 0, false);
   rebate: RebateTagContent = RebateTagModel.make('no_rebate', 0, 0, false);
@@ -127,6 +145,11 @@ export class ProductCardData {
   /** 价格不可用（BR-PRICE-01）：不显示任何金额（价格、返利、预估返后、取价），显示 priceUnavailableText，按钮「稍后再试」。 */
   priceUnavailable: boolean = false;
   priceUnavailableText: string = '';
+  /**
+   * 平台明确 not_launched（features.platform_status；ProductCardDegrade 第①种，APP-06a 共性第 31 条）：不显示返利金额、预估返后价与
+   * 对应的读屏金额，只保留商品价格和禁用按钮。
+   */
+  rebateHidden: boolean = false;
   /** 缓存 / 商品池降级报价（stale 或 age_sec > 300，BR-PRICE-11）；详情取价处的提示已拼进 quoteTime。 */
   priceStale: boolean = false;
 }
@@ -143,6 +166,9 @@ export struct ProductCard {
   @Event onBuy: () => void = () => {
   };
   @Local badgeWidth: number = 0;
+  /** 商品图已加载完成 / 加载失败（失败后只显示占位）。 */
+  @Local imageLoaded: boolean = false;
+  @Local imageFailed: boolean = false;
   /** 字号（运行中变化时布局随之切换，R1-03）。 */
   @Local fontScale: CouliFontScale = CouliFontScale.shared();
 
@@ -173,11 +199,27 @@ export struct ProductCard {
   @Builder
   image(size: Length) {
     Stack() {
-      Text(this.data.imageLabel)
-        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      if (ProductCardA11y.showsPlaceholder(this.data.imageUrl, this.imageLoaded, this.imageFailed)) {
+        Text(this.data.imageLabel)
+          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      }
+      if (this.data.imageUrl.length > 0 && !this.imageFailed) {
+        Image(this.data.imageUrl)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .draggable(false)
+          .onComplete(() => {
+            this.imageLoaded = true;
+          })
+          .onError(() => {
+            this.imageFailed = true;
+          })
+      }
     }
     .width(size)
     .aspectRatio(1)
+    .clip(true)
     .backgroundColor(CouliColors.backgroundPlaceholder)
     .border({ width: CouliComponentMetrics.controlBorderWidth, color: CouliColors.borderSubtle })
     .borderRadius(CouliRadius.small)
@@ -208,6 +250,8 @@ export struct ProductCard {
     .width('100%')
     .accessibilityGroup(true)
     .accessibilityText(this.data.platformLabel + PriceTerms.comma + this.data.title)
+    .accessibilityRole(ProductCardA11y.titleIsHeading(style === TextStyleKind.LARGE) ? AccessibilityRoleType.TITLE_BAR
+      : AccessibilityRoleType.TEXT)
   }
 
   @Builder
@@ -259,7 +303,7 @@ export struct ProductCard {
 
   private showsRebate(): boolean {
     // 列表隐藏「暂无返利」，同时不显示预估返后（§7.2.1 表「无返利」行）；价格不可用时不显示任何金额（BR-PRICE-01）。
-    return this.data.rebate.kindRaw !== 'none' && !this.data.priceUnavailable;
+    return this.data.rebate.kindRaw !== 'none' && !this.data.priceUnavailable && !this.data.rebateHidden;
   }
 
   /** 价格不可用的提示（BR-PRICE-01「暂时查不到该商品价格」）。 */
@@ -444,12 +488,15 @@ export struct ProductCard {
         }
       }
       if (!this.data.priceUnavailable) {
-        Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
-          space: { main: LengthMetrics.vp(CouliSpacing.space3), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-          RebateTag({ content: this.rebate(), tagSize: RebateTagSize.LARGE })
-          if (this.data.disclaimerPrefix.length > 0) {
-            Text(this.data.disclaimerPrefix)
-              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        // 平台 not_launched（共性第 31 条）：返利整块不显示（不显示「暂无返利」，也不读出金额）。
+        if (!this.data.rebateHidden) {
+          Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
+            space: { main: LengthMetrics.vp(CouliSpacing.space3), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
+            RebateTag({ content: this.rebate(), tagSize: RebateTagSize.LARGE })
+            if (this.data.disclaimerPrefix.length > 0) {
+              Text(this.data.disclaimerPrefix)
+                .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+            }
           }
         }
 

@@ -24,6 +24,8 @@ export class ProductCardKeys {
   static readonly PRICE_UNAVAILABLE: string = 'card.price_unavailable';
   /** 取价处的价格变化提示（BR-PRICE-11「价格可能已变化，以下单页为准」；契约无键，TODO(N-27) 草稿表）。 */
   static readonly PRICE_STALE: string = 'card.price_stale';
+  /** 平台返利即将开放（契约 platform_coming_soon，{platform_name}）：features.platform_status=not_launched 的购买按钮。 */
+  static readonly COMING_SOON: string = 'platform_coming_soon';
 }
 
 /** BR-PRICE-11：age_sec 超过 300 秒（或 stale=true）时在取价处提示价格可能已变化；正好 300 秒不提示。 */
@@ -44,17 +46,20 @@ function stringOrEmpty(value: Object | null | undefined): string {
  * - 优惠标签：服务端 benefit_tags 原样（「预售」由 ProductCardTags 按 is_presale 放置，不重复）。
  * - 口径说明：disclaimer_keys 按数组顺序取文字（BR-PRICE-17）；含 rebate_compare 时卡片底行带「以结算为准」前缀。
  * - 取价时间（详情大卡）：「取价 今天 HH:mm」（quoted_at，BR-TEXT-11 列表过去时间口径）。
- * - 图片：TODO(N-27) 商品图素材加载未接入（与 DS-01 目录页同一占位），显示占位文字。
+ * - 图片：契约 image 字段（APP-06a 共性第 22 条）：非空字符串交给图片组件加载；字段为空、加载中或加载失败时显示占位。
+ * - 平台购买状态（features.platform_status，共性第 27 条）：maintenance → 按钮「稍后再试」；not_launched → 按钮
+ *   「{平台}返利即将开放」（platform_coming_soon）；都禁用。价格不可用优先。
  */
 export class ProductCardMapper {
   static fromCard(card: Record<string, Object>, texts: ProductCardTexts, buyEnabled: boolean = true,
-    nowMillis: number = Date.now()): ProductCardData {
+    nowMillis: number = Date.now(), purchaseStatus: string = ProductCardMapper.PURCHASE_ON): ProductCardData {
     const d: ProductCardData = new ProductCardData();
     const platform: string = stringOrEmpty(card['platform']);
     const basis: string = stringOrEmpty(card['rebate_basis']);
     d.platformLabel = texts.text(ProductCardKeys.platform(platform));
     d.title = stringOrEmpty(card['title']);
     d.imageLabel = texts.text(ProductCardKeys.IMAGE_LABEL);
+    d.imageUrl = ProductCardMapper.imageUrl(card);
     // 价格三字段原样保留「未知」（null），不补 0（BR-PRICE-01：不得把缺失价格当 0 元）。
     const priceFen: number | null = numberOrNull(card['price_fen']);
     const couponFen: number | null = numberOrNull(card['coupon_fen']);
@@ -89,6 +94,12 @@ export class ProductCardMapper {
     // 价格不可用：按钮「稍后再试」（禁用，BR-PRICE-01）；其余按调用方给的可点状态。
     d.buyState = d.priceUnavailable ? BuyButtonState.RETRY_LATER
       : (buyEnabled && d.buyBase.length > 0 ? BuyButtonState.NORMAL : BuyButtonState.DISABLED);
+    if (!d.priceUnavailable && purchaseStatus !== ProductCardMapper.PURCHASE_ON) {
+      // 配置里该平台不可买：点击前就按状态禁用（03 §7.4 50301 一行：点击时仍以 open 响应为准）。
+      d.buyState = BuyButtonState.RETRY_LATER;
+      d.retryText = purchaseStatus === ProductCardMapper.PURCHASE_NOT_LAUNCHED
+        ? texts.text(ProductCardKeys.COMING_SOON).split('{platform_name}').join(d.platformLabel) : '';
+    }
     const keys: string[] = ProductCardMapper.disclaimerKeys(card);
     d.disclaimerLines = keys.map((key: string) => ProductCardMapper.disclaimerText(key, texts))
       .filter((line: string) => line.length > 0);
@@ -107,7 +118,30 @@ export class ProductCardMapper {
       const note: string = d.priceStale ? texts.text(ProductCardKeys.PRICE_STALE) : '';
       d.quoteTime = note.length > 0 ? time + PriceTerms.separator + note : time;
     }
+    if (purchaseStatus === ProductCardMapper.PURCHASE_NOT_LAUNCHED) {
+      // 共性第 31 条（ProductCardDegrade ①）：返利与预估返后都不显示，读屏也不读金额；口径说明只留价格句。
+      ProductCardMapper.hideRebate(d);
+    }
     return d;
+  }
+
+  static readonly PURCHASE_ON: string = 'on';
+  static readonly PURCHASE_NOT_LAUNCHED: string = 'not_launched';
+
+  /** 隐藏返利相关的全部内容（金额、预估返后、以结算为准前缀、返利口径句），价格照留。 */
+  static hideRebate(d: ProductCardData): void {
+    d.rebateHidden = true;
+    d.rebate = RebateTagModel.make('no_rebate', 0, 0, false);
+    d.estNet = null;
+    d.disclaimerPrefix = '';
+    d.disclaimerLines = d.disclaimerLines.filter((line: string) =>
+    line !== PriceTerms.rebateEstimate && line !== PriceTerms.rebateCompare);
+  }
+
+  /** 契约 image（uri 或 null）：非空字符串原样给图片组件；其余空串（显示占位）。 */
+  static imageUrl(card: Record<string, Object>): string {
+    const raw: Object | undefined = card['image'];
+    return typeof raw === 'string' ? (raw as string).trim() : '';
   }
 
   /**

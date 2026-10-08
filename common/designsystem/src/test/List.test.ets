@@ -4,6 +4,7 @@ import priceModelEdgeTest from './PriceModelEdge.test';
 import round3Test from './Round3.test';
 import loginLayoutTest from './LoginLayout.test';
 import productCardMapperR1Test from './ProductCardMapperR1.test';
+import followupHM1112Test from './FollowupHM1112.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -12,4 +13,5 @@ export default function testsuite() {
   round3Test();
   loginLayoutTest();
   productCardMapperR1Test();
+  followupHM1112Test();
 }

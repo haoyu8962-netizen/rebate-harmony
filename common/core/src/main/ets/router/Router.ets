@@ -155,6 +155,14 @@ export class Router {
   }
 
   /**
+   * 自动执行的动作（进程回收后恢复页面等，FU-HM-1112 共性第 28 条）此刻能否执行：与恢复 pending_action 同一门槛——外壳就绪、
+   * 环境与隐私闸门已通过、强更检查有结果或已等满 5 秒。
+   */
+  automaticOpenAllowed(): boolean {
+    return this.resumeAllowed();
+  }
+
+  /**
    * 记下闸门通过的时刻（等待计时的起点）。App 在每次状态变化时都调，与外壳是否就绪无关，
    * 计时从环境与隐私闸门通过、检查开始时起算，不因外壳未就绪推迟。
    */

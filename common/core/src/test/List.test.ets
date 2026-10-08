@@ -43,6 +43,10 @@ import followupHM10Test from './FollowupHM10.test';
 import app05bReviewR1Test from './App05bReviewR1.test';
 import app05bReviewR2Test from './App05bReviewR2.test';
 import app05bReviewR3Test from './App05bReviewR3.test';
+import followupHM1112Test from './FollowupHM1112.test';
+import followupHM1112LoginTest from './FollowupHM1112Login.test';
+import followupHM1112R2Test from './FollowupHM1112R2.test';
+import followupHM1112R3Test from './FollowupHM1112R3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -95,4 +99,8 @@ export default function testsuite() {
   app05bReviewR1Test();
   app05bReviewR2Test();
   app05bReviewR3Test();
+  followupHM1112Test();
+  followupHM1112LoginTest();
+  followupHM1112R2Test();
+  followupHM1112R3Test();
 }

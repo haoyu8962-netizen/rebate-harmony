@@ -45,7 +45,14 @@ class Sample {
   noPrice: boolean = false;
   /** 下发的 age_sec（缓存降级样例用 2160，BR-PRICE-11 例）。 */
   ageSec: number = 300;
+  /** 商品图（契约 image）：null 显示占位；FU-HM-1112 共性第 22 条的截图用本机图片（data URI，不连网络）。 */
+  image: string | null = null;
 }
+
+/** 本机示例商品图（16×16 渐变 PNG 的 data URI；FU-HM-1112 共性第 22 条：有图时显示图、加载失败与空字段显示占位）。 */
+const SAMPLE_IMAGE: string = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAACGUlEQVR42g3LocrGIBQA0P+dv2JxYQwGYpjlFg0iCGLQcouGYTKZTCaTaWmP8O/08/fe5E3bi8cb2euv18Kr1SvNC+4V4eX4nvndy0vrS9r763/PTZ60PXg8kT3+eiw8Wj3SPOAeER6Oz5mfvTy0PqQ9X1g3WWlbeKzIlr+WhaXVkmaBWyIsjuvMay+L1kXa+sK8yUzbxGNGNv01LUytpjQT3BRhcpxnnnuZtE7S5hfGTUbaBh4jsuGvYWFoNaQZ4IYIg+M489jLoHWQNr7Qb9LT1vHokXV/dQtdqy5NB9dF6Bz7mfteOq2dtP6FdpOWtoZHi6z5q1loWjVpGrgmQuPYztz20mhtpLUv1JvUtFU8amTVX9VC1apKU8FVESrHeua6l0prJa1+odykpK3gUSIr/ioWilZFmgKuiFA4ljOXvRRaC2nlC/kmOW0ZjxxZ9le2kLXK0mRwWYTMMZ857yXTmknLX8CbYNoQD4wM/YUWUCuUBsGhCMgRz4x7QVqRNPxCuElIW8AjRBb8FSwErYI0AVwQIXAMZw57CbQG0sIX3E1c2hweLjLnL2fBaeWkceCcCI6jO7Pbi6PVkea+YG5i0mbwMJEZfxkLRisjjQFnRDAczZnNXgythjTzBXUTlTaFh4pM+UtZUFopaRQ4JYLiqM6s9qJoVaSpL8BNIG2AB0QG/gILoBVIA+BABOAIZ4a9AK1AGvz6Pzw3AJ9zJnSGAAAAAElFTkSuQmCC';
+/** 一定加载失败的图片地址（.invalid 保留域名，不会解析；演示失败后回到占位）。 */
+const BROKEN_IMAGE: string = 'https://img.example.invalid/broken.png';
 
 function sample(key: string, title: string, price: number, coupon: number, min: number | null, max: number | null,
   basis: string, presale: boolean): Sample {
@@ -108,7 +115,7 @@ function cardJson(s: Sample, platform: string, withShop: boolean): string {
     '"item_ref":' + str(s.unknownAmount ? null : 'v1.' + prefix + '.' + s.key + '.sig'),
     '"platform":' + str(platform),
     '"title":' + str(s.unknownAmount ? null : s.title),
-    '"image":null',
+    '"image":' + str(s.image),
     '"price_fen":' + num(noPrice ? null : s.priceFen),
     '"coupon_fen":' + num(noPrice ? null : s.couponFen),
     '"final_price_fen":' + num(noPrice ? null : s.finalFen),
@@ -143,12 +150,18 @@ function hash(text: string): number {
   return h;
 }
 
+function withImage(s: Sample, image: string): Sample {
+  s.image = image;
+  return s;
+}
+
 /** 第一页（设计稿 Search 的三张卡）。 */
 function firstPage(): Sample[] {
   return [
-    sample('milk', '全脂纯牛奶 250ml × 24 盒 整箱装 早餐奶 学生奶 送礼礼盒款 生产日期新鲜', 2345, 1000, 56, 112,
-      'price_compare_risk', false),
-    sample('milk12', '纯牛奶 200ml × 12 盒 多规格可选', 1234, 0, 0, 99, 'price_compare_risk', false),
+    withImage(sample('milk', '全脂纯牛奶 250ml × 24 盒 整箱装 早餐奶 学生奶 送礼礼盒款 生产日期新鲜', 2345, 1000, 56, 112,
+      'price_compare_risk', false), SAMPLE_IMAGE),
+    withImage(sample('milk12', '纯牛奶 200ml × 12 盒 多规格可选', 1234, 0, 0, 99, 'price_compare_risk', false),
+      BROKEN_IMAGE),
     sample('organic', '有机纯牛奶 250ml × 24 盒 预售 下月发货', 9999, 0, 250, 500, 'price_compare_risk', true)
   ];
 }
@@ -189,6 +202,7 @@ function detailSample(key: string): Sample | null {
       'price_compare_risk', false);
     s.shop = '乳品生活旗舰店';
     s.estNetFen = 4555;
+    s.image = SAMPLE_IMAGE;
     return s;
   }
   const all: Sample[] = firstPage().concat(secondPage()).concat(statePage('taobao'));
@@ -318,7 +332,10 @@ export class DebugFakeSearch {
     return new FakeAnswer(0, cardJson(s, platform, true), key.indexOf('slow') >= 0 ? 3000 : 500);
   }
 
-  /** /v1/config：包内配置原样，只把三个平台的搜索开关都打开（Search 截图要三个 Tab）。 */
+  /**
+   * /v1/config：包内配置原样，只把三个平台的搜索开关都打开（Search 截图要三个 Tab）。
+   * FU-HM-1112（共性第 27 条截图）：platform_status 淘宝 on、京东 maintenance、拼多多 not_launched。
+   */
   static config(): FakeAnswer {
     const data: Record<string, Object> = JSON.parse(BundledConfig.DATA_JSON) as Record<string, Object>;
     const features: Record<string, Object> = (data['features'] ?? {}) as Record<string, Object>;
@@ -327,6 +344,11 @@ export class DebugFakeSearch {
     status['jd'] = 'on';
     status['pdd'] = 'on';
     features['search_status'] = status;
+    const purchase: Record<string, Object> = {};
+    purchase['taobao'] = 'on';
+    purchase['jd'] = 'maintenance';
+    purchase['pdd'] = 'not_launched';
+    features['platform_status'] = purchase;
     data['features'] = features;
     return new FakeAnswer(0, JSON.stringify(data), 200);
   }

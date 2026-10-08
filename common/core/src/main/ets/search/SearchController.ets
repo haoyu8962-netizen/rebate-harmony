@@ -1,3 +1,4 @@
+import { parseSort } from 'generated';
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { EffectKind, ErrorActionMapper, ErrorEffect } from '../network/ErrorActionMapper';
 import { TransportFailure } from '../network/HttpTransport';
@@ -49,6 +50,9 @@ export interface SearchConfigPort {
   subscribe(listener: () => void): () => void;
 }
 
+/** 购买状态 on（与 SearchPageState.PURCHASE_ON 同值；这里不引用它，避免两个模块互相引用）。 */
+const PURCHASE_ON: string = 'on';
+
 /** 50304 的 reason：该平台搜索开关已关（BR-PROD-10 细则「按平台的搜索开关」）。 */
 const REASON_SEARCH_DISABLED: string = 'search_disabled';
 
@@ -67,6 +71,18 @@ export function disableMillisOf(result: ApiResult): number {
 /** trace_id 后 6 位（03 §4.2 通用错误态）；没有 trace_id 为空串（文案按无编号的 fallback）。 */
 export function trace6Of(traceId: string): string {
   return traceId.length > 6 ? traceId.substring(traceId.length - 6) : traceId;
+}
+
+/**
+ * 错误正文统一附上追踪编号（APP-06a 共性第 12 条，A-R1-03）：不依赖文案键里恰好有 {trace6} 占位——有 trace_id 时正文末尾
+ * 补「（末六位）」，正文里已经有这六位就不重复；确实没有 trace_id 时原样（用不带编号的文案）。50304、search_disabled 也一样。
+ */
+export function withTrace6(message: string, traceId: string): string {
+  const trace: string = trace6Of(traceId);
+  if (trace.length === 0 || message.length === 0 || message.indexOf(trace) >= 0) {
+    return message;
+  }
+  return message + '（' + trace + '）';
 }
 
 /** 错误文案的格式化（页面的文案来源：契约字典 → 草稿表；{name} 替换为 vars[name]，占位缺值时按契约 fallback）。 */
@@ -99,6 +115,18 @@ export class SearchErrorText {
   }
 
   /**
+   * 页面实际显示的错误正文（共性第 12 条）：of 的文字再经 withTrace6 统一补追踪编号（键里没有 {trace6} 的 50304、
+   * search_disabled、42901 等也带；已有的不重复）。首屏错误、search_disabled 提示、翻页底部都用它。
+   */
+  static display(error: SearchResultView | null, texts: SearchTextFormatter,
+    platformName: (platform: string | null) => string, currentPlatform: string | null, genericKey: string): string {
+    if (error === null) {
+      return '';
+    }
+    return withTrace6(SearchErrorText.of(error, texts, platformName, currentPlatform, genericKey), error.traceId);
+  }
+
+  /**
    * 翻页失败时列表底部的错误文案（R2-03、03 §4.2）：保留已展示的结果，先显示这段（带 trace6），再给【重试】。
    * 没有翻页失败为空串；控制器没给错误（不应发生）时用通用失败键。
    */
@@ -107,7 +135,7 @@ export class SearchErrorText {
     if (!s.loadMoreFailed) {
       return '';
     }
-    const text: string = SearchErrorText.of(s.loadMoreError, texts, platformName, s.platform, genericKey);
+    const text: string = SearchErrorText.display(s.loadMoreError, texts, platformName, s.platform, genericKey);
     return text.length > 0 ? text : texts.format(genericKey, new Map<string, string>());
   }
 }
@@ -224,6 +252,40 @@ export class SearchSnapshot {
   stale: boolean = false;
   /** 42901 限时禁用中：搜索、换条件、翻页、重试入口都不可用（页面置灰），到期自动恢复。 */
   blocked: boolean = false;
+  /**
+   * 查询轮次（APP-06a 共性第 17、29 条）：每开始一轮新的第一页查询加 1。页面只在轮次变化时把列表滚回顶部；返回本页、
+   * 配置变化只更新 Tab、进程回收后按保存的条件恢复（轮次沿用保存的值）都不清零滚动位置。
+   */
+  round: number = 0;
+  /**
+   * 加载失败的序号（共性第 16 条）：首屏、翻页每出现一次新的失败加 1。页面按它立即播报（assertive）并把焦点移到对应的【重试】；
+   * 限流禁用状态照常保留。
+   */
+  failureSeq: number = 0;
+  /**
+   * 各平台的购买状态（配置 features.platform_status，PlatformPurchaseStatus；共性第 27 条）：on / maintenance / not_launched。
+   * 配置变化时更新；卡片据此展示购买按钮，点击前页面再经 SearchController.purchaseStatus 核对一次。
+   */
+  purchase: Record<string, string> = {};
+  /**
+   * 平台恢复后等待用户操作（APP-06a 共性第 18、36 条）：本轮已返回 search_disabled 的平台被配置恢复，自动回落停在输入态
+   * （phase 仍为 IDLE、不自动重搜），但与初始输入态不同——页面要显示恢复的 Tab 和保留的关闭提示。下一次发出搜索、进入
+   * 「无可搜索平台」时清除。
+   */
+  waitingForUser: boolean = false;
+}
+
+/**
+ * 搜索条件（页面状态持久化与进程回收后的恢复用，共性第 17、20 条）：关键词、平台、排序、筛选与查询轮次。
+ */
+export class SearchConditions {
+  keyword: string = '';
+  platform: string | null = null;
+  sort: string = 'relevance';
+  hasCoupon: boolean = false;
+  priceMinFen: number | null = null;
+  priceMaxFen: number | null = null;
+  round: number = 0;
 }
 
 /**
@@ -231,11 +293,15 @@ export class SearchSnapshot {
  * - 每个请求 begin 一个序号，归属守卫 owner = 「序号仍是当前、页面没离开」，交给 ApiClient（ApiRequest.owner）；
  * - 换关键词、换 Tab、换排序、换筛选、翻页、离开页面时，先让旧序号失效，再 cancelOwned 取消旧请求的传输；
  * - 响应到达（await 之后）再经 SearchSession.accept 复核，旧响应只丢弃，不改界面。
+ * 自动回落（FU-HM-1112，APP-06a 共性第 11、18、19、21、26 条）：配置变化与 search_disabled 都经唯一入口 fallBack；
+ * 先做不受限流影响的事（作废请求、清分页、切换页面状态），最后才决定发不发回落搜索；42901 禁用期间一律不发（统一在 run 检查），
+ * 本轮已返回 search_disabled 的平台不再自动重搜（下一次由用户触发）。
  */
 export class SearchController {
   private readonly api: SearchApiPort;
   private readonly statusLayers: () => Record<string, Object>;
   private readonly config: SearchConfigPort | null;
+  private readonly purchaseOf: ((platform: string) => string) | null;
   private readonly session: SearchSession = new SearchSession();
   private readonly block: RetryBlock;
   private pager: SearchPager = new SearchPager();
@@ -248,47 +314,112 @@ export class SearchController {
    * 拉取的旧配置不能提前恢复。没有配置端口时不恢复。
    */
   private disabled: Map<string, number> = new Map<string, number>();
+  /**
+   * 本轮（用户最近一次主动搜索 / 换条件 / 重试以来）已经返回 search_disabled 的平台（共性第 18、21 条）。配置恢复了它的 Tab
+   * 也不在同一轮里自动重搜它（配置与联盟搜索开关不同步时会「隐藏 → 恢复 → 再 50304」循环）；下一次由用户触发。
+   */
+  private disabledThisRound: Set<string> = new Set<string>();
+  /** 最近一次 42901 的错误：限流期间配置换了平台时，页面仍显示它并保持入口禁用（共性第 11 条）。 */
+  private blockedView: SearchResultView | null = null;
   private unsubscribe: (() => void) | null = null;
   /** 每次状态变化（页面把快照拷进可观察模型）。 */
   onChange: (snapshot: SearchSnapshot) => void = (_s: SearchSnapshot) => {
   };
 
+  /**
+   * purchase：平台 → 购买状态（features.platform_status；PlatformPurchase.statusOf 的口径）。没给时一律 on（只按卡片自身判定）。
+   */
   constructor(api: SearchApiPort, statusLayers: () => Record<string, Object>, config: SearchConfigPort | null = null,
-    clock: () => number = Date.now) {
+    clock: () => number = Date.now, purchase: ((platform: string) => string) | null = null) {
     this.api = api;
     this.statusLayers = statusLayers;
     this.config = config;
     this.block = new RetryBlock(clock);
+    this.purchaseOf = purchase;
   }
 
   get snapshot(): SearchSnapshot {
     return this.state;
   }
 
-  /** 页面打开：按路由参数 q、platform（routes.json Search）。有 q 时直接搜。 */
-  open(q: string | null, platform: string | null): void {
+  /** 当前搜索条件（页面持久化用）。 */
+  conditions(): SearchConditions {
+    const s: SearchSnapshot = this.state;
+    const c: SearchConditions = new SearchConditions();
+    c.keyword = s.keyword;
+    c.platform = s.platform;
+    c.sort = s.sort;
+    c.hasCoupon = s.hasCoupon;
+    c.priceMinFen = s.priceMinFen;
+    c.priceMaxFen = s.priceMaxFen;
+    c.round = s.round;
+    return c;
+  }
+
+  /**
+   * 页面打开：按路由参数 q、platform（routes.json Search）。有 q 时直接搜。
+   * restored：进程被系统回收后按持久化的页面状态重建本页（共性第 20 条）：不看路由参数，按保存的关键词、平台、排序、筛选
+   * 重新搜第一页，查询轮次沿用保存的值（不算新一轮，页面不把滚动位置清零）。
+   * 没有可搜索的平台时立即进入「无可搜索平台」，不必等用户点搜索（共性第 26 条）。
+   */
+  open(q: string | null, platform: string | null, restored: SearchConditions | null = null): void {
     this.left = false;
-    this.refreshTabs(platform);
-    if (this.config !== null && this.unsubscribe === null) {
-      this.unsubscribe = this.config.subscribe((): void => this.configChanged());
+    this.refreshPurchase();
+    if (restored !== null) {
+      // 恢复（共性第 37 条，H-FU-R1-01）：先完整装入保存的条件与轮次，再订阅配置。生产 ConfigStore.subscribe 会立即回调一次；
+      // 先订阅的话，那次回调发出的「轮次 0、输入态」中间快照会被页面当成新查询，清掉要恢复的滚动锚点。
+      this.restore(restored);
+      this.subscribeConfig();
+      return;
     }
+    this.subscribeConfig();
+    this.refreshTabs(platform);
     if (q !== null && SearchQuery.normalizeKeyword(q).length > 0) {
       this.submit(q);
-    } else {
+      return;
+    }
+    if (this.state.platform === null) {
+      this.state.phase = SearchPhase.UNAVAILABLE;
+    }
+    this.emit();
+  }
+
+  private subscribeConfig(): void {
+    if (this.config !== null && this.unsubscribe === null && !this.left) {
+      this.unsubscribe = this.config.subscribe((): void => this.configChanged());
+    }
+  }
+
+  private restore(saved: SearchConditions): void {
+    const s: SearchSnapshot = this.state;
+    s.keyword = SearchQuery.normalizeKeyword(saved.keyword);
+    s.sort = parseSort(saved.sort) !== undefined ? saved.sort : 'relevance';
+    const filtersOk: boolean = SearchController.filtersValid(saved.hasCoupon, saved.priceMinFen, saved.priceMaxFen);
+    s.hasCoupon = filtersOk && saved.hasCoupon;
+    s.priceMinFen = filtersOk ? saved.priceMinFen : null;
+    s.priceMaxFen = filtersOk ? saved.priceMaxFen : null;
+    s.round = Number.isInteger(saved.round) && saved.round >= 0 ? saved.round : 0;
+    this.refreshTabs(saved.platform);
+    if (s.platform === null) {
+      this.toUnavailable();
+      return;
+    }
+    if (s.keyword.length === 0 || !this.run(false)) {
+      s.phase = SearchPhase.IDLE;
       this.emit();
     }
   }
 
   /** 输入框【搜索】：关键词不合法（空、超长）返回 false，不发请求。 */
   submit(keyword: string): boolean {
-    if (this.block.active) {
+    if (this.block.active || this.left) {
       return false;
     }
     const normalized: string = SearchQuery.normalizeKeyword(keyword);
     this.refreshTabs(this.state.platform);
     const previous: string = this.state.keyword;
     this.state.keyword = normalized;
-    if (!this.run()) {
+    if (!this.userRun()) {
       this.state.keyword = previous;
       return false;
     }
@@ -303,7 +434,7 @@ export class SearchController {
     }
     this.state.platform = platform;
     this.state.notice = null;
-    this.rerun();
+    this.userRerun();
     return true;
   }
 
@@ -313,7 +444,7 @@ export class SearchController {
     }
     const previous: string = this.state.sort;
     this.state.sort = sort;
-    if (!this.rerun()) {
+    if (!this.userRerun()) {
       this.state.sort = previous;
       return false;
     }
@@ -330,7 +461,7 @@ export class SearchController {
     this.state.priceMinFen = minFen;
     this.state.priceMaxFen = maxFen;
     this.state.notice = null;
-    this.rerun();
+    this.userRerun();
     return true;
   }
 
@@ -349,7 +480,7 @@ export class SearchController {
       return false;
     }
     if (this.state.phase === SearchPhase.ERROR) {
-      return this.run();
+      return this.userRun();
     } else if (this.state.loadMoreFailed) {
       return this.loadMore();
     }
@@ -359,6 +490,13 @@ export class SearchController {
   /** 是否处于 42901 限时禁用（按时钟判定）。 */
   get blocked(): boolean {
     return this.block.active;
+  }
+
+  /**
+   * 这个平台此刻的购买状态（点击购买前再核对一次，共性第 27 条）：on / maintenance / not_launched；没接配置为 on。
+   */
+  purchaseStatus(platform: string): string {
+    return this.purchaseOf === null ? PURCHASE_ON : this.purchaseOf(platform);
   }
 
   /** 加载更多：已到底、正在加载、没有结果页、42901 禁用中时不做（返回 false）。 */
@@ -396,7 +534,8 @@ export class SearchController {
         s.loadMoreFailed = true;
         s.loadMoreError = new SearchResultView(SearchStateRaw.ERROR, view.textKey, view.code, view.platform ?? requested,
           view.traceId);
-        this.startBlock(result);
+        s.failureSeq++;
+        this.startBlock(result, s.loadMoreError);
         this.emit();
         return;
       }
@@ -419,8 +558,10 @@ export class SearchController {
   }
 
   /**
-   * 配置变化（ConfigStore 订阅）：重算 Tab。当前平台不再可搜（search_status 不是 on）时，作废并取消属于它的在途请求
-   * （搜索与翻页），按可用平台回落；还有关键词就在回落平台上重搜。当前平台仍可用时只更新 Tab。
+   * 配置变化（ConfigStore 订阅）：重算 Tab 与各平台购买状态。当前平台仍可用时只更新（不打断在途请求、不重复搜索）；
+   * 当前平台不再可搜（或之前没有可搜平台、现在有了）时：
+   * - 还没有关键词（输入态）：没有请求可作废，只换选中 Tab；全部关闭立即进入「无可搜索平台」，恢复后回到输入态（共性第 26 条）；
+   * - 有关键词：交给自动回落的唯一入口 fallBack（共性第 11、19、21 条）。
    */
   configChanged(): void {
     if (this.left) {
@@ -429,20 +570,27 @@ export class SearchController {
     const s: SearchSnapshot = this.state;
     const before: string | null = s.platform;
     const beforeTabs: string = JSON.stringify(s.tabs);
+    const purchaseChanged: boolean = this.refreshPurchase();
     this.refreshTabs(before);
     if (s.platform === before) {
-      if (JSON.stringify(s.tabs) !== beforeTabs) {
+      if (JSON.stringify(s.tabs) !== beforeTabs || purchaseChanged) {
         this.emit();
       }
       return;
     }
     if (s.keyword.length === 0) {
-      // 还没搜：没有请求可作废，只换选中 Tab。
       this.beginRequest('config');
+      if (s.platform === null) {
+        this.toUnavailable();
+        return;
+      }
+      if (s.phase === SearchPhase.UNAVAILABLE) {
+        s.phase = SearchPhase.IDLE;
+      }
       this.emit();
       return;
     }
-    this.run();
+    this.fallBack();
   }
 
   private static isSearchDisabled(result: ApiResult): boolean {
@@ -455,6 +603,17 @@ export class SearchController {
     this.restoreReopened(layers);
     this.state.tabs = SearchTabs.resolve(layers).filter((platform: string) => !this.disabled.has(platform));
     this.state.platform = SearchTabs.select(this.state.tabs, wanted);
+  }
+
+  /** 重算各平台购买状态；有变化返回 true。 */
+  private refreshPurchase(): boolean {
+    const next: Record<string, string> = {};
+    for (const platform of SearchTabs.CANDIDATES) {
+      next[platform] = this.purchaseStatus(platform);
+    }
+    const changed: boolean = JSON.stringify(next) !== JSON.stringify(this.state.purchase);
+    this.state.purchase = next;
+    return changed;
   }
 
   /**
@@ -482,11 +641,12 @@ export class SearchController {
   }
 
   /** 42901：按 ErrorEffect.disableMillis 禁用，到期恢复并通知页面。 */
-  private startBlock(result: ApiResult): void {
+  private startBlock(result: ApiResult, view: SearchResultView): void {
     const millis: number = disableMillisOf(result);
     if (millis <= 0) {
       return;
     }
+    this.blockedView = view;
     this.state.blocked = true;
     this.block.start(millis, (): void => {
       if (this.left) {
@@ -499,11 +659,13 @@ export class SearchController {
 
   /**
    * 50304 + search_disabled（error-codes：不显示重试，刷新配置并隐藏该平台 Tab；BR-PROD-10）：本页先移除该平台，
-   * 请求配置刷新，按可用平台回落；有回落平台就在那里重搜，没有就进入「无可搜索平台」。提示保留到用户下一次换条件。
+   * 请求配置刷新，按可用平台回落（唯一入口 fallBack：本轮已关闭过的平台不再自动重搜）；没有可用平台就进入「无可搜索平台」。
+   * 提示保留到用户下一次换条件。
    * TODO(APP-07)：提示里的「粘贴商品链接查返利」入口随剪贴板识别接入。
    */
   private searchDisabled(view: SearchResultView, requested: string): void {
     const platform: string = view.platform ?? requested;
+    this.disabledThisRound.add(platform);
     if (this.config !== null) {
       // 分界在刷新之前取：之后发出的拉取编号都大于它（重复收到时以最新的分界为准）。
       this.disabled.set(platform, this.config.issuedMark());
@@ -513,37 +675,103 @@ export class SearchController {
     }
     this.state.notice = new SearchResultView(view.stateRaw, view.textKey, view.code, platform, view.traceId);
     this.refreshTabs(null);
+    this.fallBack();
+  }
+
+  /**
+   * 自动回落的唯一入口（配置变化、search_disabled 都走这里；共性第 11、18、19、21 条）。先做不受限流影响的事：作废并取消旧平台的
+   * 请求、清掉分页、切换页面状态；最后才决定要不要发回落搜索（限流只限制发送）。
+   * - 没有任何可用平台：立即进入「无可搜索平台」（不管是否在 42901 禁用中）；
+   * - 可用平台都在本轮返回过 search_disabled（配置恢复了它们的 Tab）：回到输入态并保留提示，下一次搜索由用户触发；
+   * - 42901 禁用中：选中回落平台，页面保持限流错误与禁用，到期后由用户【重试】在新平台上搜（不自动补发）；
+   * - 否则在第一个本轮没关闭过的平台上重搜。
+   */
+  private fallBack(): void {
+    const s: SearchSnapshot = this.state;
+    this.beginRequest('fallback');
+    this.pager = new SearchPager();
+    s.waitingForUser = false;
+    let usable: string | null = null;
+    for (const tab of s.tabs) {
+      if (!this.disabledThisRound.has(tab)) {
+        usable = tab;
+        break;
+      }
+    }
+    if (s.tabs.length === 0) {
+      this.toUnavailable();
+      return;
+    }
+    if (usable === null) {
+      // 平台恢复后等待用户操作（共性第 36 条）：与初始输入态区分，页面显示恢复的 Tab 和保留的提示。
+      this.clearResults();
+      s.phase = SearchPhase.IDLE;
+      s.waitingForUser = true;
+      this.emit();
+      return;
+    }
+    s.platform = usable;
+    if (this.block.active) {
+      this.clearResults();
+      s.phase = SearchPhase.ERROR;
+      s.error = this.blockedView;
+      s.blocked = true;
+      this.emit();
+      return;
+    }
     this.run();
   }
 
-  /** 已有关键词时按当前条件重搜（换 Tab / 排序 / 筛选）；还没搜过只记下条件。 */
-  private rerun(): boolean {
+  /** 没有可搜索的平台：作废旧请求、清掉结果与分页，进入「无可搜索平台」（BR-PROD-10 细则；不发请求）。 */
+  private toUnavailable(): void {
+    this.beginRequest('unavailable');
+    this.pager = new SearchPager();
+    this.state.platform = null;
+    this.clearResults();
+    this.state.waitingForUser = false;
+    this.state.phase = SearchPhase.UNAVAILABLE;
+    this.emit();
+  }
+
+  private clearResults(): void {
+    const s: SearchSnapshot = this.state;
+    s.items = [];
+    s.fallbackItems = [];
+    s.endReached = true;
+    s.loadingMore = false;
+    s.loadMoreFailed = false;
+    s.loadMoreError = null;
+    s.error = null;
+    s.stale = false;
+  }
+
+  /** 用户换 Tab / 排序 / 筛选：已有关键词时按当前条件重搜；还没搜过只记下条件。 */
+  private userRerun(): boolean {
     if (this.state.keyword.length === 0) {
       this.emit();
       return true;
     }
+    return this.userRun();
+  }
+
+  /** 用户主动发起的一轮搜索：清空本轮记下的 search_disabled 平台（之后的自动回落重新计）。 */
+  private userRun(): boolean {
+    this.disabledThisRound.clear();
     return this.run();
   }
 
-  /** 搜第一页。条件不合法返回 false（不发请求、不改界面）。 */
-  private run(): boolean {
-    if (this.left) {
+  /**
+   * 搜第一页。条件不合法返回 false（不发请求、不改界面）。这是所有第一页请求的统一发送入口：42901 禁用期间一律不发
+   * （共性第 11 条；翻页的入口 loadMore 同样检查）。newRound 为 false 只在进程回收后恢复时用：轮次不变，页面不把滚动位置清零。
+   */
+  private run(newRound: boolean = true): boolean {
+    if (this.left || this.block.active) {
       return false;
     }
     const s: SearchSnapshot = this.state;
     if (s.platform === null) {
       // 没有可搜索的平台：不发请求（BR-PROD-10 细则）。旧请求照样作废。
-      this.beginRequest('search');
-      s.phase = SearchPhase.UNAVAILABLE;
-      s.items = [];
-      s.fallbackItems = [];
-      s.endReached = true;
-      s.loadingMore = false;
-      s.loadMoreFailed = false;
-      s.loadMoreError = null;
-      s.error = null;
-      s.stale = false;
-      this.emit();
+      this.toUnavailable();
       return true;
     }
     const requested: string = s.platform;
@@ -553,16 +781,13 @@ export class SearchController {
     }
     const seq: number = this.beginRequest('search');
     this.pager = new SearchPager();
+    s.waitingForUser = false;
     // TODO(N-27)：begin 时是否清除已展示的旧结果未规定；这里清掉并显示加载态，避免新条件下仍显示旧条件的结果。
+    this.clearResults();
     s.phase = SearchPhase.LOADING;
-    s.items = [];
-    s.fallbackItems = [];
-    s.endReached = true;
-    s.loadingMore = false;
-    s.loadMoreFailed = false;
-    s.loadMoreError = null;
-    s.error = null;
-    s.stale = false;
+    if (newRound) {
+      s.round++;
+    }
     this.emit();
     this.send(seq, query).then((result: ApiResult) => {
       if (!this.session.accept(seq)) {
@@ -579,7 +804,8 @@ export class SearchController {
         s.phase = SearchPhase.ERROR;
         s.error = view;
         s.shownSeq = seq;
-        this.startBlock(result);
+        s.failureSeq++;
+        this.startBlock(result, view);
         this.emit();
         return;
       }
@@ -681,6 +907,23 @@ export class ProductSnapshot {
   shownSeq: number | null = null;
   /** 42901 限时禁用中：【重试】置灰，到期恢复。 */
   retryBlocked: boolean = false;
+  /** 加载失败的序号（共性第 16 条）：每出现一次新的失败加 1，页面据此立即播报并把焦点移到【重试】。 */
+  failureSeq: number = 0;
+  /** 该平台此刻的购买状态（features.platform_status，共性第 27 条）：on / maintenance / not_launched；配置变化时更新。 */
+  purchaseStatus: string = PURCHASE_ON;
+  /**
+   * 是否显示入账说明（BR-TEXT-04；共性第 15、34、35 条）：只按商品是否有返利（CreditNote.visible）与平台入账开关
+   * credit.enabled.<platform> 决定，与购买状态无关（not_launched 只隐藏金额）。配置变化时与购买状态一起重算，
+   * 只有入账开关变化也通知页面。
+   */
+  creditNote: boolean = false;
+}
+
+/** 详情页购买状态的来源（SearchPageState.PurchaseStatusPort 的同形接口，避免两个模块互相引用）。 */
+export interface DetailPurchasePort {
+  status(platform: string): string;
+
+  subscribe(listener: () => void): () => void;
 }
 
 /**
@@ -699,13 +942,73 @@ export class ProductDetailController {
   private productKey: string = '';
   private itemRef: string | null = null;
   private state: ProductSnapshot = new ProductSnapshot();
+  private readonly purchase: DetailPurchasePort | null;
+  /** 平台入账开关（credit.enabled.<platform>）：true / false / null（拿不到，照常显示）。 */
+  private readonly creditOf: ((platform: string) => boolean | null) | null;
+  /** 入账说明是否适用于这件商品（由 SearchPageState.CreditNote.visible 注入，避免两个模块互相引用）。 */
+  private readonly creditRule: ((product: Record<string, Object>, creditSwitch: boolean | null) => boolean) | null;
+  private unsubscribe: (() => void) | null = null;
   onChange: (snapshot: ProductSnapshot) => void = (_s: ProductSnapshot) => {
   };
 
-  constructor(api: SearchApiPort, context: () => Record<string, Object>, clock: () => number = Date.now) {
+  /**
+   * purchase：平台购买状态（features.platform_status，共性第 27 条）；没给时一律 on。
+   * credit / creditRule：入账开关与入账说明的适用规则（共性第 15、34、35 条）；没给时不显示入账说明。配置变化经 purchase 的
+   * 订阅通知（同一个 ConfigStore），入账开关单独变化也会更新页面。
+   */
+  constructor(api: SearchApiPort, context: () => Record<string, Object>, clock: () => number = Date.now,
+    purchase: DetailPurchasePort | null = null, credit: ((platform: string) => boolean | null) | null = null,
+    creditRule: ((product: Record<string, Object>, creditSwitch: boolean | null) => boolean) | null = null) {
     this.api = api;
     this.context = context;
     this.block = new RetryBlock(clock);
+    this.purchase = purchase;
+    this.creditOf = credit;
+    this.creditRule = creditRule;
+  }
+
+  /** 此刻是否显示入账说明：内容态的商品按规则与现读的入账开关判定。 */
+  private currentCredit(): boolean {
+    const product: Record<string, Object> | null = this.state.product;
+    if (this.creditRule === null || product === null || this.state.phase !== ProductPhase.CONTENT) {
+      return false;
+    }
+    const creditSwitch: boolean | null = this.creditOf === null || this.platform.length === 0 ? null
+      : this.creditOf(this.platform);
+    return this.creditRule(product, creditSwitch);
+  }
+
+  /** 这个平台此刻的购买状态（现读配置）。 */
+  private currentPurchase(): string {
+    return this.purchase === null || this.platform.length === 0 ? PURCHASE_ON : this.purchase.status(this.platform);
+  }
+
+  /**
+   * 配置变化：重读购买状态与入账说明，任一变了就通知页面（按钮、说明区随之切换）。入账开关单独变化（购买状态不变）也通知
+   * （共性第 35 条，H-FU-R1-05）。
+   */
+  private purchaseChanged(): void {
+    if (this.left) {
+      return;
+    }
+    const next: string = this.currentPurchase();
+    const credit: boolean = this.currentCredit();
+    if (next !== this.state.purchaseStatus || credit !== this.state.creditNote) {
+      this.state.purchaseStatus = next;
+      this.state.creditNote = credit;
+      this.emit();
+    }
+  }
+
+  /**
+   * 发出购买意图前再核对一次（共性第 27 条）：内容态、服务端判定可买（ProductDetailView.buyEnabled），且此刻配置里该平台的
+   * 购买状态为 on。不满足返回 false（页面不发出意图，按钮按最新状态显示）。
+   */
+  buyAllowed(): boolean {
+    const s: ProductSnapshot = this.state;
+    this.purchaseChanged();
+    return !this.left && s.phase === ProductPhase.CONTENT && s.view !== null && s.view.buyEnabled
+      && s.purchaseStatus === PURCHASE_ON;
   }
 
   get snapshot(): ProductSnapshot {
@@ -717,6 +1020,10 @@ export class ProductDetailController {
     this.platform = platform;
     this.productKey = productKey;
     this.itemRef = itemRef;
+    this.state.purchaseStatus = this.currentPurchase();
+    if (this.purchase !== null && this.unsubscribe === null) {
+      this.unsubscribe = this.purchase.subscribe((): void => this.purchaseChanged());
+    }
     this.fetch();
   }
 
@@ -734,6 +1041,10 @@ export class ProductDetailController {
     this.session.leave();
     this.cancelAll();
     this.block.cancelTimer();
+    if (this.unsubscribe !== null) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
   }
 
   private fetch(): void {
@@ -765,6 +1076,8 @@ export class ProductDetailController {
         s.product = result.data;
         s.view = ProductDetailState.map(result.data, this.context());
         s.phase = ProductPhase.CONTENT;
+        s.purchaseStatus = this.currentPurchase();
+        s.creditNote = this.currentCredit();
       } else if (result.outcome === ApiOutcome.BUSINESS_ERROR) {
         const reasonRaw: Object | undefined = result.data['reason'];
         s.errorCode = result.code;
@@ -774,6 +1087,9 @@ export class ProductDetailController {
         s.errorCode = -1;
         s.errorTextKey = result.effect === null ? null : result.effect.textKey;
         s.phase = ProductPhase.ERROR;
+      }
+      if (s.phase === ProductPhase.ERROR) {
+        s.failureSeq++;
       }
       const millis: number = disableMillisOf(result);
       if (s.phase === ProductPhase.ERROR && millis > 0) {
