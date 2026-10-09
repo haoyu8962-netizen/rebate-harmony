@@ -4,7 +4,7 @@
 import { common, Want } from '@kit.AbilityKit';
 import {
   AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, PendingKeyBackend, PlaceholderUpdateChecker, RcpTransport,
-  ThirdPartyAuthAdapter, UnavailableWechatAdapter, UpdateChecker
+  ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer, UnavailableWechatAdapter, UpdateChecker, WebCodeAuthorizer
 } from 'core';
 
 export class BuildVariant {
@@ -32,6 +32,21 @@ export class BuildVariant {
    */
   static wechatAdapter(): ThirdPartyAuthAdapter {
     return new UnavailableWechatAdapter();
+  }
+
+  /** 淘宝 web_code 授权（APP-06b）：回跳 scheme 未登记（apps.json inbound 为空，TODO(N-28)），Release 不可用。 */
+  static webCodeAuthorizer(): WebCodeAuthorizer {
+    return new UnavailableWebCodeAuthorizer();
+  }
+
+  /** Release 不覆盖安装状态（按真实检测；apps.json 未给查询项时一律 unknown）。 */
+  static tradeInstalledOverride(_platform: string): string | null {
+    return null;
+  }
+
+  /** 「将通过浏览器打开」的停留时长：缺省。 */
+  static browserNoticeMillis(defaultMillis: number): number {
+    return defaultMillis;
   }
 
   /** Release 的未决记录一律在 Asset（原样返回 SecurePendingKeyBackend）。 */

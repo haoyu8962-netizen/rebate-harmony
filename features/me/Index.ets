@@ -1,2 +1,2 @@
 export { MeFeature } from './src/main/ets/MeFeature';
-export { MeTabRoot, meTabRootBuilder } from './src/main/ets/MeTabRoot';
+export { MeTabRoot, MeActions, meTabRootBuilder } from './src/main/ets/MeTabRoot';

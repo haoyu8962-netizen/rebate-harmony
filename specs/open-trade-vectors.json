@@ -1,0 +1,660 @@
+{
+  "version": 1,
+  "sources": [
+    "/Users/zhixing/我的项目/couli-runs/NATIVE/APP-06b/brief.md §2、§4",
+    "couli origin/main（读取时为 4070ad5c32fd39816636742a83e01b1476637454）:规划/03_前端架构.md §4.2、§4.5、§4.7、§7.4",
+    "couli origin/main:规划/08_业务规则/03_PRICE_价格口径与展示.md BR-PRICE-08、12、13、14；TRADE-03、TRADE-22",
+    "couli origin/main:规划/08_业务规则/04_ATTR_订单归属与归因.md BR-ATTR-21、BR-ATTR-27 正文与细则",
+    "couli origin/main:规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-10、17、22 正文与细则",
+    "rebate-platform@9cd1e6f9c3748bc99d92aec2fe845b48a26f180a:contracts/openapi.yaml openLink、getUnionAuthUrl、listUnionBindings、abandonIdempotencyKey；OpenLinkUnchanged、OpenLinkPriceChanged、OpenLinkPriceCompare；相关 schema",
+    "rebate-platform@9cd1e6f:contracts/error-codes.yaml",
+    "rebate-platform@9cd1e6f:contracts/texts.default.json",
+    "rebate-platform@9cd1e6f:contracts/apps.json",
+    "rebate-platform@9cd1e6f:contracts/routes.json AuthSheet、AuthManage、JumpTip",
+    "rebate-platform@9cd1e6f:specs/events.yaml link_jump"
+  ],
+  "idempotency": [
+    {
+      "name": "timeout_retry_keeps_key",
+      "steps": [{"op": "start"}, {"op": "timeout"}, {"op": "retry"}, {"op": "timeout"}, {"op": "retry"}],
+      "expect": {"keys": ["k1", "k1", "k1"], "abandonCalled": false}
+    },
+    {
+      "name": "authorization_30101_starts_new_request",
+      "steps": [{"op": "start"}, {"op": "authRequired", "code": 30101}, {"op": "resendAfterAuth"}, {"op": "timeout"}, {"op": "retry"}],
+      "expect": {"keys": ["k1", "k2", "k2"], "abandonCalled": false}
+    },
+    {
+      "name": "authorization_30102_starts_new_request",
+      "steps": [{"op": "start"}, {"op": "authRequired", "code": 30102}, {"op": "resendAfterAuth"}, {"op": "timeout"}, {"op": "retry"}],
+      "expect": {"keys": ["k1", "k2", "k2"], "abandonCalled": false}
+    },
+    {
+      "name": "authorization_30111_starts_new_request",
+      "steps": [{"op": "start"}, {"op": "authRequired", "code": 30111}, {"op": "resendAfterAuth"}, {"op": "timeout"}, {"op": "retry"}],
+      "expect": {"keys": ["k1", "k2", "k2"], "abandonCalled": false}
+    },
+    {
+      "name": "cancel_then_new_click",
+      "steps": [{"op": "start"}, {"op": "cancel"}, {"op": "start"}],
+      "expect": {"keys": ["k1", "k2"], "abandonCalled": false}
+    },
+    {
+      "name": "abandon_open_is_local_only",
+      "steps": [{"op": "start"}, {"op": "timeout"}, {"op": "abandon"}, {"op": "start"}],
+      "expect": {"keys": ["k1", "k2"], "abandonCalled": false}
+    },
+    {
+      "name": "cancel_does_not_abandon_server_key",
+      "steps": [{"op": "start"}, {"op": "cancel"}],
+      "expect": {"keys": ["k1"], "abandonCalled": false}
+    }
+  ],
+  "openResponse": [
+    {
+      "name": "unchanged",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [
+              {"type": "universal_link", "value": "https://s.click.example.test/t?e=abc"},
+              {"type": "copy_tpwd", "value": "￥AbCdEf12￥"}
+            ],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": 269,
+          "new_rebate_max_fen": 269,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "jump", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "price_up_example",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "scheme", "value": "openapp.example://virtual?params=abc"},
+            "fallbacks": [{"type": "h5", "value": "https://u.example.test/abc"}],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": true,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 3190,
+          "new_link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71",
+          "requote_failed": false,
+          "new_rebate_min_fen": 287,
+          "new_rebate_max_fen": 287,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "confirm_price", "replaceLinkId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "requoteNotice": false}
+    },
+    {
+      "name": "price_down_five_percent",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": true,
+          "old_final_price_fen": 1000,
+          "new_final_price_fen": 950,
+          "new_link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71",
+          "requote_failed": false,
+          "new_rebate_min_fen": 269,
+          "new_rebate_max_fen": 269,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 1000, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "confirm_price", "replaceLinkId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "requoteNotice": false}
+    },
+    {
+      "name": "below_threshold_still_replaces_link",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 3080,
+          "new_link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71",
+          "requote_failed": false,
+          "new_rebate_min_fen": 269,
+          "new_rebate_max_fen": 269,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "jump", "replaceLinkId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "requoteNotice": false}
+    },
+    {
+      "name": "rebate_positive_to_zero",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": 0,
+          "new_rebate_max_fen": 0,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "confirm_rebate_gone", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "zero_lower_bound_is_not_rebate_gone",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": 0,
+          "new_rebate_max_fen": 269,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "jump", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "zero_stays_zero",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": 0,
+          "new_rebate_max_fen": 0,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 0},
+      "expect": {"actionRaw": "jump", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "cached_requote_failure",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": true,
+          "new_rebate_min_fen": 269,
+          "new_rebate_max_fen": 269,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "jump", "replaceLinkId": null, "requoteNotice": true}
+    },
+    {
+      "name": "amount_unknown_null_is_not_zero",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "h5", "value": "https://u.example.test/abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": null,
+          "new_final_price_fen": null,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": null,
+          "new_rebate_max_fen": null,
+          "availability": "ok",
+          "quoted_at": null
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"amountUnknown": true},
+      "expect": {"actionRaw": "jump", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "price_compare_replaces_generic_rebate_dialog",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a82",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=def"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": 0,
+          "new_rebate_max_fen": 0,
+          "no_rebate_cause": "price_compare",
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "compare_no_rebate", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "replacement_without_price_change",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71",
+          "requote_failed": false,
+          "new_rebate_min_fen": 269,
+          "new_rebate_max_fen": 269,
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "jump", "replaceLinkId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "requoteNotice": false}
+    },
+    {
+      "name": "unknown_cause_treated_as_null",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 2990,
+          "new_link_id": null,
+          "requote_failed": false,
+          "new_rebate_min_fen": 0,
+          "new_rebate_max_fen": 0,
+          "no_rebate_cause": "future_reason",
+          "availability": "ok",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "confirm_rebate_gone", "replaceLinkId": null, "requoteNotice": false}
+    },
+    {
+      "name": "coupon_gone_below_price_threshold",
+      "response": {
+        "code": 0,
+        "msg": "",
+        "data": {
+          "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+          "jump": {
+            "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+            "fallbacks": [],
+            "expire_at": "2026-10-02T09:45:00+08:00"
+          },
+          "price_changed": false,
+          "old_final_price_fen": 2990,
+          "new_final_price_fen": 3080,
+          "new_link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71",
+          "requote_failed": false,
+          "new_rebate_min_fen": 269,
+          "new_rebate_max_fen": 269,
+          "availability": "coupon_gone",
+          "quoted_at": "2026-10-02T09:30:05+08:00"
+        },
+        "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "context": {"currentPriceFen": 2990, "currentRebateMaxFen": 269},
+      "expect": {"actionRaw": "confirm_coupon", "replaceLinkId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "requoteNotice": false}
+    }
+  ],
+  "openError": [
+    {"name": "login_required", "code": 10001, "expect": {"actionRaw": "login", "textKey": "error.10001", "showTrace6": false}},
+    {
+      "name": "taobao_unbound",
+      "code": 30101,
+      "data": {"auth_url": "https://oauth.example.test/authorize?state=st_01", "state": "st_01", "auth_methods": ["sdk_token", "web_code"]},
+      "expect": {"actionRaw": "auth_sheet", "textKey": "error.30101", "showTrace6": false}
+    },
+    {
+      "name": "taobao_auth_invalid",
+      "code": 30102,
+      "data": {"auth_url": "https://oauth.example.test/authorize?state=st_01", "state": "st_01", "auth_methods": ["sdk_token", "web_code"]},
+      "expect": {"actionRaw": "auth_sheet", "textKey": "error.30102", "showTrace6": false}
+    },
+    {"name": "taobao_site_auth_unavailable_unbound", "code": 30101, "data": {"reason": "auth_unavailable"}, "expect": {"actionRaw": "notice", "textKey": "error.30101.auth_unavailable", "showTrace6": false}},
+    {"name": "taobao_site_auth_unavailable_invalid", "code": 30102, "data": {"reason": "auth_unavailable"}, "expect": {"actionRaw": "notice", "textKey": "error.30102.auth_unavailable", "showTrace6": false}},
+    {
+      "name": "pdd_authorization_plan",
+      "code": 30111,
+      "data": {
+        "auth_jump": {
+          "primary": {"type": "universal_link", "value": "https://auth.example.test/pdd/authorize?state=st_02"},
+          "fallbacks": [],
+          "expire_at": "2026-10-02T09:40:00+08:00"
+        }
+      },
+      "expect": {"actionRaw": "auth_jump", "textKey": "error.30111", "showTrace6": false}
+    },
+    {"name": "channel_blocked", "code": 30103, "expect": {"actionRaw": "notice", "textKey": "error.30103", "showTrace6": false}},
+    {"name": "jd_conversion_unsupported", "code": 30121, "expect": {"actionRaw": "notice", "textKey": "error.30121", "showTrace6": false}},
+    {"name": "off_shelf", "code": 30141, "expect": {"actionRaw": "error", "textKey": "error.30141", "showTrace6": false}},
+    {"name": "binding_conflict", "code": 30151, "expect": {"actionRaw": "notice", "textKey": "error.30151", "showTrace6": false}},
+    {"name": "purchase_binding_blocked", "code": 30153, "expect": {"actionRaw": "notice", "textKey": "error.30153", "showTrace6": false}},
+    {"name": "platform_maintenance", "code": 50301, "data": {"reason": "maintenance"}, "expect": {"actionRaw": "notice", "textKey": "error.50301.maintenance", "showTrace6": true}},
+    {"name": "platform_maintenance_without_reason", "code": 50301, "expect": {"actionRaw": "notice", "textKey": "error.50301", "showTrace6": true}},
+    {"name": "requote_without_cache", "code": 50303, "expect": {"actionRaw": "error", "textKey": "error.50303", "showTrace6": true}},
+    {"name": "rate_limited", "code": 42901, "expect": {"actionRaw": "retry_after", "textKey": "error.42901", "showTrace6": false}}
+  ],
+  "lateResponse": [
+    {"name": "active_purchase_may_continue", "interrupt": "none", "expect": {"jump": true, "updateCard": true}},
+    {"name": "cancel_only_updates_card", "interrupt": "cancel", "expect": {"jump": false, "updateCard": true}},
+    {"name": "leave_only_updates_card", "interrupt": "leave", "expect": {"jump": false, "updateCard": true}},
+    {"name": "background_only_updates_card", "interrupt": "background", "expect": {"jump": false, "updateCard": true}}
+  ],
+  "jumpPlan": [
+    {
+      "name": "stop_after_primary_success",
+      "plan": {
+        "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+        "fallbacks": [
+          {"type": "scheme", "value": "openapp.example://virtual?params=abc"},
+          {"type": "universal_link", "value": "https://s.click.example.test/t?e=abc"},
+          {"type": "h5", "value": "https://u.example.test/abc"}
+        ],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": true},
+      "stepResults": ["launched", "failed", "failed", "failed"],
+      "expect": {"executed": ["sdk"], "final": "opened"}
+    },
+    {
+      "name": "fallbacks_keep_server_order",
+      "plan": {
+        "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+        "fallbacks": [
+          {"type": "scheme", "value": "openapp.example://virtual?params=abc"},
+          {"type": "universal_link", "value": "https://s.click.example.test/t?e=abc"},
+          {"type": "h5", "value": "https://u.example.test/abc"}
+        ],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": true},
+      "stepResults": ["failed", "failed", "launched", "failed"],
+      "expect": {"executed": ["sdk", "scheme", "universal_link"], "final": "opened"}
+    },
+    {
+      "name": "sdk_init_failure_uses_next_step",
+      "plan": {
+        "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+        "fallbacks": [{"type": "scheme", "value": "openapp.example://virtual?params=abc"}],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": true},
+      "stepResults": ["sdk_init_failed", "launched"],
+      "expect": {"executed": ["sdk", "scheme"], "final": "opened"}
+    },
+    {
+      "name": "sdk_failure_without_fallback",
+      "plan": {
+        "primary": {"type": "sdk", "value": "https://s.click.example.test/t?e=abc"},
+        "fallbacks": [],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": true},
+      "stepResults": ["sdk_init_failed"],
+      "expect": {"executed": ["sdk"], "final": "failed"}
+    },
+    {
+      "name": "uninstalled_browser_primary",
+      "plan": {
+        "primary": {"type": "h5", "value": "https://u.example.test/abc"},
+        "fallbacks": [],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": false},
+      "stepResults": ["launched"],
+      "expect": {"executed": ["h5"], "final": "browser"}
+    },
+    {
+      "name": "installed_browser_fallback",
+      "plan": {
+        "primary": {"type": "scheme", "value": "openapp.example://virtual?params=abc"},
+        "fallbacks": [{"type": "h5", "value": "https://u.example.test/abc"}],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": true},
+      "stepResults": ["failed", "launched"],
+      "expect": {"executed": ["scheme", "h5"], "final": "browser"}
+    },
+    {
+      "name": "uninstalled_copy_keeps_install_guidance",
+      "plan": {
+        "primary": {"type": "copy_tpwd", "value": "￥AbCdEf12￥"},
+        "fallbacks": [],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": false},
+      "stepResults": ["copied"],
+      "expect": {"executed": ["copy_tpwd"], "final": "not_installed"}
+    },
+    {
+      "name": "all_supplied_steps_fail",
+      "plan": {
+        "primary": {"type": "scheme", "value": "openapp.example://virtual?params=abc"},
+        "fallbacks": [{"type": "h5", "value": "https://u.example.test/abc"}],
+        "expire_at": "2026-10-02T09:45:00+08:00"
+      },
+      "installed": {"app": true},
+      "stepResults": ["failed", "failed"],
+      "expect": {"executed": ["scheme", "h5"], "final": "failed"}
+    }
+  ],
+  "linkJump": [
+    {
+      "name": "purchase_each_step_uses_response_attempt_and_new_link",
+      "attemptId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80",
+      "linkId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71",
+      "steps": [
+        {"phase": "purchase", "union_platform": "taobao", "step": "sdk", "result": "sdk_init_failed", "duration_ms": 12, "installed": "true", "value": "https://s.click.example.test/t?e=abc"},
+        {"phase": "purchase", "union_platform": "taobao", "step": "scheme", "result": "failed", "duration_ms": 3, "installed": "true", "value": "openapp.example://virtual?params=abc"},
+        {"phase": "purchase", "union_platform": "taobao", "step": "h5", "result": "launched", "duration_ms": 9, "installed": "true", "value": "https://u.example.test/abc"}
+      ],
+      "isAuthJump": false,
+      "expect": {
+        "events": [
+          {"phase": "purchase", "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80", "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "union_platform": "taobao", "step": "sdk", "result": "sdk_init_failed", "duration_ms": 12, "installed": "true"},
+          {"phase": "purchase", "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80", "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "union_platform": "taobao", "step": "scheme", "result": "failed", "duration_ms": 3, "installed": "true"},
+          {"phase": "purchase", "attempt_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a80", "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a71", "union_platform": "taobao", "step": "h5", "result": "launched", "duration_ms": 9, "installed": "true"}
+        ]
+      }
+    },
+    {
+      "name": "copied_is_reported_with_unknown_install_state",
+      "attemptId": "attempt-copy",
+      "linkId": "link-copy",
+      "steps": [
+        {"phase": "purchase", "union_platform": "taobao", "step": "copy_tpwd", "result": "copied", "duration_ms": 0, "installed": "unknown", "value": "￥AbCdEf12￥"}
+      ],
+      "isAuthJump": false,
+      "expect": {
+        "events": [
+          {"phase": "purchase", "attempt_id": "attempt-copy", "link_id": "link-copy", "union_platform": "taobao", "step": "copy_tpwd", "result": "copied", "duration_ms": 0, "installed": "unknown"}
+        ]
+      }
+    },
+    {
+      "name": "sdk_launch_failure_is_not_init_failure",
+      "attemptId": "attempt-sdk",
+      "linkId": "link-sdk",
+      "steps": [
+        {"phase": "purchase", "union_platform": "taobao", "step": "sdk", "result": "failed", "duration_ms": 5, "installed": "false"}
+      ],
+      "isAuthJump": false,
+      "expect": {
+        "events": [
+          {"phase": "purchase", "attempt_id": "attempt-sdk", "link_id": "link-sdk", "union_platform": "taobao", "step": "sdk", "result": "failed", "duration_ms": 5, "installed": "false"}
+        ]
+      }
+    },
+    {
+      "name": "same_step_kind_must_not_be_deduplicated",
+      "attemptId": "attempt-repeat",
+      "linkId": "link-repeat",
+      "steps": [
+        {"phase": "purchase", "union_platform": "jd", "step": "scheme", "result": "failed", "duration_ms": 2, "installed": "true"},
+        {"phase": "purchase", "union_platform": "jd", "step": "scheme", "result": "launched", "duration_ms": 3, "installed": "true"}
+      ],
+      "isAuthJump": false,
+      "expect": {
+        "events": [
+          {"phase": "purchase", "attempt_id": "attempt-repeat", "link_id": "link-repeat", "union_platform": "jd", "step": "scheme", "result": "failed", "duration_ms": 2, "installed": "true"},
+          {"phase": "purchase", "attempt_id": "attempt-repeat", "link_id": "link-repeat", "union_platform": "jd", "step": "scheme", "result": "launched", "duration_ms": 3, "installed": "true"}
+        ]
+      }
+    },
+    {
+      "name": "startup_has_no_purchase_identity",
+      "attemptId": null,
+      "linkId": null,
+      "steps": [{"phase": "startup", "union_platform": "taobao", "step": "sdk", "result": "sdk_init_failed"}],
+      "isAuthJump": false,
+      "expect": {"events": [{"phase": "startup", "union_platform": "taobao", "step": "sdk", "result": "sdk_init_failed"}]}
+    },
+    {
+      "name": "auth_jump_reports_neither_failure_nor_success",
+      "attemptId": null,
+      "linkId": null,
+      "steps": [
+        {"phase": "purchase", "union_platform": "pdd", "step": "scheme", "result": "failed", "duration_ms": 2, "installed": "true"},
+        {"phase": "purchase", "union_platform": "pdd", "step": "h5", "result": "launched", "duration_ms": 4, "installed": "true"}
+      ],
+      "isAuthJump": true,
+      "expect": {"events": []}
+    }
+  ],
+  "authMethods": [
+    {"name": "server_sdk_first_wins_over_supported_order", "platform": "taobao", "authMethods": ["sdk_token", "web_code"], "supported": ["web_code", "sdk_token"], "expect": {"chosen": "sdk_token"}},
+    {"name": "server_web_first_wins_over_supported_order", "platform": "taobao", "authMethods": ["web_code", "sdk_token"], "supported": ["sdk_token", "web_code"], "expect": {"chosen": "web_code"}},
+    {"name": "skip_unsupported_sdk", "platform": "taobao", "authMethods": ["sdk_token", "web_code"], "supported": ["web_code"], "expect": {"chosen": "web_code"}},
+    {"name": "skip_unsupported_web", "platform": "taobao", "authMethods": ["web_code", "sdk_token"], "supported": ["sdk_token"], "expect": {"chosen": "sdk_token"}},
+    {"name": "never_add_an_undelivered_method", "platform": "taobao", "authMethods": ["web_code"], "supported": ["sdk_token"], "expect": {"chosen": null}},
+    {"name": "no_local_capability", "platform": "taobao", "authMethods": ["sdk_token", "web_code"], "supported": [], "expect": {"chosen": null}}
+  ],
+  "gaps": [
+    "G01：brief §2 要求登录/授权恢复后不得自动外跳、授权后由用户确认；origin/main BR-ID-10、BR-ID-17、BR-ID-22 明确规定有效 pending_action 的前置完成后自动执行一次，BR-ID-22 还明确作废了授权后必须再点购买的旧说法。本组只判定显式 resendAfterAuth 使用新键，不裁定恢复时机；须编排者解决冲突。open 不是 BR-ID-10 四类不自动恢复的敏感操作。",
+    "G02：OpenAttempt 没有时钟、发送计数、响应或 attempt_id 输入，不能验收 7999/8000 毫秒边界、不自动重试、同键重放返回同一 attempt_id，或登录 10001 后沿用原键的完整 pending_action 链路。timeout 仅代表外部调度已触发超时，需另补假时钟与本地假服务集成测试。k1/k2 是注入的测试符号，不作为真实 HTTP 幂等键。",
+    "G03：LateResponsePolicy 只有 interrupt，缺少请求世代和最新点击编号。四行以响应仍属于最近一次点击为前提；无法验收取消后再次点击、旧响应直接丢弃，也无法验收迟到错误不触发登录/授权、迟到响应不弹确认和不发 link_jump。jump=true 只表示允许继续响应处理，不绕过价格确认。",
+    "G04：brief 的 h5 可走 ExternalPage 与规划/03 §4.5、AuthJumpStep 不一致。这里按后两者明确规定使用系统浏览器。simulate 没有授权标记或容器调用记录，只能判返回分类；30111 是否复用同一执行器、实际调用系统浏览器及鸿蒙提示仍需集成测试。",
+    "G05：installed:{app:boolean} 无法表达契约的 unknown。apps.json 目标全部为 candidate，Android 包名和鸿蒙查询项等仍为空，不能把未声明或检测失败当 false。本组布尔值是注入的检测结果；不臆造包名、scheme、商店地址、平台能力或实际可用路径。unknown 判定、DownloadGuide、trade_only 禁止 ext.openApp 绕过购买需另测。",
+    "G06：sdk_init_failed 表示 sdk 步骤初始化重试后仍失败的结果。simulate 没有初始化调用记录，无法证明只在同意隐私后初始化、下次购买前恰好重试一次。9cd1e6f JumpStep 仅有 type/value，尚不能承载规划中的 openByCode、pid、relationId 等结构；不补造 SDK 指令。初始化重试、回调码和真机归因仍未验收。",
+    "G07：OpenResponseAction 的单一 actionRaw 无法同时描述改价与返利归零的全部提示；原文没有为所有组合规定同一个返回标签。coupon_gone 同时返利归零须追加说明，但输出没有该字段；当前购买路径领不到券的响应标记在锁定契约中也未补齐。只测独立条件，不猜组合优先级。未知 no_rebate_cause 行是 BR-PRICE-08 明文要求的前向兼容输入，不是声称旧版 enum 接受该值。",
+    "G08：OpenErrorAction 的动作集合不能准确表达 30143 跳搜索、30144 按 product_key/item_ref 重取卡或 LinkLanding 空态，以及 10405 强更/受限会话刷新分流；map 也没有 operation、页面、版本和会话上下文。这些码不强塞入 notice/error，暂列缺口。50301 not_launched 的只置灰不 Toast 同样需要独立效果字段。",
+    "G09：30103、30121、30151、购买入口 30153 的 notice 只判提示分类与字典键，不代表按钮验收完成；无返利购买、联系客服和禁止泄露账号须补 UI 测试。30141 的 error 只判购买受阻，置灰和 Agent 换一批未覆盖。50303 的重试主按钮与无返利次按钮也没有输出载体。",
+    "G10：42901 的 Retry-After 在响应头，不在 data；现 API 无头部、时钟、禁用截止时刻，只能判 retry_after，不能验收缺省 5 秒。showTrace6 只判是否需要尾六位，不能证明真实 trace_id 截取与渲染正确。不得通过伪造 data.Retry-After 或 data.trace_id 声称已验收。",
+    "G11：listUnionBindings 的 AuthManage 投影没有对应被测 API：仅淘宝/拼多多、active 已授权，其余未授权，blocked 不给去授权；授权管理 30153 仅联系客服；管理页授权成功只刷新、不重放 open；路由入口与账号资料不展示均待补。购买入口的 30153 向量不能代替这些验收。",
+    "G12：replaceLinkId 表示立即更新卡片的要求，测试未模拟确认/取消按钮。比价弹窗的看看相似商品、同平台/原样标题/排除同 product_key、查看说明入口，以及 JumpTip 用户×平台一次和服务端已读均缺 UI/导航/存储接口。这里不重复 APP-06a 的搜索与商品展示向量。",
+    "G13：LinkJumpEvents 只输出 specs/events.yaml 的业务字段，Tracker 公共字段与队列另验。步骤输入里的 value 必须被剔除。规划 BR-ATTR-27 要求 sdk 拉起失败记录百川回调码，但锁定事件契约没有该字段，不能自行新增。Response 到 Runner 再到 Tracker 是否传入本次 attempt_id 和替换后的 link_id、取消后不上报，仍需组合测试。",
+    "G14：JumpPlanRunner 没有当前时间、平台或安装提示状态输入；不按运行测试当天时间判断示例 expire_at。过期方案、服务端方案与检测结果矛盾、已安装时仅复制口令的最终状态及未知步骤的处理缺少足够依据，本组不猜。not_installed 行仅对应 BR-ATTR-27 明写的未装淘宝复制口令后仍提示安装这一场景。"
+  ]
+}

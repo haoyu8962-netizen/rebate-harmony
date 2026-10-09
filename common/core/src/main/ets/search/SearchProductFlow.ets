@@ -438,6 +438,10 @@ export class ProductDetailState {
     if (product['rebate_basis'] === RebateBasis.AMOUNT_UNKNOWN) {
       return false;
     }
+    // open 已给出新券后价、券前价 / 券额待补齐（CardPatch.PRICE_PENDING）：不是价格不可用，照常可购买（H-R2-04，APP-06b 共性第 34 条）
+    if (product['client_price_pending'] === true && typeof product['final_price_fen'] === 'number') {
+      return false;
+    }
     for (const key of ['price_fen', 'coupon_fen', 'final_price_fen']) {
       if (typeof product[key] !== 'number') {
         return true;

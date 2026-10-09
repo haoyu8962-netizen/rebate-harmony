@@ -2,9 +2,10 @@
 // （tools/ci/release-scan.sh 查 COULI_FAKE_LOGIN_SERVER_APP05A_9d2c41、couli_debug_fake_server、DebugFakeServer）。
 // 只有启动参数 `--pd couli_debug_fake_server 1` 打开时才接管请求，且一律在本机回答、不发出任何网络请求；没打开时原样交给真实传输层。
 import {
-  HttpTransport, RcpTransport, TransportFailure, TransportRequest, TransportResponse
+  HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
 } from 'core';
 import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
+import { DebugFakeTrade } from './DebugFakeTrade';
 
 class Waiting {
   readonly timer: number;
@@ -34,6 +35,7 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  * - APP-05b 第 2 轮：`--pd couli_debug_wechat_scene risk` → 微信登录 44001（风控弹窗与申诉入口）；`old` → 老用户、未绑手机
  *   （先查 phone_bound 再恢复待办）。bindPhone 验证码 444444 → 44001、200030 → 20003。
  * - APP-05b 第 3 轮：bindPhone 验证码 100071 → 10007 stage=cooling（跳 DeleteAccount）、100070 → 10007 stage=processing（仅提示）。
+ * - APP-06b：open、getTips / markTipRead、listUnionBindings、getUnionAuthUrl、bindUnion（场景见 DebugFakeTrade）。
  */
 export class DebugFakeServer implements HttpTransport {
   static enabled: boolean = false;
@@ -41,6 +43,7 @@ export class DebugFakeServer implements HttpTransport {
   static wechatScene: string = '';
   static readonly marker: string = DEBUG_FAKE_SERVER_MARKER;
   static readonly searchMarker: string = DebugFakeSearch.marker;
+  static readonly tradeMarker: string = DebugFakeTrade.marker;
   private readonly real: HttpTransport = new RcpTransport();
   private serial: number = 0;
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
@@ -53,7 +56,8 @@ export class DebugFakeServer implements HttpTransport {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
-    const search: FakeAnswer | null = this.searchAnswer(request.url);
+    const search: FakeAnswer | null = DebugFakeTrade.answer(request.url, request.method,
+      request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url);
     const delay: number = search === null ? 400 : search.delayMillis;
     return new Promise<TransportResponse>((resolve: (r: TransportResponse) => void) => {
       const timer: number = setTimeout(() => {

@@ -47,6 +47,11 @@ import followupHM1112Test from './FollowupHM1112.test';
 import followupHM1112LoginTest from './FollowupHM1112Login.test';
 import followupHM1112R2Test from './FollowupHM1112R2.test';
 import followupHM1112R3Test from './FollowupHM1112R3.test';
+import openTradeVectorTest from './OpenTradeVector.test';
+import openPurchaseIntegrationTest from './OpenPurchaseIntegration.test';
+import openPurchaseReviewR1Test from './OpenPurchaseReviewR1.test';
+import openPurchaseReviewR2Test from './OpenPurchaseReviewR2.test';
+import openPurchaseReviewR3Test from './OpenPurchaseReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -103,4 +108,9 @@ export default function testsuite() {
   followupHM1112LoginTest();
   followupHM1112R2Test();
   followupHM1112R3Test();
+  openTradeVectorTest();
+  openPurchaseIntegrationTest();
+  openPurchaseReviewR1Test();
+  openPurchaseReviewR2Test();
+  openPurchaseReviewR3Test();
 }

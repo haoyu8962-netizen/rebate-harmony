@@ -640,7 +640,10 @@ class SdkInitSteps {
   static initPush(): void {
   }
 
-  /** TODO(APP-外跳)：联盟 SDK 初始化（03 §3.5）。 */
+  /**
+   * 联盟 SDK 初始化（03 §3.5）：App 经 registerInitStep(UNION, …) 接到百川适配层（APP-06b，AppTrade.initializeUnionSdk；SDK 未引入、
+   * AppKey 未给，不可用实现初始化失败并上报 sdk_init_failed，TODO(N-28)），代替这里的空步骤；没接时（单测、预览）什么都不做。
+   */
   static initUnion(): void {
   }
 

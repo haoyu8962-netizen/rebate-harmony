@@ -1,6 +1,7 @@
 import { CreditNote, DetailNotes, ProductDetailController, ProductPhase, ProductSnapshot, trace6Of, withTrace6 } from 'core';
 import {
-  BuyButton, BuyButtonState, CouliColors, CouliLayout, CouliFocus, CouliIcon, CouliInteraction, CouliSpacing, CouliTextModifier, CouliTypography, DisclaimerFooter, DisclaimerMode, EmptyState,
+  BuyButton, BuyButtonState, CouliColors, CouliFontWeight, CouliLayout, CouliFocus, CouliIcon, CouliInteraction, CouliRadius,
+  CouliSpacing, CouliTextModifier, CouliTypography, DisclaimerFooter, DisclaimerMode, EmptyState,
   ErrorState, NavBar, ProductCard, ProductCardA11y, ProductCardData, ProductCardMapper, ProductCardTexts,
   ProductCardVariant, SearchDisclaimers, SkeletonBlock
 } from 'designsystem';
@@ -16,6 +17,9 @@ export class ProductKeys {
   static readonly GENERIC: string = 'error.50001';
   /** 入账说明「确认收货后随联盟月度结算入账」（BR-TEXT-04、F-PROD-05；契约无键，草稿表，TODO(N-27)）。 */
   static readonly CREDIT_NOTE: string = CreditNote.TEXT_KEY;
+  /** 比价无返利的原因与相似入口（契约 no_rebate.price_compare、no_rebate.price_compare.similar）。 */
+  static readonly COMPARE_REASON: string = 'no_rebate.price_compare';
+  static readonly SIMILAR: string = 'no_rebate.price_compare.similar';
 }
 
 /** 文案来源（entry 实现）。 */
@@ -41,14 +45,43 @@ export class ProductPageConfig {
   /** 30143 商品信息已失效：回到搜索。 */
   onResearch: () => void = () => {
   };
-  /** 购买：只发出购买意图（TODO(APP-06b)：open 购买、8 秒超时、TradeJump、JumpTip、AuthSheet）。 */
+  /** 购买：交给 App 的购买执行器（APP-06b：open、8 秒超时、TradeJump、JumpTip、AuthSheet）。 */
   onBuyIntent: (product: Record<string, Object>, publicMode: boolean) => void =
     (_p: Record<string, Object>, _m: boolean) => {
     };
+  /** 【看看相似商品】（BR-PRICE-08；详情首次进入、没点过购买也可用，APP-06b 共性第 15 条）。 */
+  onSimilar: (product: Record<string, Object>) => void = (_p: Record<string, Object>) => {
+  };
+  /** 购买流程的页内展示（App 的购买执行器写入）。 */
+  readonly purchase: ProductPurchaseUi = new ProductPurchaseUi();
+  /** 商品内容到达或更新（App 用：补同意后重开的详情自动执行一次购买，APP-06b H01）。 */
+  onProduct: (product: Record<string, Object>) => void = (_p: Record<string, Object>) => {
+  };
   constructor(controller: ProductDetailController, texts: ProductTexts) {
     this.controller = controller;
     this.texts = texts;
   }
+}
+
+/**
+ * 购买流程在详情页内的展示（APP-06b；文字由 App 给，本模块不写中文）：
+ * - 购买按钮覆盖：加载中（ProductBuyOpening）、42901 限时禁用；未安装且已复制口令时按钮文字「复制淘口令」；
+ * - 超时提示条（ProductBuyTimeout）：底栏上方「网络不稳定，请重试」+【重试】（沿用原键，TRADE-22）；
+ * - 安装提示（ProductJumpNotInstalled）：底栏上方「安装X后下单才有返利」；
+ * - 弹层打开时详情内容对读屏隐藏（弹层是模态，adaptation-a11y-spec §8）。
+ */
+@ObservedV2
+export class ProductPurchaseUi {
+  /** '' 不覆盖；loading / disabled。 */
+  @Trace buyState: string = '';
+  @Trace buyText: string = '';
+  @Trace timeoutVisible: boolean = false;
+  @Trace timeoutText: string = '';
+  @Trace retryText: string = '';
+  @Trace jumpNote: string = '';
+  @Trace modal: boolean = false;
+  onRetryTimeout: () => void = () => {
+  };
 }
 
 @ObservedV2
@@ -114,6 +147,7 @@ export struct ProductDetailView {
         m.imageFailed = false;
       }
       this.product = s.product;
+      this.config.onProduct(s.product);
       // 平台购买状态（features.platform_status，共性第 27 条）：maintenance「稍后再试」、not_launched「{平台}返利即将开放」，都禁用。
       m.card = ProductCardMapper.fromCard(s.product, this.config.texts, s.view.buyEnabled, Date.now(), s.purchaseStatus);
       m.title = m.card.title;
@@ -218,6 +252,93 @@ export struct ProductDetailView {
     }
   }
 
+  /** 购买按钮的最终状态：购买流程的覆盖优先（加载中、限时禁用），否则按商品与平台状态。 */
+  private effectiveBuyState(): BuyButtonState {
+    const o: string = this.config.purchase.buyState;
+    if (o === 'loading' && this.model.buyState === BuyButtonState.NORMAL) {
+      return BuyButtonState.LOADING;
+    }
+    if (o === 'disabled' && this.model.buyState === BuyButtonState.NORMAL) {
+      return BuyButtonState.DISABLED;
+    }
+    return this.model.buyState;
+  }
+
+  /** 比价无返利的原因行与【看看相似商品】（BR-PRICE-08；商品本身是比价无返利时，首次进入就显示，共性第 15 条）。 */
+  private compareReason(): boolean {
+    const p: Record<string, Object> | null = this.product;
+    return p !== null && p['no_rebate_cause'] === 'price_compare' && p['rebate_basis'] === 'no_rebate';
+  }
+
+  @Builder
+  compareRow() {
+    Row({ space: CouliSpacing.space2 }) {
+      Text(this.t(ProductKeys.COMPARE_REASON))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .layoutWeight(1)
+      Text(this.t(ProductKeys.SIMILAR))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textLink))
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+        .textAlign(TextAlign.Center)
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .id('product_similar')
+        .onClick(() => {
+          if (this.product !== null) {
+            this.config.onSimilar(this.product);
+          }
+        })
+    }
+    .width('100%')
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
+    .backgroundColor(CouliColors.backgroundSurface)
+    .borderRadius(CouliRadius.card)
+  }
+
+  @Builder
+  timeoutBanner() {
+    Row({ space: CouliSpacing.space2 }) {
+      CouliIcon({ name: 'alert', iconSize: 20, color: CouliColors.statusErrorText })
+      Text(this.config.purchase.timeoutText)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText))
+        .layoutWeight(1)
+      Text(this.config.purchase.retryText)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText,
+          CouliFontWeight.semibold))
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+        .textAlign(TextAlign.Center)
+        .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .id('trade_timeout_retry')
+        .onClick(() => this.config.purchase.onRetryTimeout())
+    }
+    .id('trade_timeout')
+    .padding({ left: CouliSpacing.space3, right: CouliSpacing.space1, top: CouliSpacing.space1,
+      bottom: CouliSpacing.space1 })
+    .margin({ left: CouliSpacing.space4, right: CouliSpacing.space4, bottom: CouliSpacing.space3 })
+    .backgroundColor(CouliColors.statusErrorBackground)
+    .borderRadius(CouliRadius.button)
+  }
+
+  @Builder
+  jumpNoteRow() {
+    Row({ space: CouliSpacing.space2 }) {
+      CouliIcon({ name: 'info', iconSize: 20, color: CouliColors.textSecondary })
+      Text(this.config.purchase.jumpNote)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+        .layoutWeight(1)
+    }
+    .id('trade_jump_note')
+    .alignItems(VerticalAlign.Top)
+    .width('100%')
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space3 })
+    .backgroundColor(CouliColors.backgroundSurface)
+    .border({ width: { top: 1 }, color: CouliColors.borderSubtle })
+  }
+
   @Builder
   bottomBar() {
     Row({ space: CouliSpacing.space3 }) {
@@ -240,17 +361,18 @@ export struct ProductDetailView {
 
       Column() {
         BuyButton({
-          base: this.model.card.buyBase,
+          base: this.config.purchase.buyText.length > 0 ? this.config.purchase.buyText : this.model.card.buyBase,
           rebate: this.model.card.rebate,
           amountHidden: this.model.card.amountHidden,
           context: 'detail',
-          state: this.model.buyState,
+          state: this.effectiveBuyState(),
           retryText: this.model.retryText,
           compact: false,
           fullWidth: true,
           onTap: () => {
             // 发出购买意图前再核对一次（共性第 27 条）：配置里该平台已不可买时不发出，按钮随最新状态显示。
-            if (this.product !== null && this.config.controller.buyAllowed()) {
+            if (this.product !== null && this.effectiveBuyState() === BuyButtonState.NORMAL
+              && this.config.controller.buyAllowed()) {
               this.config.onBuyIntent(this.product, this.model.publicMode);
             }
           }
@@ -284,6 +406,9 @@ export struct ProductDetailView {
           Column({ space: CouliSpacing.space3 }) {
             this.hero()
             ProductCard({ data: this.model.card, variant: ProductCardVariant.LARGE })
+            if (this.compareReason()) {
+              this.compareRow()
+            }
             if (this.model.disclaimers.length > 0) {
               DisclaimerFooter({ lines: this.model.disclaimers, mode: DisclaimerMode.FULL, boxed: true })
             }
@@ -295,11 +420,19 @@ export struct ProductDetailView {
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
+        if (this.config.purchase.timeoutVisible) {
+          this.timeoutBanner()
+        }
+        if (this.config.purchase.jumpNote.length > 0) {
+          this.jumpNoteRow()
+        }
         this.bottomBar()
       }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(CouliColors.backgroundCanvas)
+    // 购买弹层是模态：打开时详情内容对读屏隐藏（adaptation-a11y-spec §8）
+    .accessibilityLevel(this.config.purchase.modal ? 'no-hide-descendants' : 'auto')
   }
 }

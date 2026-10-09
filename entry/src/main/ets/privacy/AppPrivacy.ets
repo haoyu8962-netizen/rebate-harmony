@@ -2,13 +2,15 @@ import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AppConfig, CleanReport, GuardDecision, GuardDecisionKind, parsePrivacyState, PreferencesPrivacyStore, PrivacyDecision,
-  PrivacyGate, PrivacyGateState, PrivacyPromptCover, PrivacyPromptStage, PrivacyWithdrawalCleaners, RouteDestination
+  PrivacyGate, PrivacyGateState, PrivacyInitSteps, PrivacyPromptCover, PrivacyPromptStage, PrivacyWithdrawalCleaners,
+  RouteDestination
 } from 'core';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
 import { ShellState } from '../shell/ShellState';
 import { AppUpdate } from '../update/AppUpdate';
+import { AppTrade } from '../trade/AppTrade';
 
 /** 一次结论变化由什么引起（决定是否通知 Router 前置完成 / 丢弃待办）。 */
 enum PrivacyEvent {
@@ -128,6 +130,9 @@ export class AppPrivacy {
       });
     };
     gate.registerSdkInitSteps();
+    // 联盟 SDK（03 §3.5）：百川适配层（APP-06b；SDK 未引入、AppKey 未给，不可用实现初始化一律失败并上报 sdk_init_failed，
+    // TODO(N-28)）。仍由 PrivacyGate.onConsented 按固定顺序调用（硬规则 5）。京东 / 拼多多 SDK 不引入（任务书 §2.4）。
+    gate.registerInitStep(PrivacyInitSteps.UNION, (): void => AppTrade.shared.initializeUnionSdk());
     // 设备注册（APP-03b）：DeviceRegistry.register 是异步的，PrivacyGate 按 1s、2s、4s…上限 60s 退避重试到成功。
     gate.registerDeviceRegistration((): Promise<boolean> => AppNetwork.registerDevice());
     return gate;
@@ -318,5 +323,10 @@ export class AppPrivacy {
       this.repromptFromBasic = false;
     }
     routing.stateChanged();
+    // APP-06b：基本模式下点购买触发的补同意有了结论（同意后重开详情、自动执行一次购买；H01）。
+    if (event === PrivacyEvent.AGREED || event === PrivacyEvent.REFUSED) {
+      AppTrade.shared.privacyDecided(state.decision === PrivacyDecision.CONSENTED,
+        state.decision === PrivacyDecision.BASIC_MODE);
+    }
   }
 }

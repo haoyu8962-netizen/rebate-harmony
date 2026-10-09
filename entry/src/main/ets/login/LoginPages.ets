@@ -4,8 +4,10 @@ import {
   CouliTypography
 } from 'designsystem';
 import { BindPhonePageConfig, BindPhoneView, LoginPageConfig, LoginView } from 'auth';
+import { AppRouting } from '../routing/AppRouting';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppLogin } from './AppLogin';
+import { TradeDraftTexts } from '../trade/TradeDraftTexts';
 import { LoginDraftTexts } from './LoginDraftTexts';
 
 /**
@@ -117,6 +119,16 @@ export struct SettingsPlaceholderPage {
           .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
         Text(this.readonlyMode ? 'route placeholder (read-only)' : 'route placeholder')
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        // 授权管理入口（APP-06b 共性第 14 条）：经 Router 打开 AuthManage（游客先登录、基本模式先补同意）；行样式没有画板。
+        CouliButton({
+          text: TradeDraftTexts.text('auth_manage.entry'),
+          variant: CouliButtonVariant.SECONDARY,
+          fullWidth: true,
+          buttonId: 'settings_auth_manage',
+          onTap: () => {
+            AppRouting.shared.openInApp('AuthManage');
+          }
+        })
         if (this.loggedIn && !this.readonlyMode) {
           CouliButton({
             text: LoginDraftTexts.text('settings.logout'),

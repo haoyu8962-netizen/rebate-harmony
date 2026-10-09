@@ -5,7 +5,7 @@ import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, RouteTable,
-  ThirdPartyAuthAdapter, UpdateChecker
+  ThirdPartyAuthAdapter, UpdateChecker, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
@@ -14,6 +14,7 @@ import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget
 import { DebugUpdateChecker } from './DebugUpdate';
 import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer } from './DebugFakeServer';
 import { DebugWechatAdapter } from './DebugWechatAdapter';
+import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugWebCodeAuthorizer } from './DebugFakeTrade';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -82,6 +83,24 @@ export class BuildVariant {
     return new DebugPendingKeyBackend(secure);
   }
 
+  /**
+   * 淘宝 web_code 授权（APP-06b）：本机假服务打开时用假授权（直接给假授权码，走通 AuthSheet → 绑定 → 自动执行一次 open 与截图）；
+   * 没打开时与 Release 一样不可用（回跳 scheme 未登记，TODO(N-28)）。
+   */
+  static webCodeAuthorizer(): WebCodeAuthorizer {
+    return new DebugWebCodeAuthorizer((): boolean => DebugFakeServer.enabled);
+  }
+
+  /** 外跳的安装状态覆盖（APP-06b）：本机假服务的 not_installed 场景为 false；其余 null（按真实检测）。 */
+  static tradeInstalledOverride(platform: string): string | null {
+    return DebugFakeServer.enabled ? DebugFakeTrade.installed(platform) : null;
+  }
+
+  /** 「将通过浏览器打开」的停留时长（APP-06b）：本机假服务的截图场景放长；其余按缺省。 */
+  static browserNoticeMillis(defaultMillis: number): number {
+    return DebugFakeServer.enabled ? DebugFakeTrade.browserNoticeMillis(defaultMillis) : defaultMillis;
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -114,6 +133,12 @@ export class BuildVariant {
       DebugFakeServer.enabled = true;
       hilog.info(0x0000, 'Couli', 'fake server on %{public}s %{public}s %{public}s', DebugFakeServer.marker,
         DebugFakeServer.searchMarker, DebugWechatAdapter.marker);
+    }
+    // APP-06b：`--ps couli_debug_trade_scene <scene>` 选购买 / 授权的假服务场景（见 DebugFakeTrade）。
+    const tradeScene: Object | undefined = want.parameters?.[DEBUG_TRADE_SCENE_KEY];
+    if (typeof tradeScene === 'string') {
+      DebugFakeTrade.scene = tradeScene;
+      hilog.info(0x0000, 'Couli', 'trade scene %{public}s %{public}s', tradeScene, DebugFakeTrade.marker);
     }
     const scene: Object | undefined = want.parameters?.['couli_debug_wechat_scene'];
     if (typeof scene === 'string') {

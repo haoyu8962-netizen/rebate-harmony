@@ -45,6 +45,9 @@ export class SearchKeys {
   static readonly GENERIC: string = 'error.50001';
   /** 结果里有缓存降级报价时的顶部提示（BR-PROD-07「价格可能已变化，下单前以平台为准」；契约无键，TODO(N-27) 草稿表）。 */
   static readonly STALE_NOTICE: string = 'search.stale_notice';
+  /** 比价无返利的原因与相似入口（契约 no_rebate.price_compare、no_rebate.price_compare.similar）。 */
+  static readonly COMPARE_REASON: string = 'no_rebate.price_compare';
+  static readonly SIMILAR: string = 'no_rebate.price_compare.similar';
 
   static sort(sort: string): string {
     return 'search.sort.' + sort;
@@ -60,6 +63,31 @@ export interface SearchTexts extends ProductCardTexts, SearchTextFormatter {
 
   /** {name} 替换为 vars[name]；带 trace6 等占位而没给值时用 fallback 文案。 */
   format(key: string, vars: Map<string, string>): string;
+}
+
+/**
+ * 购买流程在搜索页内的展示（APP-06b；文字由 App 给，本模块不写中文）：
+ * - 弹层打开时列表对读屏隐藏（弹层是模态，adaptation-a11y-spec §8）；
+ * - 超时提示条（ProductBuyTimeout，与详情页一致，H-R1-02）：列表底部「网络不稳定，请重试」+【重试】（沿用原键，TRADE-22）+ 关闭（放弃本次）。
+ */
+@ObservedV2
+export class SearchPurchaseUi {
+  @Trace modal: boolean = false;
+  @Trace timeoutVisible: boolean = false;
+  @Trace timeoutText: string = '';
+  @Trace retryText: string = '';
+  @Trace closeText: string = '';
+  /** 42901 限时禁用期间【重试】置灰。 */
+  @Trace retryDisabled: boolean = false;
+  /**
+   * 购买触发 42901 后按 Retry-After 限时禁用（H-R2-07，APP-06b 共性第 36 条）：卡片购买按钮置灰、不可点、读屏读作不可用，
+   * 到期恢复（与详情一致）；购买执行器仍在执行层拦截。
+   */
+  @Trace buyLimited: boolean = false;
+  onRetryTimeout: () => void = () => {
+  };
+  onDismissTimeout: () => void = () => {
+  };
 }
 
 /** 页面的出口（entry 接 Router、网络与 App 能力）。 */
@@ -86,9 +114,14 @@ export class SearchPageConfig {
   onOpenProduct: (platform: string, productKey: string, itemRef: string | null) => void =
     (_p: string, _k: string, _r: string | null) => {
     };
-  /** 卡片上的购买：只发出购买意图（TODO(APP-06b)：open 流程）。 */
+  /** 卡片上的购买：交给 App 的购买执行器（APP-06b open 流程）。 */
   onBuyIntent: (card: Record<string, Object>) => void = (_c: Record<string, Object>) => {
   };
+  /** 比价无返利卡的【看看相似商品】（BR-PRICE-08；关闭比价弹窗后也在卡下保留，APP-06b 共性第 15 条）。 */
+  onSimilar: (card: Record<string, Object>) => void = (_c: Record<string, Object>) => {
+  };
+  /** 购买流程的页内展示（App 的购买执行器写入）。 */
+  readonly purchase: SearchPurchaseUi = new SearchPurchaseUi();
   /**
    * 进程被系统回收后重开时恢复的页面状态（共性第 20 条；entry 的 PageRestorer 交接，只给恢复出来的那一个页面实例）。
    * 有它时不看路由参数，按它恢复条件、未提交的输入与弹层草稿、滚动锚点。
@@ -116,15 +149,17 @@ export class SearchPageConfig {
   }
 }
 
-/** 一张结果卡：原始 ProductCard（跳详情、购买意图用）+ 显示内容。 */
+/** 一张结果卡：原始 ProductCard（跳详情、购买意图用）+ 显示内容（limited：购买限流期间的同一张卡，购买按钮禁用）。 */
 class ResultCard {
   readonly raw: Record<string, Object>;
   readonly data: ProductCardData;
+  readonly limited: ProductCardData;
   readonly key: string;
 
-  constructor(raw: Record<string, Object>, data: ProductCardData, key: string) {
+  constructor(raw: Record<string, Object>, data: ProductCardData, limited: ProductCardData, key: string) {
     this.raw = raw;
     this.data = data;
+    this.limited = limited;
     this.key = key;
   }
 }
@@ -354,6 +389,7 @@ export struct SearchView {
       // 平台购买状态（features.platform_status，共性第 27 条）：点击前就按状态展示。
       const status: string = typeof platform === 'string' ? (purchase[platform as string] ?? PURCHASE_ON) : PURCHASE_ON;
       return new ResultCard(raw, ProductCardMapper.fromCard(raw, this.config.texts, true, now, status),
+        ProductCardMapper.fromCard(raw, this.config.texts, false, now, status),
         prefix + this.model.generation + ':' + index + ':' + (typeof key === 'string' ? key as string : ''));
     });
   }
@@ -839,14 +875,42 @@ export struct SearchView {
     this.config.onBuyIntent(card.raw);
   }
 
+  /** 比价无返利卡（no_rebate_cause=price_compare 且暂无返利，BR-PRICE-08）：卡下保留原因行与【看看相似商品】（共性第 15 条）。 */
+  private compareCard(card: ResultCard): boolean {
+    return card.raw['no_rebate_cause'] === 'price_compare' && card.raw['rebate_basis'] === 'no_rebate';
+  }
+
+  @Builder
+  compareRow(card: ResultCard) {
+    Row({ space: CouliSpacing.space2 }) {
+      Text(this.t(SearchKeys.COMPARE_REASON))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .layoutWeight(1)
+      Text(this.t(SearchKeys.SIMILAR))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textLink))
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+        .textAlign(TextAlign.Center)
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .onClick(() => this.config.onSimilar(card.raw))
+    }
+    .width('100%')
+    .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
+  }
+
   @Builder
   cardItem(card: ResultCard) {
     Column() {
       ProductCard({
-        data: card.data,
+        // 购买 42901 限流期间（Retry-After）按钮置灰、到期恢复（H-R2-07）
+        data: this.config.purchase.buyLimited ? card.limited : card.data,
         variant: ProductCardVariant.LIST,
         onBuy: () => this.buy(card)
       })
+      if (this.compareCard(card)) {
+        this.compareRow(card)
+      }
     }
     .width('100%')
     .onClick(() => this.openCard(card))
@@ -1027,6 +1091,48 @@ export struct SearchView {
     })
   }
 
+  /** 购买超时提示条（ProductBuyTimeout，与详情页同一版式）：出现时播报由 App 的 TradeBinder 负责。 */
+  @Builder
+  timeoutBanner() {
+    Row({ space: CouliSpacing.space2 }) {
+      CouliIcon({ name: 'alert', iconSize: 20, color: CouliColors.statusErrorText })
+      Text(this.config.purchase.timeoutText)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText))
+        .layoutWeight(1)
+      Text(this.config.purchase.retryText)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, this.config.purchase.retryDisabled
+          ? CouliColors.textSecondary : CouliColors.statusErrorText, CouliFontWeight.semibold))
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+        .textAlign(TextAlign.Center)
+        .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .enabled(!this.config.purchase.retryDisabled)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .id('search_trade_timeout_retry')
+        .onClick(() => this.config.purchase.onRetryTimeout())
+      Button({ type: ButtonType.Normal, stateEffect: true }) {
+        CouliIcon({ name: 'close', iconSize: 20, color: CouliColors.statusErrorText })
+      }
+      .width(CouliInteraction.minTouchTarget)
+      .height(CouliInteraction.minTouchTarget)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText(this.config.purchase.closeText)
+      .focusable(true)
+      .focusBox(CouliFocus.box)
+      .id('search_trade_timeout_close')
+      .onClick(() => this.config.purchase.onDismissTimeout())
+    }
+    .id('search_trade_timeout')
+    .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
+    .padding({ left: CouliSpacing.space3, right: CouliSpacing.space1, top: CouliSpacing.space1,
+      bottom: CouliSpacing.space1 })
+    .margin({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2,
+      bottom: CouliSpacing.space2 })
+    .backgroundColor(CouliColors.statusErrorBackground)
+    .borderRadius(CouliRadius.button)
+  }
+
   /** 结果顶部的一行提示（search_disabled、缓存降级）：图标 + 正文，按宽度换行，读屏合为一项。 */
   @Builder
   banner(text: string, id: string) {
@@ -1087,6 +1193,9 @@ export struct SearchView {
       } else {
         Column() {
           this.results()
+          if (this.config.purchase.timeoutVisible) {
+            this.timeoutBanner()
+          }
           if ((this.model.phase === SearchPhase.CONTENT || this.model.phase === SearchPhase.EMPTY)
             && this.model.reserveDisclaimers.length > 0) {
             this.disclaimerArea()
@@ -1102,6 +1211,8 @@ export struct SearchView {
     .width('100%')
     .height('100%')
     .backgroundColor(CouliColors.backgroundCanvas)
+    // 购买弹层是模态：打开时页面内容对读屏隐藏（adaptation-a11y-spec §8）
+    .accessibilityLevel(this.config.purchase.modal ? 'no-hide-descendants' : 'auto')
   }
 }
 

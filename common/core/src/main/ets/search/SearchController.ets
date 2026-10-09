@@ -2,6 +2,7 @@ import { parseSort } from 'generated';
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { EffectKind, ErrorActionMapper, ErrorEffect } from '../network/ErrorActionMapper';
 import { TransportFailure } from '../network/HttpTransport';
+import { CardPatch } from '../trade/CardPatch';
 import {
   ProductDetailState, ProductDetailView, SearchPager, SearchQuery, SearchQueryResult, SearchResultState,
   SearchResultView, SearchSession, SearchStateRaw, SearchTabs
@@ -543,6 +544,62 @@ export class SearchController {
       this.applyPager(seq);
     });
     return true;
+  }
+
+  /**
+   * 用购买结果更新列表里的那张卡（APP-06b：open 响应的 new_link_id、新价格、返利变化、30141 下架；BR-PRICE-12）。按 card_id /
+   * product_key / link_id 认卡（CardPatch.sameCard），结果页与推荐区都找；只替换那一张，不重新请求、不动分页与滚动。
+   */
+  updateCard(target: Record<string, Object>, transform: (card: Record<string, Object>) => Record<string, Object>): void {
+    if (this.left) {
+      return;
+    }
+    let changed: boolean = false;
+    for (let i: number = 0; i < this.pager.items.length; i++) {
+      if (CardPatch.sameCard(this.pager.items[i], target)) {
+        this.pager.items[i] = transform(this.pager.items[i]);
+        changed = true;
+      }
+    }
+    for (let i: number = 0; i < this.pager.fallbackItems.length; i++) {
+      if (CardPatch.sameCard(this.pager.fallbackItems[i], target)) {
+        this.pager.fallbackItems[i] = transform(this.pager.fallbackItems[i]);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    const s: SearchSnapshot = this.state;
+    s.items = this.pager.items.slice();
+    s.fallbackItems = this.pager.fallbackItems.slice();
+    this.emit();
+  }
+
+  /**
+   * 按 target 的 product_key + item_ref 静默重取权威卡（APP-06b 共性第 7、9、17 条；getProduct）：不进加载态，只替换那一张；
+   * 失败、离开、没有 product_key 时什么都不做。
+   */
+  refetchCard(target: Record<string, Object>,
+    merge: (current: Record<string, Object>, fresh: Record<string, Object>) => Record<string, Object>): void {
+    const key: Object | undefined = target['product_key'];
+    if (this.left || typeof key !== 'string' || (key as string).length === 0) {
+      return;
+    }
+    const ref: Object | undefined = target['item_ref'];
+    const query: string = typeof ref === 'string' ? 'item_ref=' + encodeURIComponent(ref as string) : '';
+    const pathParams: Record<string, string> = {};
+    pathParams['product_key'] = key as string;
+    const request: ApiRequest = new ApiRequest('getProduct', pathParams, query);
+    const owner: () => boolean = (): boolean => !this.left;
+    request.owner = owner;
+    this.owners.push(owner);
+    guarded(this.api.request(request)).then((result: ApiResult) => {
+      if (this.left || result.outcome !== ApiOutcome.SUCCESS) {
+        return;
+      }
+      this.updateCard(target, (current: Record<string, Object>) => merge(current, result.data));
+    });
   }
 
   /** 页面出栈（onWillDisappear 的同步出口）：作废当前请求并取消传输；之后迟到的响应一律丢弃。 */
@@ -1103,6 +1160,45 @@ export class ProductDetailController {
         });
       }
       this.emit();
+    });
+  }
+
+  /**
+   * 用购买结果更新页面上的商品（APP-06b：open 响应的 new_link_id、新价格、返利变化、30141 下架；BR-PRICE-12 无论确认还是取消）。
+   * 只在内容态改；重新计算按钮与说明区。
+   */
+  replaceProduct(transform: (product: Record<string, Object>) => Record<string, Object>): void {
+    const s: ProductSnapshot = this.state;
+    if (this.left || s.phase !== ProductPhase.CONTENT || s.product === null) {
+      return;
+    }
+    s.product = transform(s.product);
+    s.view = ProductDetailState.map(s.product, this.context());
+    s.creditNote = this.currentCredit();
+    this.emit();
+  }
+
+  /**
+   * 按当前商品的 product_key + item_ref 静默重取权威卡（APP-06b 共性第 7、9、17 条）：不进加载态、不打断弹层；结果到达时用
+   * merge(此刻页面上的商品, 重取到的卡) 决定落到页面上的样子。失败、离开、期间重新加载都什么都不做（保持原样）。
+   */
+  refetch(merge: (current: Record<string, Object>, fresh: Record<string, Object>) => Record<string, Object>): void {
+    if (this.left || this.productKey.length === 0) {
+      return;
+    }
+    const seq: number | null = this.state.shownSeq;
+    const query: string = this.itemRef === null ? '' : 'item_ref=' + encodeURIComponent(this.itemRef);
+    const pathParams: Record<string, string> = {};
+    pathParams['product_key'] = this.productKey;
+    const request: ApiRequest = new ApiRequest('getProduct', pathParams, query);
+    const owner: () => boolean = (): boolean => !this.left;
+    request.owner = owner;
+    this.owners.push(owner);
+    guarded(this.api.request(request)).then((result: ApiResult) => {
+      if (this.left || result.outcome !== ApiOutcome.SUCCESS || this.state.shownSeq !== seq) {
+        return;
+      }
+      this.replaceProduct((current: Record<string, Object>) => merge(current, result.data));
     });
   }
 

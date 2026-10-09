@@ -12,6 +12,7 @@ import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
 import { AppSearch } from '../search/AppSearch';
+import { AppTrade } from '../trade/AppTrade';
 import { AppUpdate } from '../update/AppUpdate';
 import { AppBridge } from '../web/AppBridge';
 
@@ -58,6 +59,8 @@ export default class EntryAbility extends UIAbility {
     AppRouting.shared.start(appContext);
     // FU-HM-1112：进程被系统回收后恢复搜索页与详情页（共性第 20、28 条：等本轮版本检查有结果再自动恢复）。
     AppSearch.shared.start(appContext);
+    // APP-06b：外跳的系统能力（openLink / startAbility 要 Ability 上下文）、Debug 演示用的安装状态覆盖。
+    AppTrade.shared.start(this.context);
     // 强更检查（APP-02c）：结论接 Router 的 update 状态源；只在环境 SETTLED 且已同意隐私政策时发检查（基本模式不发，
     // 03 §4.4）。冷启动与每次离开基本模式能查了就立即检查：AppRouting.syncUpdateCheck 在 stateChanged 开头、
     // 以及 AppPrivacy.publish 写入隐私结论之后且恢复待办之前调用（R1-01 / R1-03）；检查开始、结束都重新协调启动（R1-02）。
@@ -87,6 +90,8 @@ export default class EntryAbility extends UIAbility {
     // 回前台带 ETag 拉配置（03 §4.3），埋点尝试上报一次；未完成的撤回清理再试一次（R1-06）。
     AppClientCore.shared.onForeground();
     AppPrivacy.shared.retryWithdrawalCleanup();
+    // APP-06b：AuthSheet 自动弹出计数（后台 ≥ 1800 秒清零，BR-ID-18）；可见发起页回到前台（拼多多授权回来后由服务端确认）。
+    AppTrade.shared.onAppForeground();
   }
 
   /**
@@ -95,6 +100,8 @@ export default class EntryAbility extends UIAbility {
    */
   onBackground(): void {
     AppSearch.shared.saveNow();
+    // APP-06b：进入后台作废购买的续执行许可（在途响应之后只更新卡片、不外跳，03 §4.5）。
+    AppTrade.shared.onAppBackground();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

@@ -26,6 +26,8 @@ export class ProductCardKeys {
   static readonly PRICE_STALE: string = 'card.price_stale';
   /** 平台返利即将开放（契约 platform_coming_soon，{platform_name}）：features.platform_status=not_launched 的购买按钮。 */
   static readonly COMING_SOON: string = 'platform_coming_soon';
+  /** 商品已下架（契约 error.30141）：下架卡的购买按钮文字（禁用）。 */
+  static readonly OFF_SHELF: string = 'error.30141';
 }
 
 /** BR-PRICE-11：age_sec 超过 300 秒（或 stale=true）时在取价处提示价格可能已变化；正好 300 秒不提示。 */
@@ -49,6 +51,7 @@ function stringOrEmpty(value: Object | null | undefined): string {
  * - 图片：契约 image 字段（APP-06a 共性第 22 条）：非空字符串交给图片组件加载；字段为空、加载中或加载失败时显示占位。
  * - 平台购买状态（features.platform_status，共性第 27 条）：maintenance → 按钮「稍后再试」；not_launched → 按钮
  *   「{平台}返利即将开放」（platform_coming_soon）；都禁用。价格不可用优先。
+ * - 已下架（availability=off_shelf，含 open 30141 写回的）：按钮「商品已下架」（error.30141）、禁用，优先于平台状态。
  */
 export class ProductCardMapper {
   static fromCard(card: Record<string, Object>, texts: ProductCardTexts, buyEnabled: boolean = true,
@@ -68,12 +71,17 @@ export class ProductCardMapper {
     d.priceUnavailable = ProductCardMapper.priceUnavailable(card);
     if (priceFen !== null && couponFen !== null && finalFen !== null && !d.priceUnavailable) {
       d.price = PriceTagModel.make(platform, priceFen, couponFen, finalFen, presale);
+    } else if (finalFen !== null && !d.priceUnavailable) {
+      // open 已给出新券后价、券前价 / 券额待补齐（H-R2-04）：照常显示已知新价（不带口径词），未知字段不显示、不反推
+      d.price = PriceTagModel.neutral(finalFen, presale);
     } else {
       // 没有可展示的价格：PriceTag 不出现（amount_unknown 只显示专用返利标签；价格不可用显示提示），这里不带任何金额。
       d.price = PriceTagModel.unpriced(presale);
     }
     const min: number | null = numberOrNull(card['rebate_min_fen']);
-    d.rebate = RebateTagModel.make(basis, min, numberOrNull(card['rebate_max_fen']), false);
+    // 返利从无到有、口径未知的临时展示状态（APP-06b 共性第 16 条，CardPatch.PROVISIONAL_REBATE）：按服务端区间显示，不落入「暂无返利」。
+    const provisional: boolean = card[ProductCardMapper.PROVISIONAL_REBATE] === true && basis.length === 0;
+    d.rebate = RebateTagModel.make(provisional ? 'normal' : basis, min, numberOrNull(card['rebate_max_fen']), false);
     d.estNet = d.priceUnavailable ? null : EstNetModel.make(basis, min, numberOrNull(card['est_net_price_fen']));
     d.priceUnavailableText = d.priceUnavailable ? texts.text(ProductCardKeys.PRICE_UNAVAILABLE) : '';
     const tags: ProductTag[] = [];
@@ -100,6 +108,12 @@ export class ProductCardMapper {
       d.retryText = purchaseStatus === ProductCardMapper.PURCHASE_NOT_LAUNCHED
         ? texts.text(ProductCardKeys.COMING_SOON).split('{platform_name}').join(d.platformLabel) : '';
     }
+    if (!d.priceUnavailable && card['availability'] === ProductCardMapper.OFF_SHELF) {
+      // 商品已下架（open 返回 30141 / availability=off_shelf，BR-PRICE-14）：只这张卡的按钮置灰、显示「商品已下架」并禁用
+      // （搜索卡与详情一致，APP-06b 共性第 28 条）；同页其它商品不受影响。
+      d.buyState = BuyButtonState.RETRY_LATER;
+      d.retryText = texts.text(ProductCardKeys.OFF_SHELF);
+    }
     const keys: string[] = ProductCardMapper.disclaimerKeys(card);
     d.disclaimerLines = keys.map((key: string) => ProductCardMapper.disclaimerText(key, texts))
       .filter((line: string) => line.length > 0);
@@ -125,8 +139,14 @@ export class ProductCardMapper {
     return d;
   }
 
+  /** 客户端字段：返利从无到有、口径未知的临时展示状态（与 core CardPatch.PROVISIONAL_REBATE 同名）。 */
+  static readonly PROVISIONAL_REBATE: string = 'client_provisional_rebate';
+  /** 客户端字段：open 已给出新券后价、券前价 / 券额待补齐（与 core CardPatch.PRICE_PENDING 同名，H-R2-04）。 */
+  static readonly PRICE_PENDING: string = 'client_price_pending';
   static readonly PURCHASE_ON: string = 'on';
   static readonly PURCHASE_NOT_LAUNCHED: string = 'not_launched';
+  /** availability=off_shelf（契约 Availability）。 */
+  static readonly OFF_SHELF: string = 'off_shelf';
 
   /** 隐藏返利相关的全部内容（金额、预估返后、以结算为准前缀、返利口径句），价格照留。 */
   static hideRebate(d: ProductCardData): void {
@@ -146,13 +166,17 @@ export class ProductCardMapper {
 
   /**
    * 价格不可用（BR-PRICE-01、AC-S1-09）：availability=price_unavailable，或价格三字段任一缺失（rebate_basis=amount_unknown
-   * 的拼多多直链卡除外：BR-PRICE-08 规定它本来就不显示价格，只显示专用返利标签）。
+   * 的拼多多直链卡除外：BR-PRICE-08 规定它本来就不显示价格，只显示专用返利标签）。open 已给出新券后价、只是券前价 / 券额待补齐
+   * （PRICE_PENDING）不算价格不可用：照常显示新价、可购买（H-R2-04，APP-06b 共性第 34 条）。
    */
   static priceUnavailable(card: Record<string, Object>): boolean {
     if (card['availability'] === 'price_unavailable') {
       return true;
     }
     if (card['rebate_basis'] === 'amount_unknown') {
+      return false;
+    }
+    if (card[ProductCardMapper.PRICE_PENDING] === true && numberOrNull(card['final_price_fen']) !== null) {
       return false;
     }
     return numberOrNull(card['price_fen']) === null || numberOrNull(card['coupon_fen']) === null

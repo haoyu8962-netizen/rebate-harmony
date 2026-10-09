@@ -22,6 +22,7 @@ import { AppLogin } from '../login/AppLogin';
 import { AppBindPhonePage, AppLoginPage, destinationReadonly, SettingsPlaceholderPage } from '../login/LoginPages';
 import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 import { AppProductPage, AppSearch, AppSearchPage } from '../search/AppSearch';
+import { AuthManagePage } from '../trade/AuthManagePage';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -38,6 +39,7 @@ const RETRY_KEY: string = 'external_page.retry';
 const SETTINGS_ROUTE: string = 'Settings';
 const SEARCH_ROUTE: string = 'Search';
 const PRODUCT_DETAIL_ROUTE: string = 'ProductDetail';
+const AUTH_MANAGE_ROUTE: string = 'AuthManage';
 
 /** 首屏观察的环境闸门状态。 */
 @ObservedV2
@@ -150,6 +152,9 @@ struct RootPage {
     } else if (name === PRODUCT_DETAIL_ROUTE) {
       // 商品详情（APP-06a）：platform、product_key、item_ref。
       AppProductPage({ param: param })
+    } else if (name === AUTH_MANAGE_ROUTE) {
+      // 授权管理（APP-06b）：只显示已授权 / 未授权，页内【去授权】由用户点击发起。
+      AuthManagePage()
     } else if (name === SETTINGS_ROUTE) {
       // 设置页占位 + 退出登录入口（APP-05a；设置页本身在 APP-12）。
       SettingsPlaceholderPage({ readonlyMode: destinationReadonly(param) })

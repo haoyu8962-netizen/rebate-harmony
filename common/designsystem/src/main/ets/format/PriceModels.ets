@@ -80,6 +80,15 @@ export class PriceTagModel {
   }
 
   /**
+   * 只知道新券后价、券前价与券额还在补齐（open 改价后，APP-06b H-R2-04，共性第 34 条）：只显示金额，不带口径词（不反推券后 / 售价），
+   * 不给副行、不标无券。
+   */
+  static neutral(finalPriceFen: number, isPresale: boolean): PriceTagContent {
+    return new PriceTagContent('', CouliFormat.money(finalPriceFen), null, false, isPresale ? PriceTerms.presale : null,
+      CouliFormat.moneySpoken(finalPriceFen), null, isPresale ? PriceTerms.presaleNote : null);
+  }
+
+  /**
    * 没有可展示价格时的占位内容（价格不可用、amount_unknown）：不含任何金额，组件不显示 PriceTag（BR-PRICE-01 不把缺失价格当 0 元）。
    * 预售标签照常给出（标签行用）。
    */

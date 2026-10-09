@@ -25,6 +25,8 @@
 #   - 登录本机假服务（APP-05a）：标记 COULI_FAKE_LOGIN_SERVER_APP05A_9d2c41、启动参数键 couli_debug_fake_server
 #     （entry/src/staging/ets/variant/DebugFakeServer.ets）；APP-06a 搜索与详情场景的标记 COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27（DebugFakeSearch.ets）
 #   - 微信登录的假适配器（APP-05b）：标记 COULI_FAKE_WECHAT_ADAPTER_APP05B_7b31e5（entry/src/staging/ets/variant/DebugWechatAdapter.ets）
+#   - 购买与授权的本机假服务（APP-06b）：标记 COULI_FAKE_TRADE_SERVER_APP06B_5d1e93、场景启动参数键 couli_debug_trade_scene
+#     （entry/src/staging/ets/variant/DebugFakeTrade.ets）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
 #     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
@@ -107,6 +109,8 @@ markers = [
     "COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27",
     # APP-05b：微信登录的假适配器（entry/src/staging/ets/variant/DebugWechatAdapter.ets）。
     "COULI_FAKE_WECHAT_ADAPTER_APP05B_7b31e5",
+    # APP-06b：购买、外跳与授权的本机假服务场景（entry/src/staging/ets/variant/DebugFakeTrade.ets）与场景启动参数键。
+    "COULI_FAKE_TRADE_SERVER_APP06B_5d1e93", "couli_debug_trade_scene",
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:

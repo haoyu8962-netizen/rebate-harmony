@@ -392,6 +392,10 @@ export class Router {
     if (pending === null) {
       return;
     }
+    if (pending.action !== Router.OPEN_ROUTE_ACTION) {
+      // 不是「打开路由」的待办（APP-06b 购买 open_link）：Router 不执行也不删，由登记它的功能在前置完成后自己执行一次并删除。
+      return;
+    }
     const request: RouteRequest | null = Router.requestOf(pending);
     if (request === null) {
       this.pendingStore.clear();
@@ -450,6 +454,43 @@ export class Router {
   privacyChanged(): void {
     if (this.state().privacyState !== PrivacyState.CONSENTED) {
       this.dropAgentCardPending();
+    }
+  }
+
+  /**
+   * 登记一条不是「打开路由」的 pending_action（APP-06b：购买 open_link，BR-ID-10）：与路由待办共用同一份本地记录（只存 1 条、10 分钟、
+   * 完成一步重新计时、退出登录与换环境清除）。Router 的自动恢复不执行它（resumeWith 只认 OPEN_ROUTE_ACTION），由登记它的功能在前置完成后
+   * 自己执行一次并删除。含令牌、验证码的参数不登记（返回 false）。
+   */
+  registerAction(action: string, params: Record<string, Object>, origin: string = 'in_app'): boolean {
+    if (action === Router.OPEN_ROUTE_ACTION) {
+      return false;
+    }
+    const saved: boolean = this.pendingStore.save(action, params, this.pendingStore.now(), origin);
+    if (saved) {
+      this.pendingSerial++;
+      this.savedPendingSerial = this.pendingSerial;
+    }
+    return saved;
+  }
+
+  /** 有效的、动作名为 action 的 pending_action 的参数；没有或已过期为 null（过期的读取时删除）。 */
+  pendingAction(action: string): Record<string, Object> | null {
+    const pending: PendingAction | null = this.pendingStore.load(this.pendingStore.now());
+    return pending !== null && pending.action === action ? pending.params : null;
+  }
+
+  /** 动作名为 action 的待办完成了一个前置步骤：重新计时（不恢复别的动作）。 */
+  markActionStepDone(action: string): void {
+    if (this.pendingAction(action) !== null) {
+      this.pendingStore.markStepDone(this.pendingStore.now());
+    }
+  }
+
+  /** 删除动作名为 action 的 pending_action（别的动作的记录不动）。 */
+  clearAction(action: string): void {
+    if (this.pendingAction(action) !== null) {
+      this.pendingStore.clear();
     }
   }
 

@@ -1,2 +1,4 @@
 export { SearchFeature } from './src/main/ets/SearchFeature';
-export { SearchKeys, SearchTexts, SearchPageConfig, SearchModel, SearchView, yuanToFen } from './src/main/ets/SearchView';
+export {
+  SearchKeys, SearchTexts, SearchPageConfig, SearchPurchaseUi, SearchModel, SearchView, yuanToFen
+} from './src/main/ets/SearchView';

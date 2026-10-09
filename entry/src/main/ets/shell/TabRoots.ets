@@ -2,7 +2,8 @@ import { agentTabRootBuilder } from 'agent';
 import { HomeActions, homeTabRootBuilder } from 'home';
 import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from '../search/SearchDraftTexts';
-import { meTabRootBuilder } from 'me';
+import { MeActions, meTabRootBuilder } from 'me';
+import { TradeDraftTexts } from '../trade/TradeDraftTexts';
 import { ordersTabRootBuilder } from 'orders';
 import { TabBarItem } from 'designsystem';
 import { ShellDraftTexts } from './ShellDraftTexts';
@@ -49,6 +50,11 @@ export class TabRootRegistry {
     HomeActions.searchLabel = SearchDraftTexts.text('search.placeholder');
     HomeActions.openSearch = (): void => {
       AppRouting.shared.openInApp('Search');
+    };
+    // 「我的」顶部的授权管理入口（APP-06b 共性第 14 条）：经 Router 打开 AuthManage（auth=login：游客先登录；基本模式先补同意）。
+    MeActions.authManageLabel = TradeDraftTexts.text('auth_manage.entry');
+    MeActions.openAuthManage = (): void => {
+      AppRouting.shared.openInApp('AuthManage');
     };
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));

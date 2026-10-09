@@ -2,6 +2,7 @@
 // （tools/ci/release-scan.sh 查 COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27）。由 DebugFakeServer 在启动参数打开时调用，不发任何网络请求。
 // 商品数据照设计稿 Search / SearchEmpty / Product 的样例（sample-data.md），金额是整数分。
 import { BundledConfig } from 'generated';
+import { DebugFakeTrade } from './DebugFakeTrade';
 
 /** 固定标记（release-scan 的内容标记）。 */
 export const DEBUG_FAKE_SEARCH_MARKER: string = 'COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27';
@@ -328,6 +329,14 @@ export class DebugFakeSearch {
     const s: Sample | null = detailSample(key);
     if (s === null) {
       return new FakeAnswer(30143, '{}');
+    }
+    // APP-06b：改价类购买之后的权威重取按新报价回答（DebugFakeTrade.milkQuote）
+    const quote: number[] | null = key === 'milk' ? DebugFakeTrade.milkQuote() : null;
+    if (quote !== null) {
+      s.priceFen = quote[0];
+      s.couponFen = quote[1];
+      s.finalFen = quote[2];
+      s.estNetFen = s.finalFen - 123;
     }
     return new FakeAnswer(0, cardJson(s, platform, true), key.indexOf('slow') >= 0 ? 3000 : 500);
   }

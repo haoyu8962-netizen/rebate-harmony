@@ -3,14 +3,18 @@ import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, ConfigStore, CouliPreferences, CreditNote,
-  DetailIdentity, DetailPurchasePort, PageRestorer, PageStateStore, PlatformPurchase, TransportFailure, PrivacyDecision,
+  CardPatch, DetailIdentity, DetailPurchasePort, OpenPurchaseController, PageRestorer, PageStateStore, PurchasePhase,
+  PurchaseState, PurchaseTimeoutBinding, PurchaseTimeoutView, TransportFailure, PrivacyDecision,
   ProductDetailController, RouteDestination, SearchApiPort, SearchConfigPort, SearchController, SearchPageRecord,
   SearchPageStates, SearchRoutes
 } from 'core';
-import { CouliColors, CouliToast } from 'designsystem';
-import { ProductDetailView, ProductPageConfig, ProductTexts } from 'product';
-import { SearchPageConfig, SearchTexts, SearchView } from 'search';
-import { BuildVariant } from 'entry/ets/variant/BuildVariant';
+import { CouliColors } from 'designsystem';
+import { ProductDetailView, ProductPageConfig, ProductPurchaseUi, ProductTexts } from 'product';
+import { SearchPageConfig, SearchPurchaseUi, SearchTexts, SearchView } from 'search';
+import { AppTrade } from '../trade/AppTrade';
+import { PageTradeEnv, TradeBinder, TradeCardHost } from '../trade/TradeBinder';
+import { TradeDraftTexts } from '../trade/TradeDraftTexts';
+import { TradeKeys, TradeOverlay } from '../trade/TradeOverlay';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppLogin } from '../login/AppLogin';
 import { AppNetwork } from '../network/AppNetwork';
@@ -72,13 +76,23 @@ class AppSearchConfigPort implements SearchConfigPort {
   }
 
   subscribe(listener: () => void): () => void {
-    const store: ConfigStore | null = AppClientCore.shared.config;
-    if (store === null) {
-      return (): void => {
-      };
-    }
-    return store.subscribe((): void => listener());
+    return subscribeStatus(listener);
   }
+}
+
+/**
+ * 订阅平台状态的变化：配置（ConfigStore）与点击结果确认的平台状态（APP-06b 50301，AppTrade.overrides，共性第 5、6 条）。
+ * 返回取消订阅。
+ */
+function subscribeStatus(listener: () => void): () => void {
+  const store: ConfigStore | null = AppClientCore.shared.config;
+  const offStore: () => void = store === null ? (): void => {
+  } : store.subscribe((): void => listener());
+  const offOverrides: () => void = AppTrade.shared.overrides.subscribe((): void => listener());
+  return (): void => {
+    offStore();
+    offOverrides();
+  };
 }
 
 /** 当前配置的 features（JSON 对象）；拿不到为 null。 */
@@ -97,19 +111,17 @@ function currentFeatures(): Record<string, Object> | null {
   }
 }
 
-/** 平台购买状态（features.platform_status，共性第 27 条）：读 ConfigStore 当前生效的配置，订阅它的变化。 */
+/**
+ * 平台购买状态：点击结果确认的 50301（APP-06b，AppTrade.overrides，新配置到达前有效）优先，其次 features.platform_status
+ * （共性第 27 条，ConfigStore 当前生效的配置）；订阅两者的变化。
+ */
 class AppPurchasePort implements DetailPurchasePort {
   status(platform: string): string {
-    return PlatformPurchase.statusOf(currentFeatures(), platform);
+    return AppTrade.shared.platformStatus(platform);
   }
 
   subscribe(listener: () => void): () => void {
-    const store: ConfigStore | null = AppClientCore.shared.config;
-    if (store === null) {
-      return (): void => {
-      };
-    }
-    return store.subscribe((): void => listener());
+    return subscribeStatus(listener);
   }
 }
 
@@ -337,10 +349,74 @@ export class AppSearch {
       }
       AppRouting.shared.openInApp(PRODUCT_ROUTE, params);
     };
-    config.onBuyIntent = (card: Record<string, Object>): void => {
-      this.buyIntent(card, AppSearch.publicMode());
-    };
+    // 购买（APP-06b）：执行器与浮层由页面在 aboutToAppear 里经 searchTrade 接上（config.onBuyIntent 在那里设置）。
     return config;
+  }
+
+  /** 搜索页的购买执行器（APP-06b）：卡片更新与重取只动那一张卡（SearchController.updateCard / refetchCard）。 */
+  searchTrade(config: SearchPageConfig): TradeBinder {
+    const controller: SearchController = config.controller;
+    const host: SearchCardHost = new SearchCardHost(controller);
+    const binder: TradeBinder = new TradeBinder(AppTrade.shared.purchaseController(new PageTradeEnv(host)));
+    binder.overlay.returnFocusId = '';
+    const ui: SearchPurchaseUi = config.purchase;
+    ui.timeoutText = TradeDraftTexts.text(TradeKeys.TIMEOUT);
+    ui.retryText = TradeDraftTexts.text(TradeKeys.RETRY);
+    ui.closeText = TradeDraftTexts.text(TradeKeys.CLOSE);
+    // 超时提示与同键重试（ProductBuyTimeout，TRADE-22，H-R1-02）：与详情页同一个接线；关闭 = 放弃本次
+    // 购买 42901 → 卡片购买按钮按 Retry-After 置灰、到期恢复（H-R2-07，共性第 36 条；与详情一致）
+    const timeout: PurchaseTimeoutBinding = new PurchaseTimeoutBinding(binder.controller, new SearchTimeoutView(ui),
+      (limited: boolean): void => {
+        ui.buyLimited = limited;
+      });
+    binder.onState = (s: PurchaseState, modal: boolean): void => {
+      ui.modal = modal;
+      timeout.apply(s);
+    };
+    ui.onRetryTimeout = (): void => timeout.retry();
+    ui.onDismissTimeout = (): void => timeout.dismiss();
+    config.onBuyIntent = (card: Record<string, Object>): void => {
+      binder.controller.buy(card, 'Search.list.buy');
+    };
+    config.onSimilar = (card: Record<string, Object>): void => {
+      AppRouting.shared.openInApp(SEARCH_ROUTE, OpenPurchaseController.similarParams(card));
+    };
+    return binder;
+  }
+
+  /**
+   * 详情页的购买执行器（APP-06b）：open 结果写回页面上的商品（ProductDetailController.replaceProduct）、价格字段给不全时静默重取；
+   * 按钮覆盖、超时条、安装提示写进 config.purchase。补同意后重开的同一件商品自动执行一次购买（H01）。
+   */
+  productTrade(config: ProductPageConfig): TradeBinder {
+    const controller: ProductDetailController = config.controller;
+    const binder: TradeBinder = new TradeBinder(AppTrade.shared.purchaseController(new PageTradeEnv(
+      new ProductCardHost(controller))));
+    const timeout: PurchaseTimeoutBinding = new PurchaseTimeoutBinding(binder.controller,
+      new ProductTimeoutView(config.purchase));
+    binder.onState = (s: PurchaseState, modal: boolean): void => {
+      const ui: ProductPurchaseUi = config.purchase;
+      ui.buyState = s.phase === PurchasePhase.LOADING ? 'loading' : (s.rateLimited ? 'disabled' : '');
+      ui.buyText = s.notInstalledCopied ? TradeDraftTexts.text(TradeKeys.COPY_TPWD) : '';
+      timeout.apply(s);
+      ui.timeoutText = TradeDraftTexts.text(TradeKeys.TIMEOUT);
+      ui.retryText = TradeDraftTexts.text(TradeKeys.RETRY);
+      const vars: Map<string, string> = new Map<string, string>();
+      vars.set('platform_name', TradeDraftTexts.platformName(s.platform));
+      ui.jumpNote = s.notInstalled ? TradeDraftTexts.format(TradeKeys.NOT_INSTALLED, vars) : '';
+      ui.modal = modal;
+    };
+    config.purchase.onRetryTimeout = (): void => timeout.retry();
+    config.onBuyIntent = (product: Record<string, Object>, _publicMode: boolean): void => {
+      binder.controller.buy(product, 'ProductDetail.bottom.buy');
+    };
+    config.onSimilar = (product: Record<string, Object>): void => {
+      AppRouting.shared.openInApp(SEARCH_ROUTE, OpenPurchaseController.similarParams(product));
+    };
+    // 补同意清栈后重开的同一件商品：按原点击的购买意图（原 link_id、原报价与返利基准）恢复一次，不拿新卡当基准（H-R1-01）
+    config.onProduct = OpenPurchaseController.resumeConsentHook(binder.controller, config.productKey,
+      (productKey: string) => AppTrade.shared.takeConsentResume(productKey), (): boolean => controller.buyAllowed());
+    return binder;
   }
 
   productConfig(param: Object): ProductPageConfig {
@@ -365,27 +441,73 @@ export class AppSearch {
     config.onResearch = (): void => {
       AppRouting.shared.openInApp(SEARCH_ROUTE);
     };
-    config.onBuyIntent = (product: Record<string, Object>, publicMode: boolean): void => {
-      this.buyIntent(product, publicMode);
-    };
     return config;
   }
+}
 
-  private static publicMode(): boolean {
-    return !AppLogin.shared.loggedIn || AppPrivacy.shared.decision === PrivacyDecision.BASIC_MODE;
+/** 搜索页的超时提示条（SearchPurchaseUi）。 */
+class SearchTimeoutView implements PurchaseTimeoutView {
+  private readonly ui: SearchPurchaseUi;
+
+  constructor(ui: SearchPurchaseUi) {
+    this.ui = ui;
   }
 
-  /**
-   * 购买意图（APP-06a 只到这里）。TODO(APP-06b)：POST /v1/links/{link_id}/open（8 秒超时、同键重试、可取消加载层）、
-   * TradeJump、JumpTip、AuthSheet、link_jump 上报；基本模式与游客的购买守卫随之实现。
-   */
-  private buyIntent(card: Record<string, Object>, publicMode: boolean): void {
-    const linkId: Object | undefined = card['link_id'];
-    hilog.info(DOMAIN, TAG, 'buy intent link=%{public}s public=%{public}s',
-      typeof linkId === 'string' ? 'set' : 'none', String(publicMode));
-    if (BuildVariant.IS_DEBUG_BUILD && this.ui !== null) {
-      CouliToast.show(this.ui, SearchDraftTexts.text('product.buy_intent.debug'));
+  show(visible: boolean, retryDisabled: boolean): void {
+    this.ui.timeoutVisible = visible;
+    this.ui.retryDisabled = retryDisabled;
+  }
+}
+
+/** 详情页的超时提示条（ProductPurchaseUi）。 */
+class ProductTimeoutView implements PurchaseTimeoutView {
+  private readonly ui: ProductPurchaseUi;
+
+  constructor(ui: ProductPurchaseUi) {
+    this.ui = ui;
+  }
+
+  show(visible: boolean, _retryDisabled: boolean): void {
+    this.ui.timeoutVisible = visible;
+  }
+}
+
+/** 搜索页给购买执行器的卡片能力。 */
+class SearchCardHost implements TradeCardHost {
+  private readonly controller: SearchController;
+
+  constructor(controller: SearchController) {
+    this.controller = controller;
+  }
+
+  updateCard(target: Record<string, Object>, transform: (card: Record<string, Object>) => Record<string, Object>): void {
+    this.controller.updateCard(target, transform);
+  }
+
+  refetchCard(target: Record<string, Object>,
+    merge: (current: Record<string, Object>, fresh: Record<string, Object>) => Record<string, Object>): void {
+    this.controller.refetchCard(target, merge);
+  }
+}
+
+/** 详情页给购买执行器的卡片能力：只认页面上的这件商品。 */
+class ProductCardHost implements TradeCardHost {
+  private readonly controller: ProductDetailController;
+
+  constructor(controller: ProductDetailController) {
+    this.controller = controller;
+  }
+
+  updateCard(target: Record<string, Object>, transform: (card: Record<string, Object>) => Record<string, Object>): void {
+    const current: Record<string, Object> | null = this.controller.snapshot.product;
+    if (current !== null && CardPatch.sameCard(current, target)) {
+      this.controller.replaceProduct(transform);
     }
+  }
+
+  refetchCard(_target: Record<string, Object>,
+    merge: (current: Record<string, Object>, fresh: Record<string, Object>) => Record<string, Object>): void {
+    this.controller.refetch(merge);
   }
 }
 
@@ -397,34 +519,55 @@ export class AppSearch {
 export struct AppSearchPage {
   @Param param: Object = new RouteDestination(SEARCH_ROUTE);
   private config: SearchPageConfig | null = null;
+  private trade: TradeBinder | null = null;
 
   aboutToAppear(): void {
     this.config = AppSearch.shared.searchConfig(this.param);
     this.config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
     };
+    // APP-06b：卡片上的购买交给本页的购买执行器（浮层盖在列表上）。
+    this.trade = AppSearch.shared.searchTrade(this.config);
+    this.trade.attachUi(this.getUIContext());
   }
 
   build() {
     NavDestination() {
-      if (this.config !== null) {
-        SearchView({ config: this.config })
+      Stack() {
+        if (this.config !== null) {
+          SearchView({ config: this.config })
+        }
+        if (this.trade !== null) {
+          TradeOverlay({ model: this.trade.overlay })
+        }
       }
+      .width('100%')
+      .height('100%')
     }
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
-    .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
+    .onBackPressed((): boolean => AppPrivacy.shared.blocksBack || (this.trade !== null && this.trade.overlay.back()))
     .onHidden((): void => {
-      // 被详情等页面盖住：冻结滚动记录（共性第 29、32 条）。
+      // 被详情等页面盖住：冻结滚动记录（共性第 29、32 条）；作废购买的续执行许可（APP-06b 共性第 3 条）。
       this.config?.onCovered(true);
+      if (this.trade !== null) {
+        AppTrade.shared.pageVisible(this.trade.controller, false);
+      }
     })
     .onShown((): void => {
       this.config?.onCovered(false);
+      if (this.trade !== null) {
+        AppTrade.shared.pageVisible(this.trade.controller, true);
+      }
     })
     .onWillDisappear((): void => {
       // 真正出栈的同步出口：执行器、滚动恢复任务、页面回调一起作废，页面状态作废（之后重开不恢复；共性第 29、39 条）。
       if (this.config !== null) {
         AppSearch.shared.searchWillDisappear(this.config);
+      }
+      // 购买执行器同步作废：在途 open 取消、本页登记的购买待办删除（APP-06b）。
+      if (this.trade !== null) {
+        AppTrade.shared.release(this.trade.controller);
       }
     })
   }
@@ -435,11 +578,15 @@ export struct AppSearchPage {
 export struct AppProductPage {
   @Param param: Object = new RouteDestination(PRODUCT_ROUTE);
   private config: ProductPageConfig | null = null;
+  private trade: TradeBinder | null = null;
 
   private identity: DetailIdentity = new DetailIdentity();
 
   aboutToAppear(): void {
     this.config = AppSearch.shared.productConfig(this.param);
+    // APP-06b：购买交给本页的购买执行器（浮层盖在详情上）。
+    this.trade = AppSearch.shared.productTrade(this.config);
+    this.trade.attachUi(this.getUIContext());
     this.identity.platform = this.config.platform;
     this.identity.productKey = this.config.productKey;
     this.identity.itemRef = this.config.itemRef;
@@ -461,16 +608,39 @@ export struct AppProductPage {
 
   build() {
     NavDestination() {
-      if (this.config !== null) {
-        ProductDetailView({ config: this.config })
+      Stack() {
+        if (this.config !== null) {
+          ProductDetailView({ config: this.config })
+        }
+        if (this.trade !== null) {
+          TradeOverlay({ model: this.trade.overlay })
+        }
       }
+      .width('100%')
+      .height('100%')
     }
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
-    .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
+    .onBackPressed((): boolean => AppPrivacy.shared.blocksBack || (this.trade !== null && this.trade.overlay.back()))
+    .onHidden((): void => {
+      // 被登录页等盖住：作废购买的续执行许可（APP-06b 共性第 3 条）。
+      if (this.trade !== null) {
+        AppTrade.shared.pageVisible(this.trade.controller, false);
+      }
+    })
+    .onShown((): void => {
+      // 回到本页（含登录页关掉）：等前台的自动动作、登录后的购买待办（BR-ID-10）。
+      if (this.trade !== null) {
+        AppTrade.shared.pageVisible(this.trade.controller, true);
+      }
+    })
     .onWillDisappear((): void => {
       this.config?.controller.leave();
       AppSearch.shared.detailLeft(this.identity);
+      // 购买执行器同步作废：在途 open 取消、本页登记的购买待办删除（APP-06b）。
+      if (this.trade !== null) {
+        AppTrade.shared.release(this.trade.controller);
+      }
     })
   }
 }

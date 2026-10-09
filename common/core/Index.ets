@@ -136,6 +136,32 @@ export {
   PageRestorer, DetailNotes, SearchLayout, SearchRows, ViewportTop, ScrollKeeperHost, RestoreStage, ScrollRestoreJob,
   SearchScrollKeeper, RestoreExpectation, SearchPageLife, SearchPageStates
 } from './src/main/ets/search/SearchPageState';
+// trade（APP-06b）：open 购买、外跳、授权的纯逻辑（向量 specs/open-trade-vectors.json）与执行器（页面与系统能力在 entry）。
+export {
+  OpenAttempt, OpenActions, OpenResponseOutcome, OpenResponseAction, OpenErrorActions, OpenErrorOutcome, OpenErrorAction,
+  LateDecision, LateResponsePolicy, JumpTypes, JumpRun, JumpPlanRunner, LinkJumpEvents, AuthMethodPicker
+} from './src/main/ets/trade/OpenTradeFlow';
+export { TradeJson } from './src/main/ets/trade/TradeJson';
+export { CardPatch } from './src/main/ets/trade/CardPatch';
+export {
+  InstalledState, JumpPorts, LinkJumpSink, PurchaseIdentity, JumpOutcome, TradeJumpExecutor
+} from './src/main/ets/trade/TradeJump';
+export {
+  TradeOperations, tradeGuarded, PurchasePending, PURCHASE_PENDING_ACTION, MemoryPurchasePending, AuthSheetCounter,
+  JumpTipService, PlatformStatusOverrides, AuthStepResult, WebCodeAuthorizer, UnavailableWebCodeAuthorizer, bindBody,
+  TaobaoAuthOutcome, TaobaoAuthFlow
+} from './src/main/ets/trade/TradeServices';
+export {
+  TradeTimers, SystemTradeTimers, PurchasePhase, PurchaseDialogKind, PurchaseDialog, PurchaseToast, BuyBlock, PurchaseState,
+  HelpLink, PurchaseEnv, PurchaseAttempt, PurchaseDeps, OpenPurchaseController, ConsentResume, PurchaseButtons,
+  PurchaseTimeoutView, PurchaseTimeoutBinding
+} from './src/main/ets/trade/OpenPurchaseController';
+export {
+  AuthManageRow, AuthManagePhase, AuthManageState, AuthManageController
+} from './src/main/ets/trade/AuthManageController';
+export {
+  BaichuanOpenResult, BaichuanAuthResult, BAICHUAN_APP_KEY_PLACEHOLDER, BaichuanAdapter, UnavailableBaichuan
+} from './src/main/ets/tradejump/Baichuan';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';
