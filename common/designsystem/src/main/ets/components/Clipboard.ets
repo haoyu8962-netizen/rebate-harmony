@@ -196,11 +196,13 @@ export struct ClipboardPromptBar {
 /**
  * 30132 的提示样式（ShareHubInvalid：错误底色圆角 12，图标 + 文案 +【用商品名搜索】600，窄屏换行）；actionText 为空时只有文案
  * （30131 / 42901 / 5xxxx 等轻提示也用这一块，内联在发起入口下方）。出现时由调用方播报。
+ * actionDisabled：共享 42901 禁用期内【用商品名搜索】置灰（enabled(false)，APP-07 共性第 31 条），执行层另外拦截。
  */
 @ComponentV2
 export struct ClipboardNotice {
   @Param text: string = '';
   @Param actionText: string = '';
+  @Param actionDisabled: boolean = false;
   @Param closeLabel: string = '';
   @Param noticeId: string = 'clipboard_notice';
   @Event onAction: () => void = () => {
@@ -219,12 +221,13 @@ export struct ClipboardNotice {
           .id(this.noticeId + '_text')
         if (this.actionText.length > 0) {
           Text(this.actionText)
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis,
-              CouliFontWeight.semibold))
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
+              this.actionDisabled ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.semibold))
             .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
             .accessibilityRole(AccessibilityRoleType.BUTTON)
             .focusable(true)
             .focusBox(CouliFocus.box)
+            .enabled(!this.actionDisabled)
             .id(this.noticeId + '_action')
             .onClick(() => this.onAction())
         }

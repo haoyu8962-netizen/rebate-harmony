@@ -113,6 +113,38 @@ export class UpdateCheckCoordinator {
     return this.runCheck(thenPickStore, true);
   }
 
+  /**
+   * 接口层 10405（带或不带最低版本；登录 / 刷新拿到受限会话按「低于」处理的 markBelow 也走这里，minSupported 为 null）：
+   * Gate 进强更（UpdateGate.on10405），随后按 onForcedEntered 补查。
+   */
+  on10405(minSupported: string | null): void {
+    this.gate.on10405(minSupported, this.clock());
+    this.onForcedEntered();
+  }
+
+  /**
+   * 服务端已判定强更（parse 行内 10405、订单待跟单关闭的 10405 等，APP-07 共性第 20、21 条）：Gate 强制 below_min，
+   * 随后按 onForcedEntered 补查。
+   */
+  onServerForced(): void {
+    this.gate.onServerForced(this.clock());
+    this.onForcedEntered();
+  }
+
+  /**
+   * 任何路径进入强更之后（APP-07 共性第 27 条修订、03 §4.2）：没有最近一次成功检查结果（强更页的商店列表为空）时立即补查一次，
+   * 不等用户点【重试】；已有检查在途时复用它、不另发；不能发检查（基本模式、环境未就绪）时不发。补查只为取得商店列表与更新内容，
+   * 不通知启动协调（调用方随后自己刷新并通知）。返回是否新发了一次检查。
+   */
+  onForcedEntered(): boolean {
+    if (!this.gate.state(this.clock()).isBelowMin || this.gate.lastResult() !== null || this.running
+      || !this.canCheck()) {
+      return false;
+    }
+    this.gate.onColdStart(this.clock());
+    return this.runCheck(false, false);
+  }
+
   /** Router 的放行条件源（LaunchReadiness.update）。 */
   routerStatus(): UpdateCheckStatus {
     const state: UpdateState = this.gate.state(this.clock());

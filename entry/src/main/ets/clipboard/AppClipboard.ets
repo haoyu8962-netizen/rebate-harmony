@@ -128,16 +128,19 @@ export class ClipboardCardRow {
   readonly row: ParseRow;
   readonly binding: ClipboardResultBinding;
   readonly data: ProductCardData | null;
+  /** 共享 42901 禁用期内显示的同一张卡（购买按钮禁用，共性第 31 条）；没有卡为 null。 */
+  readonly limited: ProductCardData | null;
   readonly errorText: string;
   /** 行内 30132：给【用商品名搜索】。 */
   readonly searchable: boolean;
 
   constructor(key: string, row: ParseRow, binding: ClipboardResultBinding, data: ProductCardData | null, errorText: string,
-    searchable: boolean) {
+    searchable: boolean, limited: ProductCardData | null = null) {
     this.key = key;
     this.row = row;
     this.binding = binding;
     this.data = data;
+    this.limited = limited;
     this.errorText = errorText;
     this.searchable = searchable;
   }
@@ -471,7 +474,8 @@ export class AppClipboard {
       const row: ParseRow = r.rows[i];
       if (row.card !== null) {
         out.push(new ClipboardCardRow(r.serial + ':' + i, row, binding,
-          ProductCardMapper.fromCard(row.card, new CardTexts()), '', false));
+          ProductCardMapper.fromCard(row.card, new CardTexts()), '', false,
+          ProductCardMapper.fromCard(row.card, new CardTexts(), false)));
         continue;
       }
       const code: number = row.errorCode ?? ParseResultAction.UNSUPPORTED;

@@ -18,7 +18,7 @@ const TAG: string = 'CouliUpdate';
  *   离开基本模式（重新同意）都立即检查（R1-03），且在恢复待办之前发出（AppPrivacy.publish 先调 syncPrivacy，R1-01）；
  *   回前台按间隔复查，复查在途时 Router 拿到 checking（R1-02）。
  * - 检查失败不拦用户自己的操作（Gate 保持上次已知结论或 unknown）。
- * - on10405 给网络层（APP-03）调用：直接进 below_min。
+ * - on10405 给网络层（APP-03）调用：直接进 below_min；任何路径进强更时没有最近一次成功检查结果就立即补查（共性第 27 条）。
  * - 【去更新】按 Gate 选店，逐家打开，打开失败接着下一家；都不行 → 强更页显示 unavailable 与【重试】；【重试】重新检查再选。
  * - 检查开始、结束与结论变化时调 onChanged（EntryAbility 接 AppRouting.stateChanged：启动协调、below_min 进强更页、删待办）。
  * 单线程（UI 线程）使用。
@@ -159,11 +159,12 @@ export class AppUpdate {
    * 服务端已判定强更处理（UpdateGate.onServerForced：落盘、不按缓存最低版本比较，APP-07 共性第 24 条）。
    */
   on10405(minSupported: string | null): void {
-    const gate: UpdateGate | null = this.gate;
-    if (gate === null) {
+    const coordinator: UpdateCheckCoordinator | null = this.coordinator;
+    if (coordinator === null) {
       return;
     }
-    gate.on10405(minSupported, Date.now());
+    // 进强更后没有最近一次成功检查结果（商店列表为空）：协调器立即补查一次、复用在途检查（APP-07 共性第 27 条）
+    coordinator.on10405(minSupported);
     this.refresh(true);
   }
 
@@ -172,11 +173,12 @@ export class AppUpdate {
    * 不按缓存的最低版本比较（UpdateGate.onServerForced）。
    */
   onServerForced(): void {
-    const gate: UpdateGate | null = this.gate;
-    if (gate === null) {
+    const coordinator: UpdateCheckCoordinator | null = this.coordinator;
+    if (coordinator === null) {
       return;
     }
-    gate.onServerForced(Date.now());
+    // 同 on10405：没有最近一次成功检查结果时立即补查（共性第 27 条；parse 行内 10405、订单待跟单关闭的 10405 都走这里）
+    coordinator.onServerForced();
     this.refresh(true);
   }
 

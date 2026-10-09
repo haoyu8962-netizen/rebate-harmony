@@ -83,14 +83,18 @@ export class ParseInputService {
     this.api = api;
   }
 
-  parse(uploadText: string, owner: () => boolean): Promise<ParseOutcome> {
+  /**
+   * title：请求前从剪贴板原文本地抽出的「」标题片段（ClipboardText.quotedTitle；没有为 null），随这次请求绑定——整体 30132（data=null）
+   * 用它预填「用商品名搜索」（APP-07 共性第 30 条）：不依赖契约外的 data.raw，不从上传片段里猜，也不保存剪贴板全文。
+   */
+  parse(uploadText: string, owner: () => boolean, title: string | null = null): Promise<ParseOutcome> {
     const body: Record<string, Object> = {};
     body['text'] = uploadText.substring(0, ParseInputService.MAX_TEXT);
     body['scene'] = ParseInputService.SCENE_CLIPBOARD;
     const request: ApiRequest = new ApiRequest(ParseInputService.OPERATION, {}, '', JSON.stringify(body));
     request.owner = owner;
     return this.api.request(request)
-      .then((result: ApiResult): ParseOutcome => ParseInputService.outcome(result, uploadText, owner))
+      .then((result: ApiResult): ParseOutcome => ParseInputService.outcome(result, title, owner))
       .catch((): ParseOutcome => {
         if (!owner()) {
           return new ParseOutcome(null, true);
@@ -102,7 +106,7 @@ export class ParseInputService {
       });
   }
 
-  private static outcome(result: ApiResult, uploadText: string, owner: () => boolean): ParseOutcome {
+  private static outcome(result: ApiResult, title: string | null, owner: () => boolean): ParseOutcome {
     if (!owner()) {
       return new ParseOutcome(null, true);
     }
@@ -128,8 +132,9 @@ export class ParseInputService {
         const millis: number = disableMillisOf(result);
         mapped.disableMs = millis > 0 ? millis : ErrorActionMapper.DEFAULT_RETRY_AFTER_MILLIS;
       } else if (mapped.actionRaw === ParseResultAction.SEARCH_PREFILL) {
-        // 整体 30132 没有 hit：用本次上传片段里的「」标题预填（上传内容本来就只有链接与标题，rule-gaps A04 / H 段）
-        mapped.prefill = ParseInputService.titleOf(uploadText);
+        // 整体 30132 没有 hit：用请求前本地抽出、随本次请求绑定的「」标题预填（共性第 30 条，rule-gaps A04 / H 段）；没有标题留空。
+        // 不再从上传片段按「第一行不是 http 开头」去猜：标题本身以 http 开头（如「HTTP 数据线」）时会被当成链接丢掉
+        mapped.prefill = title;
       }
       return new ParseOutcome(mapped);
     }
@@ -144,15 +149,6 @@ export class ParseInputService {
     return new ParseOutcome(null, true);
   }
 
-  private static titleOf(uploadText: string): string | null {
-    for (const line of uploadText.split('\n')) {
-      const trimmed: string = line.trim();
-      if (trimmed.length > 0 && !trimmed.toLowerCase().startsWith('http')) {
-        return trimmed;
-      }
-    }
-    return null;
-  }
 }
 
 /**
@@ -798,7 +794,8 @@ export class ClipboardController {
     // 邀请落地页 /i/{code} 链接不算商品链接、不上传（CLIP-18 / rule-gaps A02 用于手动粘贴，H 段）
     const upload: string | null = decision.actionRaw === ManualPasteAction.PARSE ? this.productUpload(text, rules) : null;
     if (upload !== null) {
-      this.startParse(upload, ticket, entry, fill);
+      // 「」标题片段在请求前本地抽出、随请求绑定（共性第 30 条）；原文不保留
+      this.startParse(upload, ClipboardText.quotedTitle(text), ticket, entry, fill);
       return ManualPasteAction.PARSE;
     }
     if (pureInvite) {
@@ -945,13 +942,14 @@ export class ClipboardController {
 
   // ---------------------------------------------------------------- parse 与结果
 
-  private startParse(upload: string, ticket: OwnerTicket, entry: string, fill: ((q: string) => void) | null): void {
+  private startParse(upload: string, title: string | null, ticket: OwnerTicket, entry: string,
+    fill: ((q: string) => void) | null): void {
     const owner: () => boolean = (): boolean => this.stillOwned(ticket);
     this.owners.push(owner);
     this.parseCount++;
     this.state.busy = true;
     this.emit();
-    this.parser.parse(upload, owner).then((outcome: ParseOutcome): void => {
+    this.parser.parse(upload, owner, title).then((outcome: ParseOutcome): void => {
       this.owners = this.owners.filter((o: () => boolean): boolean => o !== owner);
       // 等待之后复核：已进后台、离开发起页、撤回同意、换账号、换环境、敏感浮层出现后的迟到响应只丢弃
       if (!this.stillOwned(ticket)) {

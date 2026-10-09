@@ -20,12 +20,15 @@ struct ClipboardCardListSheet {
       ForEach(this.model.rows, (row: ClipboardCardRow) => {
         if (row.data !== null) {
           Column() {
-            ProductCard({ data: row.data as ProductCardData, variant: ProductCardVariant.LIST, onBuy: () => {
+            // 共享 42901 禁用期（行内 42901 或之前的整体 42901）：购买按钮按禁用卡显示，整张卡不可点（共性第 31 条；执行层 openCard 另拦）
+            ProductCard({ data: (this.model.blocked && row.limited !== null ? row.limited : row.data) as ProductCardData,
+              variant: ProductCardVariant.LIST, onBuy: () => {
               // 购买按钮也先进详情（以这张卡为种子），在详情页再购买（rule-gaps A03）；经这一行渲染时绑定的结果转发（共性第 18 条）
               row.open();
             } })
           }
           .width('100%')
+          .enabled(!this.model.blocked)
           .onClick(() => {
             row.open();
           })
@@ -33,6 +36,7 @@ struct ClipboardCardListSheet {
           ClipboardNotice({
             text: row.errorText,
             actionText: row.searchable ? ClipboardDraftTexts.text('clipboard.search_by_name') : '',
+            actionDisabled: this.model.blocked,
             closeLabel: '',
             noticeId: 'clipboard_row_' + row.key,
             onAction: () => {
@@ -64,6 +68,8 @@ function resultNotice(model: ClipboardUiModel, id: string) {
   ClipboardNotice({
     text: model.resultText,
     actionText: model.resultSearchable ? ClipboardDraftTexts.text('clipboard.search_by_name') : '',
+    // 共享 42901 禁用期内【用商品名搜索】置灰（共性第 31 条；执行层 searchByName 另拦）
+    actionDisabled: model.blocked,
     closeLabel: ClipboardDraftTexts.text('clipboard.notice.close'),
     noticeId: id,
     // 渲染时取值：回调绑定的是这条提示所属的结果（共性第 18 条）

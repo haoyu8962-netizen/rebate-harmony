@@ -294,6 +294,14 @@ export class UpdateGate {
     return known ?? UNKNOWN_STATE;
   }
 
+  /**
+   * 最近一次成功检查的结果（落盘的；没有为 null）。进入强更时没有它（商店列表为空）就要立即补查一次（APP-07 共性第 27 条，
+   * UpdateCheckCoordinator.onForcedEntered）。
+   */
+  lastResult(): UpdateCheckResult | null {
+    return this.store.load().result;
+  }
+
   /** 本进程里有一次检查在进行中（调用方据此判断「检查中」的等待起点）。 */
   get checking(): boolean {
     return this.inFlight;
