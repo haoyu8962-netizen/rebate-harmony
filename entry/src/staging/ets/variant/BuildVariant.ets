@@ -56,11 +56,11 @@ export class BuildVariant {
   }
 
   /**
-   * 版本检查器：读调试面板选的场景，返回契约示例改字段得到的假结果（APP-02c）；prod 环境下按请求失败。
-   * TODO(APP-03): 网络层接入后，test / staging 环境改走真实请求，假数据只在调试面板显式选择时使用。
+   * 版本检查器：读调试面板选的场景，返回契约示例改字段得到的假结果（APP-02c，调试假数据路径不变）；不用假数据时（调试面板选
+   * live，或当前环境不允许调试假数据如 prod）转给真实检查器（F-X-01：经 ApiClient 请求 GET /v1/app-versions/check）。
    */
-  static updateChecker(context: common.Context): UpdateChecker {
-    return new DebugUpdateChecker(context);
+  static updateChecker(context: common.Context, real: UpdateChecker): UpdateChecker {
+    return new DebugUpdateChecker(context, real);
   }
 
   /** 强更结论存储：调试假结果只写 couli_update_debug，不写 Release 读取的 couli_update（三端统一裁定）。 */

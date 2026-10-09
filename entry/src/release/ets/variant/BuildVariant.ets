@@ -3,7 +3,7 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, PendingKeyBackend, PlaceholderUpdateChecker, RcpTransport,
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, PendingKeyBackend, RcpTransport,
   ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer, UnavailableWechatAdapter, UpdateChecker, WebCodeAuthorizer
 } from 'core';
 
@@ -62,11 +62,11 @@ export class BuildVariant {
   }
 
   /**
-   * Release 的版本检查器：网络层（APP-03）之前永远失败，按 unknown 处理，不会误拦用户；没有调试假数据（release-scan 查标记）。
-   * TODO(APP-03): 换成真实请求 GET /v1/app-versions/check。
+   * Release 的版本检查器（F-X-01）：原样用 EntryAbility 组合的真实检查器（ApiUpdateChecker，经 ApiClient 请求
+   * GET /v1/app-versions/check；只在已同意、环境就绪、非基本模式时发，失败按 unknown 不误拦）。没有调试假数据（release-scan 查标记）。
    */
-  static updateChecker(context: common.Context): UpdateChecker {
-    return new PlaceholderUpdateChecker();
+  static updateChecker(context: common.Context, real: UpdateChecker): UpdateChecker {
+    return real;
   }
 
   /** Release 的强更结论存储：couli_update（Debug / Staging 的调试假结果存在 couli_update_debug，这里不读）。 */

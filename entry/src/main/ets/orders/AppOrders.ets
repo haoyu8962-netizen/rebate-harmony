@@ -7,7 +7,8 @@ import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ConfigStore,
   CouliPreferences, FileSlot, OrderAnchorKeeper, OrderCacheCleaner, OrderCacheStore, OrderCopy, OrderDetailController,
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
-  OrderListDeps, OrderListEntries, OrderPageRestorer, OrderRecord, OrderSessionHub, OrderStaleCache, PendingTrackController,
+  OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPendingMark, OrderRecord, OrderSessionHub, OrderStaleCache,
+  PendingTrackController,
   PendingTrackDeps, PendingTrackJumpWatcher, PermissionResult, RouteDestination, SearchApiPort, SessionState,
   TransportFailure
 } from 'core';
@@ -42,11 +43,11 @@ const PUSH_ROW_KEY: string = 'orders.push_row_used';
 /** 订单缓存的文件实现：filesDir/couli_orders_cache/<账号短标识>/<名字>，FileSlot 原子写（临时文件 + fsync + 改名）。 */
 class FileOrderCacheStore implements OrderCacheStore {
   private readonly root: string;
-  private readonly pending: FileSlot;
+  private readonly pending: OrderPendingMark;
 
   constructor(filesDir: string) {
     this.root = filesDir + '/' + CACHE_DIR;
-    this.pending = FileSlot.at(filesDir, CACHE_PENDING_FILE);
+    this.pending = new OrderPendingMark(FileSlot.at(filesDir, CACHE_PENDING_FILE));
   }
 
   read(account: string, name: string): string | null {
@@ -71,12 +72,14 @@ class FileOrderCacheStore implements OrderCacheStore {
     }
   }
 
+  /** 正式标记或改名失败留下的临时文件任一存在即待清理；核对失败抛出（按待清理处理，FU-HM-0709 R1-01）。 */
   pendingClear(): boolean {
-    return this.pending.read() !== null;
+    return this.pending.isSet();
   }
 
+  /** 清除时正式标记与临时文件都删（缓存确认删完后才调）。 */
   setPendingClear(pending: boolean): void {
-    this.pending.write(pending ? '1' : null);
+    this.pending.set(pending);
   }
 }
 
@@ -181,6 +184,10 @@ export class AppOrders {
     const store: FileOrderCacheStore = new FileOrderCacheStore(context.filesDir);
     const cache: OrderStaleCache = new OrderStaleCache(store, (): string | null => AppOrders.account(), Date.now);
     this.cacheInstance = cache;
+    // F-HM-18（APP-08 共性第 28 条）：启动时先核验落盘的「待清理」标记（在缓存目录之外），上次没删完就在任何读取之前补删。
+    if (!cache.retryPendingClear()) {
+      hilog.warn(DOMAIN, TAG, 'order cache pending clear not finished at launch');
+    }
     // 撤回同意与切换环境：先作废订单页面与在途请求，再删缓存；删不掉报失败（撤回痕迹保留、冷启动重试）。
     OrderCacheCleaner.install(AppConfig.cleaners, cache, (): void => this.hub.reset());
     this.hub.removePages = (route: string): void => AppRouting.shared.navigator.remove(route);

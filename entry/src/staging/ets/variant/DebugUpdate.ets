@@ -1,4 +1,4 @@
-// 调试面板的版本检查假数据（只在 Debug / Staging 编译；Release 里是永远失败的占位检查器，release-scan 查
+// 调试面板的版本检查假数据（只在 Debug / Staging 编译；Release 只有真实检查器 ApiUpdateChecker，release-scan 查
 // AppVersionCheckExample.MARKER 与本文件的偏好文件名）。数据一律从契约 openapi GET /v1/app-versions/check 的响应示例
 // （AppVersionCheckExample.DATA_JSON，gen.py 生成）改几个字段得到，不臆造报文字段。
 import { common } from '@kit.AbilityKit';
@@ -20,12 +20,14 @@ export enum DebugUpdateScenario {
   /** 商店都不可用：强制更新，且各商店 listed_version 都为 null（没有已知上架版本）。 */
   STORES_UNAVAILABLE = 'stores_unavailable',
   /** 请求失败。 */
-  FAILURE = 'failure'
+  FAILURE = 'failure',
+  /** 不用假数据：转给真实检查器（F-X-01，经 ApiClient 请求当前环境的 GET /v1/app-versions/check）。 */
+  LIVE = 'live'
 }
 
 export const DEBUG_UPDATE_SCENARIOS: DebugUpdateScenario[] = [
   DebugUpdateScenario.NORMAL, DebugUpdateScenario.RECOMMEND, DebugUpdateScenario.FORCE,
-  DebugUpdateScenario.STORES_UNAVAILABLE, DebugUpdateScenario.FAILURE
+  DebugUpdateScenario.STORES_UNAVAILABLE, DebugUpdateScenario.FAILURE, DebugUpdateScenario.LIVE
 ];
 
 function parseScenario(raw: string): DebugUpdateScenario {
@@ -103,27 +105,40 @@ export function scenarioData(scenario: DebugUpdateScenario): string {
   return JSON.stringify(data);
 }
 
-/** 当前环境允许调试假数据（prod 环境下只剩「切换服务器地址」，03 §3.6；假检查器按请求失败处理）。 */
+/** 当前环境允许调试假数据（prod 环境下只剩「切换服务器地址」，03 §3.6；不允许时转给真实检查器）。 */
 function mockDataAllowed(): boolean {
   const source: EnvironmentSource | undefined = AppConfig.environment();
   const env: AppEnvironment | undefined = source === undefined ? undefined : parseAppEnvironment(source.current);
   return env !== undefined && DebugCapabilities.isAvailable(DebugCapability.MOCK_DATA, env);
 }
 
-/** 读调试场景、返回假结果的检查器；模拟一点网络耗时，让「检查中」可见。 */
+/**
+ * 读调试场景、返回假结果的检查器；模拟一点网络耗时，让「检查中」可见。不用假数据时（场景 live，或当前环境不允许调试假数据，
+ * 如调试面板切到 prod）原样转给真实检查器（F-X-01），不再按失败。
+ */
 export class DebugUpdateChecker implements UpdateChecker {
   static readonly FAKE_LATENCY_MILLIS: number = 300;
   readonly scenarios: DebugUpdateScenarioStore;
+  private readonly real: UpdateChecker;
 
-  constructor(context: common.Context) {
+  constructor(context: common.Context, real: UpdateChecker) {
     this.scenarios = new DebugUpdateScenarioStore(context);
+    this.real = real;
   }
 
   check(): Promise<UpdateCheckOutcome> {
+    if (!mockDataAllowed() || this.scenarios.current === DebugUpdateScenario.LIVE) {
+      return this.real.check();
+    }
     return new Promise<UpdateCheckOutcome>((resolve: (value: UpdateCheckOutcome) => void) => {
       setTimeout(() => {
         const scenario: DebugUpdateScenario = this.scenarios.current;
-        if (!mockDataAllowed() || scenario === DebugUpdateScenario.FAILURE) {
+        if (!mockDataAllowed() || scenario === DebugUpdateScenario.LIVE) {
+          // 等待期间切到了 live 或 prod：转给真实检查器。
+          this.real.check().then(resolve);
+          return;
+        }
+        if (scenario === DebugUpdateScenario.FAILURE) {
           resolve(UpdateCheckOutcome.failure());
           return;
         }

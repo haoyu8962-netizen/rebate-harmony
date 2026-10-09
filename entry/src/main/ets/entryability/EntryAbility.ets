@@ -2,7 +2,7 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.Ab
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import {
-  AppConfig, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner, PrivacyState,
+  ApiClient, ApiUpdateChecker, AppConfig, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner, PrivacyState,
   PrivacyWithdrawalCleaners, SessionState
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -77,7 +77,17 @@ export default class EntryAbility extends UIAbility {
     // 再 AppRouting.stateChanged；网络层确需强更时经 UpdatePort 调 update.on10405（见 AppNetwork）。
     update.onChanged = onUpdateChanged;
     AppRouting.shared.syncUpdateCheck = (): void => update.syncPrivacy(false);
-    update.start(appContext, AppRouting.shared.appVersionName, BuildVariant.updateChecker(appContext),
+    // F-X-01：真实版本检查器经 ApiClient 发 GET /v1/app-versions/check，只在环境 SETTLED 且已同意当前隐私政策时发（基本模式、
+    // 未同意不发），在途复用；Release 直接用它，Debug / Staging 不用调试假数据时转给它（BuildVariant）。
+    // 复查间隔取当前生效配置（/v1/config.app_update.recheck_interval_sec）：检查器写进成功结果，回前台判断到期时也现取（R1-02，
+    // 配置晚于检查成功生效或之后变化都按新值，上次成功检查时刻不变）。
+    const configInterval: () => number = (): number =>
+    ApiUpdateChecker.intervalFromConfig(AppClientCore.shared.config?.snapshotJson ?? null);
+    update.recheckIntervalSec = configInterval;
+    const realChecker: ApiUpdateChecker = new ApiUpdateChecker((): ApiClient | null => AppNetwork.client,
+      (): boolean => AppConfig.gate() === EnvironmentGate.SETTLED && AppRouting.shared.privacyState === PrivacyState.CONSENTED,
+      configInterval);
+    update.start(appContext, AppRouting.shared.appVersionName, BuildVariant.updateChecker(appContext, realChecker),
       BuildVariant.UPDATE_NAMESPACE);
     // 隐私闸门：读本机决定，冷启动判定是否弹首启弹窗（未决时守卫等待，启动意图排队）。
     AppPrivacy.shared.start(appContext);

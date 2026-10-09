@@ -54,6 +54,8 @@ export class AppUpdate {
   environmentSettled: () => boolean = () => false;
   /** 隐私闸门当前结论（EntryAbility 接上 AppRouting.privacyState）。 */
   privacy: () => PrivacyState = () => PrivacyState.NOT_DECIDED;
+  /** 当前生效配置的回前台复查间隔（秒；App 接 /v1/config.app_update，FU-HM-0709 R1-02）；null 按成功结果里记下的间隔。 */
+  recheckIntervalSec: () => number | null = () => null;
   /** 结论或检查进度变化（EntryAbility 接上 AppRouting.stateChanged）。 */
   onChanged: () => void = () => {
   };
@@ -64,8 +66,8 @@ export class AppUpdate {
   private access: StoreAccess = new HarmonyStoreAccess();
 
   /**
-   * EntryAbility.onCreate 调一次。namespace / checker 由构建变体给（Release：couli_update + 永远失败的占位检查器；
-   * Debug / Staging：couli_update_debug + 调试假数据检查器，见 BuildVariant）。同一进程里 Ability 重建时沿用已有的 Gate。
+   * EntryAbility.onCreate 调一次。namespace / checker 由构建变体给（Release：couli_update + 经 ApiClient 的真实检查器
+   * ApiUpdateChecker；Debug / Staging：couli_update_debug + 调试假数据检查器，不用假数据时转给真实检查器，见 BuildVariant）。同一进程里 Ability 重建时沿用已有的 Gate。
    */
   start(context: common.Context, appVersion: string, checker: UpdateChecker, namespace: string,
     access: StoreAccess = new HarmonyStoreAccess()): void {
@@ -79,6 +81,8 @@ export class AppUpdate {
     const coordinator: UpdateCheckCoordinator = new UpdateCheckCoordinator(gate, checker, (): number => Date.now());
     coordinator.environmentSettled = (): boolean => this.environmentSettled();
     coordinator.privacy = (): PrivacyState => this.privacy();
+    // R1-02：回前台判断复查是否到期时现取当前生效配置的间隔（配置晚于检查成功生效、之后变化都按新值）。
+    coordinator.recheckIntervalSec = (): number | null => this.recheckIntervalSec();
     coordinator.changed = (notify: boolean): void => this.refresh(notify);
     coordinator.finished = (outcome: UpdateCheckOutcome, thenPickStore: boolean): void => {
       this.finished(outcome, thenPickStore);
@@ -138,15 +142,19 @@ export class AppUpdate {
 
   /**
    * 立即重新检查（强更页【重试】、调试面板切换假数据）。thenPickStore：检查后仍需强更就再选一次店。
-   * 不能发检查时（基本模式保留已知强更）按已知结果再选一次店；已有检查在途时等它的结果（不重复发、不连点重试）。
+   * 不能发检查时（基本模式保留已知强更）按已知结果再选一次店。已有检查在途（冷启动、回前台复查、进强更后的补查）时不重复发，
+   * 但这次点击不被吞（F-X-01，Android F-AND-24 同类问题）：协调器记下「检查后选店」，按钮进入检查中（working），在途检查结束后
+   * finished 按它选店或显示 unavailable 与【重试】。
    */
   recheck(thenPickStore: boolean = false): void {
     const coordinator: UpdateCheckCoordinator | null = this.coordinator;
-    if (coordinator === null || coordinator.isRunning) {
+    if (coordinator === null) {
       return;
     }
-    this.working = thenPickStore;
-    if (!coordinator.recheck(thenPickStore)) {
+    if (thenPickStore) {
+      this.working = true;
+    }
+    if (!coordinator.recheck(thenPickStore) && !coordinator.isRunning) {
       this.working = false;
       if (thenPickStore) {
         this.goToStore();

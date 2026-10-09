@@ -56,6 +56,7 @@ import clipboardVectorTest from './ClipboardVector.test';
 import clipboardIntegrationTest from './ClipboardIntegration.test';
 import followupHM0607Test from './FollowupHM0607.test';
 import followupHM0708Test from './FollowupHM0708.test';
+import followupHM0709Test from './FollowupHM0709.test';
 import orderVectorTest from './OrderVector.test';
 import orderIntegrationTest from './OrderIntegration.test';
 import orderReviewR2Test from './OrderReviewR2.test';
@@ -125,6 +126,7 @@ export default function testsuite() {
   clipboardIntegrationTest();
   followupHM0607Test();
   followupHM0708Test();
+  followupHM0709Test();
   orderVectorTest();
   orderIntegrationTest();
   orderReviewR2Test();

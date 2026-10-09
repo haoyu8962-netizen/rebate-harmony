@@ -2,6 +2,7 @@
 // 落盘到 App 私有目录、按账号隔离。登出、换账号、会话失效、撤回同意、切换环境时删除；删除要确认成功，失败保留「待清理」标记，
 // 清理完成前不读回任何旧数据（APP-03b 第 1、11 条，APP-07 第 14 条）。撤回同意与切换环境经 OrderCacheCleaner 接进 AppConfig.cleaners。读取失败或记录损坏一律按「没有缓存」（不展示别的东西）。
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
+import { FileSlot } from '../storage/FileSlot';
 import { OrderJson, OrderRecord } from './OrderJson';
 
 type JSONValue = Object | null;
@@ -24,14 +25,40 @@ export interface OrderCacheStore {
   setPendingClear(pending: boolean): void;
 }
 
-/** 内存实现（单测与集成测试；生产在 entry 用文件）。 */
+/**
+ * 「待清理」标记的文件实现（生产：filesDir/couli_orders_cache.pending，在缓存目录之外；entry 的 FileOrderCacheStore 用它）。
+ * - 设置：FileSlot 原子写（临时文件 + fsync + 改名），失败抛出；
+ * - 核验（FU-HM-0709 R1-01）：正式标记或 FileSlot 临时文件任一存在都算「待清理」——临时文件已落盘但改名失败时，这次标记其实已经
+ *   写下，只看正式文件会在重启后误判「没有待清理」而读回旧订单；核对本身失败抛出（OrderStaleCache 按待清理处理，阻断读取）；
+ * - 清除：缓存确认删完后才调，正式标记与临时文件都删（FileSlot.write(null)），任一删不掉抛出，标记保留。
+ */
+export class OrderPendingMark {
+  readonly slot: FileSlot;
+
+  constructor(slot: FileSlot) {
+    this.slot = slot;
+  }
+
+  isSet(): boolean {
+    return this.slot.existsAny();
+  }
+
+  set(pending: boolean): void {
+    this.slot.write(pending ? '1' : null);
+  }
+}
+
+/** 内存实现（单测与集成测试；生产在 entry 用文件）。mark 不为 null 时「待清理」标记改由真实 FileSlot 标记承担。 */
 export class MemoryOrderCacheStore implements OrderCacheStore {
   files: Map<string, string> = new Map<string, string>();
   pending: boolean = false;
   failRead: boolean = false;
   failWrite: boolean = false;
   failClear: boolean = false;
+  /** 「待清理」标记写不进（模拟标记所在存储故障，F-HM-18）。 */
+  failMark: boolean = false;
   clears: number = 0;
+  mark: OrderPendingMark | null = null;
 
   read(account: string, name: string): string | null {
     if (this.failRead) {
@@ -56,10 +83,19 @@ export class MemoryOrderCacheStore implements OrderCacheStore {
   }
 
   pendingClear(): boolean {
-    return this.pending;
+    const mark: OrderPendingMark | null = this.mark;
+    return mark === null ? this.pending : mark.isSet();
   }
 
   setPendingClear(pending: boolean): void {
+    if (this.failMark) {
+      throw new Error('mark failed');
+    }
+    const mark: OrderPendingMark | null = this.mark;
+    if (mark !== null) {
+      mark.set(pending);
+      return;
+    }
     this.pending = pending;
   }
 }
@@ -152,9 +188,17 @@ export class OrderStaleCache {
     }
   }
 
+  /**
+   * 读写缓存前核验「待清理」（APP-08 共性第 28 条，F-HM-18）：标记在（本进程内存或落盘标记，读不出也算）就先再清一次——补写标记、
+   * 删除、确认后清标记；清不完返回 false（不读不写）。
+   */
+  private settled(): boolean {
+    return !this.blocked || this.clear();
+  }
+
   private readJson(name: string): OrderRecord | null {
     const tag: string | null = this.tag();
-    if (tag === null || this.blocked) {
+    if (tag === null || !this.settled()) {
       return null;
     }
     try {
@@ -171,7 +215,7 @@ export class OrderStaleCache {
 
   private writeJson(name: string, value: OrderRecord): void {
     const tag: string | null = this.tag();
-    if (tag === null || this.blocked) {
+    if (tag === null || !this.settled()) {
       return;
     }
     try {
@@ -258,6 +302,9 @@ export class OrderStaleCache {
   /**
    * 删除全部缓存（G10 的各清理事件）。先同步记下「待清理」（落盘失败也在内存里阻断读取），删除确认成功后才清标记；
    * 失败返回 false，调用方之后重试（retryPendingClear）。
+   * 标记（生产：filesDir/couli_orders_cache.pending，在缓存目录之外，FileSlot 临时文件 + fsync + 改名，写失败抛出）没确认写入时，
+   * pendingInMemory 一直保留，之后每次状态同步、每次读写缓存前都经 clear() 先补写标记再删（APP-08 共性第 28 条，F-HM-18）：
+   * 只要进程结束前有一次写进标记或删干净，重启后就读不回旧订单。
    */
   clear(): boolean {
     this.pendingInMemory = true;

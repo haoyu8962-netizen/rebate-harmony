@@ -35,6 +35,12 @@ export class UpdateCheckCoordinator {
    */
   changed: (notify: boolean) => void = (_notify: boolean) => {
   };
+  /**
+   * 当前生效配置的回前台复查间隔（秒；App 接 /v1/config.app_update.recheck_interval_sec，FU-HM-0709 R1-02）。每次回前台判断是否
+   * 到期时现取——配置在检查成功之后才生效或变化（冷启动配置晚到、之后下发新值）也按新间隔，上次成功检查时刻不变。
+   * null（默认）按成功结果里记下的间隔。
+   */
+  recheckIntervalSec: () => number | null = () => null;
   /** 一次检查结束（App 据此在【重试】后再选店、打日志）。 */
   finished: (outcome: UpdateCheckOutcome, thenPickStore: boolean) => void =
     (_o: UpdateCheckOutcome, _p: boolean) => {
@@ -49,6 +55,8 @@ export class UpdateCheckCoordinator {
    * 但交给 Router 的状态按 unknown——外部入口只读、待办恢复受未知限制——直到下一次成功检查；已知 below_min 照旧强更。
    */
   private lastCheckFailed: boolean = false;
+  /** 在途检查期间用户点了【重试】（要检查后选店）：这次检查结束时按 thenPickStore 处理（F-AND-24 同类问题）。 */
+  private pickStoreAfterRunning: boolean = false;
 
   constructor(gate: UpdateGate, checker: UpdateChecker, clock: () => number) {
     this.gate = gate;
@@ -92,20 +100,34 @@ export class UpdateCheckCoordinator {
     return true;
   }
 
-  /** 回前台：欠着立即检查就补上；否则已同意且距上次成功检查超过间隔（或本进程没成功过、上次失败）才查。 */
+  /**
+   * 回前台：欠着立即检查就补上；否则已同意且距上次成功检查超过间隔（或本进程没成功过、上次失败）才查。间隔按 recheckIntervalSec
+   * 现取的当前生效配置（R1-02）。
+   */
   onForeground(): boolean {
     if (this.checkDue) {
       return this.syncPrivacy(true);
     }
-    if (this.canCheck() && this.gate.onForeground(this.clock())) {
+    if (this.canCheck() && this.gate.onForeground(this.clock(), this.currentInterval())) {
       this.runCheck(false, true);
       return true;
     }
     return false;
   }
 
-  /** 立即重新检查（强更页【重试】、调试面板）；不能发检查时返回 false（调用方按已知结果处理）。 */
+  /**
+   * 立即重新检查（强更页【重试】、调试面板）；返回是否新发了一次检查。不能发检查时返回 false（调用方按已知结果处理）。
+   * 已有检查在途（冷启动、回前台复查、进强更后的补查）时不另发、返回 false，但记下这次【重试】的「检查后选店」意图：在途检查结束时
+   * finished 的 thenPickStore 为真，App 据此在结束后反映结果（仍需强更就选店，没有商店显示 unavailable 与【重试】）——
+   * 在途时点【重试】不会被吞（F-AND-24 同类问题，F-X-01）。调用方用 isRunning 判断这次点击是否并入了在途检查。
+   */
   recheck(thenPickStore: boolean): boolean {
+    if (this.running) {
+      if (thenPickStore) {
+        this.pickStoreAfterRunning = true;
+      }
+      return false;
+    }
     if (!this.canCheck()) {
       return false;
     }
@@ -173,6 +195,14 @@ export class UpdateCheckCoordinator {
     return status.result ?? GuardUpdate.UNKNOWN;
   }
 
+  private currentInterval(): number | null {
+    try {
+      return this.recheckIntervalSec();
+    } catch (e) {
+      return null;
+    }
+  }
+
   private runCheck(thenPickStore: boolean, notify: boolean): boolean {
     if (this.running) {
       // 已有检查在途（Gate 已标记检查中）：等它的结果，不重复发。
@@ -192,6 +222,8 @@ export class UpdateCheckCoordinator {
 
   private finish(outcome: UpdateCheckOutcome, thenPickStore: boolean): void {
     this.running = false;
+    const pickStore: boolean = thenPickStore || this.pickStoreAfterRunning;
+    this.pickStoreAfterRunning = false;
     const now: number = this.clock();
     if (outcome.result !== null) {
       this.gate.apply(outcome.result, now);
@@ -205,7 +237,7 @@ export class UpdateCheckCoordinator {
       this.gate.enterBasicMode();
       this.checkDue = true;
     }
-    this.finished(outcome, thenPickStore);
+    this.finished(outcome, pickStore);
     this.changed(true);
   }
 }

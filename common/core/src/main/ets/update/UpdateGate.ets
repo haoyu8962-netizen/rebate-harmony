@@ -50,7 +50,7 @@ export class UpdateStoreListing {
 /**
  * 一次成功的版本检查（check.data 的投影，任务书 §2.1）。
  * recheckIntervalSec：回前台复查间隔，契约在 /v1/config.app_update，不在 check 响应里（rule-gaps G01）；
- * 没有配置时用包内默认 DEFAULT_RECHECK_INTERVAL_SEC。TODO(APP-03): 接 /v1/config（LKG）。
+ * 没有配置时用包内默认 DEFAULT_RECHECK_INTERVAL_SEC。真实检查器按生效配置取值（ApiUpdateChecker.intervalFromConfig，F-X-01）。
  * updateTitle、updateNotes 只给界面显示（强更页、可关闭提示），不参与判定。
  */
 export class UpdateCheckResult {
@@ -202,12 +202,17 @@ export class UpdateGate {
     return true;
   }
 
-  /** 回前台：从没成功过、上次失败，或距上次成功检查严格超过复查间隔才查。 */
-  onForeground(now: number = this.clock()): boolean {
+  /**
+   * 回前台：从没成功过、上次失败，或距上次成功检查严格超过复查间隔才查。
+   * currentIntervalSec：调用方给出的「当前生效配置」的复查间隔（/v1/config.app_update.recheck_interval_sec，FU-HM-0709 R1-02）——
+   * 配置在检查成功之后才下发或变化时按它判断，上次成功检查时刻不变；不给（null）或不是正数时按成功结果里记下的间隔（向量行为）。
+   */
+  onForeground(now: number = this.clock(), currentIntervalSec: number | null = null): boolean {
     const persisted: UpdatePersisted = this.store.load();
     const last: number | null = persisted.lastSuccessAtMillis;
-    const intervalSec: number = persisted.result === null ? DEFAULT_RECHECK_INTERVAL_SEC
-      : persisted.result.recheckIntervalSec;
+    const intervalSec: number = currentIntervalSec !== null && Number.isFinite(currentIntervalSec)
+      && currentIntervalSec > 0 ? currentIntervalSec
+      : persisted.result === null ? DEFAULT_RECHECK_INTERVAL_SEC : persisted.result.recheckIntervalSec;
     const due: boolean = last === null || !this.succeededThisProcess || this.lastAttemptFailed
       || now - last > intervalSec * MILLIS_PER_SECOND;
     if (due) {
@@ -535,16 +540,9 @@ export class UpdateCheckOutcome {
 }
 
 /**
- * 版本检查器（GET /v1/app-versions/check）。网络层（APP-03）之前：Debug / Staging 用读契约示例的假实现（调试面板切换场景），
- * Release 用 PlaceholderUpdateChecker（永远失败 → 按 unknown 处理，不会误拦用户）。
+ * 版本检查器（GET /v1/app-versions/check）。Release 与 Debug / Staging 不用调试假数据时用 ApiUpdateChecker（经 ApiClient 真实请求，
+ * F-X-01）；Debug / Staging 的调试面板场景读契约示例的假实现（DebugUpdateChecker，只在 staging 源码）。失败一律按 unknown 处理。
  */
 export interface UpdateChecker {
   check(): Promise<UpdateCheckOutcome>;
-}
-
-/** Release 的占位检查器：永远失败。TODO(APP-03): 换成真实请求 GET /v1/app-versions/check。 */
-export class PlaceholderUpdateChecker implements UpdateChecker {
-  check(): Promise<UpdateCheckOutcome> {
-    return Promise.resolve(UpdateCheckOutcome.failure());
-  }
 }

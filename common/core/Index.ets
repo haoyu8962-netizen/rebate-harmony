@@ -49,13 +49,13 @@ export { PathStack, UPGRADE_PROMPT_PAGE, StackNavigator, RoutingSync } from './s
 // update：UpdateGate 的 UpdateState 与 router 的强更结果枚举 UpdateState 同名，这里导出为 UpdateGateState。
 export {
   DEFAULT_RECHECK_INTERVAL_SEC, UpdateStatusRaw, UpdateStoreListing, UpdateCheckResult, UpdateState as UpdateGateState,
-  StoreChoice, UpdatePersisted, UpdateStore, MemoryUpdateStore, UpdateGate, UpdateCheckOutcome, UpdateChecker,
-  PlaceholderUpdateChecker
+  StoreChoice, UpdatePersisted, UpdateStore, MemoryUpdateStore, UpdateGate, UpdateCheckOutcome, UpdateChecker
 } from './src/main/ets/update/UpdateGate';
 export { PreferencesUpdateStore } from './src/main/ets/update/PreferencesUpdateStore';
 export { UpdateCheckAdapter } from './src/main/ets/update/UpdateCheckAdapter';
 export { UpdateRouting } from './src/main/ets/update/UpdateRouting';
 export { UpdateCheckCoordinator } from './src/main/ets/update/UpdateCheckCoordinator';
+export { ApiUpdateChecker } from './src/main/ets/update/ApiUpdateChecker';
 // network（APP-03a）
 export { ApiOperation, ApiOperations } from 'generated';
 export {
@@ -185,7 +185,7 @@ export {
   OrderErrorAction, OrderMessages
 } from './src/main/ets/orders/OrderPresentation';
 export {
-  OrderCacheStore, MemoryOrderCacheStore, OrderCacheEntry, OrderStaleCache, OrderCacheCleaner
+  OrderCacheStore, MemoryOrderCacheStore, OrderPendingMark, OrderCacheEntry, OrderStaleCache, OrderCacheCleaner
 } from './src/main/ets/orders/OrderStaleCache';
 export {
   OrderPhase, OrderErrorView, OrderOutcome, guardedOrder, OrderRateGate, OrderListSnapshot, OrderListDeps,

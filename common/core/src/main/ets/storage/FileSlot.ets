@@ -71,6 +71,14 @@ export class FileSlot {
     return path + '.tmp';
   }
 
+  /**
+   * 正式文件或临时文件任一存在（临时文件：已写入并 fsync、但改名失败或改名前进程被回收留下的）。用于「有没有标记」这类只看存在与否的
+   * 判断（订单缓存「待清理」，FU-HM-0709 R1-01）：只看正式文件会漏掉改名失败的那次写入。核对失败抛出（调用方按无法确认处理）。
+   */
+  existsAny(): boolean {
+    return this.ops.exists(this.path) || this.ops.exists(FileSlot.tempOf(this.path));
+  }
+
   read(): string | null {
     if (!this.ops.exists(this.path)) {
       return null;
