@@ -24,13 +24,19 @@ export class TradeDraftTexts {
     m.set('trade.price_changed.before', '之前（{price_label}）');
     m.set('trade.price_changed.now', '现在（{price_label}）');
     m.set('trade.price_changed.now_plain', '现在');
+    // 原价口径未知（共性第 47 条）：「之前」不带口径词
+    m.set('trade.price_changed.before_plain', '之前');
     m.set('trade.price_changed.ask', '继续购买？最终价格以下单页为准');
     // 券失效没有单独的画板（BR-PRICE-14「弹券失效确认」）：标题按规则原意
     m.set('trade.coupon_gone.title', '优惠券已失效，价格已变动');
     m.set('trade.rebate_gone.line', '该商品当前暂无返利');
     m.set('trade.rebate_gone.note', '继续购买不会获得返利');
     m.set('trade.rebate_gone.title', '该商品当前暂无返利，继续购买？');
+    // 只在新旧价格相同时用（共性第 45 条）；新价不同（变动未达阈值）用 body_changed，{price_now} 是「现在（券后）」或券额未补齐时的「现在」
     m.set('trade.rebate_gone.body', '价格没有变化，{price_label} {price}。继续购买不会获得返利');
+    m.set('trade.rebate_gone.body_changed', '{price_now} {price}。继续购买不会获得返利');
+    // 价格没有变化但口径未知（共性第 47 条）：不默认「券后」
+    m.set('trade.rebate_gone.body_plain', '价格没有变化，{price}。继续购买不会获得返利');
     m.set('trade.cancel', '取消');
     m.set('trade.continue', '继续购买');
     m.set('trade.cancelled.price', '已取消购买，价格已更新为最新');

@@ -83,6 +83,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // Debug / Staging：热启动同样认冒烟启动参数（如本机假服务开关，F-HM-13）；Release 什么都不做。
+    BuildVariant.applyLaunchOptions(this.context.getApplicationContext(), want);
     // 热启动深链：与 onCreate 同一入口；隐私弹窗显示中时丢弃（03 §4.4）。
     AppRouting.shared.handleWant(want, true);
   }

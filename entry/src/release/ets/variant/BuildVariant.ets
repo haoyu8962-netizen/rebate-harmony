@@ -3,7 +3,7 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, PendingKeyBackend, PlaceholderUpdateChecker, RcpTransport,
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, PendingKeyBackend, PlaceholderUpdateChecker, RcpTransport,
   ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer, UnavailableWechatAdapter, UpdateChecker, WebCodeAuthorizer
 } from 'core';
 
@@ -39,9 +39,12 @@ export class BuildVariant {
     return new UnavailableWebCodeAuthorizer();
   }
 
-  /** Release 不覆盖安装状态（按真实检测；apps.json 未给查询项时一律 unknown）。 */
-  static tradeInstalledOverride(_platform: string): string | null {
-    return null;
+  /**
+   * 外跳端口：Release 原样用系统实现（安装状态按真实检测，apps.json 未给查询项时一律 unknown）。Release 不含任何模拟安装状态 /
+   * 模拟外跳结果的开关与分支（APP-06b 共性第 42 条；release-scan 查 DebugJumpPorts 与它的标记）。
+   */
+  static jumpPorts(system: JumpPorts): JumpPorts {
+    return system;
   }
 
   /** 「将通过浏览器打开」的停留时长：缺省。 */

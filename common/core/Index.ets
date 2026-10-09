@@ -174,6 +174,7 @@ export {
   ClipboardPromptView, ClipboardResultView, ClipboardNoticeText, ClipboardSnapshot, InvitePasteOutcome, PasteOutcome, ClipboardDeps,
   ClipboardController, ClipboardResultBinding, ClipboardPromptBinding
 } from './src/main/ets/clipboard/ClipboardController';
+export { PurchaseModalRegistry } from './src/main/ets/clipboard/PurchaseModalRegistry';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

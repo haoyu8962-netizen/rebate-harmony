@@ -73,6 +73,7 @@ export class PurchaseDialog {
   readonly seq: number;
   readonly kind: string;
   platform: string = '';
+  /** 改价确认、返利归零确认：本次的原价与新价（返利归零只有两者相同才写「价格没有变化」，共性第 45 条）。 */
   oldFen: number | null = null;
   newFen: number | null = null;
   rebateGone: boolean = false;
@@ -469,6 +470,11 @@ export class OpenPurchaseController {
   static readonly PENDING_LOGIN: string = 'login';
   static readonly PENDING_AUTH: string = 'auth';
   static readonly PENDING_CONSENT: string = 'consent';
+  /** 待办里的归属字段（本页标记#点击编号，共性第 44 条；只在本机，不上传）。 */
+  static readonly OWNER: string = 'client_owner';
+  /** 页标记序号（进程内递增，配进程启动时刻，进程重启后旧记录的标记不会撞上新页面）。 */
+  private static pageSeq: number = 0;
+  private static readonly PROCESS_TAG: string = Date.now().toString(36);
   // 文案键（契约有的读契约，没有的在 App 的草稿表，TODO(N-28)）
   static readonly MAINTENANCE_KEY: string = 'error.50301.maintenance';
   static readonly OFF_SHELF_KEY: string = 'error.30141';
@@ -504,8 +510,13 @@ export class OpenPurchaseController {
   private left: boolean = false;
   /** 发起页在前台（onShown 之后、onHidden / 进后台之前）。 */
   private foreground: boolean = true;
-  /** 自动执行的动作（登录、补同意后的恢复）遇到页面不在前台：回到前台再执行。 */
-  private deferred: (() => void) | null = null;
+  /**
+   * 自动执行的动作遇到页面不在前台：回到前台再执行。按类型分槽（共性第 48 条）：授权恢复、登录恢复、补同意恢复各一个槽位，同类后写覆盖
+   * 先写，不同类互不覆盖；回前台按授权、登录、补同意的顺序分派，各自执行前仍核对待办类型、归属、尝试、有效期与 link_id；出栈全部清空。
+   */
+  private deferredAuth: (() => void) | null = null;
+  private deferredLogin: (() => void) | null = null;
+  private deferredConsent: (() => void) | null = null;
   private owners: (() => boolean)[] = [];
   private timer: number = -1;
   private toastSeq: number = 0;
@@ -541,9 +552,14 @@ export class OpenPurchaseController {
   /** 补齐请求的世代（H-R1-04，共性第 26 条）：每写入一次 open 结果换一个，旧补齐响应认出卡片已不是那一次的结果。 */
   private static fillSeq: number = 0;
 
+  /** 本页的待办归属标记（共性第 44 条）。 */
+  private readonly pageTag: string;
+
   constructor(deps: PurchaseDeps) {
     this.d = deps;
     this.keys = new OpenAttempt(deps.keyGenerator);
+    OpenPurchaseController.pageSeq++;
+    this.pageTag = 'page-' + OpenPurchaseController.PROCESS_TAG + '-' + OpenPurchaseController.pageSeq;
   }
 
   get state(): PurchaseState {
@@ -600,7 +616,7 @@ export class OpenPurchaseController {
     this.consentCard = card;
     this.consentSpm = spm;
     this.d.pending.register(OpenPurchaseController.pendingParams(card, linkId, null,
-      OpenPurchaseController.PENDING_CONSENT, false, null));
+      OpenPurchaseController.PENDING_CONSENT, false, null, this.consentTag()));
     this.d.env.requestConsent(new ConsentResume(TradeJson.text(card, 'product_key') ?? '', linkId, card, spm));
   }
 
@@ -773,7 +789,9 @@ export class OpenPurchaseController {
     envelope['code'] = 0;
     envelope['data'] = data;
     // 判断基准是尝试的原卡快照：迟到响应更新过的展示卡片不能消除改价 / 返利归零的确认（共性第 1 条，BR-PRICE-13）
-    const outcome: OpenResponseOutcome = OpenResponseAction.map(envelope, OpenPurchaseController.openContext(attempt.card));
+    // 本次是用户已确认的无返利购买（no_rebate=true）就不再弹比价无返利确认（共性第 43 条）
+    const outcome: OpenResponseOutcome = OpenResponseAction.map(envelope,
+      OpenPurchaseController.openContext(attempt.card, attempt.noRebate));
     this.patchCard(attempt, data);
     const attemptId: string | null = TradeJson.text(data, 'attempt_id');
     const plan: Record<string, Object> | null = TradeJson.object(data, 'jump');
@@ -800,6 +818,9 @@ export class OpenPurchaseController {
     } else if (outcome.actionRaw === OpenActions.CONFIRM_REBATE_GONE) {
       const dialog: PurchaseDialog = new PurchaseDialog(PurchaseDialogKind.CONFIRM_REBATE_GONE, attempt.platform);
       dialog.priceFen = outcome.newFinalFen ?? outcome.oldFinalFen;
+      // 本次 open 的原价与新价（价格变动未达阈值时可能不同；只有相同才写「价格没有变化」，共性第 45 条）
+      dialog.oldFen = outcome.oldFinalFen;
+      dialog.newFen = outcome.newFinalFen;
       this.showDialog(dialog);
     } else if (outcome.actionRaw === OpenActions.COMPARE_NO_REBATE) {
       this.showDialog(new PurchaseDialog(PurchaseDialogKind.COMPARE_NO_REBATE, attempt.platform));
@@ -816,7 +837,7 @@ export class OpenPurchaseController {
       case OpenErrorActions.LOGIN:
         // 1xxxx：登录后沿用原键重放（BR-ID-10 细则），登记 pending_action 后进登录页
         this.d.pending.register(OpenPurchaseController.pendingParams(attempt.card, attempt.linkId, attempt.key,
-          OpenPurchaseController.PENDING_LOGIN, attempt.noRebate, attempt.noRebateReason));
+          OpenPurchaseController.PENDING_LOGIN, attempt.noRebate, attempt.noRebateReason, this.ownerTag(attempt)));
         this.d.env.open(OpenPurchaseController.LOGIN_ROUTE, {});
         return;
       case OpenErrorActions.AUTH_SHEET:
@@ -826,11 +847,11 @@ export class OpenPurchaseController {
         // 自动弹出每平台每会话最多 2 次（BR-ID-18）；用户在二选一里主动【重试】进来的不算自动弹出、不受限（共性第 10 条）
         if (attempt.userAuthRetry || this.d.counter.tryAutoPop(platform)) {
           this.d.pending.register(OpenPurchaseController.pendingParams(attempt.card, attempt.linkId, null,
-            OpenPurchaseController.PENDING_AUTH, false, null));
+            OpenPurchaseController.PENDING_AUTH, false, null, this.ownerTag(attempt)));
           this.showDialog(new PurchaseDialog(PurchaseDialogKind.AUTH_SHEET, platform));
         } else {
           // 同一会话第 3 次起不再自动拉起授权，直接给二选一（BR-ID-18）
-          this.d.pending.clear();
+          this.clearMine();
           this.showDialog(OpenPurchaseController.declined(platform, false));
         }
         return;
@@ -885,8 +906,11 @@ export class OpenPurchaseController {
     }
   }
 
-  /** open 上下文：base 卡片的价格与返利上限（OpenResponseAction 判返利归零用）。 */
-  static openContext(base: Record<string, Object>): Record<string, Object> {
+  /**
+   * open 上下文：base 卡片的价格与返利上限（OpenResponseAction 判返利归零用）；noRebateConfirmed = 这次是用户已确认的无返利购买
+   * （共性第 43 条：比价无返利确认只看本次响应与这一项，不看原返利）。
+   */
+  static openContext(base: Record<string, Object>, noRebateConfirmed: boolean = false): Record<string, Object> {
     const out: Record<string, Object> = {};
     const price: number | null = TradeJson.fen(base, 'final_price_fen');
     const max: number | null = TradeJson.fen(base, 'rebate_max_fen');
@@ -898,6 +922,9 @@ export class OpenPurchaseController {
     }
     if (TradeJson.text(base, 'rebate_basis') === 'amount_unknown') {
       out['amountUnknown'] = true;
+    }
+    if (noRebateConfirmed) {
+      out['noRebateConfirmed'] = true;
     }
     return out;
   }
@@ -1034,12 +1061,12 @@ export class OpenPurchaseController {
       if (dialog.busy) {
         return;
       }
-      this.d.pending.clear();
+      this.clearMine();
       this.showDialog(OpenPurchaseController.declined(dialog.platform, false));
     } else if (dialog.kind === PurchaseDialogKind.AUTH_CHECK_FAILED) {
       // 放弃本次：删除待办（之后授权了也不自动执行）
       this.hideDialog();
-      this.d.pending.clear();
+      this.clearMine();
       this.authContext = null;
     } else {
       this.hideDialog();
@@ -1246,7 +1273,7 @@ export class OpenPurchaseController {
       if (outcome.kind === TaobaoAuthOutcome.BOUND) {
         this.authorized(context);
       } else if (outcome.kind === TaobaoAuthOutcome.CANCELLED) {
-        this.d.pending.clear();
+        this.clearMine();
         this.showDialog(OpenPurchaseController.declined(context.platform, false));
       } else if (outcome.kind === TaobaoAuthOutcome.FAILED) {
         this.authFailed(context.platform);
@@ -1320,14 +1347,14 @@ export class OpenPurchaseController {
   private bindFailed(context: AuthContext, result: ApiResult): void {
     const business: boolean = result.outcome === ApiOutcome.BUSINESS_ERROR;
     if (business && (result.code === 30151 || result.code === 30153)) {
-      this.d.pending.clear();
+      this.clearMine();
       const o: OpenErrorOutcome = OpenErrorAction.map(result.code, result.data);
       this.showDialog(OpenPurchaseController.notice(o.textKey, null, true, true, false, context.platform));
       return;
     }
     if (business && (result.code === 30101 || result.code === 30102)
       && TradeJson.text(result.data, 'reason') === 'auth_unavailable') {
-      this.d.pending.clear();
+      this.clearMine();
       const d: PurchaseDialog = new PurchaseDialog(PurchaseDialogKind.AUTH_UNAVAILABLE, context.platform);
       d.textKey = OpenErrorAction.map(result.code, result.data).textKey;
       this.showDialog(d);
@@ -1403,29 +1430,40 @@ export class OpenPurchaseController {
       } else if (afterBind) {
         this.authFailed(context.platform);
       } else {
-        this.d.pending.clear();
+        this.clearMine();
         this.showDialog(OpenPurchaseController.declined(context.platform, false));
       }
     });
   }
 
-  /** 授权完成：前置完成即自动执行一次 open，用新键（BR-ID-10 / 22 细则）；待办已过期（> 10 分钟）就不执行，等用户再点。 */
+  /**
+   * 授权完成：前置完成即自动执行一次 open，用新键（BR-ID-10 / 22 细则）；待办已过期（> 10 分钟）就不执行，等用户再点。
+   * - 先核归属再动待办（共性第 44 条）：不是本页这次尝试登记的授权待办（别的页面、本页别的尝试登记的）一律不动；
+   * - 是本次的：完成一个前置步骤、重新计时；不在前台时延迟恢复，不先删待办（共性第 46 条）——恢复执行前再核待办有效期（BR-ID-10，
+   *   peek 过期即为 null）与归属，过期、被新待办取代或已清除就放弃；仍是本次的才删除并以新键自动执行一次。
+   */
   private authorized(context: AuthContext): void {
     if (!this.authLive(context)) {
       return;
     }
-    this.d.pending.stepDone();
-    const record: Record<string, Object> | null = this.d.pending.peek();
-    this.d.pending.clear();
     this.hideDialog();
     this.authContext = null;
+    if (!this.pendingMine(context)) {
+      return;
+    }
+    this.d.pending.stepDone();
     const target: Record<string, Object> = this.latestCard(context.attempt);
-    if (record === null || TradeJson.text(record, 'link_id') !== context.linkId
-      || TradeJson.text(target, 'link_id') !== context.linkId) {
+    if (TradeJson.text(target, 'link_id') !== context.linkId) {
+      this.clearMine();
       return;
     }
     const attempt: PurchaseAttempt = context.attempt;
     this.whenForeground(() => {
+      // 执行前再核待办有效期与归属（共性第 46 条），通过才消费一次
+      if (!this.pendingMine(context)) {
+        return;
+      }
+      this.d.pending.clear();
       // 延迟到回前台才执行：仍是那次尝试、没有别的弹层或加载才执行一次（共性第 20 条）；发 open 前复核平台购买状态（共性第 27 条）
       if (this.left || this.current !== attempt || this.busy() || !this.purchasable(this.latestCard(attempt))) {
         return;
@@ -1434,8 +1472,16 @@ export class OpenPurchaseController {
     });
   }
 
+  /** 此刻的购买待办仍是 context 这次尝试登记的授权待办（未过期、本页、这次点击；共性第 44、46 条）。 */
+  private pendingMine(context: AuthContext): boolean {
+    const record: Record<string, Object> | null = this.d.pending.peek();
+    return record !== null && TradeJson.text(record, 'kind') === OpenPurchaseController.PENDING_AUTH
+      && TradeJson.text(record, 'link_id') === context.linkId
+      && TradeJson.text(record, OpenPurchaseController.OWNER) === this.ownerTag(context.attempt);
+  }
+
   private authFailed(platform: string): void {
-    this.d.pending.clear();
+    this.clearMine();
     this.showDialog(OpenPurchaseController.declined(platform, true));
   }
 
@@ -1509,7 +1555,7 @@ export class OpenPurchaseController {
       return;
     }
     if (!this.foreground) {
-      this.deferred = (): void => this.resumeAfterLogin();
+      this.deferredLogin = (): void => this.resumeAfterLogin();
       return;
     }
     if (this.busy() || !this.d.env.loggedIn()) {
@@ -1522,7 +1568,8 @@ export class OpenPurchaseController {
     }
     if (TradeJson.text(record, 'kind') !== OpenPurchaseController.PENDING_LOGIN
       || TradeJson.text(record, 'link_id') !== attempt.linkId
-      || TradeJson.text(record, 'idempotency_key') !== attempt.key) {
+      || TradeJson.text(record, 'idempotency_key') !== attempt.key
+      || TradeJson.text(record, OpenPurchaseController.OWNER) !== this.ownerTag(attempt)) {
       return;
     }
     this.d.pending.clear();
@@ -1547,7 +1594,7 @@ export class OpenPurchaseController {
       return;
     }
     if (!this.foreground) {
-      this.deferred = (): void => this.resumeAfterConsent();
+      this.deferredConsent = (): void => this.resumeAfterConsent();
       return;
     }
     const target: Record<string, Object> | null = this.consentCard;
@@ -1556,7 +1603,8 @@ export class OpenPurchaseController {
       return;
     }
     if (TradeJson.text(record, 'kind') !== OpenPurchaseController.PENDING_CONSENT
-      || TradeJson.text(record, 'link_id') !== TradeJson.text(target, 'link_id')) {
+      || TradeJson.text(record, 'link_id') !== TradeJson.text(target, 'link_id')
+      || TradeJson.text(record, OpenPurchaseController.OWNER) !== this.consentTag()) {
       return;
     }
     this.d.pending.clear();
@@ -1628,6 +1676,8 @@ export class OpenPurchaseController {
     } else {
       dialog = new PurchaseDialog(PurchaseDialogKind.CONFIRM_REBATE_GONE, platform);
       dialog.priceFen = nowPrice;
+      dialog.oldFen = thenPrice;
+      dialog.newFen = nowPrice;
     }
     dialog.beforeOpen = true;
     this.showDialog(dialog);
@@ -1656,10 +1706,21 @@ export class OpenPurchaseController {
       return;
     }
     this.foreground = true;
-    const deferred: (() => void) | null = this.deferred;
-    if (deferred !== null) {
-      this.deferred = null;
-      deferred();
+    // 按类型逐槽分派（共性第 48 条）：授权 → 登录 → 补同意，各自执行前再核对自己的待办，不互相覆盖
+    const auth: (() => void) | null = this.deferredAuth;
+    this.deferredAuth = null;
+    if (auth !== null) {
+      auth();
+    }
+    const login: (() => void) | null = this.deferredLogin;
+    this.deferredLogin = null;
+    if (login !== null) {
+      login();
+    }
+    const consent: (() => void) | null = this.deferredConsent;
+    this.deferredConsent = null;
+    if (consent !== null) {
+      consent();
     }
     if (!this.awaitingAuthReturn) {
       // 授权外跳的完成回调还没到（拉起的 Promise 晚于回前台通知）：由完成回调按 authLeftApp 立即补查（H-R2-05）
@@ -1706,7 +1767,9 @@ export class OpenPurchaseController {
     this.revokePermit();
     this.revokeAuthPermit();
     this.resumeCard = null;
-    this.deferred = null;
+    this.deferredAuth = null;
+    this.deferredLogin = null;
+    this.deferredConsent = null;
     this.clearTimer();
     if (this.blockTimer !== -1) {
       this.d.timers.clear(this.blockTimer);
@@ -1714,25 +1777,10 @@ export class OpenPurchaseController {
     }
     this.cancelBrowser();
     this.cancelOwners();
-    const mine: string[] = [];
-    const a: PurchaseAttempt | null = this.current;
-    if (a !== null) {
-      mine.push(a.linkId);
-    }
-    const consent: string | null = this.consentCard === null ? null : TradeJson.text(this.consentCard, 'link_id');
-    if (consent !== null) {
-      mine.push(consent);
-    }
-    const own: string | null = TradeJson.text(this.card, 'link_id');
-    if (own !== null) {
-      mine.push(own);
-    }
+    // 只删本页登记的（共性第 44 条）：别的页面登记的待办（哪怕同一个 link）不动
     const record: Record<string, Object> | null = this.d.pending.peek();
-    const link: string | null = record === null ? null : TradeJson.text(record, 'link_id');
-    if (record !== null && link !== null && mine.indexOf(link) >= 0) {
-      if (!(keepConsent && TradeJson.text(record, 'kind') === OpenPurchaseController.PENDING_CONSENT)) {
-        this.d.pending.clear();
-      }
+    if (record !== null && !(keepConsent && TradeJson.text(record, 'kind') === OpenPurchaseController.PENDING_CONSENT)) {
+      this.clearMine();
     }
   }
 
@@ -1802,11 +1850,12 @@ export class OpenPurchaseController {
     return p !== null && p.attempt === attempt && this.allowed(p);
   }
 
+  /** 授权后的自动恢复：在前台立即执行，否则放进授权槽（共性第 48 条：不占登录、补同意的槽）。 */
   private whenForeground(action: () => void): void {
     if (this.foreground) {
       action();
     } else {
-      this.deferred = action;
+      this.deferredAuth = action;
     }
   }
 
@@ -1823,11 +1872,36 @@ export class OpenPurchaseController {
     return o;
   }
 
+  /** 本页这次尝试的待办归属标记（共性第 44 条）。 */
+  private ownerTag(attempt: PurchaseAttempt): string {
+    return this.pageTag + '#' + attempt.click;
+  }
+
+  /** 补同意待办的归属标记（还没有尝试，用页内固定标记）。 */
+  private consentTag(): string {
+    return this.pageTag + '#' + OpenPurchaseController.PENDING_CONSENT;
+  }
+
+  /** 只删本页登记的购买待办（共性第 44 条）：别的页面登记的待办不动。 */
+  private clearMine(): void {
+    const record: Record<string, Object> | null = this.d.pending.peek();
+    const owner: string | null = record === null ? null : TradeJson.text(record, OpenPurchaseController.OWNER);
+    if (owner !== null && owner.startsWith(this.pageTag + '#')) {
+      this.d.pending.clear();
+    }
+  }
+
+  /**
+   * 待办参数。owner：登记页面与尝试的归属标记（共性第 44 条；清除、续时、消费之前先核对）。
+   */
   static pendingParams(target: Record<string, Object>, linkId: string, key: string | null, kind: string,
-    noRebate: boolean, reason: string | null): Record<string, Object> {
+    noRebate: boolean, reason: string | null, owner: string | null = null): Record<string, Object> {
     const out: Record<string, Object> = {};
     out['kind'] = kind;
     out['link_id'] = linkId;
+    if (owner !== null) {
+      out[OpenPurchaseController.OWNER] = owner;
+    }
     out['platform'] = TradeJson.text(target, 'platform') ?? '';
     const productKey: string | null = TradeJson.text(target, 'product_key');
     if (productKey !== null) {

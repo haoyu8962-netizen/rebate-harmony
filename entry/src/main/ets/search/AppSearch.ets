@@ -59,6 +59,27 @@ class UnavailablePort implements SearchApiPort {
 }
 
 /**
+ * 每次请求现取网络组合的端口（F-HM-13 防护）：页面建好那一刻网络还没组合好（AppNetwork.client 为 null）时，不把「不可用端口」定死在
+ * 页面上——之后的【重试】按此刻的组合发请求；仍没组合好时按网络失败收口（不发任何请求）。
+ */
+class CurrentClientPort implements SearchApiPort {
+  private readonly unavailable: UnavailablePort = new UnavailablePort();
+
+  private current(): SearchApiPort {
+    const client: ApiClient | null = AppNetwork.client;
+    return client === null ? this.unavailable : new ApiClientSearchPort(client);
+  }
+
+  request(request: ApiRequest): Promise<ApiResult> {
+    return this.current().request(request);
+  }
+
+  cancelOwned(owner: () => boolean): number {
+    return this.current().cancelOwned(owner);
+  }
+}
+
+/**
  * 搜索页的配置能力（BR-PROD-10、error-codes 50304 search_disabled）：刷新 = ConfigStore.requestFresh（同一时刻最多一个在途；
  * 有在途拉取时结算后再发一次）；分界 / 已用编号 = ConfigStore 的拉取编号（R2-02 恢复 Tab 只认分界之后的配置）；订阅 = ConfigStore.subscribe（页面出栈时由 SearchController.leave 取消订阅）。
  */
@@ -309,8 +330,7 @@ export class AppSearch {
   }
 
   private port(): SearchApiPort {
-    const client: ApiClient | null = AppNetwork.client;
-    return client === null ? new UnavailablePort() : new ApiClientSearchPort(client);
+    return new CurrentClientPort();
   }
 
   private statusLayers(): Record<string, Object> {
@@ -374,7 +394,7 @@ export class AppSearch {
     binder.onState = (s: PurchaseState, modal: boolean): void => {
       ui.modal = modal;
       // APP-07：模态购买弹层（AuthSheet、授权跳转等）出现即作废本页发起的粘贴读取与 parse（共性第 4 条）
-      AppClipboard.shared.purchaseModal(binder, modal);
+      AppClipboard.shared.purchaseModal(binder.controller, SEARCH_ROUTE, modal);
       timeout.apply(s);
     };
     ui.onRetryTimeout = (): void => timeout.retry();
@@ -399,7 +419,7 @@ export class AppSearch {
     const timeout: PurchaseTimeoutBinding = new PurchaseTimeoutBinding(binder.controller,
       new ProductTimeoutView(config.purchase));
     binder.onState = (s: PurchaseState, modal: boolean): void => {
-      AppClipboard.shared.purchaseModal(binder, modal);
+      AppClipboard.shared.purchaseModal(binder.controller, PRODUCT_ROUTE, modal);
       const ui: ProductPurchaseUi = config.purchase;
       ui.buyState = s.phase === PurchasePhase.LOADING ? 'loading' : (s.rateLimited ? 'disabled' : '');
       ui.buyText = s.notInstalledCopied ? TradeDraftTexts.text(TradeKeys.COPY_TPWD) : '';

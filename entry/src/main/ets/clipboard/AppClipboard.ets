@@ -6,7 +6,8 @@ import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ClipboardDeps,
   ClipboardHashStore, ClipboardNoticeText, ClipboardPromptBinding, ClipboardReadPolicy, ClipboardResultBinding,
   ClipboardResultView, ClipboardSensitive, ClipboardSnapshot, ConfigStore,
-  CouliPreferences, InvitePasteOutcome, ParseResultAction, ParseRow, PasteboardPort, PrivacyState, RouteDestination,
+  CouliPreferences, InvitePasteOutcome, ParseResultAction, ParseRow, PasteboardPort, PrivacyState, PurchaseModalRegistry,
+  RouteDestination,
   SearchApiPort, SessionState, TransportFailure
 } from 'core';
 import { CouliAnnounce, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
@@ -229,8 +230,8 @@ export class AppClipboard {
   private controllerInstance: ClipboardController | null = null;
   private model: ClipboardUiModel | null = null;
   private ui: UIContext | null = null;
-  /** 正在显示模态购买弹层（AuthSheet 等）的页面执行器。 */
-  private readonly modals: Set<Object> = new Set<Object>();
+  /** 页面上的模态购买弹层登记（AuthSheet 等；出栈与清栈同步释放、被盖住不算，F-HM-15）。 */
+  readonly modals: PurchaseModalRegistry = new PurchaseModalRegistry();
   private announcedPrompt: number = 0;
   private announcedResult: number = 0;
 
@@ -268,7 +269,7 @@ export class AppClipboard {
     controller.onChange = (s: ClipboardSnapshot): void => this.apply(s);
     this.controllerInstance = controller;
     // 导航栈经 Router 改动的同步出口（页面被覆盖、出栈、清栈）；系统返回等由 RootPage 的导航拦截与页面出口补上。
-    AppRouting.shared.navigator.onStackChanged = (names: string[]): void => controller.stackChanged(names);
+    AppRouting.shared.navigator.onStackChanged = (names: string[]): void => this.stackChanged(names);
     // 点 Tab：切换生效之前同步通知（共性第 3 条）。
     ShellState.onTabWillChange = (route: string, basicMode: boolean): void => controller.tabChanged(route, basicMode);
     AppRouting.shared.syncClipboard = (): void => controller.sync();
@@ -297,6 +298,8 @@ export class AppClipboard {
 
   /** 导航栈的全量同步（RootPage 的导航拦截：系统返回等不经 StackNavigator 的出栈）。 */
   stackChanged(names: string[]): void {
+    // 栈里已没有发起页的弹层登记一并清掉（出口没走到时的兜底，F-HM-15）
+    this.modals.prune(names);
     this.controllerInstance?.stackChanged(names);
   }
 
@@ -305,15 +308,26 @@ export class AppClipboard {
     this.controllerInstance?.pageLeft();
   }
 
-  /** 页面的模态购买弹层（AuthSheet、授权跳转等）显示 / 关闭（TradeBinder.onState 的 modal）。 */
-  purchaseModal(owner: Object, modal: boolean): void {
-    const had: boolean = this.modals.has(owner);
-    if (modal && !had) {
-      this.modals.add(owner);
+  /**
+   * 页面的模态购买弹层（AuthSheet、授权跳转等）显示 / 关闭（TradeBinder.onState 的 modal）。owner 是发起页的购买执行器，route 是发起页
+   * 路由名。
+   */
+  purchaseModal(owner: Object, route: string, modal: boolean): void {
+    if (this.modals.setModal(owner, route, modal)) {
       this.controllerInstance?.overlayShown();
-    } else if (!modal && had) {
-      this.modals.delete(owner);
     }
+  }
+
+  /** 发起页被盖住 / 回到可见（AppTrade.pageVisible）：被盖住的页面上的弹层不算敏感浮层（F-HM-15）。 */
+  purchaseModalVisible(owner: Object, visible: boolean): void {
+    if (this.modals.setVisible(owner, visible)) {
+      this.controllerInstance?.overlayShown();
+    }
+  }
+
+  /** 发起页出栈（AppTrade.release，含强更 / 补同意清栈）：同步移除它的弹层登记（F-HM-15）。 */
+  purchaseModalReleased(owner: Object): void {
+    this.modals.release(owner);
   }
 
   // ---------------------------------------------------------------- 写入口
@@ -515,7 +529,7 @@ export class AppClipboard {
     if (AppUpdate.shared.belowMin) {
       return ClipboardSensitive.OVERLAY_FORCE_UPDATE;
     }
-    return this.modals.size > 0 ? ClipboardSensitive.OVERLAY_AUTH_SHEET : ClipboardSensitive.OVERLAY_NONE;
+    return this.modals.active ? ClipboardSensitive.OVERLAY_AUTH_SHEET : ClipboardSensitive.OVERLAY_NONE;
   }
 
   /** /v1/config 的 features、share_domains、clipboard（当前 → LKG → 包内）；取不到的键不放。 */

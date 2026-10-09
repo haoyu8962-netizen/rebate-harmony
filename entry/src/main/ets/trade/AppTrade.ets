@@ -3,7 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AuthManageController, AuthSheetCounter, ConfigStore,
   ConsentResume,
-  HelpLink, JumpTipService, LinkJumpSink, OpenPurchaseController, PlatformPurchase, PlatformStatusOverrides,
+  HelpLink, JumpPorts, JumpTipService, LinkJumpSink, OpenPurchaseController, PlatformPurchase, PlatformStatusOverrides,
   PURCHASE_PENDING_ACTION, PurchaseDeps, PurchaseEnv, PurchasePending, SearchApiPort, TradeJson, TradeJumpExecutor,
   TransportFailure, UnavailableBaichuan
 } from 'core';
@@ -16,6 +16,7 @@ import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppLogin } from '../login/AppLogin';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
+import { AppClipboard } from '../clipboard/AppClipboard';
 import { HarmonyJumpPorts } from './HarmonyJumpPorts';
 
 const DOMAIN: number = 0x0000;
@@ -180,7 +181,10 @@ class LiveController {
  */
 export class AppTrade {
   static readonly shared: AppTrade = new AppTrade();
-  readonly ports: HarmonyJumpPorts = new HarmonyJumpPorts();
+  /** 系统外跳能力（attach Ability 上下文用）。 */
+  private readonly harmonyPorts: HarmonyJumpPorts = new HarmonyJumpPorts();
+  /** 执行器用的外跳端口：Release 就是 harmonyPorts；Debug / Staging 由 BuildVariant 包一层本机假服务的安装状态覆盖（共性第 42 条）。 */
+  readonly ports: JumpPorts = BuildVariant.jumpPorts(this.harmonyPorts);
   readonly baichuan: UnavailableBaichuan = new UnavailableBaichuan();
   readonly counter: AuthSheetCounter = new AuthSheetCounter();
   readonly sink: LinkJumpSink = new TrackerLinkJumpSink();
@@ -200,10 +204,9 @@ export class AppTrade {
   /** 补同意前那次点击的购买意图（原 link_id 与报价、返利基准；H-R1-01）：同意后清栈，交给重开的详情页。 */
   private consentOrigin: ConsentResume | null = null;
 
-  /** EntryAbility.onCreate：接上 Ability 上下文（openLink / startAbility）与调试用的安装状态覆盖。 */
+  /** EntryAbility.onCreate：接上 Ability 上下文（openLink / startAbility）。 */
   start(context: common.UIAbilityContext): void {
-    this.ports.attach(context);
-    this.ports.installedOverride = (platform: string): string | null => BuildVariant.tradeInstalledOverride(platform);
+    this.harmonyPorts.attach(context);
   }
 
   /** 百川初始化（只由 PrivacyGate.onConsented 的「联盟」步骤调用）：失败时 phase=startup 上报 sdk_init_failed（BR-ATTR-27）。 */
@@ -227,6 +230,8 @@ export class AppTrade {
   release(controller: OpenPurchaseController): void {
     controller.leave(this.consentInFlight);
     this.live = this.live.filter((l: LiveController) => l.controller !== controller);
+    // 出栈（含强更、补同意清栈）同步移除本页的模态弹层登记：leave 不再发状态通知，不能靠弹层关闭来清（F-HM-15）
+    AppClipboard.shared.purchaseModalReleased(controller);
   }
 
   /** 发起页被盖住 / 回到前台（NavDestination onHidden / onShown）。 */
@@ -236,6 +241,8 @@ export class AppTrade {
         l.visible = visible;
       }
     }
+    // 被盖住的发起页上的弹层不算敏感浮层，回到可见再算（F-HM-15）
+    AppClipboard.shared.purchaseModalVisible(controller, visible);
     if (visible) {
       controller.onForeground();
       // 登录页关掉、回到发起页：本页登记的购买待办（10001）自动重放一次（BR-ID-10；不在前台时 controller 自己等前台）

@@ -1,11 +1,13 @@
 // Debug / Staging 专用：购买、外跳与授权的本机假数据（APP-06b 冒烟与设计稿截图）。只在 product=staging 编译，Release 没有本文件
 // （tools/ci/release-scan.sh 查 COULI_FAKE_TRADE_SERVER_APP06B_5d1e93）。由 DebugFakeServer 在启动参数打开时调用，不发任何网络请求。
 // 场景由启动参数 `--ps couli_debug_trade_scene <scene>` 选（见 DebugFakeTrade.answer）；值都是示例，不是任何平台的真实报文。
-import { AuthStepResult, WebCodeAuthorizer } from 'core';
+import { AuthStepResult, JumpPorts, WebCodeAuthorizer } from 'core';
 import { FakeAnswer } from './DebugFakeSearch';
 
 /** 固定标记（release-scan 的内容标记）。 */
 export const DEBUG_FAKE_TRADE_MARKER: string = 'COULI_FAKE_TRADE_SERVER_APP06B_5d1e93';
+/** 外跳端口调试包装的固定标记（release-scan 的内容标记；共性第 42 条：Release 制品不得出现）。 */
+export const DEBUG_JUMP_PORTS_MARKER: string = 'COULI_DEBUG_JUMP_PORTS_FUHM0607_2c7d4e';
 /** 启动参数键。 */
 export const DEBUG_TRADE_SCENE_KEY: string = 'couli_debug_trade_scene';
 
@@ -205,5 +207,39 @@ export class DebugWebCodeAuthorizer implements WebCodeAuthorizer {
     return new Promise<AuthStepResult>((resolve: (r: AuthStepResult) => void) => {
       setTimeout(() => resolve(AuthStepResult.webCode('debug-fake-code')), 600);
     });
+  }
+}
+
+/**
+ * Debug / Staging 的外跳端口包装（APP-06b 共性第 42 条）：本机假服务场景要演示「明确未安装」（ProductJumpNotInstalled）时覆盖安装状态，
+ * 其余（拉起、浏览器、复制口令）原样交系统实现，不模拟外跳结果。覆盖开关与它的执行分支都只在本文件（staging），Release 没有本类。
+ */
+export class DebugJumpPorts implements JumpPorts {
+  static readonly marker: string = DEBUG_JUMP_PORTS_MARKER;
+  private readonly system: JumpPorts;
+  private readonly installedOverride: (platform: string) => string | null;
+  /** 构造时记下标记（字面量在逻辑里被用到，release-scan --self-test 能在 Staging 制品里找到它）。 */
+  readonly tag: string;
+
+  constructor(system: JumpPorts, installedOverride: (platform: string) => string | null) {
+    this.system = system;
+    this.installedOverride = installedOverride;
+    this.tag = DebugJumpPorts.marker;
+  }
+
+  installed(platform: string): string {
+    return this.installedOverride(platform) ?? this.system.installed(platform);
+  }
+
+  launchApp(type: string, value: string): Promise<boolean> {
+    return this.system.launchApp(type, value);
+  }
+
+  openBrowser(url: string): Promise<boolean> {
+    return this.system.openBrowser(url);
+  }
+
+  copy(text: string): Promise<boolean> {
+    return this.system.copy(text);
   }
 }

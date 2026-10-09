@@ -23,8 +23,8 @@ export class RouterLoginHost implements LoginHost {
   private readonly stateChanged: (resumePending: boolean) => void;
 
   /**
-   * updateStatus：强更检查进度（AppUpdate.routerStatus）；markBelow：受限会话按「低于」处理（AppUpdate.on10405(null)，
-   * 已是 below_min 时不调）；stateChanged：状态变化后的路由同步（AppRouting.stateChanged）。resumePending = false 时只同步
+   * updateStatus：强更检查进度（AppUpdate.routerStatus）；markBelow：受限会话按「低于」处理（AppUpdate.on10405(null)：没带最低版本
+   * 即按服务端已判定强更进闸门并落盘，不按缓存最低版本比较，APP-07 共性第 24 条；已是 below_min 时不调）；stateChanged：状态变化后的路由同步（AppRouting.stateChanged）。resumePending = false 时只同步
    * 会话与强更页，不恢复 pending_action（R2-02：已作废的登录尝试只能通知会话变了，不能顺带恢复待办）。
    */
   constructor(router: Router, navigator: StackNavigator, updateStatus: () => UpdateCheckStatus, markBelow: () => void,

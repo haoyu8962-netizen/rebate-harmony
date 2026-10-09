@@ -19,16 +19,17 @@ const TAG: string = 'CouliTrade';
  */
 export class HarmonyJumpPorts implements JumpPorts {
   private context: common.UIAbilityContext | null = null;
-  /** Debug / Staging 本机假服务演示用的安装状态覆盖（BuildVariant 给；Release 恒为 null）。 */
-  installedOverride: (platform: string) => string | null = (_p: string): string | null => null;
 
   attach(context: common.UIAbilityContext): void {
     this.context = context;
   }
 
-  installed(platform: string): string {
-    const forced: string | null = this.installedOverride(platform);
-    return forced ?? InstalledState.UNKNOWN;
+  /**
+   * Release 制品里没有任何模拟安装状态 / 模拟外跳结果的开关或分支（APP-06b 共性第 42 条）：本机假服务的安装状态覆盖由 staging 的
+   * DebugJumpPorts 包住本类实现（BuildVariant.jumpPorts），Release 的 BuildVariant.jumpPorts 原样返回本类。
+   */
+  installed(_platform: string): string {
+    return InstalledState.UNKNOWN;
   }
 
   async launchApp(type: string, value: string): Promise<boolean> {

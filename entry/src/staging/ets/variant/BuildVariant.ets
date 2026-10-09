@@ -3,8 +3,9 @@
 import { common, Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { preferences } from '@kit.ArkData';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, RouteTable,
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, RouteTable,
   ThirdPartyAuthAdapter, UpdateChecker, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
@@ -14,7 +15,7 @@ import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget
 import { DebugUpdateChecker } from './DebugUpdate';
 import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer } from './DebugFakeServer';
 import { DebugWechatAdapter } from './DebugWechatAdapter';
-import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugWebCodeAuthorizer } from './DebugFakeTrade';
+import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugJumpPorts, DebugWebCodeAuthorizer } from './DebugFakeTrade';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
@@ -92,9 +93,13 @@ export class BuildVariant {
     return new DebugWebCodeAuthorizer((): boolean => DebugFakeServer.enabled);
   }
 
-  /** 外跳的安装状态覆盖（APP-06b）：本机假服务的 not_installed 场景为 false；其余 null（按真实检测）。 */
-  static tradeInstalledOverride(platform: string): string | null {
-    return DebugFakeServer.enabled ? DebugFakeTrade.installed(platform) : null;
+  /**
+   * 外跳端口（APP-06b）：包一层 DebugJumpPorts——本机假服务的 not_installed 场景安装状态为 false，其余按系统实现。覆盖开关与执行分支
+   * 都只在本目录（staging）编译，Release 的同名函数原样返回系统实现（共性第 42 条）。
+   */
+  static jumpPorts(system: JumpPorts): JumpPorts {
+    return new DebugJumpPorts(system, (platform: string): string | null =>
+      DebugFakeServer.enabled ? DebugFakeTrade.installed(platform) : null);
   }
 
   /** 「将通过浏览器打开」的停留时长（APP-06b）：本机假服务的截图场景放长；其余按缺省。 */
@@ -129,12 +134,41 @@ export class BuildVariant {
       BuildVariant.debugLayoutWidth = vp;
     }
     // APP-05a：`--pd couli_debug_fake_server 1` 打开本机假服务（登录冒烟与截图；不连任何地址）。
+    // F-HM-13：开关落进调试偏好（couli_debug_launch），杀进程后从图标 / 不带参数冷启动、系统回收后恢复页面时仍按上次的开关；
+    // 不这样做时恢复的搜索页请求发往 .invalid 占位地址，一律「出了点问题」且重试无效（假服务没开）。`--pd couli_debug_fake_server 0` 关掉。
     const fake: Object | undefined = want.parameters?.[DEBUG_FAKE_SERVER_KEY];
+    let on: boolean | null = null;
     if (fake === '1' || fake === 1 || fake === true) {
-      DebugFakeServer.enabled = true;
+      on = true;
+    } else if (fake === '0' || fake === 0 || fake === false) {
+      on = false;
+    }
+    let prefs: preferences.Preferences | null = null;
+    try {
+      prefs = preferences.getPreferencesSync(context, { name: 'couli_debug_launch' });
+    } catch (e) {
+      prefs = null;
+    }
+    if (on === null) {
+      try {
+        on = prefs !== null && prefs.getSync(DEBUG_FAKE_SERVER_KEY, false) === true;
+      } catch (e) {
+        on = false;
+      }
+    } else if (prefs !== null) {
+      try {
+        prefs.putSync(DEBUG_FAKE_SERVER_KEY, on);
+        prefs.flushSync();
+      } catch (e) {
+        hilog.warn(0x0000, 'Couli', '%{public}s', 'fake server flag not saved');
+      }
+    }
+    if (on && !DebugFakeServer.enabled) {
       hilog.info(0x0000, 'Couli', 'fake server on %{public}s %{public}s %{public}s', DebugFakeServer.marker,
         DebugFakeServer.searchMarker, DebugWechatAdapter.marker);
     }
+    DebugFakeServer.enabled = on;
+    hilog.info(0x0000, 'Couli', 'fake server state %{public}s', on ? 'on' : 'off');
     // APP-06b：`--ps couli_debug_trade_scene <scene>` 选购买 / 授权的假服务场景（见 DebugFakeTrade）。
     const tradeScene: Object | undefined = want.parameters?.[DEBUG_TRADE_SCENE_KEY];
     if (typeof tradeScene === 'string') {

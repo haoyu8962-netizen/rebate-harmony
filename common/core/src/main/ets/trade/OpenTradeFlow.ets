@@ -104,7 +104,8 @@ export class OpenResponseOutcome {
  * 返利归零与改价、券失效合并在同一个确认框里（rebateGone）；没有改价只有返利归零时：no_rebate_cause=price_compare 弹比价无返利
  * （BR-PRICE-08，替代通用无返利确认），其余（含未知原因，按 null）弹无返利确认。amount_unknown（context.amountUnknown=true）不做
  * 价格复核提示（BR-PRICE-08）。金额 null 保持未知、不补 0。
- * context：{ currentPriceFen, currentRebateMaxFen, amountUnknown }（点击时卡片的值）。
+ * context：{ currentPriceFen, currentRebateMaxFen, amountUnknown, noRebateConfirmed }（点击时卡片的值；noRebateConfirmed = 这次是
+ * 用户已确认的无返利购买，请求 no_rebate=true）。
  */
 export class OpenResponseAction {
   static map(response: Record<string, Object>, context: Record<string, Object>): OpenResponseOutcome {
@@ -125,13 +126,17 @@ export class OpenResponseAction {
     const before: number | null = TradeJson.fen(context, 'currentRebateMaxFen');
     const after: number | null = TradeJson.fen(data, 'new_rebate_max_fen');
     const rebateGone: boolean = before !== null && before > 0 && after === 0;
-    const compare: boolean = rebateGone && TradeJson.text(data, 'no_rebate_cause') === 'price_compare';
+    // 比价无返利（BR-PRICE-08，无豁免）按本次响应判定，不依赖原返利（APP-06b 共性第 43 条修订）：本次零返利 + price_compare，只要这次
+    // 不是用户已确认的无返利购买（context.noRebateConfirmed，即请求 no_rebate=true），原返利为正、0 或未知都要确认
+    const compare: boolean = after === 0 && TradeJson.text(data, 'no_rebate_cause') === 'price_compare'
+      && !TradeJson.flag(context, 'noRebateConfirmed');
+    const lost: boolean = rebateGone || compare;
     if (availability === 'coupon_gone') {
       out.actionRaw = OpenActions.CONFIRM_COUPON;
-      out.rebateGone = rebateGone;
+      out.rebateGone = lost;
     } else if (TradeJson.flag(data, 'price_changed')) {
       out.actionRaw = OpenActions.CONFIRM_PRICE;
-      out.rebateGone = rebateGone;
+      out.rebateGone = lost;
     } else if (compare) {
       out.actionRaw = OpenActions.COMPARE_NO_REBATE;
       out.rebateGone = true;

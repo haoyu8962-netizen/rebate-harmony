@@ -238,19 +238,23 @@ export class UpdateGate {
   }
 
   /**
-   * 接口层收到 10405（BR-ID-01）：直接进 below_min。调用方（APP-03 网络层）只把确需强更的 10405 送进来
+   * 接口层收到 10405（BR-ID-01）：直接进 below_min。没带最低版本的按服务端已判定强更（onServerForced）。调用方（APP-03 网络层）只把确需强更的 10405 送进来
    * （受限令牌、本机已受支持而 min 为空的情况先刷新令牌，rule-gaps G07）；防御：带回的 min 合法且本机不低于它时不改结论。
    */
   on10405(minSupported: string | null, now: number = this.clock()): void {
-    if (minSupported !== null) {
-      const compared: number | null = UpdateGate.compareOrNull(this.appVersion, minSupported);
-      if (compared !== null && compared >= 0) {
-        return;
-      }
+    if (minSupported === null) {
+      // 没带最低版本（网络层整体 10405、登录 / 刷新拿到受限会话按「低于」处理）：服务端已判定强更，进闸门本身并落盘，不按缓存的
+      // 最低版本比较——缓存可能不高于本机，会把这次结论放掉（APP-07 共性第 24 条，F-AND-23 的鸿蒙部分）
+      this.onServerForced(now);
+      return;
+    }
+    const compared: number | null = UpdateGate.compareOrNull(this.appVersion, minSupported);
+    if (compared !== null && compared >= 0) {
+      return;
     }
     const next: UpdatePersisted = this.store.load();
     next.forcedBy10405 = true;
-    next.forcedMinimum = minSupported ?? next.forcedMinimum;
+    next.forcedMinimum = minSupported;
     next.forcedAppVersion = this.appVersion;
     this.store.save(next);
   }

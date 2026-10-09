@@ -1,12 +1,12 @@
 import { display } from '@kit.ArkUI';
 import {
-  OpenPurchaseController, PurchaseButtons, PurchaseDialog, PurchaseDialogKind, PurchasePhase, PurchaseState, TradeJson,
+  OpenPurchaseController, PurchaseButtons, PurchaseDialog, PurchaseDialogKind, PurchasePhase, PurchaseState,
   withTrace6
 } from 'core';
 import {
   CouliButton, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliFormat, CouliIcon,
   CouliInteraction, CouliLayout, CouliRadius, CouliShadow, CouliShadowMask, CouliSpacing, CouliTextModifier,
-  CouliTypography, CouliFontScale, PriceConfirmLabel, PriceTagModel, PriceTerms
+  CouliTypography, CouliFontScale, PriceConfirmLine, PriceConfirmText
 } from 'designsystem';
 import { TradeDraftTexts } from './TradeDraftTexts';
 
@@ -20,6 +20,8 @@ export class TradeKeys {
   static readonly PRICE_TITLE: string = 'trade.price_changed.title';
   static readonly PRICE_BEFORE: string = 'trade.price_changed.before';
   static readonly PRICE_NOW: string = 'trade.price_changed.now';
+  /** 原价口径未知时「之前」一行不带口径词（三端同名，共性第 47 条）。 */
+  static readonly PRICE_BEFORE_PLAIN: string = 'trade.price_changed.before_plain';
   /** 券额仍未知时「现在」一行不带口径词（不把新券后价说成「售价」，BR-PRICE-14，共性第 21 条）。 */
   static readonly PRICE_NOW_PLAIN: string = 'trade.price_changed.now_plain';
   static readonly PRICE_ASK: string = 'trade.price_changed.ask';
@@ -28,6 +30,10 @@ export class TradeKeys {
   static readonly REBATE_GONE_NOTE: string = 'trade.rebate_gone.note';
   static readonly REBATE_GONE_TITLE: string = 'trade.rebate_gone.title';
   static readonly REBATE_GONE_BODY: string = 'trade.rebate_gone.body';
+  /** 返利归零、新价与原价不同（变动未达阈值）：「{price_now} {price}。继续购买不会获得返利」（三端同名，共性第 45 条）。 */
+  static readonly REBATE_GONE_BODY_CHANGED: string = 'trade.rebate_gone.body_changed';
+  /** 返利归零、价格没有变化但口径未知：不默认「券后」（三端同名，共性第 47 条）。 */
+  static readonly REBATE_GONE_BODY_PLAIN: string = 'trade.rebate_gone.body_plain';
   static readonly CANCEL: string = 'trade.cancel';
   static readonly CONTINUE: string = 'trade.continue';
   static readonly COMPARE_TITLE: string = 'no_rebate.price_compare.confirm';
@@ -107,15 +113,9 @@ function t(key: string): string {
   return TradeDraftTexts.text(key);
 }
 
-/** 主价口径词（券后 / 售价 / 拼单券后 / 拼单价）：按卡片的价格字段，缺失时用「券后」。 */
-function priceLabel(card: Record<string, Object> | null, platform: string): string {
-  const price: number | null = TradeJson.fen(card, 'price_fen');
-  const coupon: number | null = TradeJson.fen(card, 'coupon_fen');
-  const final: number | null = TradeJson.fen(card, 'final_price_fen');
-  if (price === null || coupon === null || final === null) {
-    return platform === 'pdd' ? PriceTerms.pddAfterCoupon : PriceTerms.afterCoupon;
-  }
-  return PriceTagModel.make(platform, price, coupon, final, false).mainLabel;
+/** 确认框的一行（文案键 + 变量）交文案字典填写。 */
+function line(l: PriceConfirmLine): string {
+  return l.vars.size === 0 ? t(l.key) : TradeDraftTexts.format(l.key, l.vars);
 }
 
 /**
@@ -333,7 +333,7 @@ export struct TradeOverlay {
   priceBody(d: PurchaseDialog) {
     Column({ space: CouliSpacing.space3 }) {
       Column({ space: CouliSpacing.space1 }) {
-        this.priceRow(TradeDraftTexts.format(TradeKeys.PRICE_BEFORE, this.labelVars(true)),
+        this.priceRow(this.beforeLabel(),
           d.oldFen === null ? '' : CouliFormat.money(d.oldFen), false)
         // 「现在」一行直接读 this.model.state（不经按值传参的 @Builder）：权威重取补齐券额后口径词随之刷新（H-R1-05）
         Row({ space: CouliSpacing.space3 }) {
@@ -391,13 +391,15 @@ export struct TradeOverlay {
     return need > half;
   }
 
-  private labelVars(before: boolean): Map<string, string> {
-    const m: Map<string, string> = new Map<string, string>();
+  /** 原卡（这次点击时那张卡）。 */
+  private beforeCard(): Record<string, Object> | null {
     const c: OpenPurchaseController | null = this.c();
-    const s: PurchaseState = this.model.state;
-    const card: Record<string, Object> | null = before ? (c === null ? s.card : c.cardBeforeResponse) : s.card;
-    m.set('price_label', priceLabel(before ? card : (c === null ? card : c.cardBeforeResponse), s.platform));
-    return m;
+    return c === null ? this.model.state.card : c.cardBeforeResponse;
+  }
+
+  /** 「之前」一行：原卡口径已知才带口径词，否则只写「之前」（不默认「券后」，共性第 47 条）。 */
+  private beforeLabel(): string {
+    return line(PriceConfirmText.before(this.model.state.platform, this.beforeCard()));
   }
 
   /**
@@ -407,13 +409,7 @@ export struct TradeOverlay {
    */
   private nowLabel(d: PurchaseDialog): string {
     const s: PurchaseState = this.model.state;
-    const label: string | null = PriceConfirmLabel.now(s.platform, s.latest, d.newFen);
-    if (label === null) {
-      return t(TradeKeys.PRICE_NOW_PLAIN);
-    }
-    const m: Map<string, string> = new Map<string, string>();
-    m.set('price_label', label);
-    return TradeDraftTexts.format(TradeKeys.PRICE_NOW, m);
+    return line(PriceConfirmText.now(s.platform, s.latest, d.newFen));
   }
 
   @Builder
@@ -621,12 +617,14 @@ export struct TradeOverlay {
     this.returnFocus();
   }
 
+  /**
+   * 返利归零正文（BR-PRICE-13，共性第 45、47 条）：只有新旧金额相同才写「价格没有变化」（口径未知用 body_plain）；新价不同（变动未达
+   * 阈值）用 body_changed；新价未知只写「继续购买不会获得返利」。新价的口径按同一次结果的最新卡（latest），读 this.model.state，补齐后随之刷新。
+   */
   private rebateGoneBody(d: PurchaseDialog): string {
-    const m: Map<string, string> = new Map<string, string>();
-    const c: OpenPurchaseController | null = this.c();
-    m.set('price_label', priceLabel(c === null ? this.model.state.card : c.cardBeforeResponse, d.platform));
-    m.set('price', d.priceFen === null ? '' : CouliFormat.money(d.priceFen));
-    return TradeDraftTexts.format(TradeKeys.REBATE_GONE_BODY, m);
+    const s: PurchaseState = this.model.state;
+    return line(PriceConfirmText.rebateGoneBody(d.platform, d.oldFen, d.newFen,
+      this.beforeCard(), s.latest, (fen: number): string => CouliFormat.money(fen), line));
   }
 
   private errorText(key: string | null, traceId: string | null, platform: string): string {

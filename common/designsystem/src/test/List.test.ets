@@ -8,6 +8,7 @@ import followupHM1112Test from './FollowupHM1112.test';
 import app06bProvisionalTest from './App06bProvisional.test';
 import app06bReviewR1Test from './App06bReviewR1.test';
 import app06bReviewR2Test from './App06bReviewR2.test';
+import followupHM0607Test from './FollowupHM0607.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -20,4 +21,5 @@ export default function testsuite() {
   app06bProvisionalTest();
   app06bReviewR1Test();
   app06bReviewR2Test();
+  followupHM0607Test();
 }

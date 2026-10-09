@@ -41,5 +41,5 @@ export { CouliLayout } from './src/main/ets/CouliLayout';
 export {
   CouliPasteButton, PasteEntryStyle, PasteEntry, ClipboardPromptBar, ClipboardNotice
 } from './src/main/ets/components/Clipboard';
-export { PriceConfirmLabel } from './src/main/ets/format/PriceConfirmLabel';
+export { PriceConfirmLabel, PriceConfirmLine, PriceConfirmText } from './src/main/ets/format/PriceConfirmLabel';
 export { DisclaimerNote } from './src/main/ets/components/DisclaimerNote';

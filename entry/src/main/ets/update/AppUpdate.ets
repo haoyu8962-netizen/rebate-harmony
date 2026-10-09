@@ -154,7 +154,10 @@ export class AppUpdate {
     }
   }
 
-  /** 接口层收到 10405（APP-03 网络层调用，只送确需强更的，rule-gaps G07）。 */
+  /**
+   * 接口层收到 10405（APP-03 网络层调用，只送确需强更的，rule-gaps G07）；登录受限会话的 markBelow 也走这里。没带最低版本时 Gate 按
+   * 服务端已判定强更处理（UpdateGate.onServerForced：落盘、不按缓存最低版本比较，APP-07 共性第 24 条）。
+   */
   on10405(minSupported: string | null): void {
     const gate: UpdateGate | null = this.gate;
     if (gate === null) {
