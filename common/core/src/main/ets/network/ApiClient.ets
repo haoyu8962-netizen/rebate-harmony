@@ -980,7 +980,8 @@ export class ApiClient {
    * 等屏障、发送前都再核对；结算绑定原账号与本调用标识。先把「在途」持久化成功才发送；持久化失败保持结果未知并返回
    * pending_store_failed（R2-05）。结果未知后 10003 → 二次验证后带新 token 再调本方法。
    */
-  confirmPending(key: string, stepUpToken: string | null = null): Promise<ApiResult> {
+  confirmPending(key: string, stepUpToken: string | null = null,
+    sendAllowed: (() => boolean) | null = null): Promise<ApiResult> {
     const store: PendingKeyStore | null = this.deps.pendingKeys;
     const account: string | null = this.trustedAccount();
     if (store === null || account === null) {
@@ -1016,6 +1017,8 @@ export class ApiClient {
     ctx.pendingKey = key;
     ctx.pendingAccount = account;
     ctx.pendingEverUnknown = true;
+    // APP-09：发起页的 42901 发送闸门（提现 / 收款账号的提交、确认、放弃共用一个截止时间），每次实际发包前核对。
+    ctx.sendAllowed = sendAllowed;
     const request: ApiRequest = new ApiRequest(record.operationId, {}, '', record.body);
     request.idempotencyKey = record.key;
     request.stepUpToken = stepUpToken;
@@ -1031,7 +1034,7 @@ export class ApiClient {
    * 结束），并按记录里的原 operation 解包成原业务结果、经 ErrorActionMapper 给出 Effect（R2-04，lessons 27）；
    * 其余响应或没有明确响应 → 保持待确认。
    */
-  async abandonPending(key: string): Promise<ApiResult> {
+  async abandonPending(key: string, sendAllowed: (() => boolean) | null = null): Promise<ApiResult> {
     const store: PendingKeyStore | null = this.deps.pendingKeys;
     const account: string | null = this.trustedAccount();
     if (store === null || account === null) {
@@ -1065,6 +1068,7 @@ export class ApiClient {
     } catch (e) {
       return ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED);
     }
+    ctx.sendAllowed = sendAllowed;
     const body: string = JSON.stringify(new AbandonBody(operation.stepUp, key));
     let result: ApiResult = ApiResult.rejected(LocalRejectReason.CANCELLED);
     try {

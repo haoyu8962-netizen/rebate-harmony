@@ -61,6 +61,11 @@ import orderVectorTest from './OrderVector.test';
 import orderIntegrationTest from './OrderIntegration.test';
 import orderReviewR2Test from './OrderReviewR2.test';
 import orderReviewR3Test from './OrderReviewR3.test';
+import walletVectorTest from './WalletVector.test';
+import walletIntegrationTest from './WalletIntegration.test';
+import walletReviewR1Test from './WalletReviewR1.test';
+import walletReviewR2Test from './WalletReviewR2.test';
+import walletReviewR3Test from './WalletReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -131,4 +136,9 @@ export default function testsuite() {
   orderIntegrationTest();
   orderReviewR2Test();
   orderReviewR3Test();
+  walletVectorTest();
+  walletIntegrationTest();
+  walletReviewR1Test();
+  walletReviewR2Test();
+  walletReviewR3Test();
 }

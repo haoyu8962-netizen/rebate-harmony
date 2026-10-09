@@ -1,0 +1,624 @@
+{
+  "version": 1,
+  "sources": [
+    "couli-runs/NATIVE/APP-09/brief.md §0、§2、§3、§4",
+    "couli-runs/NATIVE/APP-09/rule-gaps.md G01–G31；有空白时使用「现在的做法」",
+    "couli origin/main:规划/08_业务规则/07_WDR_提现与打款.md BR-WDR-01、02、03、04、07、25、31",
+    "couli origin/main:规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-08、10、25、33",
+    "couli origin/main:规划/08_业务规则/06_FUND_资金状态与账务.md BR-FUND-18",
+    "couli origin/main:规划/08_业务规则/12_TEXT_话术与格式.md BR-TEXT-01、04、06、07、08、10、14",
+    "couli origin/main:规划/03_前端架构.md §4.2",
+    "couli origin/main:规划/04_数据模型与契约.md §5、§6.1、§6.4",
+    "couli origin/main:规划/10_首个完整流程验收用例.md AC-S2-20、21、22、25、27、33、54、55、62、80；AC-S1-81⑫、AC-S1-105",
+    "rebate-android/contracts/snapshot/contracts/openapi.json；contract.lock rebate_platform=9cd1e6f9c3748bc99d92aec2fe845b48a26f180a",
+    "rebate-android/contracts/snapshot/contracts/error-codes.json",
+    "rebate-android/contracts/snapshot/contracts/texts.default.json",
+    "rebate-android/contracts/snapshot/contracts/routes.json",
+    "rebate-android/contracts/snapshot/contracts/enums/fund.json",
+    "rebate-android/contracts/snapshot/contracts/enums/identity.json",
+    "rebate-harmony/contracts/snapshot/specs/events.json route_params_dropped",
+    "specs/format-vectors.json；已有 CouliFormat 格式规则不在本文件重复"
+  ],
+  "summaryView": [
+    {
+      "name": "G11_FUND18_negative_example",
+      "summary": {"available_fen":-400,"withdrawable_fen":0,"negative_fen":400,"frozen_fen":0,"estimated_total_fen":1048,"estimated_fen":123,"pending_credit_fen":925,"pending_credit_paused_fen":617,"next_credit_period":"2026-11","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":0},"negativeLine":{"fen":400},"frozen":{"fen":0},"withdrawn":{"fen":0},"estimated":{"fen":1048},"receivedLine":{"fen":925},"earliestMonth":{"monthText":"11 月"},"overdueNote":false,"pausedLine":{"fen":617},"riskBanner":{"show":false},"withdrawButton":{"enabled":false},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_TEXT01_single_balance_example",
+      "summary": {"available_fen":600,"withdrawable_fen":600,"negative_fen":0,"frozen_fen":0,"estimated_total_fen":650,"estimated_fen":250,"pending_credit_fen":400,"pending_credit_paused_fen":0,"next_credit_period":"2026-11","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":600},"negativeLine":null,"frozen":{"fen":0},"withdrawn":{"fen":0},"estimated":{"fen":650},"receivedLine":{"fen":400},"earliestMonth":{"monthText":"11 月"},"overdueNote":false,"pausedLine":null,"riskBanner":{"show":false},"withdrawButton":{"enabled":true},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_AC_S2_33_main",
+      "summary": {"available_fen":1000,"withdrawable_fen":1000,"negative_fen":0,"frozen_fen":200,"estimated_total_fen":1019,"estimated_fen":269,"pending_credit_fen":750,"pending_credit_paused_fen":450,"next_credit_period":"2026-11","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":1000},"negativeLine":null,"frozen":{"fen":200},"withdrawn":{"fen":0},"estimated":{"fen":1019},"receivedLine":{"fen":750},"earliestMonth":{"monthText":"11 月"},"overdueNote":false,"pausedLine":{"fen":450},"riskBanner":{"show":false},"withdrawButton":{"enabled":true},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G10_G11_AC_S2_33_a_unknown_risk_reason",
+      "summary": {"available_fen":1000,"withdrawable_fen":1000,"negative_fen":0,"frozen_fen":200,"estimated_total_fen":1019,"estimated_fen":269,"pending_credit_fen":750,"pending_credit_paused_fen":450,"next_credit_period":"2026-11","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":"fixture_unlisted_reason","withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":1000},"negativeLine":null,"frozen":{"fen":200},"withdrawn":{"fen":0},"estimated":{"fen":1019},"receivedLine":{"fen":750},"earliestMonth":{"monthText":"11 月"},"overdueNote":false,"pausedLine":{"fen":450},"riskBanner":{"show":true,"textKey":"wallet.draft.risk_paused"},"withdrawButton":{"enabled":true},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_AC_S2_33_b_negative",
+      "summary": {"available_fen":-200,"withdrawable_fen":0,"negative_fen":200,"frozen_fen":200,"estimated_total_fen":1019,"estimated_fen":269,"pending_credit_fen":750,"pending_credit_paused_fen":450,"next_credit_period":"2026-11","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":0},"negativeLine":{"fen":200},"frozen":{"fen":200},"withdrawn":{"fen":0},"estimated":{"fen":1019},"receivedLine":{"fen":750},"earliestMonth":{"monthText":"11 月"},"overdueNote":false,"pausedLine":{"fen":450},"riskBanner":{"show":false},"withdrawButton":{"enabled":false},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_AC_S2_33_c_disabled",
+      "summary": {"available_fen":1000,"withdrawable_fen":1000,"negative_fen":0,"frozen_fen":200,"estimated_total_fen":1019,"estimated_fen":269,"pending_credit_fen":750,"pending_credit_paused_fen":450,"next_credit_period":"2026-11","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":false},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":1000},"negativeLine":null,"frozen":{"fen":200},"withdrawn":{"fen":0},"estimated":{"fen":1019},"receivedLine":{"fen":750},"earliestMonth":{"monthText":"11 月"},"overdueNote":false,"pausedLine":{"fen":450},"riskBanner":{"show":false},"withdrawButton":{"enabled":false,"reasonKey":"error.30306"},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_FUND18_overdue_without_month",
+      "summary": {"available_fen":-400,"withdrawable_fen":0,"negative_fen":400,"frozen_fen":0,"estimated_total_fen":1048,"estimated_fen":123,"pending_credit_fen":925,"pending_credit_paused_fen":617,"next_credit_period":null,"credit_overdue":true,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-12-05T10:00:00+08:00",
+      "expect": {"hero":{"fen":0},"negativeLine":{"fen":400},"frozen":{"fen":0},"withdrawn":{"fen":0},"estimated":{"fen":1048},"receivedLine":{"fen":925},"earliestMonth":null,"overdueNote":true,"pausedLine":{"fen":617},"riskBanner":{"show":false},"withdrawButton":{"enabled":false},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_cross_year_zero_received_no_paused",
+      "summary": {"available_fen":1,"withdrawable_fen":1,"negative_fen":0,"frozen_fen":0,"estimated_total_fen":123,"estimated_fen":123,"pending_credit_fen":0,"pending_credit_paused_fen":0,"next_credit_period":null,"credit_overdue":false,"withdrawn_fen":1000,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-12-31T23:59:59+08:00",
+      "expect": {"hero":{"fen":1},"negativeLine":null,"frozen":{"fen":0},"withdrawn":{"fen":1000},"estimated":{"fen":123},"receivedLine":{"fen":0},"earliestMonth":null,"overdueNote":false,"pausedLine":null,"riskBanner":{"show":false},"withdrawButton":{"enabled":true},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_cross_year_month",
+      "summary": {"available_fen":600,"withdrawable_fen":600,"negative_fen":0,"frozen_fen":0,"estimated_total_fen":650,"estimated_fen":250,"pending_credit_fen":400,"pending_credit_paused_fen":0,"next_credit_period":"2027-01","credit_overdue":false,"withdrawn_fen":0,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-12-31T23:59:59+08:00",
+      "expect": {"hero":{"fen":600},"negativeLine":null,"frozen":{"fen":0},"withdrawn":{"fen":0},"estimated":{"fen":650},"receivedLine":{"fen":400},"earliestMonth":{"monthText":"2027 年 1 月"},"overdueNote":false,"pausedLine":null,"riskBanner":{"show":false},"withdrawButton":{"enabled":true},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_server_total_is_not_client_sum",
+      "summary": {"available_fen":600,"withdrawable_fen":600,"negative_fen":0,"frozen_fen":200,"estimated_total_fen":999,"estimated_fen":250,"pending_credit_fen":400,"pending_credit_paused_fen":0,"next_credit_period":null,"credit_overdue":false,"withdrawn_fen":1000,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": false,
+      "nowIso": "2026-10-12T10:00:00+08:00",
+      "expect": {"hero":{"fen":600},"negativeLine":null,"frozen":{"fen":200},"withdrawn":{"fen":1000},"estimated":{"fen":999},"receivedLine":{"fen":400},"earliestMonth":null,"overdueNote":false,"pausedLine":null,"riskBanner":{"show":false},"withdrawButton":{"enabled":true},"anyMaskedAmountShowsDigits":false}
+    },
+    {
+      "name": "G11_G23_AC_S1_105_every_visible_amount_masked",
+      "summary": {"available_fen":-400,"withdrawable_fen":0,"negative_fen":400,"frozen_fen":200,"estimated_total_fen":1048,"estimated_fen":123,"pending_credit_fen":925,"pending_credit_paused_fen":617,"next_credit_period":"2027-01","credit_overdue":true,"withdrawn_fen":12345,"risk_paused_reason":null,"withdraw_enabled":true},
+      "masked": true,
+      "nowIso": "2026-12-05T10:00:00+08:00",
+      "expect": {"hero":{"fen":0,"maskedText":"****"},"negativeLine":{"fen":400},"frozen":{"fen":200},"withdrawn":{"fen":12345},"estimated":{"fen":1048},"receivedLine":{"fen":925},"earliestMonth":{"monthText":"2027 年 1 月"},"overdueNote":true,"pausedLine":{"fen":617},"riskBanner":{"show":false},"withdrawButton":{"enabled":false},"anyMaskedAmountShowsDigits":false}
+    }
+  ],
+  "amountInput": [
+    {"name":"G18_integer","text":"30","expect":{"fen":3000}},
+    {"name":"G18_one_decimal","text":"30.5","expect":{"fen":3050}},
+    {"name":"G18_two_decimals","text":"30.50","expect":{"fen":3050}},
+    {"name":"G18_one_fen","text":"0.01","expect":{"fen":1}},
+    {"name":"G18_zero","text":"0","expect":{"fen":null}},
+    {"name":"G18_zero_decimal","text":"0.00","expect":{"fen":null}},
+    {"name":"G18_too_many_decimals","text":"30.555","expect":{"fen":null}},
+    {"name":"G18_fullwidth_rejected","text":"１０","expect":{"fen":null}},
+    {"name":"G18_currency_rejected","text":"¥10","expect":{"fen":null}},
+    {"name":"G18_trim_outer_spaces","text":" 10 ","expect":{"fen":1000}},
+    {"name":"G18_separator_rejected","text":"1,000","expect":{"fen":null}},
+    {"name":"G18_nine_integer_digits","text":"999999999","expect":{"fen":99999999900}},
+    {"name":"G18_nine_digits_with_cents","text":"999999999.99","expect":{"fen":99999999999}},
+    {"name":"G18_ten_integer_digits","text":"1000000000","expect":{"fen":null}},
+    {"name":"G18_empty","text":"","expect":{"fen":null}},
+    {"name":"G18_dot_only","text":".","expect":{"fen":null}},
+    {"name":"G18_negative_rejected","text":"-10","expect":{"fen":null}},
+    {"name":"G18_two_dots_rejected","text":"1.2.3","expect":{"fen":null}},
+    {"name":"G18_inner_space_rejected","text":"1 0","expect":{"fen":null}}
+  ],
+  "amountDisplay": [
+    {"name":"G18_all_5000","fen":5000,"expect":{"text":"50"}},
+    {"name":"G18_all_12300","fen":12300,"expect":{"text":"123"}},
+    {"name":"G18_two_decimals_12345","fen":12345,"expect":{"text":"123.45"}},
+    {"name":"G18_trim_trailing_zero_3050","fen":3050,"expect":{"text":"30.5"}},
+    {"name":"G18_one_fen","fen":1,"expect":{"text":"0.01"}},
+    {"name":"G18_large_integer_without_float","fen":99999999999,"expect":{"text":"999999999.99"}}
+  ],
+  "rulesView": [
+    {
+      "name":"G29_AC_S2_80_1_before_input",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":5000,"withdrawable_fen":12345,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":0,"est_tax_fen":0,"est_net_fen":5000,"quick_amounts_fen":[1000,3000,5000]},
+      "inputFen":null,"slaText":null,
+      "expect":{"balanceLine":{"fen":12345},"remaining":{"daily":1,"monthly":10},"maxLine":{"fen":5000},"allButton":{"enabled":true,"fen":5000},"quick":[1000,3000,5000],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":true}
+    },
+    {
+      "name":"G29_AC_S2_80_2_all",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":5000,"withdrawable_fen":12345,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":0,"est_tax_fen":0,"est_net_fen":5000,"quick_amounts_fen":[1000,3000,5000]},
+      "inputFen":5000,"slaText":null,
+      "expect":{"balanceLine":{"fen":12345},"remaining":{"daily":1,"monthly":10},"maxLine":{"fen":5000},"allButton":{"enabled":true,"fen":5000},"quick":[1000,3000,5000],"estimate":{"key":"withdraw.estimate.net_only","net":5000},"slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":true,"amountEditable":true}
+    },
+    {
+      "name":"G29_AC_S2_80_3_net_only",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":5000,"withdrawable_fen":12345,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":0,"est_tax_fen":0,"est_net_fen":3000,"quick_amounts_fen":[]},
+      "inputFen":3000,"slaText":"人工审核，工作日 24 小时内处理，节假日顺延",
+      "expect":{"balanceLine":{"fen":12345},"remaining":{"daily":1,"monthly":10},"maxLine":{"fen":5000},"allButton":{"enabled":true,"fen":5000},"quick":[],"estimate":{"key":"withdraw.estimate.net_only","net":3000},"slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":true,"amountEditable":true}
+    },
+    {
+      "name":"G29_AC_S2_80_4_tax_and_config_sla",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":5000,"withdrawable_fen":12345,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":0,"est_tax_fen":60,"est_net_fen":2940,"quick_amounts_fen":[]},
+      "inputFen":3000,"slaText":"测试配置的人工审核说明",
+      "expect":{"balanceLine":{"fen":12345},"remaining":{"daily":1,"monthly":10},"maxLine":{"fen":5000},"allButton":{"enabled":true,"fen":5000},"quick":[],"estimate":{"key":"withdraw.estimate","net":2940,"fee":0,"tax":60},"slaKeyOrText":"测试配置的人工审核说明","submitEnabled":true,"amountEditable":true}
+    },
+    {
+      "name":"G29_AC_S2_80_7_server_max_after_config_500000",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":12300,"withdrawable_fen":12345,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":0,"est_tax_fen":0,"est_net_fen":12300,"quick_amounts_fen":[]},
+      "inputFen":12300,"slaText":null,
+      "expect":{"balanceLine":{"fen":12345},"remaining":{"daily":1,"monthly":10},"maxLine":{"fen":12300},"allButton":{"enabled":true,"fen":12300},"quick":[],"estimate":{"key":"withdraw.estimate.net_only","net":12300},"slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":true,"amountEditable":true}
+    },
+    {
+      "name":"G29_no_client_step_check_30_50",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":5000,"withdrawable_fen":5000,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":0,"est_tax_fen":0,"est_net_fen":3050,"quick_amounts_fen":[]},
+      "inputFen":3050,"slaText":null,
+      "expect":{"balanceLine":{"fen":5000},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":true,"fen":5000},"quick":[],"estimate":{"key":"withdraw.estimate.net_only","net":3050},"slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":true,"amountEditable":true}
+    },
+    {
+      "name":"G29_estimate_unavailable_does_not_block_submit",
+      "rules":{"can_withdraw":true,"block_code":null,"block_reason":null,"max_withdrawable_fen":5000,"withdrawable_fen":5000,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":3000,"slaText":null,
+      "expect":{"balanceLine":{"fen":5000},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":true,"fen":5000},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":true,"amountEditable":true}
+    },
+    {
+      "name":"G29_realname_block_disables_amount",
+      "rules":{"can_withdraw":false,"block_code":30304,"block_reason":null,"max_withdrawable_fen":0,"withdrawable_fen":1000,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":null,"slaText":null,
+      "expect":{"balanceLine":{"fen":1000},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":false},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":false}
+    },
+    {
+      "name":"G29_payout_block_preserves_editable_amount",
+      "rules":{"can_withdraw":false,"block_code":30305,"block_reason":null,"max_withdrawable_fen":0,"withdrawable_fen":1000,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":500,"slaText":null,
+      "expect":{"balanceLine":{"fen":1000},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":false},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":true}
+    },
+    {
+      "name":"G04_G29_labor_block_preserves_editable_amount",
+      "rules":{"can_withdraw":false,"block_code":10004,"block_reason":null,"max_withdrawable_fen":0,"withdrawable_fen":1000,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":500,"slaText":null,
+      "expect":{"balanceLine":{"fen":1000},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":false},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":true}
+    },
+    {
+      "name":"G29_zero_max_below_min",
+      "rules":{"can_withdraw":false,"block_code":30303,"block_reason":"below_min","max_withdrawable_fen":0,"withdrawable_fen":50,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":1,"slaText":null,
+      "expect":{"balanceLine":{"fen":50},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":false},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":true}
+    },
+    {
+      "name":"G29_negative_balance_block",
+      "rules":{"can_withdraw":false,"block_code":30302,"block_reason":null,"max_withdrawable_fen":0,"withdrawable_fen":0,"daily_remaining":1,"monthly_remaining":10,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":1000,"slaText":null,
+      "expect":{"balanceLine":{"fen":0},"remaining":{"daily":1,"monthly":10},"maxLine":null,"allButton":{"enabled":false},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":true}
+    },
+    {
+      "name":"G29_feature_off_still_editable",
+      "rules":{"can_withdraw":false,"block_code":30306,"block_reason":null,"max_withdrawable_fen":0,"withdrawable_fen":12345,"daily_remaining":0,"monthly_remaining":3,"est_fee_fen":null,"est_tax_fen":null,"est_net_fen":null,"quick_amounts_fen":[]},
+      "inputFen":3000,"slaText":null,
+      "expect":{"balanceLine":{"fen":12345},"remaining":{"daily":0,"monthly":3},"maxLine":null,"allButton":{"enabled":false},"quick":[],"estimate":"hidden","slaKeyOrText":"人工审核，工作日 24 小时内处理，节假日顺延","submitEnabled":false,"amountEditable":true}
+    }
+  ],
+  "estimateGate": [
+    {"name":"all_four_match","request":{"account":"A","pageInstance":"W1","seq":2,"amountFen":1000},"current":{"account":"A","pageInstance":"W1","latestSeq":2,"inputFen":1000},"expect":{"apply":true}},
+    {"name":"account_only_mismatch","request":{"account":"A","pageInstance":"W1","seq":2,"amountFen":1000},"current":{"account":"B","pageInstance":"W1","latestSeq":2,"inputFen":1000},"expect":{"apply":false}},
+    {"name":"page_only_mismatch","request":{"account":"A","pageInstance":"W1","seq":2,"amountFen":1000},"current":{"account":"A","pageInstance":"W2","latestSeq":2,"inputFen":1000},"expect":{"apply":false}},
+    {"name":"sequence_only_mismatch","request":{"account":"A","pageInstance":"W1","seq":1,"amountFen":1000},"current":{"account":"A","pageInstance":"W1","latestSeq":2,"inputFen":1000},"expect":{"apply":false}},
+    {"name":"amount_only_mismatch","request":{"account":"A","pageInstance":"W1","seq":2,"amountFen":4000},"current":{"account":"A","pageInstance":"W1","latestSeq":2,"inputFen":1000},"expect":{"apply":false}},
+    {"name":"AC_S2_80_10_late_40_after_10","request":{"account":"A","pageInstance":"W1","seq":1,"amountFen":4000},"current":{"account":"A","pageInstance":"W1","latestSeq":2,"inputFen":1000},"expect":{"apply":false}},
+    {"name":"AC_S2_80_11_clear_without_new_request","request":{"account":"A","pageInstance":"W1","seq":1,"amountFen":4000},"current":{"account":"A","pageInstance":"W1","latestSeq":1,"inputFen":null},"expect":{"apply":false}},
+    {"name":"AC_S2_80_12_reopen","request":{"account":"A","pageInstance":"W1","seq":1,"amountFen":4000},"current":{"account":"A","pageInstance":"W2","latestSeq":1,"inputFen":null},"expect":{"apply":false}},
+    {"name":"AC_S2_80_12_switch_account","request":{"account":"A","pageInstance":"W1","seq":1,"amountFen":4000},"current":{"account":"B","pageInstance":"W2","latestSeq":1,"inputFen":null},"expect":{"apply":false}},
+    {"name":"G05_prerequisite_return_same_page_latest_request","request":{"account":"A","pageInstance":"W1","seq":3,"amountFen":500},"current":{"account":"A","pageInstance":"W1","latestSeq":3,"inputFen":500},"expect":{"apply":true}},
+    {"name":"request_without_amount_is_not_an_estimate","request":{"account":"A","pageInstance":"W1","seq":1,"amountFen":null},"current":{"account":"A","pageInstance":"W1","latestSeq":1,"inputFen":null},"expect":{"apply":false}}
+  ],
+  "blockGuide": [
+    {"name":"G03_realname","blockCode":30304,"blockReason":null,"expect":{"actionRaw":"route","route":"RealName","textKey":"error.30304"}},
+    {"name":"G03_no_payout","blockCode":30305,"blockReason":null,"expect":{"actionRaw":"route","route":"PayoutAccount","textKey":"error.30305"}},
+    {"name":"G03_payee_mismatch","blockCode":30307,"blockReason":null,"expect":{"actionRaw":"route","route":"PayoutAccount","textKey":"error.30307"}},
+    {"name":"G03_account_bound_elsewhere","blockCode":30308,"blockReason":null,"expect":{"actionRaw":"route","route":"PayoutAccount","textKey":"error.30308"}},
+    {"name":"G04_rules_consent_means_labor","blockCode":10004,"blockReason":null,"expect":{"actionRaw":"route","route":"LaborAgreement","textKey":"error.10004"}},
+    {"name":"G03_feature_off","blockCode":30306,"blockReason":null,"expect":{"actionRaw":"disable","textKey":"error.30306"}},
+    {"name":"G03_balance","blockCode":30301,"blockReason":null,"expect":{"actionRaw":"notice","textKey":"error.30301"}},
+    {"name":"G03_G25_negative","blockCode":30302,"blockReason":null,"expect":{"actionRaw":"notice","textKey":"error.30302"}},
+    {"name":"G03_G25_minor","blockCode":30309,"blockReason":null,"expect":{"actionRaw":"notice","textKey":"error.30309"}},
+    {"name":"G03_banned","blockCode":10006,"blockReason":null,"expect":{"actionRaw":"notice","textKey":"error.10006"}},
+    {"name":"G03_risk","blockCode":44001,"blockReason":null,"expect":{"actionRaw":"notice","textKey":"error.44001"}},
+    {"name":"G03_G06_account_frozen","blockCode":30303,"blockReason":"account_frozen","expect":{"actionRaw":"notice","textKey":"error.30303.account_frozen","fallbackUsed":false}},
+    {"name":"G03_G06_below_min","blockCode":30303,"blockReason":"below_min","expect":{"actionRaw":"notice","textKey":"error.30303.below_min","fallbackUsed":true}},
+    {"name":"G03_G06_not_multiple","blockCode":30303,"blockReason":"not_multiple","expect":{"actionRaw":"notice","textKey":"error.30303.not_multiple","fallbackUsed":true}},
+    {"name":"G03_G06_above_max","blockCode":30303,"blockReason":"above_max","expect":{"actionRaw":"notice","textKey":"error.30303.above_max","fallbackUsed":true}},
+    {"name":"G03_G06_above_method_max","blockCode":30303,"blockReason":"above_method_max","expect":{"actionRaw":"notice","textKey":"error.30303.above_method_max","fallbackUsed":true}},
+    {"name":"G03_G06_net_too_small","blockCode":30303,"blockReason":"net_too_small","expect":{"actionRaw":"notice","textKey":"error.30303.net_too_small","fallbackUsed":false}},
+    {"name":"G03_G06_daily_count","blockCode":30303,"blockReason":"daily_count","expect":{"actionRaw":"notice","textKey":"error.30303.daily_count","fallbackUsed":true}},
+    {"name":"G03_G06_monthly_count","blockCode":30303,"blockReason":"monthly_count","expect":{"actionRaw":"notice","textKey":"error.30303.monthly_count","fallbackUsed":true}},
+    {"name":"G03_G07_payee_daily_count","blockCode":30303,"blockReason":"payee_daily_count","expect":{"actionRaw":"notice","textKey":"error.30303","fallbackUsed":true}},
+    {"name":"G03_G06_payee_daily_users","blockCode":30303,"blockReason":"payee_daily_users","expect":{"actionRaw":"notice","textKey":"error.30303.payee_daily_users","fallbackUsed":false}},
+    {"name":"G03_G06_self_purchase_required","blockCode":30303,"blockReason":"self_purchase_required","expect":{"actionRaw":"notice","textKey":"error.30303.self_purchase_required","fallbackUsed":false}},
+    {"name":"G03_G06_change_limit","blockCode":30303,"blockReason":"payout_account_change_limit","expect":{"actionRaw":"notice","textKey":"error.30303.payout_account_change_limit","fallbackUsed":false}},
+    {"name":"G03_G06_verify_limit","blockCode":30303,"blockReason":"payout_account_verify_limit","expect":{"actionRaw":"notice","textKey":"error.30303.payout_account_verify_limit","fallbackUsed":false}},
+    {"name":"G03_unknown_reason","blockCode":30303,"blockReason":"future_reason","expect":{"actionRaw":"notice","textKey":"error.30303","fallbackUsed":true}},
+    {"name":"G03_unknown_code","blockCode":39998,"blockReason":null,"expect":{"actionRaw":"notice","textKey":"error.30303","fallbackUsed":true}},
+    {"name":"G03_no_block","blockCode":null,"blockReason":null,"expect":{"actionRaw":"none","textKey":""}}
+  ],
+  "conditionText": [
+    {"name":"G06_account_frozen","reason":"account_frozen","expect":{"textKey":"error.30303.account_frozen","useFallback":false}},
+    {"name":"G06_below_min","reason":"below_min","expect":{"textKey":"error.30303.below_min","useFallback":true}},
+    {"name":"G06_not_multiple","reason":"not_multiple","expect":{"textKey":"error.30303.not_multiple","useFallback":true}},
+    {"name":"G06_above_max","reason":"above_max","expect":{"textKey":"error.30303.above_max","useFallback":true}},
+    {"name":"G06_above_method_max","reason":"above_method_max","expect":{"textKey":"error.30303.above_method_max","useFallback":true}},
+    {"name":"G06_net_too_small","reason":"net_too_small","expect":{"textKey":"error.30303.net_too_small","useFallback":false}},
+    {"name":"G06_daily_count","reason":"daily_count","expect":{"textKey":"error.30303.daily_count","useFallback":true}},
+    {"name":"G06_monthly_count","reason":"monthly_count","expect":{"textKey":"error.30303.monthly_count","useFallback":true}},
+    {"name":"G07_payee_daily_count","reason":"payee_daily_count","expect":{"textKey":"error.30303","useFallback":true}},
+    {"name":"G06_payee_daily_users","reason":"payee_daily_users","expect":{"textKey":"error.30303.payee_daily_users","useFallback":false}},
+    {"name":"G06_self_purchase_required","reason":"self_purchase_required","expect":{"textKey":"error.30303.self_purchase_required","useFallback":false}},
+    {"name":"G06_payout_account_change_limit","reason":"payout_account_change_limit","expect":{"textKey":"error.30303.payout_account_change_limit","useFallback":false}},
+    {"name":"G06_payout_account_verify_limit","reason":"payout_account_verify_limit","expect":{"textKey":"error.30303.payout_account_verify_limit","useFallback":false}},
+    {"name":"unknown_reason","reason":"future_reason","expect":{"textKey":"error.30303","useFallback":true}},
+    {"name":"missing_reason","reason":null,"expect":{"textKey":"error.30303","useFallback":true}}
+  ],
+  "outcome": [
+    {"name":"G19_withdraw_submit_ok","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"ok"},"expect":{"actionRaw":"done","keyEnds":true,"nextSubmitNewKey":true,"route":"WithdrawRecords"}},
+    {"name":"withdraw_submit_step_up","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10003},"expect":{"actionRaw":"step_up_same_key","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10003"}},
+    {"name":"withdraw_submit_refresh","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10002},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"withdraw_submit_register_device","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10402},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"G05_withdraw_submit_login","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10001},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10001","route":"Login"}},
+    {"name":"G04_G05_withdraw_submit_privacy","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"privacy"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004"}},
+    {"name":"G04_G05_withdraw_submit_agreement","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"agreement"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004"}},
+    {"name":"G04_G05_withdraw_submit_labor","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"labor_agreement"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004","route":"LaborAgreement"}},
+    {"name":"G04_G05_withdraw_submit_id_consent","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"id_verification"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004","route":"RealName"}},
+    {"name":"G05_withdraw_submit_bind_phone","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10005},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10005","route":"BindPhone"}},
+    {"name":"G05_withdraw_submit_realname","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30304},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30304","route":"RealName"}},
+    {"name":"G05_withdraw_submit_payout","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30305},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30305","route":"PayoutAccount"}},
+    {"name":"G05_withdraw_submit_payee","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30307},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30307","route":"PayoutAccount"}},
+    {"name":"withdraw_submit_insufficient","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30301},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30301"}},
+    {"name":"G25_withdraw_submit_negative","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30302},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30302"}},
+    {"name":"G06_withdraw_submit_not_multiple","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30303,"data":{"reason":"not_multiple"}},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30303.not_multiple"}},
+    {"name":"withdraw_submit_disabled","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30306},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30306"}},
+    {"name":"withdraw_submit_account_taken","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30308},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30308"}},
+    {"name":"G25_withdraw_submit_minor","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30309},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30309"}},
+    {"name":"G09_withdraw_submit_risk_fallback","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":44001,"data":{"risk_msg_code":"fixture_unlisted_reason"}},"expect":{"actionRaw":"risk_blocked","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.44001"}},
+    {"name":"withdraw_submit_abandoned_key","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20903},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20903"}},
+    {"name":"withdraw_submit_field","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20001,"data":{"fields":["amount_fen"]}},"expect":{"actionRaw":"field_error","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20001"}},
+    {"name":"withdraw_submit_body_conflict","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20901},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20901"}},
+    {"name":"withdraw_submit_retry_after","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"12"}},"expect":{"actionRaw":"retry_after","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.42901","disableMs":12000}},
+    {"name":"withdraw_submit_retry_after_default","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":42901},"expect":{"actionRaw":"retry_after","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.42901","disableMs":5000}},
+    {"name":"withdraw_submit_retry_after_invalid","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"invalid"}},"expect":{"actionRaw":"retry_after","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.42901","disableMs":5000}},
+    {"name":"withdraw_submit_50001","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":50001,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"error_trace6","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.50001","showTrace6":true}},
+    {"name":"withdraw_submit_50401","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":50401,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"error_trace6","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.50401","showTrace6":true}},
+    {"name":"withdraw_submit_unknown_5xxxx","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":59998,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"error_trace6","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.50001","showTrace6":true}},
+    {"name":"withdraw_submit_force_update","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10405,"data":{"min_supported_version":"9.0.0"}},"expect":{"actionRaw":"force_update","keyEnds":false,"nextSubmitNewKey":true,"textKey":"error.10405"}},
+    {"name":"withdraw_submit_unknown_transport","op":"withdraw","phase":"submit","keyEverUnknown":false,"result":{"kind":"transport"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.title"}},
+
+    {"name":"G19_withdraw_confirm_ok","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"ok"},"expect":{"actionRaw":"done","keyEnds":true,"nextSubmitNewKey":true,"route":"WithdrawRecords"}},
+    {"name":"withdraw_confirm_30301","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30301},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30301"}},
+    {"name":"withdraw_confirm_30302","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30302},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30302"}},
+    {"name":"G06_withdraw_confirm_30303","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30303,"data":{"reason":"daily_count"}},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30303.daily_count"}},
+    {"name":"withdraw_confirm_30304","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30304},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30304"}},
+    {"name":"withdraw_confirm_30305","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30305},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30305"}},
+    {"name":"withdraw_confirm_30306","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30306},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30306"}},
+    {"name":"withdraw_confirm_30307","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30307},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30307"}},
+    {"name":"withdraw_confirm_30308","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30308},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30308"}},
+    {"name":"withdraw_confirm_30309","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30309},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30309"}},
+    {"name":"withdraw_confirm_20903","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":20903},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20903"}},
+    {"name":"G05_withdraw_confirm_login_keeps_pending","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10001},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10001","route":"Login"}},
+    {"name":"G04_G05_withdraw_confirm_privacy_keeps_pending","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10004,"data":{"consent_type":"privacy"}},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10004"}},
+    {"name":"G04_G05_withdraw_confirm_labor_keeps_pending","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10004,"data":{"consent_type":"labor_agreement"}},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10004","route":"LaborAgreement"}},
+    {"name":"G04_G05_withdraw_confirm_id_keeps_pending","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10004,"data":{"consent_type":"id_verification"}},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10004","route":"RealName"}},
+    {"name":"G05_withdraw_confirm_phone_keeps_pending","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10005},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10005","route":"BindPhone"}},
+    {"name":"withdraw_confirm_20001_not_field_error","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":20001,"data":{"fields":["amount_fen"]}},"expect":{"actionRaw":"show_error_keep_pending","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.cannot_confirm"}},
+    {"name":"withdraw_confirm_20901","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":20901},"expect":{"actionRaw":"show_error_keep_pending","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.cannot_confirm"}},
+    {"name":"withdraw_confirm_40901","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":40901},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later"}},
+    {"name":"withdraw_confirm_42901","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"7"}},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":7000}},
+    {"name":"withdraw_confirm_42901_default","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":42901},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":5000}},
+    {"name":"withdraw_confirm_50001","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":50001,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"withdraw_confirm_50401","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":50401,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"withdraw_confirm_unknown_5xxxx","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":59998,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"withdraw_confirm_transport","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"transport"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later"}},
+    {"name":"withdraw_confirm_step_up","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10003},"expect":{"actionRaw":"step_up_same_key","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10003"}},
+    {"name":"withdraw_confirm_refresh","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10002},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"withdraw_confirm_device","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10402},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"withdraw_confirm_force_update","op":"withdraw","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10405,"data":{"min_supported_version":"9.0.0"}},"expect":{"actionRaw":"force_update","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10405"}},
+
+    {"name":"withdraw_abandon_abandoned","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"abandon_result","outcome":"abandoned"},"expect":{"actionRaw":"abandoned","keyEnds":true,"nextSubmitNewKey":true,"textKey":"pending_confirm.abandoned"}},
+    {"name":"G19_withdraw_abandon_completed_ok","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"abandon_result","outcome":"completed","original":{"code":0,"msg":""}},"expect":{"actionRaw":"already_done","keyEnds":true,"nextSubmitNewKey":true,"textKey":"pending_confirm.already_done","route":"WithdrawRecords"}},
+    {"name":"withdraw_abandon_completed_error","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"abandon_result","outcome":"completed","original":{"code":30301,"msg":"可提现余额不足"}},"expect":{"actionRaw":"already_done","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30301"}},
+    {"name":"withdraw_abandon_busy","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":40901},"expect":{"actionRaw":"abandon_busy","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.abandon_busy"}},
+    {"name":"withdraw_abandon_42901","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"9"}},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":9000}},
+    {"name":"withdraw_abandon_42901_default","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":42901},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":5000}},
+    {"name":"withdraw_abandon_50001","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":50001,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"withdraw_abandon_50401","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":50401,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"withdraw_abandon_unknown_5xxxx","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":59998,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"withdraw_abandon_transport","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"transport"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later"}},
+    {"name":"withdraw_abandon_force_update","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10405,"data":{"min_supported_version":"9.0.0"}},"expect":{"actionRaw":"force_update","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10405"}},
+    {"name":"withdraw_abandon_refresh","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10002},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"withdraw_abandon_device","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10402},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"G05_withdraw_abandon_login","op":"withdraw","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10001},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10001","route":"Login"}},
+
+    {"name":"payout_submit_ok","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"ok"},"expect":{"actionRaw":"done","keyEnds":true,"nextSubmitNewKey":true}},
+    {"name":"payout_submit_step_up","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10003},"expect":{"actionRaw":"step_up_same_key","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10003"}},
+    {"name":"payout_submit_refresh","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10002},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"payout_submit_device","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10402},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"G05_payout_submit_login","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10001},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10001","route":"Login"}},
+    {"name":"G04_G05_payout_submit_privacy","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"privacy"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004"}},
+    {"name":"G04_G05_payout_submit_agreement","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"agreement"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004"}},
+    {"name":"G04_G05_payout_submit_id_consent","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10004,"data":{"consent_type":"id_verification"}},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10004","route":"RealName"}},
+    {"name":"G05_payout_submit_phone","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10005},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.10005","route":"BindPhone"}},
+    {"name":"G05_AC_S2_62_17_payout_realname_returns_to_origin","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30304},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30304","route":"RealName"}},
+    {"name":"G06_payout_submit_change_limit","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30303,"data":{"reason":"payout_account_change_limit"}},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30303.payout_account_change_limit","route":"PayoutAccount"}},
+    {"name":"G06_payout_submit_verify_limit","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30303,"data":{"reason":"payout_account_verify_limit"}},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30303.payout_account_verify_limit","route":"PayoutAccount"}},
+    {"name":"G05_payout_submit_payee_mismatch","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30307},"expect":{"actionRaw":"guide_prereq","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30307","route":"PayoutAccount"}},
+    {"name":"payout_submit_account_taken","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":30308},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30308","route":"PayoutAccount"}},
+    {"name":"payout_submit_risk","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":44001,"data":{"risk_msg_code":"fixture_unlisted_reason"}},"expect":{"actionRaw":"risk_blocked","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.44001"}},
+    {"name":"payout_submit_abandoned_key","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20903},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20903"}},
+    {"name":"G13_payout_submit_card_field","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20001,"data":{"fields":["card_no"]}},"expect":{"actionRaw":"field_error","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20001"}},
+    {"name":"G13_payout_submit_phone_reason","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20001,"data":{"fields":["alipay_logon_id"],"reason":"phone_invalid"}},"expect":{"actionRaw":"field_error","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20001.phone_invalid"}},
+    {"name":"G14_payout_submit_closed_method","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20001,"data":{"fields":["payout_method"]}},"expect":{"actionRaw":"field_error","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20001"}},
+    {"name":"payout_submit_body_conflict","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":20901},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20901"}},
+    {"name":"payout_submit_retry_after","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"12"}},"expect":{"actionRaw":"retry_after","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.42901","disableMs":12000}},
+    {"name":"payout_submit_retry_after_default","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":42901},"expect":{"actionRaw":"retry_after","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.42901","disableMs":5000}},
+    {"name":"payout_submit_50001","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":50001,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"error_trace6","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.50001","showTrace6":true}},
+    {"name":"payout_submit_vendor_timeout","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":50401,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"error_trace6","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.50401","showTrace6":true}},
+    {"name":"payout_submit_unknown_5xxxx","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":59998,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"error_trace6","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.50001","showTrace6":true}},
+    {"name":"payout_submit_force_update","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"error","code":10405,"data":{"min_supported_version":"9.0.0"}},"expect":{"actionRaw":"force_update","keyEnds":false,"nextSubmitNewKey":true,"textKey":"error.10405"}},
+    {"name":"payout_submit_transport","op":"payout_account","phase":"submit","keyEverUnknown":false,"result":{"kind":"transport"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.title"}},
+
+    {"name":"payout_confirm_ok","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"ok"},"expect":{"actionRaw":"done","keyEnds":true,"nextSubmitNewKey":true}},
+    {"name":"G06_payout_confirm_change_limit","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30303,"data":{"reason":"payout_account_change_limit"}},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30303.payout_account_change_limit","route":"PayoutAccount"}},
+    {"name":"G06_payout_confirm_verify_limit","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30303,"data":{"reason":"payout_account_verify_limit"}},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30303.payout_account_verify_limit","route":"PayoutAccount"}},
+    {"name":"payout_confirm_30304","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30304},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30304"}},
+    {"name":"payout_confirm_30307","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30307},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30307","route":"PayoutAccount"}},
+    {"name":"payout_confirm_30308","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":30308},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30308","route":"PayoutAccount"}},
+    {"name":"payout_confirm_20903","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":20903},"expect":{"actionRaw":"show_error_key_ends","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.20903"}},
+    {"name":"G05_payout_confirm_login","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10001},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10001","route":"Login"}},
+    {"name":"G04_G05_payout_confirm_privacy","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10004,"data":{"consent_type":"privacy"}},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10004"}},
+    {"name":"G04_G05_payout_confirm_id_consent","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10004,"data":{"consent_type":"id_verification"}},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10004","route":"RealName"}},
+    {"name":"G05_payout_confirm_phone","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10005},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10005","route":"BindPhone"}},
+    {"name":"G14_AC_S2_62_22_closed_method_keeps_pending","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":20001,"data":{"fields":["payout_method"]}},"expect":{"actionRaw":"show_error_keep_pending","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.cannot_confirm"}},
+    {"name":"payout_confirm_20901","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":20901},"expect":{"actionRaw":"show_error_keep_pending","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.cannot_confirm"}},
+    {"name":"payout_confirm_verification_inflight","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":40901},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later"}},
+    {"name":"payout_confirm_42901","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"7"}},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":7000}},
+    {"name":"payout_confirm_42901_default","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":42901},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":5000}},
+    {"name":"payout_confirm_50001","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":50001,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"payout_confirm_50401","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":50401,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"payout_confirm_unknown_5xxxx","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":59998,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"payout_confirm_transport","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"transport"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later"}},
+    {"name":"payout_confirm_step_up","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10003},"expect":{"actionRaw":"step_up_same_key","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10003"}},
+    {"name":"payout_confirm_refresh","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10002},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"payout_confirm_device","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10402},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"payout_confirm_force_update","op":"payout_account","phase":"confirm","keyEverUnknown":true,"result":{"kind":"error","code":10405,"data":{"min_supported_version":"9.0.0"}},"expect":{"actionRaw":"force_update","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10405"}},
+
+    {"name":"payout_abandon_abandoned","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"abandon_result","outcome":"abandoned"},"expect":{"actionRaw":"abandoned","keyEnds":true,"nextSubmitNewKey":true,"textKey":"pending_confirm.abandoned"}},
+    {"name":"payout_abandon_completed_ok","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"abandon_result","outcome":"completed","original":{"code":0,"msg":""}},"expect":{"actionRaw":"already_done","keyEnds":true,"nextSubmitNewKey":true,"textKey":"pending_confirm.already_done"}},
+    {"name":"payout_abandon_completed_error","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"abandon_result","outcome":"completed","original":{"code":30307,"msg":"收款账号姓名与实名姓名不一致，请修改收款账号"}},"expect":{"actionRaw":"already_done","keyEnds":true,"nextSubmitNewKey":true,"textKey":"error.30307"}},
+    {"name":"payout_abandon_busy","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":40901},"expect":{"actionRaw":"abandon_busy","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.abandon_busy"}},
+    {"name":"payout_abandon_42901","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":42901,"headers":{"Retry-After":"9"}},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":9000}},
+    {"name":"payout_abandon_42901_default","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":42901},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","disableMs":5000}},
+    {"name":"payout_abandon_50001","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":50001,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"payout_abandon_50401","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":50401,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"payout_abandon_unknown_5xxxx","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":59998,"traceId":"fixture-trace-ABC123"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later","showTrace6":true}},
+    {"name":"payout_abandon_transport","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"transport"},"expect":{"actionRaw":"pending_confirm","keyEnds":false,"nextSubmitNewKey":false,"textKey":"pending_confirm.retry_later"}},
+    {"name":"payout_abandon_force_update","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10405,"data":{"min_supported_version":"9.0.0"}},"expect":{"actionRaw":"force_update","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10405"}},
+    {"name":"payout_abandon_refresh","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10002},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"payout_abandon_device","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10402},"expect":{"actionRaw":"auto_resend_same_key","keyEnds":false,"nextSubmitNewKey":false}},
+    {"name":"G05_payout_abandon_login","op":"payout_account","phase":"abandon","keyEverUnknown":true,"result":{"kind":"error","code":10001},"expect":{"actionRaw":"guide_prereq","keyEnds":false,"nextSubmitNewKey":false,"textKey":"error.10001","route":"Login"}}
+  ],
+  "stepUpToken": [
+    {"name":"G17_no_cached_token","cached":null,"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:04:59+08:00"},"expect":{"reuse":false}},
+    {"name":"G17_before_expiry","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:04:59+08:00"},"expect":{"reuse":true}},
+    {"name":"G17_payout_before_expiry","cached":{"action":"payout_account_change","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"payout_account_change","account":"A","nowIso":"2026-10-12T10:04:59+08:00"},"expect":{"reuse":true}},
+    {"name":"G17_action_mismatch","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"payout_account_change","account":"A","nowIso":"2026-10-12T10:04:59+08:00"},"expect":{"reuse":false}},
+    {"name":"G17_account_mismatch","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"B","nowIso":"2026-10-12T10:04:59+08:00"},"expect":{"reuse":false}},
+    {"name":"G17_exact_expiry","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:05:00+08:00"},"expect":{"reuse":false}},
+    {"name":"G17_after_expiry","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:05:01+08:00"},"expect":{"reuse":false}},
+    {"name":"G17_success_consumes","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:02:00+08:00"},"events":["success"],"expect":{"reuse":false}},
+    {"name":"G17_session_changed","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:02:00+08:00"},"events":["session_changed"],"expect":{"reuse":false}},
+    {"name":"G17_10003_discards","cached":{"action":"withdraw","account":"A","expireAtIso":"2026-10-12T10:05:00+08:00"},"request":{"action":"withdraw","account":"A","nowIso":"2026-10-12T10:02:00+08:00"},"events":["got_10003"],"expect":{"reuse":false}}
+  ],
+  "withdrawalText": [
+    {
+      "name":"G08_pending_auto",
+      "item":{"withdrawal_id":"fixture-w1","status":"PENDING_REVIEW","review_mode":"auto","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PENDING_REVIEW.title","subLines":[{"key":"withdraw.sla_text_auto"},{"key":"withdrawal.draft.frozen","values":{"amount":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.expected"}
+    },
+    {
+      "name":"G08_pending_manual_config",
+      "item":{"withdrawal_id":"fixture-w2","status":"PENDING_REVIEW","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":"测试配置的人工审核说明",
+      "expect":{"titleKey":"withdrawal_status.PENDING_REVIEW.title","subLines":[{"key":"withdraw.sla_text","values":{"text":"测试配置的人工审核说明"}},{"key":"withdrawal.draft.frozen","values":{"amount":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.expected"}
+    },
+    {
+      "name":"G08_pending_null_uses_manual_default",
+      "item":{"withdrawal_id":"fixture-w3","status":"PENDING_REVIEW","review_mode":null,"amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PENDING_REVIEW.title","subLines":[{"key":"withdraw.sla_text","values":{"text":"人工审核，工作日 24 小时内处理，节假日顺延"}},{"key":"withdrawal.draft.frozen","values":{"amount":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.expected"}
+    },
+    {
+      "name":"G08_approved_auto",
+      "item":{"withdrawal_id":"fixture-w4","status":"APPROVED","review_mode":"auto","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.APPROVED.title","subLines":[{"key":"withdraw.sla_text_auto"},{"key":"withdrawal.draft.frozen","values":{"amount":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.expected"}
+    },
+    {
+      "name":"G08_approved_manual",
+      "item":{"withdrawal_id":"fixture-w5","status":"APPROVED","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"bank_card","payout_channel_name":"招商银行","masked_account":"尾号 1234","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.APPROVED.title","subLines":[{"key":"withdraw.sla_text","values":{"text":"人工审核，工作日 24 小时内处理，节假日顺延"}},{"key":"withdrawal.draft.frozen","values":{"amount":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.expected"}
+    },
+    {
+      "name":"G08_paying_no_inferred_elapsed_branch",
+      "item":{"withdrawal_id":"fixture-w6","status":"PAYING","review_mode":"auto","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PAYING.title","subLines":[{"key":"withdrawal.draft.processing"}],"showChangeAccount":false,"netKey":"withdraw_detail.net.expected"}
+    },
+    {
+      "name":"G08_paid_api_no_tax",
+      "item":{"withdrawal_id":"fixture-w7","status":"PAID_API","review_mode":"auto","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PAID_API.title","subLines":[{"key":"withdrawal.draft.paid","values":{"payout_channel_name":"支付宝","masked_account":"138****5678","net":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.actual"}
+    },
+    {
+      "name":"G08_paid_api_tax_80",
+      "item":{"withdrawal_id":"fixture-w8","status":"PAID_API","review_mode":"auto","amount_fen":1000,"fee_fen":0,"tax_fen":80,"net_fen":920,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PAID_API.title","subLines":[{"key":"withdrawal.draft.paid","values":{"payout_channel_name":"支付宝","masked_account":"138****5678","net":920}},{"key":"withdrawal.draft.tax","values":{"tax":80}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.actual"}
+    },
+    {
+      "name":"G08_paid_manual_uses_snapshot_channel",
+      "item":{"withdrawal_id":"fixture-w9","status":"PAID_MANUAL","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"bank_card","payout_channel_name":"招商银行","masked_account":"尾号 1234","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PAID_MANUAL.title","subLines":[{"key":"withdrawal.draft.paid","values":{"payout_channel_name":"招商银行","masked_account":"尾号 1234","net":1000}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.actual"}
+    },
+    {
+      "name":"G08_rejected_known_reason",
+      "item":{"withdrawal_id":"fixture-w10","status":"REJECTED","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":"RISK_SUSPECT","fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.REJECTED.title","subLines":[{"key":"withdraw_reject_reason.RISK_SUSPECT"},{"key":"withdrawal.draft.returned","values":{"amount":1000}}],"showChangeAccount":false,"netKey":null}
+    },
+    {
+      "name":"G08_rejected_unknown_reason_omits_reason",
+      "item":{"withdrawal_id":"fixture-w11","status":"REJECTED","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":"FUTURE_REASON","fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.REJECTED.title","subLines":[{"key":"withdrawal.draft.returned","values":{"amount":1000}}],"showChangeAccount":false,"netKey":null}
+    },
+    {
+      "name":"G08_failed_change_account",
+      "item":{"withdrawal_id":"fixture-w12","status":"FAILED","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":"PAYEE_USER_INFO_ERROR","fail_action":"change_payout_account","created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.FAILED.title","subLines":[{"key":"withdraw_fail_reason.PAYEE_USER_INFO_ERROR"},{"key":"withdrawal.draft.returned.change_account","values":{"amount":1000}}],"showChangeAccount":true,"netKey":null}
+    },
+    {
+      "name":"G08_failed_null_action_unknown_reason",
+      "item":{"withdrawal_id":"fixture-w13","status":"FAILED","review_mode":"manual","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"bank_card","payout_channel_name":"招商银行","masked_account":"尾号 1234","reason_code":"FUTURE_REASON","fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.FAILED.title","subLines":[{"key":"withdrawal.draft.returned","values":{"amount":1000}}],"showChangeAccount":false,"netKey":null}
+    },
+    {
+      "name":"G08_unknown_status_no_subtitle",
+      "item":{"withdrawal_id":"fixture-w14","status":"FUTURE_STATUS","review_mode":null,"amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"alipay","payout_channel_name":"支付宝","masked_account":"138****5678","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.UNKNOWN.title","subLines":[],"showChangeAccount":false,"netKey":null}
+    },
+    {
+      "name":"G08_unknown_channel_only_channel_and_mask",
+      "item":{"withdrawal_id":"fixture-w15","status":"PAID_API","review_mode":"auto","amount_fen":1000,"fee_fen":0,"tax_fen":0,"net_fen":1000,"payout_channel":"future_channel","payout_channel_name":"测试收款方式","masked_account":"***1234","reason_code":null,"fail_action":null,"created_at":"2026-10-12T10:00:00+08:00"},
+      "slaText":null,
+      "expect":{"titleKey":"withdrawal_status.PAID_API.title","subLines":[{"key":"withdrawal.draft.channel","values":{"payout_channel_name":"测试收款方式","masked_account":"***1234"}}],"showChangeAccount":false,"netKey":"withdraw_detail.net.actual"}
+    }
+  ],
+  "tradeNo": [
+    {"name":"paid_api_with_serial","detail":{"status":"PAID_API","channel_order_id":"fixture-channel-001"},"expect":{"show":true,"copyText":"fixture-channel-001"}},
+    {"name":"paid_manual_with_serial","detail":{"status":"PAID_MANUAL","channel_order_id":"fixture-bank-002"},"expect":{"show":true,"copyText":"fixture-bank-002"}},
+    {"name":"paid_api_null","detail":{"status":"PAID_API","channel_order_id":null},"expect":{"show":false}},
+    {"name":"paid_manual_null","detail":{"status":"PAID_MANUAL","channel_order_id":null},"expect":{"show":false}},
+    {"name":"pending_hides_serial","detail":{"status":"PENDING_REVIEW","channel_order_id":"fixture-channel-001"},"expect":{"show":false}},
+    {"name":"approved_hides_serial","detail":{"status":"APPROVED","channel_order_id":"fixture-channel-001"},"expect":{"show":false}},
+    {"name":"paying_hides_serial","detail":{"status":"PAYING","channel_order_id":"fixture-channel-001"},"expect":{"show":false}},
+    {"name":"rejected_hides_serial","detail":{"status":"REJECTED","channel_order_id":"fixture-channel-001"},"expect":{"show":false}},
+    {"name":"failed_hides_serial","detail":{"status":"FAILED","channel_order_id":"fixture-channel-001"},"expect":{"show":false}},
+    {"name":"unknown_hides_serial","detail":{"status":"FUTURE_STATUS","channel_order_id":"fixture-channel-001"},"expect":{"show":false}}
+  ],
+  "payoutView": [
+    {"name":"unbound_empty_object","data":{},"expect":{"bound":false}},
+    {"name":"alipay_phone","data":{"payout_method":"alipay","masked_account":"138****5678","masked_payee_name":"**三","change_remaining_this_month":2},"expect":{"bound":true,"methodRaw":"alipay","maskedAccount":"138****5678","bankName":null,"maskedPayee":"**三","changeRemaining":2}},
+    {"name":"alipay_email","data":{"payout_method":"alipay","masked_account":"zh***@example.com","masked_payee_name":"**三","change_remaining_this_month":1},"expect":{"bound":true,"methodRaw":"alipay","maskedAccount":"zh***@example.com","bankName":null,"maskedPayee":"**三","changeRemaining":1}},
+    {"name":"bank_card","data":{"payout_method":"bank_card","masked_account":"尾号 1234","bank_name":"招商银行","masked_payee_name":"**三","change_remaining_this_month":2},"expect":{"bound":true,"methodRaw":"bank_card","maskedAccount":"尾号 1234","bankName":"招商银行","maskedPayee":"**三","changeRemaining":2}},
+    {"name":"zero_remaining_is_displayed_without_local_limit_verdict","data":{"payout_method":"alipay","masked_account":"138****5678","masked_payee_name":"**三","change_remaining_this_month":0},"expect":{"bound":true,"methodRaw":"alipay","maskedAccount":"138****5678","bankName":null,"maskedPayee":"**三","changeRemaining":0}}
+  ],
+  "payoutPendingSummary": [
+    {"name":"G15_phone_3_plus_4","form":{"payout_method":"alipay","alipay_logon_id":"13800135678","payee_name":"测试三"},"expect":{"account":"138****5678","payee":"**三"}},
+    {"name":"G15_phone_spaces_still_eleven_digits","form":{"payout_method":"alipay","alipay_logon_id":"138 0013 5678","payee_name":"测试三"},"expect":{"account":"138****5678","payee":"**三"}},
+    {"name":"G15_email_long_local","form":{"payout_method":"alipay","alipay_logon_id":"zhangsan@example.com","payee_name":"测试三"},"expect":{"account":"zh***@example.com","payee":"**三"}},
+    {"name":"G15_email_two_local","form":{"payout_method":"alipay","alipay_logon_id":"ab@x.com","payee_name":"测试三"},"expect":{"account":"a***@x.com","payee":"**三"}},
+    {"name":"G15_email_one_local","form":{"payout_method":"alipay","alipay_logon_id":"a@x.com","payee_name":"测试三"},"expect":{"account":"***@x.com","payee":"**三"}},
+    {"name":"G15_bank_last_four_digits","form":{"payout_method":"bank_card","card_no":"0000 0000-0000 1234","bank_name":"招商银行","payee_name":"测试三"},"expect":{"account":"招商银行 尾号 1234","payee":"**三"}}
+  ],
+  "payoutForm": [
+    {"name":"G13_G14_alipay_trim_only","form":{"payout_method":"alipay","alipay_logon_id":"  zhangsan@example.com  ","payee_name":"  测试三  "},"expect":{"body":{"payout_method":"alipay","alipay_logon_id":"zhangsan@example.com","payee_name":"测试三"},"fieldErrors":[]}},
+    {"name":"G13_phone_not_normalized","form":{"payout_method":"alipay","alipay_logon_id":" +86 138 0013 8000 ","payee_name":" 测试三 "},"expect":{"body":{"payout_method":"alipay","alipay_logon_id":"+86 138 0013 8000","payee_name":"测试三"},"fieldErrors":[]}},
+    {"name":"G13_email_case_not_normalized","form":{"payout_method":"alipay","alipay_logon_id":" Zhang.San@Example.com ","payee_name":"测试三"},"expect":{"body":{"payout_method":"alipay","alipay_logon_id":"Zhang.San@Example.com","payee_name":"测试三"},"fieldErrors":[]}},
+    {"name":"G12_G13_G14_bank_trim_preserve_separators","form":{"payout_method":"bank_card","card_no":" 6222 0000-0000 0009 ","bank_name":" 示例银行 ","payee_name":" 测试三 "},"expect":{"body":{"payout_method":"bank_card","card_no":"6222 0000-0000 0009","bank_name":"示例银行","payee_name":"测试三"},"fieldErrors":[]}},
+    {"name":"G13_no_client_luhn_or_minimum_card_length","form":{"payout_method":"bank_card","card_no":"123","bank_name":"示例银行","payee_name":"测试三"},"expect":{"body":{"payout_method":"bank_card","card_no":"123","bank_name":"示例银行","payee_name":"测试三"},"fieldErrors":[]}},
+    {"name":"G12_bank_name_required","form":{"payout_method":"bank_card","card_no":"6222 0000 0000 0009","bank_name":"   ","payee_name":"测试三"},"expect":{"body":null,"fieldErrors":["bank_name"]}},
+    {"name":"G13_payee_trim_does_not_replace_middle_dot","form":{"payout_method":"alipay","alipay_logon_id":"zhangsan@example.com","payee_name":" 测试•三 "},"expect":{"body":{"payout_method":"alipay","alipay_logon_id":"zhangsan@example.com","payee_name":"测试•三"},"fieldErrors":[]}}
+  ],
+  "realNameForm": [
+    {"name":"G01_trim_name_uppercase_x","input":{"name":" 测试三 ","idNo":"00000000000000000x"},"expect":{"name":"测试三","idNo":"00000000000000000X","submitEnabled":true}},
+    {"name":"G01_eighteen_digits_no_checksum_calculation","input":{"name":"测试三","idNo":"000000000000000000"},"expect":{"name":"测试三","idNo":"000000000000000000","submitEnabled":true}},
+    {"name":"G01_seventeen_characters","input":{"name":"测试三","idNo":"00000000000000000"},"expect":{"name":"测试三","idNo":"00000000000000000","submitEnabled":false}},
+    {"name":"G01_nineteen_characters","input":{"name":"测试三","idNo":"0000000000000000000"},"expect":{"name":"测试三","idNo":"0000000000000000000","submitEnabled":false}},
+    {"name":"G01_other_character","input":{"name":"测试三","idNo":"00000000000000000A"},"expect":{"name":"测试三","idNo":"00000000000000000A","submitEnabled":false}}
+  ],
+  "earningsEntry": [
+    {"name":"G20_true_unavailable","flag":true,"routeSinceForThisPlatform":null,"appVersion":"1.0.0","expect":{"show":false}},
+    {"name":"G20_false_unavailable","flag":false,"routeSinceForThisPlatform":null,"appVersion":"1.0.0","expect":{"show":false}},
+    {"name":"G20_missing_flag_unavailable","flag":null,"routeSinceForThisPlatform":null,"appVersion":"1.0.0","expect":{"show":false}},
+    {"name":"G20_true_supported","flag":true,"routeSinceForThisPlatform":"1.0.0","appVersion":"1.0.0","expect":{"show":true}},
+    {"name":"G20_false_supported","flag":false,"routeSinceForThisPlatform":"1.0.0","appVersion":"1.0.0","expect":{"show":false}},
+    {"name":"G20_missing_flag_supported","flag":null,"routeSinceForThisPlatform":"1.0.0","appVersion":"1.0.0","expect":{"show":false}},
+    {"name":"G20_true_version_too_old","flag":true,"routeSinceForThisPlatform":"1.1.0","appVersion":"1.0.0","expect":{"show":false}},
+    {"name":"G20_numeric_version_order","flag":true,"routeSinceForThisPlatform":"1.2.0","appVersion":"1.10.0","expect":{"show":true}}
+  ],
+  "walletCache": [
+    {"name":"G22_summary_only","kind":"summary","expect":{"cacheable":true}},
+    {"name":"G22_rules_not_cached","kind":"rules","expect":{"cacheable":false}},
+    {"name":"G22_records_not_cached","kind":"withdrawals","expect":{"cacheable":false}},
+    {"name":"G22_payout_not_cached","kind":"payout_account","expect":{"cacheable":false}}
+  ],
+  "walletCacheClear": [
+    {"name":"G22_logout","event":"logout","expect":{"clear":true}},
+    {"name":"G22_account_switch","event":"account_switch","expect":{"clear":true}},
+    {"name":"G22_session_invalid","event":"session_invalid","expect":{"clear":true}},
+    {"name":"G22_consent_revoked","event":"consent_revoked","expect":{"clear":true}},
+    {"name":"G22_env_switch","event":"env_switch","expect":{"clear":true}},
+    {"name":"G22_background_preserves_cache","event":"app_background","expect":{"clear":false}},
+    {"name":"G22_refresh_updates_instead_of_clearing_cache","event":"refresh_ok","expect":{"clear":false}}
+  ],
+  "routeParams": [
+    {"name":"withdraw_drops_every_parameter","route":"Withdraw","params":{"amount_fen":500,"account_type":"SELF","unknown":null},"expect":{"openedParams":{},"dropped":3,"event":"route_params_dropped"}},
+    {"name":"payout_drops_every_parameter","route":"PayoutAccount","params":{"payout_method":"alipay","alipay_logon_id":"fixture@example.com","payee_name":"测试三"},"expect":{"openedParams":{},"dropped":3,"event":"route_params_dropped"}},
+    {"name":"labor_drops_every_parameter","route":"LaborAgreement","params":{"agreed":true,"version":1},"expect":{"openedParams":{},"dropped":2,"event":"route_params_dropped"}},
+    {"name":"realname_counts_top_level_parameters","route":"RealName","params":{"name":"测试三","idNo":"00000000000000000X","nested":{"one":1,"two":2}},"expect":{"openedParams":{},"dropped":3,"event":"route_params_dropped"}},
+    {"name":"wallet_is_not_a_fund_prefill_filter_target","route":"Wallet","params":{},"expect":{"openedParams":{},"dropped":0,"event":null}},
+    {"name":"records_keeps_withdrawal_id","route":"WithdrawRecords","params":{"withdrawal_id":"fixture-w1"},"expect":{"openedParams":{"withdrawal_id":"fixture-w1"},"dropped":0,"event":null}}
+  ],
+  "gaps": [
+    "G01、G02：不为实名提交、劳务协议读取或签署编造正式请求形状。Release 禁用、Debug 假服务、默认不勾选的单独同意及签署后出栈，由页面测试另验。",
+    "G03、G04、G05、G06、G07、G08、G09、G10、G11、G12、G13、G14、G15、G16、G17、G18、G19、G20、G21、G22、G23、G24、G25、G26、G27、G28、G29、G30、G31：采用 rule-gaps.md 对应行，不在此另定业务规则。",
+    "G11：规划 origin/main 的 BR-TEXT-01 细则写风控冻结时钱包提现按钮不置灰，与 G10/G11「现在的做法」不同。本任务按用户指定的 G10/G11 断言置灰，需编排者保留这项差异。",
+    "G18：.5 与 5. 缺少整数部分或小数部分时，现有原文未明确接受还是拒绝；不为这两个输入写 fen 期望。前导零如何计入九位上限同样未明确。",
+    "G15：+86 138 0013 8000 去掉非数字后为十三位，按 G15 属于「其他」，但「其他」的脱敏串没有定义；不猜成 138****8000，也不输出完整登录号。该输入的表单原样提交已覆盖，待确认摘要期望待补。",
+    "G12/G13：alipay_logon_id 超过 128、card_no 超过 32、bank_name 或 payee_name 超过 64 字符时，截断、拒绝或阻止输入的规则未确定；不写其中任一种期望。多字段同时错误的排序也未规定。",
+    "G01：身份证号首尾空白如何处理、X 出现在非末位时如何处理、空姓名与非法字符输入的编辑控件行为没有完整规定；不新增规范化或过滤期望。现有实名向量仅测试姓名 trim、x 转 X、长度与其他字符使提交不可用。",
+    "G08/G09：以下是本测试约定的集中草稿键，非正式契约新增字段，均须标 TODO(N-32)：wallet.draft.risk_paused=提现已暂停；withdrawal_status.UNKNOWN.title=处理中；其余 withdrawal_status.<STATUS>.title 逐字取 BR-TEXT-06 的状态标题。",
+    "G08 草稿副文案接线：withdraw.sla_text_auto=预计几分钟内到账；withdraw.sla_text 的 values.text 为选中的 Config 文案或 BR-TEXT-07 原文；withdrawal.draft.frozen={amount} 已冻结；withdrawal.draft.processing=处理中，结果会通知你；withdrawal.draft.paid=已转入{payout_channel_name} {masked_account}，到账 {net}；withdrawal.draft.tax=已代扣个税 {tax}；withdrawal.draft.returned={amount} 已退回可提现余额；withdrawal.draft.returned.change_account={amount} 已退回可提现余额，可修改收款账号后重新提现；withdrawal.draft.channel={payout_channel_name} {masked_account}。amount/net/tax 的 values 是整数分，渲染才交给 CouliFormat，模板不再另加 ¥。原因片段与退回片段按 G08 用分号连接，其余按文案行展示。",
+    "G08：PAID_MANUAL 在 BR-TEXT-06 表中是「已通过…转入…」，G08「现在的做法」把 PAID_* 合为「已转入…」。本文件按 G08；未凭空加入 paid_at、review_deadline、auto_decision、hold_days 或首次转账时刻。",
+    "G08：原因草稿表只可建立规划明文列出的码：withdraw_reject_reason 的 RISK_SUSPECT、ORDER_ABNORMAL、PAYEE_INFO_INVALID、USER_REQUEST、OTHER、NEGATIVE_BALANCE；本任务非微信的 withdraw_fail_reason 为 PAYEE_NOT_EXIST、PAYEE_USER_INFO_ERROR、PAYEE_ACCOUNT_STATUS_ERROR。未收录码不动态拼成一个可显示的原因键。供应商明确失败白名单不由这些客户端显示测试决定。",
+    "API 表达边界：WithdrawRulesView.of 没有输入变化、请求在途、失败事件或请求序号，不能单靠 rules/inputFen 区分 calculating 与已完成且 est_net_fen=null。calculating、0.5 秒停顿、清空不发请求、迟到响应不得覆盖页头与档位，须由页面状态机测试覆盖；本文件不把 null 错当 calculating。",
+    "API 表达边界：SensitiveOutcome 的 submit + keyEverUnknown=false + 40901 需要「保持加载态后恢复，不自动重发」，给定 actionRaw 枚举没有该动作。提现同键在途与收款账号核验在途均暂不写 actionRaw 期望；confirm/abandon 的 40901 已分别覆盖。",
+    "API 表达边界：already_done 需要先提示 pending_confirm.already_done，再展示原成功或原错误。单个 textKey 只能投影其一；原错误向量判定原错误键，成功向量判定 already_done。两个提示的实际顺序、成功数据、withdrawal_id、替换栈顶、钱包刷新仍需 G19 页面测试。",
+    "API 表达边界：route 表示眼下引导或展示的目的地，不表示补办后的返回路由。payout_account 的 PayoutAccount 目标表示留在该页显示错误，不得重复压入同名页面；30304 打开 RealName 后按 G05 返回原 PayoutAccount，不能跳 Withdraw。",
+    "SensitiveOutcome 的 keyEnds 对从未结果未知的键表示本次键不用了；不声称该错误写入服务端幂等记录。依据 BR-ID-10「从未出现过结果未知的键」。10405 按题定 keyEnds=false，nextSubmitNewKey 仍区分是否曾结果未知。不得把这些字段当作重写 PendingKeyStore 持久化规则的依据。",
+    "未写确定期望的组合：与 operation 不相符的业务码，例如 savePayoutAccount 的 30301/30302/30305/30306/30309、labor_agreement 前置；abandon 的 10003（接口不要求 step-up）；非法 phase/keyEverUnknown 组合；completed 的 original 为 1xxxx/2xxxx（契约不允许）。不把不可达组合伪装成正式接口结果。",
+    "G04：其他 consent_type、未知 risk_msg_code 的已知 fallback 规则与真实同意组件接线分开。当前 API 没有同意组件标识或字典注入，无法验证动态 risk_msg 命中、privacy/agreement 弹层种类；不得用一个新造 Router 路由替代这些组件。",
+    "payoutView 的 change_remaining_this_month=0 只断言展示零，不断言 allowChange=false；原文未规定客户端禁用更换按钮。是否给 allowChange 的明确 true 期望待编排者统一，不从剩余次数自行推导资金结论。",
+    "G22：refresh_ok 是替换最近成功摘要并移除 stale 提示，不是删除摘要缓存。传输失败才可用缓存、5xxxx 不用缓存、缓存期间提现置灰、按账号落盘与删除失败的待清理标记，均需真实缓存/页面接线测试。",
+    "金额隐藏：anyMaskedAmountShowsDigits 由测试观察每个可见金额节点的 maskedText 得出，不从 masked 入参直接返回常量。内部 fen 必须保留服务端值；月份行允许数字，不能把月份误纳入金额泄漏扫描。共享偏好、换号沿用、读屏与不上传由 G23/G24 页面测试覆盖。",
+    "BR-ID-10、AC-S2-62：同键原请求体重发、自动重发各至多一次、补办期间零次敏感写请求、跨午夜/24 小时不解除、账号隔离、在途确认/放弃互斥、键结束后迟到响应不改页面，给定一次性判定 API 无法证明，必须在 PendingKeyStore 和实际页面状态机另验。",
+    "42901 的执行层门控、提交/确认/放弃共享截止时间、发码独立门控，不能由 disableMs 一个字段证明。5xxxx 的 showTrace6 也不能证明实际末六位追加一次、无占位符仍追加；须复用网络层测试并补页面接线。",
+    "G16/G17/G31：这些向量只测 token 缓存。发送验证码的手机号账号归属、缺号不发包、resend_after_sec、六位输入、20002/20003 清空和播报、验证码面板关闭与焦点恢复由 StepUpSheet 测试另验。",
+    "routeParams 测试专用四路由过滤，不裁定 Wallet 任意非法参数是否由普通 Router schema 拒绝；Wallet 使用合法空参数，WithdrawRecords 使用合法 withdrawal_id。四路由没有参数时是否仍记 dropped_count=0 的事件未明定，本文件不设期望。",
+    "未覆盖的页面执行验收必须保留：G21/G26 H5/帮助链接、G27 剪贴板先记自写台账再复制、G30 列表刷新与 30701 定位失败、会话换代清空身份输入、出栈作废读取请求、敏感写请求离页仍落未决结论、Release 不含 Debug 桩。纯函数通过不代表这些验收通过。",
+    "只读沙箱产物：本文件和三端测试未写入仓库、未编译运行。鸿蒙还需由 gen.py 生成 WalletVectorsData.ets，并在 List.test.ets 注册 walletVectorTest；iOS/Android 需建立任务书指定测试 target/module，使用现有依赖。"
+  ]
+}

@@ -364,6 +364,10 @@ export struct WalletHeroCard {
   @Param withdrawText: string = '';
   @Param recordText: string = '';
   @Param items: AmountGridItem[] = [];
+  /** 【提现】置灰（APP-09 G11：withdraw_enabled=false、待抵扣、风控暂停、显示断网缓存）；读屏读「不可用」。 */
+  @Param withdrawDisabled: boolean = false;
+  /** 【提现】按钮 id（弹层关闭后焦点回到它；空串不设）。 */
+  @Param withdrawId: string = '';
   @Event onToggleHidden: () => void = () => {
   };
   @Event onWithdraw: () => void = () => {
@@ -428,8 +432,12 @@ export struct WalletHeroCard {
         CouliButton({
           text: this.withdrawText,
           variant: CouliButtonVariant.ON_BRAND,
+          disabled: this.withdrawDisabled,
+          buttonId: this.withdrawId,
           onTap: () => {
-            this.onWithdraw();
+            if (!this.withdrawDisabled) {
+              this.onWithdraw();
+            }
           }
         })
           .constraintSize({ minWidth: 96 })

@@ -131,6 +131,8 @@ export class AppRouting {
       // 03 §4.4「Tab 就绪」交给 Router 统一判定（R1-02 / R1-03）：同意回调与前置完成的恢复、冷启动推送的回查、
       // 外部请求与启动队列的放行，都要等导航栈已交给 Router 且 Tab 外壳已显示。
       this.routerInstance.presentationReady = (): boolean => this.presentationReady;
+      // APP-09（AC-S1-81 ⑫）：资金与实名页面丢弃路由参数时的埋点（AppWallet 接 route_params_dropped）。
+      this.routerInstance.onParamsDropped = (route: string, count: number): void => this.paramsDropped(route, count);
     }
     return this.routerInstance;
   }
@@ -285,6 +287,12 @@ export class AppRouting {
   /** 每次状态同步之后调用（APP-08 订单：会话、隐私、环境变化时作废列表与待跟单卡、换账号删订单缓存）；缺省什么都不做。 */
   syncOrders: () => void = () => {
   };
+  /** 资金与实名页面丢弃了路由参数（APP-09：AppWallet 记 route_params_dropped）；缺省什么都不做。 */
+  paramsDropped: (route: string, count: number) => void = (_r: string, _n: number) => {
+  };
+  /** 每次状态同步之后调用（APP-09 钱包：会话、隐私、环境变化时清空钱包类页面与 step_up_token、换账号删钱包缓存）；缺省什么都不做。 */
+  syncWallet: () => void = () => {
+  };
 
   stateChanged(resumePending: boolean = true): void {
     if (this.retryTimer >= 0) {
@@ -302,6 +310,7 @@ export class AppRouting {
     this.afterSync();
     this.syncClipboard();
     this.syncOrders();
+    this.syncWallet();
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;

@@ -27,6 +27,10 @@ import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppOrders } from '../orders/AppOrders';
 import { AppOrderDetailPage, appOrdersTabBuilder } from '../orders/OrderPages';
 import { TabRootSlots } from '../shell/TabRoots';
+import { AppWallet } from '../wallet/AppWallet';
+import {
+  AppLaborAgreementPage, AppPayoutAccountPage, AppRealNamePage, AppWalletPage, AppWithdrawPage, AppWithdrawRecordsPage
+} from '../wallet/WalletPages';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -165,6 +169,21 @@ struct RootPage {
     } else if (name === ORDER_DETAIL_ROUTE) {
       // 订单详情（APP-08）：order_id。
       AppOrderDetailPage({ param: param })
+    } else if (name === 'Wallet') {
+      // 钱包（APP-09）。
+      AppWalletPage()
+    } else if (name === 'Withdraw') {
+      // 提现申请（APP-09）：不接受任何参数（Router 已丢弃）。
+      AppWithdrawPage()
+    } else if (name === 'WithdrawRecords') {
+      // 提现记录（APP-09）：withdrawal_id?。
+      AppWithdrawRecordsPage({ param: param })
+    } else if (name === 'PayoutAccount') {
+      AppPayoutAccountPage()
+    } else if (name === 'RealName') {
+      AppRealNamePage()
+    } else if (name === 'LaborAgreement') {
+      AppLaborAgreementPage()
     } else if (name === AUTH_MANAGE_ROUTE) {
       // 授权管理（APP-06b）：只显示已授权 / 未授权，页内【去授权】由用户点击发起。
       AuthManagePage()
@@ -250,6 +269,7 @@ struct RootPage {
           AppSearch.shared.attachUi(this.getUIContext());
           AppClipboard.shared.attachUi(this.getUIContext());
           AppOrders.shared.attachUi(this.getUIContext());
+          AppWallet.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {

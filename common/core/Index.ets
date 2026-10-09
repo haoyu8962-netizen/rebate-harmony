@@ -199,6 +199,41 @@ export {
   PendingTrackCard, PendingTrackSnapshot, PendingTrackDeps, PendingTrackController, PendingTrackJumpWatcher, OrderCopy,
   PendingDismissals, PendingPushRowSignal
 } from './src/main/ets/orders/PendingTrackController';
+// wallet（APP-09）：钱包、提现、提现记录、实名、收款账号、劳务协议与二次验证的纯规则（向量 specs/wallet-vectors.json）与执行层
+// （页面在 features/wallet，组合在 entry）。金额隐藏偏好按 G24 挪到 clientcore（订单页与钱包页共用）；共用的 Retry-After 门控在 network。
+export {
+  AmountMaskBackend, MemoryAmountMaskBackend, PreferencesAmountMaskBackend, AmountMaskStore
+} from './src/main/ets/clientcore/AmountMaskStore';
+export { RetryAfterGate } from './src/main/ets/network/RetryAfterGate';
+export { WalletRecord, WalletJson, WithdrawalPage, StepUpGrant } from './src/main/ets/wallet/WalletJson';
+export { WalletDraftTexts } from './src/main/ets/wallet/WalletDraftTexts';
+export {
+  WalletSummaryView, WithdrawAmountInput, WithdrawRulesView, WithdrawEstimateGate, WithdrawConditionText,
+  WithdrawBlockGuide, SensitiveOutcome, StepUpTokenCache, WithdrawalText, TradeNoRow, PayoutAccountView,
+  PayoutPendingSummary, PayoutAccountForm, RealNameForm, EarningsEntry, FundRouteParams, WalletHelpLink, StepUpSheetFit
+} from './src/main/ets/wallet/WalletPresentation';
+export {
+  WalletCacheEntry, WalletStaleCache, WalletCacheCleaner
+} from './src/main/ets/wallet/WalletStaleCache';
+export {
+  WalletApiPort, ApiClientWalletPort, WalletContractPort, WalletConfigPort, EmptyWalletConfig, WalletSessionAware,
+  RealnameState, SmsResendClock, SmsSendOutcome, FundPageLayout, WalletSession, WalletMessage, WalletMessages,
+  WalletLoadFailure, SensitiveResultInput,
+  PendingView
+} from './src/main/ets/wallet/WalletSession';
+export { WalletDeps, WalletPhase, WalletSnapshot, WalletController } from './src/main/ets/wallet/WalletController';
+export { StepUpSnapshot, StepUpController } from './src/main/ets/wallet/StepUpController';
+export { SensitiveStep, SensitiveFlow, PendingClick } from './src/main/ets/wallet/SensitiveFlow';
+export { WithdrawPhase, WithdrawSnapshot, WithdrawController } from './src/main/ets/wallet/WithdrawController';
+export {
+  PayoutPhase, PayoutFormInput, PayoutSnapshot, PayoutAccountController
+} from './src/main/ets/wallet/PayoutAccountController';
+export {
+  RealNameSnapshot, RealNameController, LaborSnapshot, LaborAgreementController
+} from './src/main/ets/wallet/RealNameController';
+export {
+  RecordsPhase, RecordsSnapshot, RecordsDetail, WithdrawRecordsGrouping, WithdrawRecordsController
+} from './src/main/ets/wallet/WithdrawRecordsController';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

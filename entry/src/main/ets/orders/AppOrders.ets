@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { notificationManager } from '@kit.NotificationKit';
 import {
-  ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ConfigStore,
+  AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ConfigStore,
   CouliPreferences, FileSlot, OrderAnchorKeeper, OrderCacheCleaner, OrderCacheStore, OrderCopy, OrderDetailController,
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
   OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPendingMark, OrderRecord, OrderSessionHub, OrderStaleCache,
@@ -33,11 +33,10 @@ const CACHE_PENDING_FILE: string = 'couli_orders_cache.pending';
 /** 页面状态（子 Tab、分组、平台、月份、搜索词、输入框；进程回收后恢复）：couli_app 命名空间（切换环境随业务数据清）。 */
 const PAGE_STATE_KEY: string = 'orders.page_state';
 /**
- * 本机偏好（不随账号、不随环境，卸载即清）：金额隐藏开关（G21，APP-09 的「我的」、钱包复用）、待跟单卡里点过【开启通知】（G22）。
- * 不在 CouliPreferences.ALL_NAMESPACES 里（切换环境不删）。
+ * 本机偏好（不随账号、不随环境，卸载即清）：待跟单卡里点过【开启通知】（G22）。不在 CouliPreferences.ALL_NAMESPACES 里（切换环境不删）。
+ * 金额隐藏开关（G21）按 APP-09 G24 挪到 Core 的 AmountMaskStore（同一个 couli_device_prefs / amount_mask.hidden，订单页与钱包页共用）。
  */
 const DEVICE_PREFS: string = 'couli_device_prefs';
-const MASK_KEY: string = 'amount_mask.hidden';
 const PUSH_ROW_KEY: string = 'orders.push_row_used';
 
 /** 订单缓存的文件实现：filesDir/couli_orders_cache/<账号短标识>/<名字>，FileSlot 原子写（临时文件 + fsync + 改名）。 */
@@ -219,8 +218,14 @@ export class AppOrders {
   get mask(): OrderMaskUi {
     if (this.maskUi === null) {
       const ui: OrderMaskUi = new OrderMaskUi();
-      ui.masked = this.readDevice(MASK_KEY);
-      ui.onToggle = (masked: boolean): void => this.writeDevice(MASK_KEY, masked);
+      // APP-09 G24：本机偏好在 Core（AmountMaskStore）；钱包页切换后订单页同步（AC-S1-105），行为与存储名不变。
+      ui.masked = AmountMaskStore.shared.hidden;
+      ui.onToggle = (masked: boolean): void => AmountMaskStore.shared.set(masked);
+      AmountMaskStore.shared.subscribe((hidden: boolean): void => {
+        if (ui.masked !== hidden) {
+          ui.masked = hidden;
+        }
+      });
       this.maskUi = ui;
     }
     return this.maskUi;

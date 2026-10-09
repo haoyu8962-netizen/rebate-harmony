@@ -100,6 +100,12 @@ export class Router {
    * 「刚完成前置」的暂停标记。只有引导跳过、关闭或绑定完成时由登录流程明确释放。缺省恒为 false。
    */
   pendingHold: () => boolean = () => false;
+  /**
+   * 资金与实名页面（Withdraw、PayoutAccount、LaborAgreement、RealName）丢弃了路由参数（APP-09，AC-S1-81 ⑫）：App 接到埋点
+   * route_params_dropped（只有路由名与个数）。缺省什么都不做。
+   */
+  onParamsDropped: (route: string, droppedCount: number) => void = (_r: string, _n: number) => {
+  };
 
   constructor(pendingStore: PendingActionStore, state: () => GuardState, navigator: RouteNavigator,
     routes: RouteLookup = (name: string): RouteSpec | undefined => RouteTable.spec(name),
@@ -249,6 +255,14 @@ export class Router {
         }
         // 推送兜底的 Messages 不带原请求的参数；资金与实名页面丢弃全部参数（03 §4.4）。
         const keepsParams: boolean = decision.route === request.route;
+        if (decision.reason === GuardReason.PARAMS_DROPPED) {
+          // APP-09（AC-S1-81 ⑫）：记 route_params_dropped，只带路由名与丢弃个数（不带参数值）。
+          try {
+            this.onParamsDropped(decision.route, paramCount(request.params));
+          } catch (e) {
+            // 埋点出错不影响打开页面。
+          }
+        }
         this.show(new RouteDestination(decision.route, keepsParams ? EntryGuard.effectiveParams(request) : emptyParams(),
           decision.kind === GuardDecisionKind.OPEN_READONLY));
         return;

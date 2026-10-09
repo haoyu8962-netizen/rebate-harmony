@@ -5,6 +5,7 @@ import { SearchDraftTexts } from '../search/SearchDraftTexts';
 import { MeActions, meTabRootBuilder } from 'me';
 import { TradeDraftTexts } from '../trade/TradeDraftTexts';
 import { TabBarItem } from 'designsystem';
+import { WalletDraftTexts } from 'core';
 import { ShellDraftTexts } from './ShellDraftTexts';
 import { homeClipboardBuilder } from '../clipboard/ClipboardViews';
 
@@ -72,6 +73,11 @@ export class TabRootRegistry {
     MeActions.authManageLabel = TradeDraftTexts.text('auth_manage.entry');
     MeActions.openAuthManage = (): void => {
       AppRouting.shared.openInApp('AuthManage');
+    };
+    // APP-09 冒烟入口（「我的」页本身属 APP-12）：【钱包】经 Router 打开 Wallet（auth=login：游客先登录）。
+    MeActions.walletLabel = WalletDraftTexts.text('me.wallet_entry');
+    MeActions.openWallet = (): void => {
+      AppRouting.shared.openInApp('Wallet');
     };
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));

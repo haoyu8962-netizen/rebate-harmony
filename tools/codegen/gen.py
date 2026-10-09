@@ -46,6 +46,7 @@
     common/core/src/test/OpenTradeVectorsData.ets             specs/open-trade-vectors.json 全文（APP-06b，Codex 写的三端共用 open 购买、外跳与授权向量）
     common/core/src/test/ClipboardVectorsData.ets             specs/clipboard-vectors.json 全文（APP-07，Codex 写的三端共用剪贴板识别向量）
     common/core/src/test/OrderVectorsData.ets                 specs/order-vectors.json 全文（APP-08，Codex 写的三端共用订单列表、详情与待跟单卡向量）
+    common/core/src/test/WalletVectorsData.ets                specs/wallet-vectors.json 全文（APP-09，Codex 写的三端共用钱包、提现与收款账号向量）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -721,6 +722,16 @@ def gen_order_vectors_data():
     """specs/order-vectors.json（APP-08，Codex 先写的三端共用订单列表、详情与待跟单卡向量）。"""
     return gen_vectors_data(ORDER_VECTORS, "ORDER_VECTORS_JSON",
                             "订单列表、详情与待跟单卡向量（APP-08）：specs/order-vectors.json 全文，供 OrderVector.test.ets "
+                            "解析。只在 src/test，不进产物。")
+
+
+WALLET_VECTORS = os.path.join("specs", "wallet-vectors.json")
+
+
+def gen_wallet_vectors_data():
+    """specs/wallet-vectors.json（APP-09，Codex 先写的三端共用钱包、提现、实名与收款账号向量）。"""
+    return gen_vectors_data(WALLET_VECTORS, "WALLET_VECTORS_JSON",
+                            "钱包、提现、实名与收款账号向量（APP-09）：specs/wallet-vectors.json 全文，供 WalletVector.test.ets "
                             "解析。只在 src/test，不进产物。")
 
 
@@ -1630,6 +1641,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "OpenTradeVectorsData.ets"): gen_open_trade_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "ClipboardVectorsData.ets"): gen_clipboard_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

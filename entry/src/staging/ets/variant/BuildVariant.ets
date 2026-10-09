@@ -6,7 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import {
   AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, RouteTable,
-  ThirdPartyAuthAdapter, UpdateChecker, WebCodeAuthorizer
+  ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
@@ -18,6 +18,7 @@ import { DebugWechatAdapter } from './DebugWechatAdapter';
 import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugJumpPorts, DebugWebCodeAuthorizer } from './DebugFakeTrade';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeOrders } from './DebugFakeOrders';
+import { DEBUG_STEP_UP_PHONE, DEBUG_WALLET_SCENE_KEY, DebugFakeWallet } from './DebugFakeWallet';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
@@ -34,6 +35,13 @@ export class BuildVariant {
 
   static layoutWidthOverride(): number | null {
     return BuildVariant.debugLayoutWidth;
+  }
+
+  private static debugViewportHeight: number = 0;
+
+  /** APP-09 R1-11：`--pd couli_debug_viewport_height 560` 让二次验证半屏按该视口高（vp）布局，模拟短视口截图；0 = 窗口实际高度。 */
+  static stepUpViewportOverride(): number {
+    return BuildVariant.debugViewportHeight;
   }
 
   /** buildMode=debug → Debug；buildMode=release → Staging（映射见工程根 build-profile.json5）。 */
@@ -109,6 +117,21 @@ export class BuildVariant {
     return DebugFakeServer.enabled ? DebugFakeTrade.browserNoticeMillis(defaultMillis) : defaultMillis;
   }
 
+  /**
+   * 实名提交与劳务协议的待定接口（APP-09 G01、G02，契约没有）：本机假服务打开时用假实现（截图与冒烟）；没打开时与 Release 一样为 null
+   * （页面置灰、不发请求）。
+   */
+  static walletContract(): WalletContractPort | null {
+    return DebugFakeServer.enabled ? BuildVariant.fakeWallet : null;
+  }
+
+  private static readonly fakeWallet: DebugFakeWallet = new DebugFakeWallet();
+
+  /** 二次验证发码的号码（G31）：本机假服务打开时用测试号码；没打开时与 Release 一样取不到（不编造号码）。 */
+  static stepUpPhone(_account: string): string | null {
+    return DebugFakeServer.enabled ? DEBUG_STEP_UP_PHONE : null;
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -134,6 +157,12 @@ export class BuildVariant {
     const vp: number = typeof width === 'string' || typeof width === 'number' ? Number(width) : NaN;
     if (!Number.isNaN(vp) && vp >= 240 && vp <= 600) {
       BuildVariant.debugLayoutWidth = vp;
+    }
+    // 只在带了这个参数时改（热启动打开路由的 want 不带它，不清掉）；给 0 或不合法的值恢复按窗口实际高度。
+    const height: Object | undefined = want.parameters?.['couli_debug_viewport_height'];
+    if (typeof height === 'string' || typeof height === 'number') {
+      const hv: number = Number(height);
+      BuildVariant.debugViewportHeight = !Number.isNaN(hv) && hv >= 320 && hv <= 1200 ? hv : 0;
     }
     // APP-05a：`--pd couli_debug_fake_server 1` 打开本机假服务（登录冒烟与截图；不连任何地址）。
     // F-HM-13：开关落进调试偏好（couli_debug_launch），杀进程后从图标 / 不带参数冷启动、系统回收后恢复页面时仍按上次的开关；
@@ -182,6 +211,22 @@ export class BuildVariant {
     if (typeof ordersScene === 'string') {
       DebugFakeOrders.scene = ordersScene;
       hilog.info(0x0000, 'Couli', 'orders scene %{public}s %{public}s', ordersScene, DebugFakeOrders.marker);
+    }
+    // APP-09：`--ps couli_debug_wallet_scene <scene>` 选钱包假服务场景（见 DebugFakeWallet）；`--ps couli_debug_open_route <路由名>`
+    // 热启动时经 Router 打开钱包类页面（截图用；守卫照常）。
+    const walletScene: Object | undefined = want.parameters?.[DEBUG_WALLET_SCENE_KEY];
+    if (typeof walletScene === 'string') {
+      DebugFakeWallet.reset(walletScene);
+      hilog.info(0x0000, 'Couli', 'wallet scene %{public}s %{public}s', walletScene, DebugFakeWallet.marker);
+    }
+    const openRoute: Object | undefined = want.parameters?.['couli_debug_open_route'];
+    if (typeof openRoute === 'string' && openRoute.length > 0 && AppRouting.shared.presentationReady) {
+      const params: Record<string, Object> = {};
+      const wid: Object | undefined = want.parameters?.['couli_debug_withdrawal_id'];
+      if (typeof wid === 'string' && wid.length > 0) {
+        params['withdrawal_id'] = wid;
+      }
+      AppRouting.shared.openInApp(openRoute, params);
     }
     // APP-08：`--ps couli_debug_open_order <order_id>` 热启动时经 Router 打开订单详情（截图用；外壳就绪后才执行，守卫照常）。
     const openOrder: Object | undefined = want.parameters?.['couli_debug_open_order'];

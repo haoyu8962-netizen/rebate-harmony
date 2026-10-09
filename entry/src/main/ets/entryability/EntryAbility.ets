@@ -2,7 +2,7 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.Ab
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import {
-  ApiClient, ApiUpdateChecker, AppConfig, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner, PrivacyState,
+  AmountMaskStore, ApiClient, ApiUpdateChecker, AppConfig, PreferencesAmountMaskBackend, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner, PrivacyState,
   PrivacyWithdrawalCleaners, SessionState
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -17,6 +17,7 @@ import { AppUpdate } from '../update/AppUpdate';
 import { AppBridge } from '../web/AppBridge';
 import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppOrders } from '../orders/AppOrders';
+import { AppWallet } from '../wallet/AppWallet';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -48,8 +49,12 @@ export default class EntryAbility extends UIAbility {
     AppBridge.attach(this.context);
     // APP-07：剪贴板识别（鸿蒙只有 PasteButton）：系统剪贴板、ApiClient、Router、隐私与配置在这里接上；App 写剪贴板只经它的写入口。
     AppClipboard.shared.compose(appContext);
+    // APP-09 G24：金额隐藏开关的本机偏好（订单页、钱包页共用；couli_device_prefs / amount_mask.hidden 不变）。
+    AmountMaskStore.shared.attach(new PreferencesAmountMaskBackend(appContext));
     // APP-08：订单列表、详情、待跟单卡与订单缓存（缓存登记为撤回同意与切换环境的清理第一步，在环境对账 AppConfig.start 之前）。
     AppOrders.shared.compose(appContext);
+    // APP-09：钱包、提现、提现记录、实名、收款账号与劳务协议（钱包缓存同样登记为清理第一步）。
+    AppWallet.shared.compose(appContext);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
@@ -112,6 +117,8 @@ export default class EntryAbility extends UIAbility {
     AppPrivacy.shared.retryWithdrawalCleanup();
     // APP-06b：AuthSheet 自动弹出计数（后台 ≥ 1800 秒清零，BR-ID-18）；可见发起页回到前台（拼多多授权回来后由服务端确认）。
     AppTrade.shared.onAppForeground();
+    // APP-09：可见的钱包类页面回到前台（提现页重取 rules 并按未决记录恢复待确认，G05、brief §2.5）。
+    AppWallet.shared.onAppForeground();
   }
 
   /**

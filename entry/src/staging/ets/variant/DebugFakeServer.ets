@@ -8,6 +8,7 @@ import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeTrade } from './DebugFakeTrade';
 import { DebugFakeOrders } from './DebugFakeOrders';
+import { DebugFakeWallet } from './DebugFakeWallet';
 
 class Waiting {
   readonly timer: number;
@@ -39,6 +40,7 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  * - APP-05b 第 3 轮：bindPhone 验证码 100071 → 10007 stage=cooling（跳 DeleteAccount）、100070 → 10007 stage=processing（仅提示）。
  * - APP-06b：open、getTips / markTipRead、listUnionBindings、getUnionAuthUrl、bindUnion（场景见 DebugFakeTrade）。
  * - APP-08：订单列表、详情、待跟单卡与关闭（场景见 DebugFakeOrders）。
+ * - APP-09：钱包、提现、提现记录、收款账号、二次验证与作废（场景见 DebugFakeWallet）。
  */
 export class DebugFakeServer implements HttpTransport {
   static enabled: boolean = false;
@@ -48,6 +50,7 @@ export class DebugFakeServer implements HttpTransport {
   static readonly searchMarker: string = DebugFakeSearch.marker;
   static readonly tradeMarker: string = DebugFakeTrade.marker;
   static readonly ordersMarker: string = DebugFakeOrders.marker;
+  static readonly walletMarker: string = DebugFakeWallet.marker;
   private readonly real: HttpTransport = new RcpTransport();
   private serial: number = 0;
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
@@ -60,7 +63,9 @@ export class DebugFakeServer implements HttpTransport {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
-    const search: FakeAnswer | null = DebugFakeOrders.answer(request.url, request.method, request.body)
+    // APP-09：钱包类接口先答（/v1/me 的 realname_status 也在这里）。
+    const search: FakeAnswer | null = DebugFakeWallet.answer(request.url, request.method, request.body,
+      request.headers[NetworkHeaders.STEP_UP_TOKEN]) ?? DebugFakeOrders.answer(request.url, request.method, request.body)
       ?? DebugFakeTrade.answer(request.url, request.method,
       request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url, request.body);
     const delay: number = search === null ? 400 : search.delayMillis;

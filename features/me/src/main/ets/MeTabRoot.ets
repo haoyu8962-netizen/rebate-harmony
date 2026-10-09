@@ -9,6 +9,11 @@ export class MeActions {
   /** 经 Router 打开 AuthManage（守卫：游客先登录、基本模式先补同意）。 */
   static openAuthManage: () => void = () => {
   };
+  /** 【钱包】入口行的文字（APP-09 冒烟入口；entry 从文案表取）。 */
+  static walletLabel: string = '';
+  /** 经 Router 打开 Wallet。 */
+  static openWallet: () => void = () => {
+  };
 }
 
 /**
@@ -42,6 +47,27 @@ export struct MeTabRoot {
         .focusable(true)
         .focusBox(CouliFocus.box)
         .onClick(() => MeActions.openAuthManage())
+      }
+      if (MeActions.walletLabel.length > 0) {
+        Row({ space: CouliSpacing.space2 }) {
+          CouliIcon({ name: 'wallet', iconSize: 20, color: CouliColors.textPrimary })
+          Text(MeActions.walletLabel)
+            .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+            .layoutWeight(1)
+          CouliIcon({ name: 'chevron', iconSize: 20, color: CouliColors.textSecondary })
+        }
+        .width('100%')
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+        .padding({ left: CouliSpacing.space4, right: CouliSpacing.space3 })
+        .borderRadius(CouliRadius.card)
+        .backgroundColor(CouliColors.backgroundSurface)
+        .id('me_wallet')
+        .accessibilityGroup(true)
+        .accessibilityText(MeActions.walletLabel)
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .onClick(() => MeActions.openWallet())
       }
       Text('Me')
         .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))

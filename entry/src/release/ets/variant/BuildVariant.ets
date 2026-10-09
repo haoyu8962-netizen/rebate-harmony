@@ -4,7 +4,8 @@
 import { common, Want } from '@kit.AbilityKit';
 import {
   AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, PendingKeyBackend, RcpTransport,
-  ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer, UnavailableWechatAdapter, UpdateChecker, WebCodeAuthorizer
+  ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer, UnavailableWechatAdapter, UpdateChecker, WalletContractPort,
+  WebCodeAuthorizer
 } from 'core';
 
 export class BuildVariant {
@@ -57,6 +58,19 @@ export class BuildVariant {
     return secure;
   }
 
+  /**
+   * 实名提交与劳务协议（APP-09 G01、G02）：契约还没有这三个接口，Release 一律不可用（null）——【提交认证】【同意并签署】置灰、显示草稿说明，
+   * 不发任何请求。TODO(N-32)：契约补上后改为真实接口。
+   */
+  static walletContract(): WalletContractPort | null {
+    return null;
+  }
+
+  /** 二次验证发码的号码（G31）：本机没有保存当前账号的手机号，不编造（TODO(N-32)：契约确认由服务端按令牌取号或 /v1/me 下发）。 */
+  static stepUpPhone(_account: string): string | null {
+    return null;
+  }
+
   /** Release 没有 debug_only 路由。 */
   static registerDebugOnlyTable(): void {
   }
@@ -80,6 +94,11 @@ export class BuildVariant {
   /** Release 的根布局按窗口宽度（没有调试用的窄屏宽度）。 */
   static layoutWidthOverride(): number | null {
     return null;
+  }
+
+  /** Release 不模拟视口（二次验证半屏按窗口实际高度布局）。 */
+  static stepUpViewportOverride(): number {
+    return 0;
   }
 
   /** Release 不认任何调试启动参数。 */
