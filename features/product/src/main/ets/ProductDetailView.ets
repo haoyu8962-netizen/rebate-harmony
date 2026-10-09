@@ -120,6 +120,8 @@ const ID_ASK_AI: string = 'product_ask_ai';
 @ComponentV2
 export struct ProductDetailView {
   @Param @Require config: ProductPageConfig;
+  /** 待跟单卡（APP-08 G07 ②：从本页外跳购买、回到前台后显示同平台那一张；entry 给）。放在说明区下方（设计稿 ProductPendingTrack）。 */
+  @BuilderParam pendingSlot: () => void = emptyPendingSlot;
   @Local model: ProductModel = new ProductModel();
   private product: Record<string, Object> | null = null;
 
@@ -415,6 +417,7 @@ export struct ProductDetailView {
             if (this.model.disclaimers.length > 0) {
               DisclaimerFooter({ lines: this.model.disclaimers, mode: DisclaimerMode.FULL, boxed: true })
             }
+            this.pendingSlot()
           }
           .padding(CouliSpacing.space4)
           .width('100%')
@@ -438,4 +441,8 @@ export struct ProductDetailView {
     // 购买弹层是模态：打开时详情内容对读屏隐藏（adaptation-a11y-spec §8）
     .accessibilityLevel(this.config.purchase.modal ? 'no-hide-descendants' : 'auto')
   }
+}
+
+@Builder
+function emptyPendingSlot() {
 }

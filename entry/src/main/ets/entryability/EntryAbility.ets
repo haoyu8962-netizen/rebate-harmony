@@ -16,6 +16,7 @@ import { AppTrade } from '../trade/AppTrade';
 import { AppUpdate } from '../update/AppUpdate';
 import { AppBridge } from '../web/AppBridge';
 import { AppClipboard } from '../clipboard/AppClipboard';
+import { AppOrders } from '../orders/AppOrders';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -47,6 +48,8 @@ export default class EntryAbility extends UIAbility {
     AppBridge.attach(this.context);
     // APP-07：剪贴板识别（鸿蒙只有 PasteButton）：系统剪贴板、ApiClient、Router、隐私与配置在这里接上；App 写剪贴板只经它的写入口。
     AppClipboard.shared.compose(appContext);
+    // APP-08：订单列表、详情、待跟单卡与订单缓存（缓存登记为撤回同意与切换环境的清理第一步，在环境对账 AppConfig.start 之前）。
+    AppOrders.shared.compose(appContext);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();

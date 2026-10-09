@@ -185,16 +185,17 @@ export class AppClientCore {
 
   /**
    * 原生入口与桥 perm.request 申请系统权限的同一入口。compose 之前为 unavailable。valid：调用方有效性（桥调用传
-   * BridgeCall.valid，R2-02），PermissionRequester 在出队、用途说明结束、调系统接口前检查。
+   * BridgeCall.valid，R2-02），PermissionRequester 在出队、用途说明结束、调系统接口前检查。purposeShown：入口已展示用途说明
+   * （待跟单卡通知行，APP-08 R1-04），跳过重复说明。
    */
   requestPermission(permission: string, fromSettings: boolean = false,
-    valid: () => boolean = () => true): Promise<PermissionResult> {
+    valid: () => boolean = () => true, purposeShown: boolean = false): Promise<PermissionResult> {
     const requester: PermissionRequester | null = this.permissions;
     if (requester === null) {
       return Promise.resolve(new PermissionResult('unavailable'));
     }
     PermissionPromptModel.shared.currentPermission = permission;
-    return requester.request(permission, fromSettings, valid);
+    return requester.request(permission, fromSettings, valid, purposeShown);
   }
 
   /** 切换环境的清理项调用：清空队列（内存与文件）；还没创建队列时直接删文件。删不掉抛错。 */

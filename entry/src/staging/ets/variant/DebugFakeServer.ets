@@ -7,6 +7,7 @@ import {
 import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeTrade } from './DebugFakeTrade';
+import { DebugFakeOrders } from './DebugFakeOrders';
 
 class Waiting {
   readonly timer: number;
@@ -37,6 +38,7 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  *   （先查 phone_bound 再恢复待办）。bindPhone 验证码 444444 → 44001、200030 → 20003。
  * - APP-05b 第 3 轮：bindPhone 验证码 100071 → 10007 stage=cooling（跳 DeleteAccount）、100070 → 10007 stage=processing（仅提示）。
  * - APP-06b：open、getTips / markTipRead、listUnionBindings、getUnionAuthUrl、bindUnion（场景见 DebugFakeTrade）。
+ * - APP-08：订单列表、详情、待跟单卡与关闭（场景见 DebugFakeOrders）。
  */
 export class DebugFakeServer implements HttpTransport {
   static enabled: boolean = false;
@@ -45,6 +47,7 @@ export class DebugFakeServer implements HttpTransport {
   static readonly marker: string = DEBUG_FAKE_SERVER_MARKER;
   static readonly searchMarker: string = DebugFakeSearch.marker;
   static readonly tradeMarker: string = DebugFakeTrade.marker;
+  static readonly ordersMarker: string = DebugFakeOrders.marker;
   private readonly real: HttpTransport = new RcpTransport();
   private serial: number = 0;
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
@@ -57,14 +60,17 @@ export class DebugFakeServer implements HttpTransport {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
-    const search: FakeAnswer | null = DebugFakeTrade.answer(request.url, request.method,
+    const search: FakeAnswer | null = DebugFakeOrders.answer(request.url, request.method, request.body)
+      ?? DebugFakeTrade.answer(request.url, request.method,
       request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url, request.body);
     const delay: number = search === null ? 400 : search.delayMillis;
     return new Promise<TransportResponse>((resolve: (r: TransportResponse) => void) => {
       const timer: number = setTimeout(() => {
         this.waiting.delete(request);
-        resolve(search === null ? this.answer(request) : DebugFakeServer.envelope(search.code, search.data,
-          search.retryAfter));
+        // APP-08：code -1 = 断网（订单的 offline 场景，截 OrdersStale）。
+        resolve(search === null ? this.answer(request) : (search.code === -1
+          ? TransportResponse.failed(TransportFailure.DISCONNECT)
+          : DebugFakeServer.envelope(search.code, search.data, search.retryAfter)));
       }, delay);
       this.waiting.set(request, new Waiting(timer, resolve));
     });

@@ -500,6 +500,11 @@ export class OpenPurchaseController {
   private s: PurchaseState = new PurchaseState();
   onChange: (state: PurchaseState) => void = (_s: PurchaseState) => {
   };
+  /**
+   * 外跳已执行（拉起了平台 App 或浏览器；APP-08 G07：发起页回到前台后拉一次待跟单卡，只显示这个平台那一张）。参数为本次购买的平台。
+   */
+  onJumped: (platform: string) => void = (_p: string) => {
+  };
 
   /** 点击编号：每次新的点击（含授权后、登录后的自动执行）加 1。 */
   private click: number = 0;
@@ -1174,6 +1179,13 @@ export class OpenPurchaseController {
       return;
     }
     const final: string = outcome.run.final;
+    if (final === JumpTypes.FINAL_OPENED || final === JumpTypes.FINAL_BROWSER) {
+      try {
+        this.onJumped(jump.attempt.platform);
+      } catch (e) {
+        // 待跟单卡的接线出错不影响购买流程。
+      }
+    }
     if (final === JumpTypes.FINAL_OPENED) {
       return;
     }

@@ -131,11 +131,14 @@ export class PermissionRequester {
    * valid（APP-04 R2-02）：调用方的有效性（桥调用传 BridgeCall.valid：隐私、环境、会话、页面世代都没变）。排队出队时、显示用途
    * 说明之前、用途说明结束后（即调系统接口之前）各查一次，失效就取消尚未执行的申请：不弹说明、不调系统接口、不记被拒，结果为
    * unavailable。读不出（抛错）按失效。
+   * purposeShown（APP-08 R1-04；BR-ID-13、AC-S1-84④）：调用入口自己已经展示过这项权限的用途说明（如待跟单卡的通知行就是
+   * perm.push.card_hint），这时跳过用途说明这一步、直接调系统接口；其余步骤（状态检查、永久拒绝引导、48 小时节流、有效性复核、
+   * 记录结果）不变。
    */
   request(permission: string, fromSettings: boolean = false,
-    valid: () => boolean = () => true): Promise<PermissionResult> {
+    valid: () => boolean = () => true, purposeShown: boolean = false): Promise<PermissionResult> {
     const run: Promise<PermissionResult> = this.tail.then(
-      (): Promise<PermissionResult> => this.requestNow(permission, fromSettings, valid));
+      (): Promise<PermissionResult> => this.requestNow(permission, fromSettings, valid, purposeShown));
     this.tail = run.then((): void => {
     }, (): void => {
     });
@@ -143,7 +146,7 @@ export class PermissionRequester {
   }
 
   private async requestNow(permission: string, fromSettings: boolean,
-    valid: () => boolean): Promise<PermissionResult> {
+    valid: () => boolean, purposeShown: boolean): Promise<PermissionResult> {
     // 出队：排队期间调用方已失效（撤回同意、页面离开等）→ 取消。
     if (!PermissionRequester.stillValid(valid)) {
       return new PermissionResult(PermissionStatusRaw.UNAVAILABLE);
@@ -175,11 +178,13 @@ export class PermissionRequester {
     if (!PermissionRequester.stillValid(valid)) {
       return new PermissionResult(PermissionStatusRaw.UNAVAILABLE);
     }
-    try {
-      await this.showRationale(purpose, this.continueKey());
-    } catch (e) {
-      // 说明页被取消（TODO(N-21)）：不调系统、不记被拒。
-      return new PermissionResult(PermissionStatusRaw.UNAVAILABLE);
+    if (!purposeShown) {
+      try {
+        await this.showRationale(purpose, this.continueKey());
+      } catch (e) {
+        // 说明页被取消（TODO(N-21)）：不调系统、不记被拒。
+        return new PermissionResult(PermissionStatusRaw.UNAVAILABLE);
+      }
     }
     // 用途说明结束、调系统接口之前（R2-02）：等待期间撤回同意或页面失效 → 不调系统接口。
     if (!PermissionRequester.stillValid(valid)) {

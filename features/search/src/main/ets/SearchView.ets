@@ -273,6 +273,8 @@ export struct SearchView {
   @Param @Require config: SearchPageConfig;
   /** 剪贴板粘贴区（APP-07，entry 给）：固定在头部下方，不随搜索 phase 切换（共性第 10、11 条）。 */
   @BuilderParam pasteSlot: () => void = emptyPasteSlot;
+  /** 待跟单卡（APP-08 G07 ②：从本页列表卡外跳购买、回到前台后显示同平台那一张；entry 给）：固定在粘贴区下方。 */
+  @BuilderParam pendingSlot: () => void = emptyPasteSlot;
   @Local model: SearchModel = new SearchModel();
   private inputController: TextInputController = new TextInputController();
   private listScroller: Scroller = new Scroller();
@@ -1203,6 +1205,7 @@ export struct SearchView {
       .border({ width: { bottom: 1 }, color: CouliColors.borderSubtle })
 
       this.pasteSlot()
+      this.pendingSlot()
 
       if (this.model.phase === SearchPhase.IDLE) {
         Scroll() {

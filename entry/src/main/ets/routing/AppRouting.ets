@@ -282,6 +282,9 @@ export class AppRouting {
   /** 每次状态同步之后调用（APP-07 剪贴板识别：隐私、会话、环境变化时作废提示与在途请求）；缺省什么都不做。 */
   syncClipboard: () => void = () => {
   };
+  /** 每次状态同步之后调用（APP-08 订单：会话、隐私、环境变化时作废列表与待跟单卡、换账号删订单缓存）；缺省什么都不做。 */
+  syncOrders: () => void = () => {
+  };
 
   stateChanged(resumePending: boolean = true): void {
     if (this.retryTimer >= 0) {
@@ -298,6 +301,7 @@ export class AppRouting {
     // 进程回收后的页面恢复（FU-HM-1112 共性第 28 条）：同样等闸门与本轮版本检查，由 PageRestorer 判定。
     this.afterSync();
     this.syncClipboard();
+    this.syncOrders();
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;

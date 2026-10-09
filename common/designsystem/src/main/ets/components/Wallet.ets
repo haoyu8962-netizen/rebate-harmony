@@ -83,6 +83,16 @@ export class AmountGridItem {
       [shown]);
   }
 
+  /**
+   * 不受金额隐藏影响的单个金额（分）：订单的实付金额、已付定金（BR-TEXT-10 细则「金额隐藏」：实付是否隐藏由 UI 稿定，订单稿不隐藏，
+   * rule-gaps G21）。显示、朗读、纵排判断与 money 相同，只是 maskable 为 false。
+   */
+  static moneyPlain(label: string, fen: number, tone?: AmountTone): AmountGridItem {
+    const shown: string = CouliFormat.money(fen);
+    return new AmountGridItem(label, shown, CouliFormat.moneySpoken(fen), tone ?? AmountTone.NORMAL, '', '', false,
+      [shown]);
+  }
+
   /** 区间金额（分）：「¥a–¥b」只在破折号处折行；朗读「a 元到 b 元」；min=max 读单值。 */
   static range(label: string, minFen: number, maxFen: number, tone?: AmountTone, helpLabel?: string,
     note?: string): AmountGridItem {
@@ -200,6 +210,11 @@ export class AmountGridLayout {
 @ComponentV2
 export struct AmountGrid {
   @Param items: AmountGridItem[] = [];
+  /**
+   * 纵排时的顺序（同一组格子，返利在上；空数组 = 与 items 同序）。横排与纵排顺序不同的调用方（订单列表卡：横排左实付右返利、纵排返利
+   * 在上）分别给两套（APP-08 R1-05）。onHelp 的序号按当前排列。
+   */
+  @Param stackedItems: AmountGridItem[] = [];
   @Param large: boolean = true;
   @Param onBrand: boolean = false;
   /** 金额隐藏开关已打开：金额一律显示「****」，分项小字不显示，读屏读「金额已隐藏」（BR-TEXT-10 细则「金额隐藏」）。 */
@@ -311,7 +326,7 @@ export struct AmountGrid {
   grid() {
     if (this.stacked()) {
       Column({ space: CouliSpacing.space3 }) {
-        ForEach(this.items, (item: AmountGridItem, index: number) => {
+        ForEach(this.stackedItems.length > 0 ? this.stackedItems : this.items, (item: AmountGridItem, index: number) => {
           this.cell(item, index)
         }, (item: AmountGridItem, index: number) => index + item.label)
       }

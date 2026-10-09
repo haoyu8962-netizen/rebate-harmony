@@ -28,6 +28,8 @@
 #   - 购买与授权的本机假服务（APP-06b）：标记 COULI_FAKE_TRADE_SERVER_APP06B_5d1e93、场景启动参数键 couli_debug_trade_scene
 #     （entry/src/staging/ets/variant/DebugFakeTrade.ets）；模拟安装状态的外跳端口包装：类名 DebugJumpPorts、标记
 #     COULI_DEBUG_JUMP_PORTS_FUHM0607_2c7d4e（同文件，共性第 42 条：Release 的外跳端口没有任何模拟开关或分支）
+#   - 订单的本机假服务（APP-08）：标记 COULI_FAKE_ORDERS_SERVER_APP08_7c31d9、场景启动参数键 couli_debug_orders_scene
+#     （entry/src/staging/ets/variant/DebugFakeOrders.ets）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
 #     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
@@ -114,6 +116,8 @@ markers = [
     "COULI_FAKE_TRADE_SERVER_APP06B_5d1e93", "couli_debug_trade_scene",
     # APP-06b 共性第 42 条：模拟安装状态的外跳端口包装（entry/src/staging/ets/variant/DebugFakeTrade.ets），开关与执行分支都只在 staging。
     "DebugJumpPorts", "COULI_DEBUG_JUMP_PORTS_FUHM0607_2c7d4e",
+    # APP-08：订单列表、详情与待跟单卡的本机假服务场景（entry/src/staging/ets/variant/DebugFakeOrders.ets）与场景启动参数键。
+    "COULI_FAKE_ORDERS_SERVER_APP08_7c31d9", "couli_debug_orders_scene", "couli_debug_open_order",
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:

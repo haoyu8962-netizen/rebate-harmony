@@ -24,6 +24,9 @@ import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 import { AppProductPage, AppSearch, AppSearchPage } from '../search/AppSearch';
 import { AuthManagePage } from '../trade/AuthManagePage';
 import { AppClipboard } from '../clipboard/AppClipboard';
+import { AppOrders } from '../orders/AppOrders';
+import { AppOrderDetailPage, appOrdersTabBuilder } from '../orders/OrderPages';
+import { TabRootSlots } from '../shell/TabRoots';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -41,6 +44,7 @@ const SETTINGS_ROUTE: string = 'Settings';
 const SEARCH_ROUTE: string = 'Search';
 const PRODUCT_DETAIL_ROUTE: string = 'ProductDetail';
 const AUTH_MANAGE_ROUTE: string = 'AuthManage';
+const ORDER_DETAIL_ROUTE: string = 'OrderDetail';
 
 /** 首屏观察的环境闸门状态。 */
 @ObservedV2
@@ -83,6 +87,11 @@ struct RootPage {
   @Local privacy: AppPrivacy = AppPrivacy.shared;
   @Local update: AppUpdate = AppUpdate.shared;
   @Local permissionPrompt: PermissionPromptModel = PermissionPromptModel.shared;
+
+  aboutToAppear(): void {
+    // APP-08：订单 Tab 根页（entry 组合）在外壳构建前登记（见 TabRootSlots）。
+    TabRootSlots.orders = wrapBuilder(appOrdersTabBuilder);
+  }
 
   /** 弹窗显示时吞掉返回键（不进入首页、不记为同意或拒绝）；协议页盖在上面时照常返回到弹窗。可关闭更新提示同样只能点按钮。 */
   onBackPress(): boolean {
@@ -153,6 +162,9 @@ struct RootPage {
     } else if (name === PRODUCT_DETAIL_ROUTE) {
       // 商品详情（APP-06a）：platform、product_key、item_ref。
       AppProductPage({ param: param })
+    } else if (name === ORDER_DETAIL_ROUTE) {
+      // 订单详情（APP-08）：order_id。
+      AppOrderDetailPage({ param: param })
     } else if (name === AUTH_MANAGE_ROUTE) {
       // 授权管理（APP-06b）：只显示已授权 / 未授权，页内【去授权】由用户点击发起。
       AuthManagePage()
@@ -237,6 +249,7 @@ struct RootPage {
           AppLogin.shared.attachUi(this.getUIContext());
           AppSearch.shared.attachUi(this.getUIContext());
           AppClipboard.shared.attachUi(this.getUIContext());
+          AppOrders.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {

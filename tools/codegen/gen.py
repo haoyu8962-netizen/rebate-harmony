@@ -45,6 +45,7 @@
     common/core/src/test/OAuthLoginVectorsData.ets            specs/oauth-login-vectors.json 全文（APP-05b，Codex 写的三端共用第三方登录、绑手机与并号向量）
     common/core/src/test/OpenTradeVectorsData.ets             specs/open-trade-vectors.json 全文（APP-06b，Codex 写的三端共用 open 购买、外跳与授权向量）
     common/core/src/test/ClipboardVectorsData.ets             specs/clipboard-vectors.json 全文（APP-07，Codex 写的三端共用剪贴板识别向量）
+    common/core/src/test/OrderVectorsData.ets                 specs/order-vectors.json 全文（APP-08，Codex 写的三端共用订单列表、详情与待跟单卡向量）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -710,6 +711,16 @@ def gen_clipboard_vectors_data():
     """specs/clipboard-vectors.json（APP-07，Codex 先写的三端共用剪贴板识别向量）。"""
     return gen_vectors_data(CLIPBOARD_VECTORS, "CLIPBOARD_VECTORS_JSON",
                             "剪贴板识别向量（APP-07）：specs/clipboard-vectors.json 全文，供 ClipboardVector.test.ets "
+                            "解析。只在 src/test，不进产物。")
+
+
+ORDER_VECTORS = os.path.join("specs", "order-vectors.json")
+
+
+def gen_order_vectors_data():
+    """specs/order-vectors.json（APP-08，Codex 先写的三端共用订单列表、详情与待跟单卡向量）。"""
+    return gen_vectors_data(ORDER_VECTORS, "ORDER_VECTORS_JSON",
+                            "订单列表、详情与待跟单卡向量（APP-08）：specs/order-vectors.json 全文，供 OrderVector.test.ets "
                             "解析。只在 src/test，不进产物。")
 
 
@@ -1618,6 +1629,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "OAuthLoginVectorsData.ets"): gen_oauth_login_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "OpenTradeVectorsData.ets"): gen_open_trade_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "ClipboardVectorsData.ets"): gen_clipboard_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

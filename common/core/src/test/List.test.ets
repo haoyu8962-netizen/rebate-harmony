@@ -55,6 +55,10 @@ import openPurchaseReviewR3Test from './OpenPurchaseReviewR3.test';
 import clipboardVectorTest from './ClipboardVector.test';
 import clipboardIntegrationTest from './ClipboardIntegration.test';
 import followupHM0607Test from './FollowupHM0607.test';
+import orderVectorTest from './OrderVector.test';
+import orderIntegrationTest from './OrderIntegration.test';
+import orderReviewR2Test from './OrderReviewR2.test';
+import orderReviewR3Test from './OrderReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -119,4 +123,8 @@ export default function testsuite() {
   clipboardVectorTest();
   clipboardIntegrationTest();
   followupHM0607Test();
+  orderVectorTest();
+  orderIntegrationTest();
+  orderReviewR2Test();
+  orderReviewR3Test();
 }

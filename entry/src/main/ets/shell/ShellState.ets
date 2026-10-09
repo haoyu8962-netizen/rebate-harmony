@@ -35,6 +35,13 @@ export class ShellState {
   static onTabWillChange: (route: string, basicMode: boolean) => void = (_r: string, _b: boolean) => {
   };
 
+  /**
+   * Tab 根页已由 Router 打开并切过去之后的通知（APP-08：订单 Tab 第一次显示时才加载列表与待跟单卡；OrderList 的 scope=share 路由参数
+   * 直接进分享子 Tab）。参数为 Router 给的目的地（含已校验的路由参数）。
+   */
+  static onRootShown: (destination: RouteDestination) => void = (_d: RouteDestination) => {
+  };
+
   /** Router 打开了一个 Tab 根路由：切过去并记下只读标记。不是 Tab 根路由时返回 false（照常入栈）。 */
   showRoot(destination: RouteDestination): boolean {
     const index: number = destination.route === null ? -1 : ShellState.indexOf(destination.route);
@@ -47,6 +54,11 @@ export class ShellState {
     this.readonlyFlags = flags;
     this.selected = index;
     this.rootsOpened = true;
+    try {
+      ShellState.onRootShown(destination);
+    } catch (e) {
+      // 监听方出错不影响切 Tab。
+    }
     return true;
   }
 }

@@ -1,0 +1,1012 @@
+// APP-08 订单列表执行器（brief §2.2、§2.4、§2.7）。请求归属与页面世代（APP-03a 第 14、25、30、34 条，APP-04 第 4、15、22 条，
+// APP-07 第 2、12 条）：每个请求 begin 一个序号，owner = 「序号仍是当前、页面没离开、会话归属没变」交给 ApiClient；每次筛选、切子 Tab、
+// 搜索、下拉刷新开新轮次，旧轮次的响应（含翻页）一律丢弃（APP-06a 第 33 条，APP-06b 第 20 条）；响应到达（await 之后）再复核。
+// 42901 按 Retry-After 在执行层禁用刷新、翻页、筛选与搜索提交（页面另外置灰）；5xxxx 带 trace6，不伪装成空结果；传输层失败且是默认视图时
+// 用缓存（OrderStaleCache），带筛选或搜索词的不用缓存。
+import { ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
+import { TransportFailure } from '../network/HttpTransport';
+import { LocalRejectReason } from '../network/NetworkPolicy';
+import { SearchApiPort, trace6Of } from '../search/SearchController';
+import { OrderJson, OrderRecord } from './OrderJson';
+import { OrderErrorAction, OrderQuery, OrderStatusGroup } from './OrderPresentation';
+import { OrderCacheEntry, OrderStaleCache } from './OrderStaleCache';
+
+type JSONValue = Object | null;
+
+/** 订单页的阶段。 */
+export class OrderPhase {
+  /** 还没加载（Tab 没打开过、换账号后）。 */
+  static readonly IDLE: string = 'idle';
+  static readonly LOADING: string = 'loading';
+  static readonly CONTENT: string = 'content';
+  static readonly EMPTY: string = 'empty';
+  static readonly ERROR: string = 'error';
+}
+
+/** 一次失败给页面的样子（OrderErrorAction 的结果 + 码与 trace_id）。 */
+export class OrderErrorView {
+  readonly actionRaw: string;
+  readonly textKey: string | null;
+  readonly code: number;
+  readonly traceId: string;
+  readonly showTrace6: boolean;
+  readonly disableMs: number;
+
+  constructor(action: Record<string, JSONValue>, code: number, traceId: string) {
+    this.actionRaw = typeof action['actionRaw'] === 'string' ? action['actionRaw'] as string : OrderErrorAction.ERROR;
+    this.textKey = typeof action['textKey'] === 'string' ? action['textKey'] as string : null;
+    this.code = code;
+    this.traceId = traceId;
+    this.showTrace6 = action['showTrace6'] === true;
+    this.disableMs = typeof action['disableMs'] === 'number' ? action['disableMs'] as number : 0;
+  }
+
+  /** 追踪编号（末 6 位；不显示时为空串）。 */
+  get trace6(): string {
+    return this.showTrace6 ? trace6Of(this.traceId) : '';
+  }
+}
+
+/** 结果的分类（transport：断网、超时、没有外壳；被取消不算）。 */
+export class OrderOutcome {
+  readonly ok: boolean;
+  readonly transport: boolean;
+  /**
+   * 没有发出：订单 42901 共享闸门在这次（含自动重试、重签、刷新后的重放）实际发包前拦下（ApiRequest.sendAllowed；R2-01）。
+   * 不算传输失败（不用缓存、不显示网络错误），按限流处理。
+   */
+  readonly sendBlocked: boolean;
+  readonly code: number;
+  readonly traceId: string;
+  readonly headers: Record<string, string>;
+
+  constructor(result: ApiResult) {
+    this.ok = result.outcome === ApiOutcome.SUCCESS;
+    this.sendBlocked = result.outcome === ApiOutcome.LOCAL_REJECT
+      && result.localRejectReason === LocalRejectReason.SEND_BLOCKED;
+    this.transport = !this.sendBlocked
+      && (result.outcome === ApiOutcome.NETWORK_ERROR || result.outcome === ApiOutcome.LOCAL_REJECT);
+    this.code = result.code;
+    this.traceId = result.traceId;
+    const headers: Record<string, string> = {};
+    if (result.effect !== null && result.effect.disableMillis > 0) {
+      headers['Retry-After'] = String(Math.round(result.effect.disableMillis / 1000));
+    }
+    this.headers = headers;
+  }
+
+  /** 被取消（作废、撤回、离开）：调用方一般已丢弃；万一仍是当前，按网络失败但不用缓存。 */
+  static cancelled(result: ApiResult): boolean {
+    return result.outcome === ApiOutcome.NETWORK_ERROR && result.failure === TransportFailure.CANCELLED;
+  }
+}
+
+/** 端口不该抛错；万一抛了按断网收口。 */
+export function guardedOrder(promise: Promise<ApiResult>): Promise<ApiResult> {
+  return promise.catch((): ApiResult => new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, '', 0,
+    TransportFailure.DISCONNECT, null, null, null));
+}
+
+/**
+ * 订单请求的 42901 限流闸门（R1-02；brief §0「任一订单请求」）：按会话共享一份截止时刻，列表、翻页、详情、待跟单查询与关闭（订单列表、
+ * 商品详情、搜索页各卡片位置）发送前统一检查，任一请求收到 42901 都延长同一截止时刻；页面重进拿到的仍是这一份，不能绕过。
+ * - 按会话：截止时刻记在开始时的会话归属下；会话归属变了（换账号、登出、会话失效）即不再生效，App 另在会话变化时 reset。
+ * - 判定一律按时钟（不只靠计时器）；到期由计时器通知全部订阅方一次（各页面据此恢复按钮）。
+ */
+export class OrderRateGate {
+  private until: number = 0;
+  private owner: string = '';
+  private timer: number = -1;
+  private lastView: OrderErrorView | null = null;
+  private listeners: (() => void)[] = [];
+  private readonly clock: () => number;
+  private readonly scope: () => string;
+
+  constructor(clock: () => number, scope: () => string) {
+    this.clock = clock;
+    this.scope = scope;
+    this.sendAllowed = (): boolean => !this.active;
+  }
+
+  /** 此刻是否禁用（当前会话归属下、截止时刻未到）。 */
+  get active(): boolean {
+    let scope: string = '';
+    try {
+      scope = this.scope();
+    } catch (e) {
+      return false;
+    }
+    return scope === this.owner && this.clock() < this.until;
+  }
+
+  /** 禁用期内页面要显示的 42901 错误（列表首屏、详情；禁用期外为 null）。 */
+  get view(): OrderErrorView | null {
+    return this.active ? this.lastView : null;
+  }
+
+  /** 被闸门拦下（发送前或退避、重签、重放之后）时页面显示的 42901 错误：有这次禁用的原错误用它，否则按 target 生成。 */
+  heldView(target: string, filtered: boolean): OrderErrorView {
+    return this.view ?? new OrderErrorView(OrderErrorAction.map(target, 42901, false, {}, null, false, filtered), 42901,
+      '');
+  }
+
+  /**
+   * 交给 ApiRequest.sendAllowed 的发送闸门（共性第 13 条）：ApiClient 在每一次实际发包前（首发、GET 自动重试退避之后、10401 重签、
+   * 刷新或重新注册后的重放、传输层 admit）都调它，禁用期内不发。
+   */
+  readonly sendAllowed: () => boolean;
+
+  /** 收到 42901：延长截止时刻并通知全部订阅方。view：这次的错误（列表与详情显示用；没有时保留上一次的）。 */
+  start(millis: number, view: OrderErrorView | null): void {
+    if (millis <= 0) {
+      return;
+    }
+    const scope: string = this.scope();
+    if (scope !== this.owner) {
+      this.owner = scope;
+      this.until = 0;
+      this.lastView = null;
+    }
+    this.until = Math.max(this.until, this.clock() + millis);
+    if (view !== null) {
+      this.lastView = view;
+    }
+    this.arm();
+    this.notify();
+  }
+
+  /** 会话变化（换账号、登出、会话失效、撤回同意、切换环境）：清掉截止时刻并通知。 */
+  reset(): void {
+    this.cancel();
+    const was: boolean = this.until > 0;
+    this.until = 0;
+    this.lastView = null;
+    if (was) {
+      this.notify();
+    }
+  }
+
+  /** 订阅「禁用状态可能变了」（开始、到期、reset）；返回取消订阅。 */
+  subscribe(listener: () => void): () => void {
+    this.listeners.push(listener);
+    return (): void => {
+      this.listeners = this.listeners.filter((l: () => void): boolean => l !== listener);
+    };
+  }
+
+  private arm(): void {
+    this.cancel();
+    const wait: number = Math.max(0, this.until - this.clock());
+    this.timer = setTimeout((): void => {
+      this.timer = -1;
+      if (this.clock() < this.until) {
+        this.arm();
+        return;
+      }
+      this.notify();
+    }, wait);
+  }
+
+  private cancel(): void {
+    if (this.timer !== -1) {
+      clearTimeout(this.timer);
+      this.timer = -1;
+    }
+  }
+
+  private notify(): void {
+    for (const l of this.listeners.slice()) {
+      try {
+        l();
+      } catch (e) {
+        // 订阅方出错不影响其他页面。
+      }
+    }
+  }
+}
+
+/** 列表页的一次快照（执行器每次变化都给页面）。 */
+export class OrderListSnapshot {
+  scope: string = 'self';
+  group: string = OrderStatusGroup.ALL;
+  platform: string | null = null;
+  month: string | null = null;
+  q: string | null = null;
+  phase: string = OrderPhase.IDLE;
+  items: OrderRecord[] = [];
+  /** 还有下一页（next_cursor 非空，且不是缓存数据）。 */
+  hasMore: boolean = false;
+  loadingMore: boolean = false;
+  loadMoreError: OrderErrorView | null = null;
+  error: OrderErrorView | null = null;
+  /** 正在显示缓存（OrdersStale）：顶部提示条，{time} 为缓存的成功获取时刻；不能翻页。 */
+  stale: boolean = false;
+  staleFetchedAt: number = 0;
+  earliestVisibleDate: string | null = null;
+  /** 42901 禁用中：刷新、翻页、筛选与搜索提交都不可用。 */
+  blocked: boolean = false;
+  /** 下拉刷新进行中（保留已有结果）。 */
+  refreshing: boolean = false;
+  /** 查询轮次：页面只在轮次变化时回到顶部。 */
+  round: number = 0;
+  /** 失败序号：每出现一次新的失败加 1（页面播报并聚焦【重试】）。 */
+  failureSeq: number = 0;
+  /** 当前展示的结果来自哪个请求序号（测试核对迟到响应）。 */
+  shownSeq: number = 0;
+  filtered: boolean = false;
+  /**
+   * 会话世代（共性第 19 条）：每次会话变化（resetForSession）加 1。页面看到它变了就同步清空搜索框输入（可能是上一账号的完整订单号）、
+   * 关闭筛选弹层；App 同时清掉持久化的页面状态与恢复锚点。
+   */
+  sessionEpoch: number = 0;
+}
+
+/** 列表执行器的依赖。 */
+export class OrderListDeps {
+  readonly api: SearchApiPort;
+  cache: OrderStaleCache | null = null;
+  clock: () => number = Date.now;
+  /** 会话归属（ApiClient.captureScope 的键）：请求开始时记下，变了就作废（换账号后不把旧账号的结果显示给新账号）。 */
+  scope: () => string = () => '';
+  /** 按会话共享的 42901 闸门（App 一份，列表、详情、各待跟单卡共用；null 时自建一份，只在测试里单独用）。 */
+  gate: OrderRateGate | null = null;
+
+  constructor(api: SearchApiPort) {
+    this.api = api;
+  }
+}
+
+/** 页面状态持久化与恢复用的条件（子 Tab、分组、平台、月份、搜索词）。 */
+export class OrderListConditions {
+  scope: string = 'self';
+  group: string = OrderStatusGroup.ALL;
+  platform: string | null = null;
+  month: string | null = null;
+  q: string | null = null;
+
+  encode(): string {
+    const r: Record<string, JSONValue> = {};
+    r['scope'] = this.scope;
+    r['group'] = this.group;
+    r['platform'] = this.platform;
+    r['month'] = this.month;
+    r['q'] = this.q;
+    return JSON.stringify(r);
+  }
+
+  static decode(text: string | null): OrderListConditions | null {
+    if (text === null) {
+      return null;
+    }
+    try {
+      const r: OrderRecord | null = OrderJson.objectOf(JSON.parse(text) as Object);
+      if (r === null) {
+        return null;
+      }
+      const c: OrderListConditions = new OrderListConditions();
+      c.scope = OrderJson.text(r, 'scope') === 'share' ? 'share' : 'self';
+      const group: string | null = OrderJson.text(r, 'group');
+      c.group = group !== null && OrderStatusGroup.ALL_GROUPS.indexOf(group) >= 0 ? group : OrderStatusGroup.ALL;
+      c.platform = OrderJson.nonEmpty(r, 'platform');
+      const month: string | null = OrderJson.text(r, 'month');
+      c.month = month !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : null;
+      c.q = OrderQuery.normalizeQ(OrderJson.text(r, 'q'));
+      return c;
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+/**
+ * 订单列表执行器（OrderList 路由，订单 Tab 根）。Tab 被切走只是被覆盖，不算出栈；换账号、登出由 App 调 resetForSession。
+ */
+export class OrderListController {
+  private readonly d: OrderListDeps;
+  private query: OrderQuery = OrderQuery.initial(null);
+  private seq: number = 0;
+  private current: number = 0;
+  private owners: (() => boolean)[] = [];
+  private left: boolean = false;
+  private readonly gate: OrderRateGate;
+  private readonly unsubscribe: () => void;
+  private state: OrderListSnapshot = new OrderListSnapshot();
+  /** 本轮请求发出时的会话归属。 */
+  private boundScope: string = '';
+  onChange: (snapshot: OrderListSnapshot) => void = (_s: OrderListSnapshot) => {
+  };
+
+  constructor(deps: OrderListDeps) {
+    this.d = deps;
+    this.gate = deps.gate ?? new OrderRateGate(deps.clock, deps.scope);
+    this.boundScope = deps.scope();
+    this.state.blocked = this.gate.active;
+    // 闸门由任一订单请求触发或到期：页面同步置灰 / 恢复（R1-02）。
+    this.unsubscribe = this.gate.subscribe((): void => {
+      if (!this.left && this.state.blocked !== this.gate.active) {
+        this.emit();
+      }
+    });
+  }
+
+  get snapshot(): OrderListSnapshot {
+    return this.state;
+  }
+
+  /** 当前查询（测试与持久化用的副本）。 */
+  get currentQuery(): OrderQuery {
+    return this.query.copy();
+  }
+
+  conditions(): OrderListConditions {
+    const c: OrderListConditions = new OrderListConditions();
+    c.scope = this.query.scope;
+    c.group = this.query.group;
+    c.platform = this.query.platform;
+    c.month = this.query.month;
+    c.q = this.query.q;
+    return c;
+  }
+
+  get blocked(): boolean {
+    return this.gate.active;
+  }
+
+  /** 装入条件（路由参数 scope、进程回收后恢复的条件）；不发请求。 */
+  restore(conditions: OrderListConditions | null, routeScope: string | null): void {
+    const q: OrderQuery = OrderQuery.initial(conditions !== null ? conditions.scope : routeScope);
+    if (conditions !== null) {
+      q.group = conditions.group;
+      q.platform = conditions.platform;
+      q.month = conditions.month;
+      q.q = conditions.q;
+    }
+    q.round = this.query.round;
+    this.query = q;
+    this.state.round = q.round;
+    this.syncConditions();
+    this.emit();
+  }
+
+  /** Tab 第一次显示（或换账号后再显示）：还没加载就加载第一页。 */
+  ensureLoaded(): void {
+    if (this.state.phase === OrderPhase.IDLE) {
+      this.run(false);
+    }
+  }
+
+  /** 切子 Tab（BR-TEXT-02 细则：分组回「全部」，平台、月份、搜索词清空）。路由 scope=share 也走这里。 */
+  setScope(scope: string): boolean {
+    if (scope === this.query.scope) {
+      return false;
+    }
+    return this.change('set_scope', scope, true);
+  }
+
+  setGroup(group: string): boolean {
+    return group === this.query.group ? false : this.change('set_group', group, false);
+  }
+
+  setPlatform(platform: string | null): boolean {
+    return platform === this.query.platform ? false : this.change('set_platform', platform, false);
+  }
+
+  setMonth(month: string | null): boolean {
+    return month === this.query.month ? false : this.change('set_month', month, false);
+  }
+
+  /** 搜索框【搜索】或清空（G11：只在提交与清空时发请求，不边输边搜）。 */
+  submitQuery(text: string | null): boolean {
+    return this.change('set_q', text, false);
+  }
+
+  /**
+   * 条件变化：开新轮次。42901 禁用中拒绝（筛选与搜索提交在执行层也禁用；切子 Tab 是导航，照常切换并清条件，只是不发请求）。
+   */
+  private change(op: string, value: string | null, navigation: boolean): boolean {
+    if (this.left) {
+      return false;
+    }
+    if (this.gate.active && !navigation) {
+      return false;
+    }
+    this.query.apply(op, value);
+    this.syncConditions();
+    this.run(false);
+    return true;
+  }
+
+  /** 下拉刷新：新轮次，保留已有结果直到新结果到达；42901 禁用中不发。 */
+  refresh(): boolean {
+    if (this.left || this.gate.active) {
+      return false;
+    }
+    this.query.apply('refresh', null);
+    this.run(true);
+    return true;
+  }
+
+  /** 【重试】：首屏失败重新加载；翻页失败重翻这一页；显示缓存时重新加载第一页。 */
+  retry(): boolean {
+    if (this.left || this.gate.active) {
+      return false;
+    }
+    if (this.state.phase === OrderPhase.ERROR || this.state.stale) {
+      this.query.apply('refresh', null);
+      this.run(false);
+      return true;
+    }
+    if (this.state.loadMoreError !== null) {
+      return this.loadMore();
+    }
+    return false;
+  }
+
+  /** 加载更多：已到底、正在加载、显示缓存、禁用中、不在内容态时不做。 */
+  loadMore(): boolean {
+    const s: OrderListSnapshot = this.state;
+    if (this.left || this.gate.active || !s.hasMore || s.loadingMore || s.stale || s.phase !== OrderPhase.CONTENT
+      || !this.query.sendsRequest() || this.query.cursor === null) {
+      return false;
+    }
+    const seq: number = this.begin();
+    const round: OrderQuery = this.query.copy();
+    s.loadingMore = true;
+    s.loadMoreError = null;
+    this.emit();
+    this.send(seq, round).then((result: ApiResult) => {
+      if (!this.accept(seq)) {
+        return;
+      }
+      s.loadingMore = false;
+      const outcome: OrderOutcome = new OrderOutcome(result);
+      if (outcome.sendBlocked) {
+        // 翻页的自动重试被共享闸门拦下（R2-01）：保留已加载的结果，底部显示限流错误。
+        s.loadMoreError = this.gate.heldView(OrderErrorAction.LIST_NEXT, round.filtered);
+        s.failureSeq++;
+        this.emit();
+        return;
+      }
+      if (outcome.ok) {
+        const items: OrderRecord[] = OrderJson.summaries(result.data as OrderRecord);
+        s.items = s.items.concat(items);
+        this.applyCursor(OrderJson.nextCursor(result.data as OrderRecord));
+        s.shownSeq = seq;
+        this.emit();
+        return;
+      }
+      const view: OrderErrorView = this.errorView(OrderErrorAction.LIST_NEXT, result, outcome, false);
+      s.loadMoreError = view;
+      s.failureSeq++;
+      this.startBlock(view);
+      this.emit();
+    });
+    return true;
+  }
+
+  /**
+   * 从详情返回（G17）：本次详情请求成功时，用详情里与 OrderSummary 同名的字段替换同 order_id 的那一行；其余行、筛选、搜索词、
+   * 滚动位置不动，不额外请求列表。显示缓存时不改（不把新数据混进旧快照）。
+   */
+  replaceRow(detail: OrderRecord): boolean {
+    const id: string | null = OrderJson.nonEmpty(detail, 'order_id');
+    const s: OrderListSnapshot = this.state;
+    if (this.left || id === null || s.stale || OrderJson.order(detail) === null) {
+      return false;
+    }
+    let changed: boolean = false;
+    const items: OrderRecord[] = s.items.map((item: OrderRecord): OrderRecord => {
+      if (OrderJson.text(item, 'order_id') !== id) {
+        return item;
+      }
+      changed = true;
+      return OrderJson.summaryOf(detail);
+    });
+    if (changed) {
+      s.items = items;
+      this.emit();
+    }
+    return changed;
+  }
+
+  /**
+   * 换账号、登出、会话失效、撤回同意（App 在状态同步的同步区里调）：作废全部在途请求，清掉结果与条件，回到未加载；不显示旧账号的数据。
+   */
+  resetForSession(): void {
+    this.begin();
+    this.gate.reset();
+    this.boundScope = this.d.scope();
+    const round: number = this.query.round + 1;
+    this.query = OrderQuery.initial(null);
+    this.query.round = round;
+    const s: OrderListSnapshot = new OrderListSnapshot();
+    s.round = round;
+    s.failureSeq = this.state.failureSeq;
+    s.sessionEpoch = this.state.sessionEpoch + 1;
+    this.state = s;
+    this.syncConditions();
+    this.emit();
+  }
+
+  /** 页面实例销毁（App 退出前的兜底）：之后迟到的响应一律丢弃。 */
+  leave(): void {
+    this.left = true;
+    this.begin();
+    this.unsubscribe();
+  }
+
+  private syncConditions(): void {
+    const s: OrderListSnapshot = this.state;
+    s.scope = this.query.scope;
+    s.group = this.query.group;
+    s.platform = this.query.platform;
+    s.month = this.query.month;
+    s.q = this.query.q;
+    s.filtered = this.query.filtered;
+  }
+
+  /** 第一页（新轮次）。keepItems：下拉刷新时保留已有结果。 */
+  private run(keepItems: boolean): void {
+    if (this.left) {
+      return;
+    }
+    const seq: number = this.begin();
+    this.boundScope = this.d.scope();
+    const round: OrderQuery = this.query.copy();
+    const s: OrderListSnapshot = this.state;
+    s.round = round.round;
+    s.loadingMore = false;
+    s.loadMoreError = null;
+    s.error = null;
+    if (keepItems && (s.phase === OrderPhase.CONTENT || s.phase === OrderPhase.EMPTY)) {
+      s.refreshing = true;
+    } else {
+      s.refreshing = false;
+      s.items = [];
+      s.hasMore = false;
+      s.stale = false;
+      s.earliestVisibleDate = null;
+      s.phase = OrderPhase.LOADING;
+    }
+    if (this.gate.active) {
+      // 限流只限制发送（APP-06a 第 19 条）：条件照常更新，页面保持限流错误。
+      s.refreshing = false;
+      s.items = [];
+      s.hasMore = false;
+      s.stale = false;
+      s.error = this.gate.heldView(OrderErrorAction.LIST_FIRST, this.query.filtered);
+      s.phase = OrderPhase.ERROR;
+      this.emit();
+      return;
+    }
+    this.emit();
+    this.send(seq, round).then((result: ApiResult) => {
+      if (!this.accept(seq)) {
+        return;
+      }
+      s.refreshing = false;
+      const outcome: OrderOutcome = new OrderOutcome(result);
+      if (outcome.sendBlocked) {
+        // 退避、重签、刷新后的重放被共享闸门拦下（R2-01）：与收到 42901 同样处理（不发、不用缓存、显示限流错误）。
+        s.shownSeq = seq;
+        s.failureSeq++;
+        s.items = [];
+        s.stale = false;
+        s.hasMore = false;
+        s.error = this.gate.heldView(OrderErrorAction.LIST_FIRST, round.filtered);
+        s.phase = OrderPhase.ERROR;
+        this.emit();
+        return;
+      }
+      if (outcome.ok) {
+        const data: OrderRecord = result.data as OrderRecord;
+        s.items = OrderJson.summaries(data);
+        s.earliestVisibleDate = OrderJson.earliestVisibleDate(data);
+        s.stale = false;
+        s.staleFetchedAt = 0;
+        s.error = null;
+        s.phase = s.items.length > 0 ? OrderPhase.CONTENT : OrderPhase.EMPTY;
+        s.shownSeq = seq;
+        this.applyCursor(OrderJson.nextCursor(data));
+        const cache: OrderStaleCache | null = this.d.cache;
+        if (cache !== null && OrderStaleCache.isCacheable('list', round.params())) {
+          cache.saveList(round.scope, data);
+        }
+        this.emit();
+        return;
+      }
+      const cached: OrderCacheEntry | null = this.cachedFor(round, outcome, result);
+      const view: OrderErrorView = this.errorView(OrderErrorAction.LIST_FIRST, result, outcome, cached !== null);
+      s.shownSeq = seq;
+      s.failureSeq++;
+      if (view.actionRaw === OrderErrorAction.SHOW_STALE && cached !== null) {
+        s.items = OrderJson.summaries(cached.data);
+        s.earliestVisibleDate = OrderJson.earliestVisibleDate(cached.data);
+        s.stale = true;
+        s.staleFetchedAt = cached.fetchedAt;
+        s.hasMore = false;
+        s.phase = s.items.length > 0 ? OrderPhase.CONTENT : OrderPhase.EMPTY;
+        // stale 状态下不能翻页：列表底部显示同一网络错误与【重试】（重新加载第一页）。
+        s.loadMoreError = new OrderErrorView(OrderErrorAction.map(OrderErrorAction.LIST_NEXT, null, true, {}, null, false,
+          false), -1, '');
+        s.error = null;
+        this.emit();
+        return;
+      }
+      s.items = [];
+      s.stale = false;
+      s.hasMore = false;
+      s.error = view;
+      s.phase = OrderPhase.ERROR;
+      this.startBlock(view);
+      this.emit();
+    });
+  }
+
+  /** 传输层失败、默认视图：读缓存（读不出、损坏按没有）。 */
+  private cachedFor(round: OrderQuery, outcome: OrderOutcome, result: ApiResult): OrderCacheEntry | null {
+    const cache: OrderStaleCache | null = this.d.cache;
+    if (cache === null || !outcome.transport || OrderOutcome.cancelled(result) || round.filtered) {
+      return null;
+    }
+    return cache.loadList(round.scope);
+  }
+
+  private errorView(target: string, result: ApiResult, outcome: OrderOutcome, hasCache: boolean): OrderErrorView {
+    const transport: boolean = outcome.transport;
+    const action: Record<string, JSONValue> = OrderErrorAction.map(target, transport ? null : outcome.code, transport,
+      outcome.headers, result.traceId, hasCache, this.query.filtered);
+    return new OrderErrorView(action, outcome.code, result.traceId);
+  }
+
+  private applyCursor(next: string | null): void {
+    this.query.apply('next_page', next);
+    this.state.hasMore = next !== null;
+  }
+
+  private startBlock(view: OrderErrorView): void {
+    if (view.actionRaw !== OrderErrorAction.RETRY_AFTER || view.disableMs <= 0) {
+      return;
+    }
+    this.gate.start(view.disableMs, view);
+  }
+
+  /** 新请求开始：旧序号立即失效，并取消旧请求的传输。 */
+  private begin(): number {
+    this.seq++;
+    this.current = this.seq;
+    const owners: (() => boolean)[] = this.owners;
+    this.owners = [];
+    for (const owner of owners) {
+      this.d.api.cancelOwned(owner);
+    }
+    return this.seq;
+  }
+
+  private alive(seq: number): boolean {
+    return !this.left && this.current === seq && this.d.scope() === this.boundScope;
+  }
+
+  /** 等待之后复核：序号仍是当前、页面没离开、会话归属没变。 */
+  private accept(seq: number): boolean {
+    if (!this.alive(seq)) {
+      return false;
+    }
+    this.owners = [];
+    return true;
+  }
+
+  private send(seq: number, round: OrderQuery): Promise<ApiResult> {
+    const request: ApiRequest = new ApiRequest('listOrders', {}, round.queryString());
+    const owner: () => boolean = (): boolean => this.alive(seq);
+    request.owner = owner;
+    request.sendAllowed = this.gate.sendAllowed;
+    this.owners.push(owner);
+    return guardedOrder(this.d.api.request(request));
+  }
+
+  private emit(): void {
+    this.state.blocked = this.gate.active;
+    this.onChange(this.state);
+  }
+}
+
+/**
+ * 进程回收后的滚动锚点恢复（共性第 10 条；APP-06a 第 40、42、43 条）：保存时记下稳定的订单标识（列表顶部可见那一行的 order_id）与当时的
+ * 查询条件；恢复后每次快照调 resolve：
+ * - 条件已不同（换了子 Tab、筛选、搜索词）→ 放弃（DROPPED）；
+ * - 还在加载、目标订单还没加载出来 → 继续等（WAIT），不丢弃恢复任务（翻页加载到它时再对齐）；
+ * - 目标已在列表里 → 返回它的下标，由页面在布局就绪后做一次顶对齐，之后不再生效（只对齐一次）。
+ */
+export class OrderScrollAnchor {
+  static readonly WAIT: number = -1;
+  static readonly DROPPED: number = -2;
+  private target: string | null;
+  private readonly conditions: string;
+  /** 因条件变了（用户换子 Tab、筛选、搜索词）而放弃（区别于首屏失败 / 空结果放弃）。 */
+  droppedByConditions: boolean = false;
+
+  constructor(target: string, conditions: string) {
+    this.target = target.length > 0 ? target : null;
+    this.conditions = conditions;
+  }
+
+  get pending(): boolean {
+    return this.target !== null;
+  }
+
+  resolve(items: OrderRecord[], conditions: string, phase: string): number {
+    const target: string | null = this.target;
+    if (target === null) {
+      return OrderScrollAnchor.DROPPED;
+    }
+    if (conditions !== this.conditions || phase === OrderPhase.EMPTY || phase === OrderPhase.ERROR) {
+      this.target = null;
+      this.droppedByConditions = conditions !== this.conditions;
+      return OrderScrollAnchor.DROPPED;
+    }
+    if (phase !== OrderPhase.CONTENT) {
+      return OrderScrollAnchor.WAIT;
+    }
+    for (let i = 0; i < items.length; i++) {
+      if (OrderJson.text(items[i], 'order_id') === target) {
+        this.target = null;
+        return i;
+      }
+    }
+    return OrderScrollAnchor.WAIT;
+  }
+
+  /** 会话变化、用户换条件：放弃。 */
+  cancel(): void {
+    this.target = null;
+  }
+}
+
+/**
+ * 滚动锚点的持久化（共性第 10、17 条；R2-05）：页面状态里存的锚点由它给出。
+ * - 进程回收后恢复（begin）：恢复进行中保留原持久化锚点（目标 order_id），冻结普通滚动记录（首屏、加载中的滚动回调不覆盖它）；
+ *   目标加载出来、页面完成一次顶对齐（aligned）后才解冻，之后按滚动照常更新。二次回收发生在恢复完成前时，下次仍按原锚点恢复。
+ * - 用户换条件（子 Tab、筛选、搜索词）导致恢复放弃：明确解冻，锚点清空（新条件从顶部开始）。
+ * - 首屏失败 / 空结果放弃恢复（H20）：解冻，但保留原锚点（之后重试成功时由滚动记录覆盖）。
+ * - 会话变化：清空（reset）。
+ */
+export class OrderAnchorKeeper {
+  private anchorId: string = '';
+  private restore: OrderScrollAnchor | null = null;
+  /** 已找到目标、等页面布局就绪后对齐（这段时间同样冻结）。 */
+  private aligning: boolean = false;
+  /**
+   * 恢复任务编号（R3-02；共性第 24 条）：每次 begin、reset、取消对齐加 1。页面排入的布局等待回调绑定它，执行前经 commitAlign 复核。
+   */
+  private task: number = 0;
+  /** 进入对齐时的条件（编码）：回调执行前条件变了即作废。 */
+  private alignConditions: string = '';
+
+  /** 要写进页面状态的锚点（稳定的 order_id；在顶部为空串）。 */
+  get anchor(): string {
+    return this.anchorId;
+  }
+
+  /** 恢复进行中（含等对齐）：普通滚动记录冻结。 */
+  get frozen(): boolean {
+    return this.restore !== null || this.aligning;
+  }
+
+  /** 当前恢复任务编号（页面排入布局等待回调时记下，回调执行前交给 commitAlign 复核）。 */
+  get ticket(): number {
+    return this.task;
+  }
+
+  /** 恢复任务绑定的查询轮次（-1 = 还没看到第一份快照）：轮次变了（用户换筛选、搜索、下拉刷新）即放弃（共性第 21 条）。 */
+  private boundRound: number = -1;
+
+  /** 进程回收后恢复：target 为持久化的锚点，conditions 为当时的条件（编码）。 */
+  begin(target: string, conditions: string): void {
+    this.task++;
+    this.anchorId = target;
+    this.aligning = false;
+    this.boundRound = -1;
+    this.restore = target.length > 0 ? new OrderScrollAnchor(target, conditions) : null;
+  }
+
+  /**
+   * 每次快照调：返回目标下标（≥0：页面在布局就绪后顶对齐一次，然后调 aligned）、WAIT（继续等）或 DROPPED（没有恢复任务 / 已放弃）。
+   */
+  resolve(items: OrderRecord[], conditions: string, phase: string, round: number = -1): number {
+    const r: OrderScrollAnchor | null = this.restore;
+    if (r === null) {
+      if (this.aligning && round >= 0 && round !== this.boundRound) {
+        // 目标已找到、等布局对齐期间开了新一轮查询（R3-02）：作废对齐任务，待执行的回调不得再滚动或持久化。
+        this.cancelAlign();
+      }
+      return OrderScrollAnchor.DROPPED;
+    }
+    if (round >= 0 && this.boundRound < 0) {
+      this.boundRound = round;
+    }
+    if (round >= 0 && round !== this.boundRound) {
+      // 恢复等待期间开了新一轮查询（用户换了筛选或搜索、下拉刷新）：取消旧恢复任务，不用旧条件覆盖新条件。
+      r.cancel();
+      this.restore = null;
+      this.aligning = false;
+      this.anchorId = '';
+      return OrderScrollAnchor.DROPPED;
+    }
+    const index: number = r.resolve(items, conditions, phase);
+    if (index === OrderScrollAnchor.WAIT) {
+      return index;
+    }
+    this.restore = null;
+    if (index === OrderScrollAnchor.DROPPED) {
+      this.aligning = false;
+      if (r.droppedByConditions) {
+        this.anchorId = '';
+      }
+      return index;
+    }
+    this.aligning = true;
+    this.alignConditions = conditions;
+    return index;
+  }
+
+  /**
+   * 布局等待回调执行前调（R3-02；共性第 24 条）：ticket 为排入回调时的任务编号，round、conditions 为此刻列表的查询轮次与条件（编码）。
+   * 仍是同一恢复任务、同一轮次、同一条件才解冻并返回 true（页面随后滚动并持久化）；任务已换（begin / reset / 已取消）返回 false 不改动；
+   * 轮次或条件变了则取消对齐（锚点清空、解冻）并返回 false。返回 false 时页面不得滚动或持久化。
+   */
+  commitAlign(ticket: number, round: number, conditions: string): boolean {
+    if (!this.aligning || ticket !== this.task) {
+      return false;
+    }
+    if ((round >= 0 && round !== this.boundRound) || conditions !== this.alignConditions) {
+      this.cancelAlign();
+      return false;
+    }
+    this.aligning = false;
+    return true;
+  }
+
+  /** 取消等待中的对齐（新一轮查询、条件变化）：任务作废、锚点清空并解冻。 */
+  private cancelAlign(): void {
+    this.task++;
+    this.aligning = false;
+    this.anchorId = '';
+  }
+
+  /** 页面完成了顶对齐（或布局失败退回顶部）：解冻。 */
+  aligned(): void {
+    this.aligning = false;
+  }
+
+  /** 滚动后顶部可见的订单（在顶部为空串）：冻结中忽略；返回是否变了（变了要持久化）。 */
+  visible(orderId: string): boolean {
+    if (this.frozen || orderId === this.anchorId) {
+      return false;
+    }
+    this.anchorId = orderId;
+    return true;
+  }
+
+  /** 会话变化：清空并解冻。 */
+  reset(): void {
+    this.task++;
+    this.anchorId = '';
+    this.restore = null;
+    this.aligning = false;
+    this.boundRound = -1;
+  }
+}
+
+/**
+ * 订单页状态（进程回收后恢复）的编码：账号短标识 + 条件 + 滚动锚点 + 输入框文字。AppOrders 读写偏好时用它，测试用同一份编解码。
+ */
+export class OrderPageState {
+  readonly account: string;
+  readonly conditions: string;
+  readonly anchor: string;
+  readonly input: string;
+
+  constructor(account: string, conditions: string, anchor: string, input: string) {
+    this.account = account;
+    this.conditions = conditions;
+    this.anchor = anchor;
+    this.input = input;
+  }
+
+  encode(): string {
+    const record: Record<string, JSONValue> = {};
+    record['account'] = this.account;
+    record['conditions'] = this.conditions;
+    record['anchor'] = this.anchor;
+    record['input'] = this.input;
+    return JSON.stringify(record);
+  }
+
+  static decode(text: string | null): OrderPageState | null {
+    if (text === null) {
+      return null;
+    }
+    try {
+      const r: OrderRecord | null = OrderJson.objectOf(JSON.parse(text) as Object);
+      if (r === null) {
+        return null;
+      }
+      return new OrderPageState(OrderJson.text(r, 'account') ?? '', OrderJson.text(r, 'conditions') ?? '',
+        OrderJson.text(r, 'anchor') ?? '', OrderJson.text(r, 'input') ?? '');
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+/**
+ * 订单 Tab 根的页面状态恢复与持久化（R3-01；共性第 23 条）。订单 Tab 根在冷启动时会被隐藏挂载（AppShell 同时构建各 Tab 根），
+ * 页面 aboutToAppear → apply → onPersist 早于 Tab 第一次显示时的恢复：恢复决策（读取并校验同一账号的记录、装锚点与条件）完成之前，
+ * persist 一律不写盘，初始的默认条件与空锚点不得覆盖恢复记录。AppOrders 读写偏好时用它，测试用同一份。
+ */
+export class OrderPageRestorer {
+  private readonly read: () => string | null;
+  private readonly write: (value: string | null) => void;
+  private readonly account: () => string | null;
+  readonly keeper: OrderAnchorKeeper;
+  private decided: boolean = false;
+  /** 恢复出的输入框文字（同一账号的记录才有）。 */
+  input: string = '';
+
+  constructor(read: () => string | null, write: (value: string | null) => void, account: () => string | null,
+    keeper: OrderAnchorKeeper) {
+    this.read = read;
+    this.write = write;
+    this.account = account;
+    this.keeper = keeper;
+  }
+
+  /** 恢复决策已完成（之后才允许持久化）。 */
+  get restoreDecided(): boolean {
+    return this.decided;
+  }
+
+  /**
+   * Tab 第一次显示：读取并校验恢复记录（同一账号的才用；路由 scope 与记录不同则不恢复条件），先装锚点再装条件（list.restore 会同步通知
+   * 页面并持久化，恢复进行中写的仍是原锚点，R2-05）；没有可恢复的条件时从顶部开始。
+   */
+  restore(list: OrderListController, routeScope: string | null): void {
+    const saved: OrderPageState | null = OrderPageState.decode(this.read());
+    const account: string | null = this.account();
+    let conditions: OrderListConditions | null = null;
+    let anchor: string = '';
+    this.input = '';
+    if (saved !== null && account !== null && saved.account === OrderStaleCache.accountTag(account)) {
+      conditions = OrderListConditions.decode(saved.conditions);
+      this.input = saved.input;
+      anchor = saved.anchor;
+    }
+    if (conditions !== null && routeScope !== null && routeScope !== conditions.scope) {
+      conditions = null;
+    }
+    this.keeper.begin(conditions !== null ? anchor : '', conditions !== null ? conditions.encode() : '');
+    this.decided = true;
+    list.restore(conditions, routeScope);
+  }
+
+  /** 页面状态写盘：账号短标识 + 条件 + 滚动锚点。恢复决策完成前（隐藏挂载的初始快照）不写。 */
+  persist(list: OrderListController): void {
+    if (!this.decided) {
+      return;
+    }
+    const account: string | null = this.account();
+    if (account === null) {
+      return;
+    }
+    this.write(new OrderPageState(OrderStaleCache.accountTag(account), list.conditions().encode(), this.keeper.anchor,
+      '').encode());
+  }
+
+  /** 会话变化（共性第 19 条）：删记录、清锚点与待恢复输入。 */
+  reset(): void {
+    this.write(null);
+    this.keeper.reset();
+    this.input = '';
+  }
+}

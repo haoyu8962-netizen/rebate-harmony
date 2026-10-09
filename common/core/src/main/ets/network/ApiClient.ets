@@ -221,6 +221,12 @@ export class ApiRequest {
    * 「已写出但结果未知」。null = 不观察。
    */
   onAdmit: ((admitted: boolean) => void) | null = null;
+  /**
+   * 发送闸门（APP-08 harmony-review-r2 R2-01，共性第 13 条）：每一次实际发送前（首发、GET 自动重试退避之后、10401 校时重签、
+   * 刷新或设备重新注册后的重放，以及 TransportRequest.admit）都核对；返回 false（或抛错）就不发，以 local_reject /
+   * send_blocked 结束。与 owner 不同，它不参与响应到达后的归属核对（已发出的请求照常收响应）。null = 不限制。
+   */
+  sendAllowed: (() => boolean) | null = null;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -369,6 +375,8 @@ class CallContext {
   pendingEverUnknown: boolean = false;
   /** 调用方的归属守卫（ApiRequest.owner；lessons 13、16）。 */
   owner: (() => boolean) | null = null;
+  /** 调用方的发送闸门（ApiRequest.sendAllowed；只在每次实际发送前核对）。 */
+  sendAllowed: (() => boolean) | null = null;
 
   constructor(id: number) {
     this.id = id;
@@ -809,6 +817,7 @@ export class ApiClient {
     this.ensureRestrictedBarrier();
     const ctx: CallContext = this.bind(operation);
     ctx.owner = request.owner;
+    ctx.sendAllowed = request.sendAllowed;
     return this.runCall(new Attempt(request, operation, false, false, ctx));
   }
 
@@ -1265,6 +1274,19 @@ export class ApiClient {
     return admitted;
   }
 
+  /** 调用方的发送闸门此刻放行（没有闸门为放行；闸门抛错按不放行）。 */
+  private static sendPermitted(ctx: CallContext): boolean {
+    const gate: (() => boolean) | null = ctx.sendAllowed;
+    if (gate === null) {
+      return true;
+    }
+    try {
+      return gate();
+    } catch (e) {
+      return false;
+    }
+  }
+
   /** 调用方的归属守卫仍成立（没有守卫为成立；守卫抛错按不成立）。 */
   private static ownerValid(ctx: CallContext): boolean {
     const owner: (() => boolean) | null = ctx.owner;
@@ -1443,6 +1465,11 @@ export class ApiClient {
         this.settle(ctx, lastKind);
         return this.lostResult(lost);
       }
+      if (!ApiClient.sendPermitted(ctx)) {
+        // 调用方的发送闸门（如订单 42901 共享限流）此刻不准发：退避、重签、重放之后同样不发（R2-01）。
+        this.settle(ctx, lastKind);
+        return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
+      }
       if (sent > 0) {
         prepared = this.prepare(op, request, key);
         if (prepared.rejected !== null) {
@@ -1458,7 +1485,8 @@ export class ApiClient {
         this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
       }
       response = await this.send(new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery, headers,
-        request.body, plan.timeoutMillis, (): boolean => ApiClient.observeAdmit(request, this.ownershipLost(ctx) === null)),
+        request.body, plan.timeoutMillis, (): boolean => ApiClient.observeAdmit(request,
+          this.ownershipLost(ctx) === null && ApiClient.sendPermitted(ctx))),
         ctx.owner);
       const afterSend: string | null = this.ownershipLost(ctx);
       if (afterSend !== null) {
@@ -1466,6 +1494,11 @@ export class ApiClient {
         // 未决记录按真实响应结算到原账号。
         this.settle(ctx, ApiClient.responseKind(response));
         return this.lostResult(afterSend);
+      }
+      if (response.failure === TransportFailure.CANCELLED && !ApiClient.sendPermitted(ctx)) {
+        // 传输层交出前的最后核对（admit）被发送闸门拦下：没有发出（R2-01）。
+        this.settle(ctx, lastKind);
+        return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
       }
       if (response.failure === TransportFailure.NONE) {
         const envelope: Envelope | null = Envelope.parse(response.body);

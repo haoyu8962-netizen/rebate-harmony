@@ -17,6 +17,8 @@ import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer } from './DebugFakeServer';
 import { DebugWechatAdapter } from './DebugWechatAdapter';
 import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugJumpPorts, DebugWebCodeAuthorizer } from './DebugFakeTrade';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
+import { DebugFakeOrders } from './DebugFakeOrders';
+import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -174,6 +176,19 @@ export class BuildVariant {
     if (typeof tradeScene === 'string') {
       DebugFakeTrade.scene = tradeScene;
       hilog.info(0x0000, 'Couli', 'trade scene %{public}s %{public}s', tradeScene, DebugFakeTrade.marker);
+    }
+    // APP-08：`--ps couli_debug_orders_scene <scene>` 选订单假服务场景（offline 截 OrdersStale；hidden_claim；见 DebugFakeOrders）。
+    const ordersScene: Object | undefined = want.parameters?.['couli_debug_orders_scene'];
+    if (typeof ordersScene === 'string') {
+      DebugFakeOrders.scene = ordersScene;
+      hilog.info(0x0000, 'Couli', 'orders scene %{public}s %{public}s', ordersScene, DebugFakeOrders.marker);
+    }
+    // APP-08：`--ps couli_debug_open_order <order_id>` 热启动时经 Router 打开订单详情（截图用；外壳就绪后才执行，守卫照常）。
+    const openOrder: Object | undefined = want.parameters?.['couli_debug_open_order'];
+    if (typeof openOrder === 'string' && openOrder.length > 0 && AppRouting.shared.presentationReady) {
+      const params: Record<string, Object> = {};
+      params['order_id'] = openOrder;
+      AppRouting.shared.openInApp('OrderDetail', params);
     }
     // APP-07：`--ps couli_debug_clip <样例>` 把演示样例写进系统剪贴板（模拟别的 App 复制，截图用）。
     const clip: Object | undefined = want.parameters?.['couli_debug_clip'];

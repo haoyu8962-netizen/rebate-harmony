@@ -71,17 +71,37 @@ export class FakeTimer implements NetworkTimer {
   readonly delays: number[] = [];
   onBackoff: () => void = () => {
   };
+  /** 为 true 时退避（≤ 1 秒）也挂起，直到 releaseBackoffs()（APP-08 R2-01：在退避期间插入别的请求）。 */
+  holdBackoff: boolean = false;
   private pending: (() => void)[] = [];
+  private backoffs: (() => void)[] = [];
 
   delay(millis: number): Promise<void> {
     this.delays.push(millis);
     if (millis <= 1000) {
       this.onBackoff();
+      if (this.holdBackoff) {
+        return new Promise<void>((resolve: () => void) => {
+          this.backoffs.push(resolve);
+        });
+      }
       return Promise.resolve();
     }
     return new Promise<void>((resolve: () => void) => {
       this.pending.push(resolve);
     });
+  }
+
+  get heldBackoffs(): number {
+    return this.backoffs.length;
+  }
+
+  releaseBackoffs(): void {
+    const list: (() => void)[] = this.backoffs;
+    this.backoffs = [];
+    for (const resolve of list) {
+      resolve();
+    }
   }
 
   fire(): void {

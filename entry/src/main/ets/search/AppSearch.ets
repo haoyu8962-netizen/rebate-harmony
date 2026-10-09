@@ -23,6 +23,10 @@ import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from './SearchDraftTexts';
 import { AppClipboard } from '../clipboard/AppClipboard';
 import { SearchPasteArea } from '../clipboard/ClipboardViews';
+import { AppOrders, PendingTrackHost } from '../orders/AppOrders';
+import { PendingTrackArea } from '../orders/PendingTrackViews';
+import { CouliSpacing } from 'designsystem';
+import { PendingTrackJumpWatcher } from 'core';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliSearch';
@@ -547,6 +551,20 @@ export struct AppSearchPage {
   @Param param: Object = new RouteDestination(SEARCH_ROUTE);
   private config: SearchPageConfig | null = null;
   private trade: TradeBinder | null = null;
+  /** APP-08 G07 ②：从本页列表卡外跳购买、回到前台后拉一次待跟单卡，只显示同平台那一张。 */
+  private pending: PendingTrackHost | null = null;
+  private watcher: PendingTrackJumpWatcher | null = null;
+
+  @Builder
+  pendingSlot() {
+    if (this.pending !== null) {
+      Column() {
+        PendingTrackArea({ ui: this.pending.ui })
+      }
+      .width('100%')
+      .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2 })
+    }
+  }
 
   /** APP-07：SearchTyping「粘贴查返利」与粘贴结果（30132【用商品名搜索】填进本页搜索框，rule-gaps A15）。 */
   @Builder
@@ -569,6 +587,24 @@ export struct AppSearchPage {
     // APP-06b：卡片上的购买交给本页的购买执行器（浮层盖在列表上）。
     this.trade = AppSearch.shared.searchTrade(this.config);
     this.trade.attachUi(this.getUIContext());
+    this.attachPending(this.config, this.trade);
+  }
+
+  /** 待跟单卡：点购买时开始计，外跳执行后回到前台拉一次（APP-06b 的外跳回前台时机）。 */
+  private attachPending(config: SearchPageConfig, trade: TradeBinder): void {
+    const host: PendingTrackHost = AppOrders.shared.pendingHost();
+    const watcher: PendingTrackJumpWatcher = AppOrders.shared.jumpWatcher(host);
+    this.pending = host;
+    this.watcher = watcher;
+    const buy: (card: Record<string, Object>) => void = config.onBuyIntent;
+    config.onBuyIntent = (card: Record<string, Object>): void => {
+      const platform: Object | undefined = card['platform'];
+      if (typeof platform === 'string') {
+        watcher.buyStarted(platform as string);
+      }
+      buy(card);
+    };
+    trade.controller.onJumped = (platform: string): void => watcher.jumpedOut(platform);
   }
 
   build() {
@@ -578,6 +614,8 @@ export struct AppSearchPage {
           SearchView({
             config: this.config, pasteSlot: (): void => {
               this.pasteSlot()
+            }, pendingSlot: (): void => {
+              this.pendingSlot()
             }
           })
         }
@@ -599,12 +637,14 @@ export struct AppSearchPage {
       if (this.trade !== null) {
         AppTrade.shared.pageVisible(this.trade.controller, false);
       }
+      this.watcher?.onBackground();
     })
     .onShown((): void => {
       this.config?.onCovered(false);
       if (this.trade !== null) {
         AppTrade.shared.pageVisible(this.trade.controller, true);
       }
+      this.watcher?.onForeground();
     })
     .onWillDisappear((): void => {
       // APP-07：出栈的同步出口，本页发起的粘贴读取与 parse 一并作废。
@@ -617,6 +657,10 @@ export struct AppSearchPage {
       if (this.trade !== null) {
         AppTrade.shared.release(this.trade.controller);
       }
+      if (this.pending !== null) {
+        AppOrders.shared.releaseHost(this.pending);
+        this.pending = null;
+      }
     })
   }
 }
@@ -627,6 +671,16 @@ export struct AppProductPage {
   @Param param: Object = new RouteDestination(PRODUCT_ROUTE);
   private config: ProductPageConfig | null = null;
   private trade: TradeBinder | null = null;
+  /** APP-08 G07 ②：从本页外跳购买、回到前台后拉一次待跟单卡，只显示同平台那一张（设计稿 ProductPendingTrack）。 */
+  private pending: PendingTrackHost | null = null;
+  private watcher: PendingTrackJumpWatcher | null = null;
+
+  @Builder
+  pendingSlot() {
+    if (this.pending !== null) {
+      PendingTrackArea({ ui: this.pending.ui })
+    }
+  }
 
   private identity: DetailIdentity = new DetailIdentity();
 
@@ -635,6 +689,17 @@ export struct AppProductPage {
     // APP-06b：购买交给本页的购买执行器（浮层盖在详情上）。
     this.trade = AppSearch.shared.productTrade(this.config);
     this.trade.attachUi(this.getUIContext());
+    const host: PendingTrackHost = AppOrders.shared.pendingHost();
+    const watcher: PendingTrackJumpWatcher = AppOrders.shared.jumpWatcher(host);
+    this.pending = host;
+    this.watcher = watcher;
+    const productConfig: ProductPageConfig = this.config;
+    const buy: (product: Record<string, Object>, publicMode: boolean) => void = productConfig.onBuyIntent;
+    productConfig.onBuyIntent = (product: Record<string, Object>, publicMode: boolean): void => {
+      watcher.buyStarted(productConfig.platform);
+      buy(product, publicMode);
+    };
+    this.trade.controller.onJumped = (platform: string): void => watcher.jumpedOut(platform);
     this.identity.platform = this.config.platform;
     this.identity.productKey = this.config.productKey;
     this.identity.itemRef = this.config.itemRef;
@@ -658,7 +723,11 @@ export struct AppProductPage {
     NavDestination() {
       Stack() {
         if (this.config !== null) {
-          ProductDetailView({ config: this.config })
+          ProductDetailView({
+            config: this.config, pendingSlot: (): void => {
+              this.pendingSlot()
+            }
+          })
         }
         if (this.trade !== null) {
           TradeOverlay({ model: this.trade.overlay })
@@ -675,14 +744,20 @@ export struct AppProductPage {
       if (this.trade !== null) {
         AppTrade.shared.pageVisible(this.trade.controller, false);
       }
+      this.watcher?.onBackground();
     })
     .onShown((): void => {
       // 回到本页（含登录页关掉）：等前台的自动动作、登录后的购买待办（BR-ID-10）。
       if (this.trade !== null) {
         AppTrade.shared.pageVisible(this.trade.controller, true);
       }
+      this.watcher?.onForeground();
     })
     .onWillDisappear((): void => {
+      if (this.pending !== null) {
+        AppOrders.shared.releaseHost(this.pending);
+        this.pending = null;
+      }
       this.config?.controller.leave();
       AppSearch.shared.detailLeft(this.identity);
       // 购买执行器同步作废：在途 open 取消、本页登记的购买待办删除（APP-06b）。

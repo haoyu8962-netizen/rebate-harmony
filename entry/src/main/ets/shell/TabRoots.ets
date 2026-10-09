@@ -4,7 +4,6 @@ import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from '../search/SearchDraftTexts';
 import { MeActions, meTabRootBuilder } from 'me';
 import { TradeDraftTexts } from '../trade/TradeDraftTexts';
-import { ordersTabRootBuilder } from 'orders';
 import { TabBarItem } from 'designsystem';
 import { ShellDraftTexts } from './ShellDraftTexts';
 import { homeClipboardBuilder } from '../clipboard/ClipboardViews';
@@ -36,6 +35,21 @@ export function shellTabItems(): TabBarItem[] {
 }
 
 /**
+ * entry 里组合的 Tab 根页（APP-08 订单）：由 RootPage 在构建前填入。TabRoots 不直接 import 订单页（订单页依赖 AppOrders 等组合处，
+ * 静态 import 会让 BuildVariant → DebugPanel → AppPrivacy → ShellState → TabRoots 的链提前求值 AppTrade，形成模块循环）。
+ */
+export class TabRootSlots {
+  static orders: WrappedBuilder<[boolean]> | null = null;
+}
+
+@Builder
+function ordersSlotBuilder(readonlyMode: boolean) {
+  if (TabRootSlots.orders !== null) {
+    (TabRootSlots.orders as WrappedBuilder<[boolean]>).builder(readonlyMode)
+  }
+}
+
+/**
  * Tab 根页注册表：路由名 → Feature 导出的 builder（经各 Feature 的 Index 公开入口，不 import Feature 内部类型；
  * 外壳只认路由名，03 §3.1）。参数 readonlyMode：基本模式等只读打开。
  */
@@ -62,7 +76,8 @@ export class TabRootRegistry {
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));
     m.set('AgentChat', wrapBuilder(agentTabRootBuilder));
-    m.set('OrderList', wrapBuilder(ordersTabRootBuilder));
+    // 订单 Tab（APP-08）：entry 组合的列表页（Core 执行器 + features/orders 页面 + 待跟单卡）。
+    m.set('OrderList', wrapBuilder(ordersSlotBuilder));
     m.set('Me', wrapBuilder(meTabRootBuilder));
     return m;
   }

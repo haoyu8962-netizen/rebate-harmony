@@ -175,6 +175,30 @@ export {
   ClipboardController, ClipboardResultBinding, ClipboardPromptBinding
 } from './src/main/ets/clipboard/ClipboardController';
 export { PurchaseModalRegistry } from './src/main/ets/clipboard/PurchaseModalRegistry';
+// orders（APP-08）：订单列表、详情与待跟单卡的纯逻辑（向量 specs/order-vectors.json）与执行层（页面在 features/orders 与 entry）。
+export { OrderRecord, OrderJson } from './src/main/ets/orders/OrderJson';
+export { OrderDraftTexts } from './src/main/ets/orders/OrderDraftTexts';
+export {
+  ShanghaiClock, OrderStatusGroup, OrderScope, OrderPlatformOptions, OrderQuery, OrderMonthOptions, OrderNumberDisplay,
+  OrderTitleImage, OrderStatus, OrderStatusText, OrderAmountCells, CreditPeriodText, OrderTimelineView, OrderReason,
+  WhyNoRebate, PriceCompareEntry, OrderDetailActions, ViewProductEntry, PendingTrackCards, PendingTrackDismiss,
+  OrderErrorAction, OrderMessages
+} from './src/main/ets/orders/OrderPresentation';
+export {
+  OrderCacheStore, MemoryOrderCacheStore, OrderCacheEntry, OrderStaleCache, OrderCacheCleaner
+} from './src/main/ets/orders/OrderStaleCache';
+export {
+  OrderPhase, OrderErrorView, OrderOutcome, guardedOrder, OrderRateGate, OrderListSnapshot, OrderListDeps,
+  OrderListConditions, OrderListController, OrderScrollAnchor, OrderAnchorKeeper, OrderPageState,
+  OrderPageRestorer
+} from './src/main/ets/orders/OrderListController';
+export { OrderListEntries, OrderDetailEntries } from './src/main/ets/orders/OrderEntries';
+export { OrderDetailSnapshot, OrderDetailDeps, OrderDetailController } from './src/main/ets/orders/OrderDetailController';
+export { OrderSessionHub } from './src/main/ets/orders/OrderSessionHub';
+export {
+  PendingTrackCard, PendingTrackSnapshot, PendingTrackDeps, PendingTrackController, PendingTrackJumpWatcher, OrderCopy,
+  PendingDismissals, PendingPushRowSignal
+} from './src/main/ets/orders/PendingTrackController';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

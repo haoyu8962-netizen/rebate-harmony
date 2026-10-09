@@ -61,6 +61,11 @@ export class LocalRejectReason {
   /** 路径参数缺失。 */
   static readonly BAD_REQUEST: string = 'bad_request';
   /**
+   * 调用方的发送闸门（ApiRequest.sendAllowed）此刻不准发：这次（含 GET 自动重试、10401 重签、刷新或重新注册后的重放）没有发出
+   * （APP-08 harmony-review-r2 R2-01：订单 42901 共享限流在每次实际发包前拦截）。
+   */
+  static readonly SEND_BLOCKED: string = 'send_blocked';
+  /**
    * 发出后会话换了（登录、退出、切换账号，或令牌已不属于这次请求的账号）：不替新会话重放或重试旧请求
    * （harmony-review-r1 R1-01、R1-02）。
    */

@@ -180,7 +180,18 @@ class LiveController {
  * - 平台购买状态：点击结果确认的 50301（overrides，新配置到达前有效，共性第 5、6 条）优先，其次 features.platform_status。
  */
 export class AppTrade {
-  static readonly shared: AppTrade = new AppTrade();
+  private static instance: AppTrade | null = null;
+
+  /**
+   * 惰性创建（APP-08：模块求值顺序变化后，类体里的静态实例会在 BuildVariant 求值完成之前创建，读 BuildVariant.jumpPorts 报
+   * 「BuildVariant is not initialized」；改为第一次使用时创建，与 AppPrivacy.shared、ShellState.shared 同做法）。
+   */
+  static get shared(): AppTrade {
+    if (AppTrade.instance === null) {
+      AppTrade.instance = new AppTrade();
+    }
+    return AppTrade.instance;
+  }
   /** 系统外跳能力（attach Ability 上下文用）。 */
   private readonly harmonyPorts: HarmonyJumpPorts = new HarmonyJumpPorts();
   /** 执行器用的外跳端口：Release 就是 harmonyPorts；Debug / Staging 由 BuildVariant 包一层本机假服务的安装状态覆盖（共性第 42 条）。 */
