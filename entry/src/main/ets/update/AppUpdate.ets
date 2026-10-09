@@ -164,6 +164,19 @@ export class AppUpdate {
     this.refresh(true);
   }
 
+  /**
+   * 服务端已判定强更（APP-07：parse 外层成功、结果行 error_code=10405；共性第 21 条）：强制进 ForceUpdate，
+   * 不按缓存的最低版本比较（UpdateGate.onServerForced）。
+   */
+  onServerForced(): void {
+    const gate: UpdateGate | null = this.gate;
+    if (gate === null) {
+      return;
+    }
+    gate.onServerForced(Date.now());
+    this.refresh(true);
+  }
+
   /** 可关闭提示【暂不更新】：按提示时的目标版本（latest_version）记录。 */
   dismissPrompt(): void {
     const gate: UpdateGate | null = this.gate;

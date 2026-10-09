@@ -15,6 +15,7 @@ import { DebugUpdateChecker } from './DebugUpdate';
 import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer } from './DebugFakeServer';
 import { DebugWechatAdapter } from './DebugWechatAdapter';
 import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugWebCodeAuthorizer } from './DebugFakeTrade';
+import { DebugFakeClipboard } from './DebugFakeClipboard';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -139,6 +140,11 @@ export class BuildVariant {
     if (typeof tradeScene === 'string') {
       DebugFakeTrade.scene = tradeScene;
       hilog.info(0x0000, 'Couli', 'trade scene %{public}s %{public}s', tradeScene, DebugFakeTrade.marker);
+    }
+    // APP-07：`--ps couli_debug_clip <样例>` 把演示样例写进系统剪贴板（模拟别的 App 复制，截图用）。
+    const clip: Object | undefined = want.parameters?.['couli_debug_clip'];
+    if (typeof clip === 'string') {
+      DebugFakeClipboard.writeSample(clip as string);
     }
     const scene: Object | undefined = want.parameters?.['couli_debug_wechat_scene'];
     if (typeof scene === 'string') {

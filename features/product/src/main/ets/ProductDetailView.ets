@@ -37,6 +37,8 @@ export class ProductPageConfig {
   platform: string = '';
   productKey: string = '';
   itemRef: string | null = null;
+  /** 进程内的卡片种子（APP-07 剪贴板 parse 的卡，G09）：有就直接显示它、不重取，购买沿用卡上的 link_id。 */
+  seed: Record<string, Object> | null = null;
   onBack: () => void = () => {
   };
   /** 【问问 AI】（Router：AgentChat）。 */
@@ -125,7 +127,8 @@ export struct ProductDetailView {
     this.config.controller.onChange = (s: ProductSnapshot): void => {
       this.apply(s);
     };
-    this.config.controller.load(this.config.platform, this.config.productKey, this.config.itemRef);
+    this.config.controller.load(this.config.platform, this.config.productKey, this.config.itemRef,
+      this.config.seed);
   }
 
   aboutToDisappear(): void {

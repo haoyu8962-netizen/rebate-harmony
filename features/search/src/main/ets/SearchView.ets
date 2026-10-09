@@ -90,6 +90,17 @@ export class SearchPurchaseUi {
   };
 }
 
+/**
+ * 剪贴板粘贴区在搜索页的显示（APP-07；内容由 entry 的 pasteSlot 画，本模块不写中文）：
+ * - entryVisible：粘贴入口（系统 PasteButton）显示——还没搜（SearchTyping）、没有可搜平台、或 search_disabled 回落到其他平台后
+ *   （共性第 11 条：不只在 IDLE 或全平台不可用时）；
+ * 粘贴结果（30132 与【用商品名搜索】、轻提示）由 entry 在 pasteSlot 里按自己的状态显示，与搜索 phase 无关（共性第 10 条）。
+ */
+@ObservedV2
+export class SearchPasteUi {
+  @Trace entryVisible: boolean = true;
+}
+
 /** 页面的出口（entry 接 Router、网络与 App 能力）。 */
 export class SearchPageConfig {
   readonly controller: SearchController;
@@ -122,6 +133,8 @@ export class SearchPageConfig {
   };
   /** 购买流程的页内展示（App 的购买执行器写入）。 */
   readonly purchase: SearchPurchaseUi = new SearchPurchaseUi();
+  /** 剪贴板粘贴区的显示状态（APP-07；本页按搜索快照写 entryVisible）。 */
+  readonly paste: SearchPasteUi = new SearchPasteUi();
   /**
    * 进程被系统回收后重开时恢复的页面状态（共性第 20 条；entry 的 PageRestorer 交接，只给恢复出来的那一个页面实例）。
    * 有它时不看路由参数，按它恢复条件、未提交的输入与弹层草稿、滚动锚点。
@@ -140,6 +153,12 @@ export class SearchPageConfig {
    * 进后台前（EntryAbility.onBackground 经 entry 调）：按实际视口采集最新位置并同步落盘。页面接上后由 SearchView 设置。
    */
   saveNow: () => void = () => {
+  };
+  /**
+   * 把文字填进本页搜索框并搜索（APP-07：粘贴识别 30132 的【用商品名搜索】从本页发起时不另开一页，rule-gaps A15）。页面接上后由
+   * SearchView 设置；空串只清空输入、不搜。
+   */
+  fillAndSearch: (q: string) => void = (_q: string) => {
   };
 
   constructor(controller: SearchController, texts: SearchTexts) {
@@ -252,6 +271,8 @@ function fenToYuanText(fen: number | null): string {
 @ComponentV2
 export struct SearchView {
   @Param @Require config: SearchPageConfig;
+  /** 剪贴板粘贴区（APP-07，entry 给）：固定在头部下方，不随搜索 phase 切换（共性第 10、11 条）。 */
+  @BuilderParam pasteSlot: () => void = emptyPasteSlot;
   @Local model: SearchModel = new SearchModel();
   private inputController: TextInputController = new TextInputController();
   private listScroller: Scroller = new Scroller();
@@ -296,6 +317,12 @@ export struct SearchView {
     // 恢复任务发现列表被读屏、键盘等移动而让位时，保存用户当前的位置（共性第 38 条）。
     this.keeper.onTakeover = (): void => this.persist();
     this.config.onCovered = (covered: boolean): void => this.setCovered(covered);
+    this.config.fillAndSearch = (q: string): void => {
+      this.model.inputText = q;
+      if (q.trim().length > 0) {
+        this.submit();
+      }
+    };
     this.config.saveNow = (): void => {
       if (!life.alive) {
         return;
@@ -396,6 +423,8 @@ export struct SearchView {
 
   private apply(s: SearchSnapshot): void {
     const m: SearchModel = this.model;
+    this.config.paste.entryVisible = s.phase === SearchPhase.IDLE || s.phase === SearchPhase.UNAVAILABLE
+      || s.notice !== null;
     m.generation++;
     m.phase = s.phase;
     m.tabs = s.tabs.slice();
@@ -1173,6 +1202,8 @@ export struct SearchView {
       .backgroundColor(CouliColors.backgroundSurface)
       .border({ width: { bottom: 1 }, color: CouliColors.borderSubtle })
 
+      this.pasteSlot()
+
       if (this.model.phase === SearchPhase.IDLE) {
         Scroll() {
           Column() {
@@ -1292,4 +1323,8 @@ class ListScrollHost implements ScrollKeeperHost {
   measure(): ViewportTop | null {
     return this.measureFn();
   }
+}
+
+@Builder
+function emptyPasteSlot() {
 }

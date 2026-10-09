@@ -117,6 +117,7 @@ export class StoreChoice {
  * - result：最近一次成功检查的结果（冷启动在新结果回来之前按它判断已知强更）。
  * - lastSuccessAtMillis：最近一次成功检查的时刻（回前台复查间隔从它算起）。
  * - forcedBy10405 / forcedMinimum / forcedAppVersion：接口层 10405 带来的强更、带回的最低版本、收到时的本机版本（G15）。
+ * - forcedByServer：服务端已对本机判定强更（行内 10405，onServerForced）：对 forcedAppVersion 无条件 below_min，不按缓存最低版本比较。
  * - dismissedLatest：「暂不更新」时记下的目标版本（提示时的 latest_version）。
  */
 export class UpdatePersisted {
@@ -125,6 +126,7 @@ export class UpdatePersisted {
   forcedBy10405: boolean = false;
   forcedMinimum: string | null = null;
   forcedAppVersion: string | null = null;
+  forcedByServer: boolean = false;
   dismissedLatest: string | null = null;
 
   copy(): UpdatePersisted {
@@ -134,6 +136,7 @@ export class UpdatePersisted {
     c.forcedBy10405 = this.forcedBy10405;
     c.forcedMinimum = this.forcedMinimum;
     c.forcedAppVersion = this.forcedAppVersion;
+    c.forcedByServer = this.forcedByServer;
     c.dismissedLatest = this.dismissedLatest;
     return c;
   }
@@ -221,6 +224,7 @@ export class UpdateGate {
     next.forcedBy10405 = false;
     next.forcedMinimum = null;
     next.forcedAppVersion = null;
+    next.forcedByServer = false;
     this.store.save(next);
     this.inFlight = false;
     this.succeededThisProcess = true;
@@ -247,6 +251,19 @@ export class UpdateGate {
     const next: UpdatePersisted = this.store.load();
     next.forcedBy10405 = true;
     next.forcedMinimum = minSupported ?? next.forcedMinimum;
+    next.forcedAppVersion = this.appVersion;
+    this.store.save(next);
+  }
+
+  /**
+   * 服务端已判定强更（APP-07 共性第 21 条：parse 外层成功、结果行 error_code=10405，行内不带最低版本）：强制进 below_min，
+   * 不交给「按缓存最低版本比较」的判断——缓存的最低版本可能低于或等于当前版本，会把这次强更结论放掉。
+   * 只对收到时的 appVersion 成立（升级后失效，G15）；之后一次成功检查（apply）解除，与 on10405 相同。
+   */
+  onServerForced(now: number = this.clock()): void {
+    const next: UpdatePersisted = this.store.load();
+    next.forcedBy10405 = true;
+    next.forcedByServer = true;
     next.forcedAppVersion = this.appVersion;
     this.store.save(next);
   }
@@ -354,6 +371,11 @@ export class UpdateGate {
     if (persisted.forcedBy10405) {
       const minimum: string | null = UpdateGate.highest(persisted.forcedMinimum,
         result === null ? null : result.minSupported);
+      if (persisted.forcedByServer && persisted.forcedAppVersion === this.appVersion) {
+        // 服务端已判定强更（onServerForced）：不按缓存最低版本比较。目标版本只取高于本机的最低版本，否则为 null（选店要求高于本机）
+        const compared: number | null = minimum === null ? null : UpdateGate.compareOrNull(this.appVersion, minimum);
+        return new UpdateState(UpdateStatusRaw.BELOW_MIN, false, compared !== null && compared < 0 ? minimum : null);
+      }
       if (this.stillBelow10405Minimum(persisted, minimum)) {
         return new UpdateState(UpdateStatusRaw.BELOW_MIN, false, minimum);
       }

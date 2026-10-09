@@ -1,7 +1,7 @@
 import { common, OpenLinkOptions, Want } from '@kit.AbilityKit';
-import { pasteboard } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { InstalledState, JumpPorts, JumpTypes } from 'core';
+import { AppClipboard } from '../clipboard/AppClipboard';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliTrade';
@@ -65,13 +65,8 @@ export class HarmonyJumpPorts implements JumpPorts {
     }
   }
 
-  async copy(text: string): Promise<boolean> {
-    try {
-      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-      await pasteboard.getSystemPasteboard().setData(data);
-      return true;
-    } catch (e) {
-      return false;
-    }
+  /** 复制口令 copy_tpwd（APP-07）：经 App 唯一的写剪贴板入口，写入前先记 hash，识别时排除。 */
+  copy(text: string): Promise<boolean> {
+    return AppClipboard.shared.write(text);
   }
 }

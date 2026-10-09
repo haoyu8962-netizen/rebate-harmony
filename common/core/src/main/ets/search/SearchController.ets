@@ -718,7 +718,7 @@ export class SearchController {
    * 50304 + search_disabled（error-codes：不显示重试，刷新配置并隐藏该平台 Tab；BR-PROD-10）：本页先移除该平台，
    * 请求配置刷新，按可用平台回落（唯一入口 fallBack：本轮已关闭过的平台不再自动重搜）；没有可用平台就进入「无可搜索平台」。
    * 提示保留到用户下一次换条件。
-   * TODO(APP-07)：提示里的「粘贴商品链接查返利」入口随剪贴板识别接入。
+   * APP-07：提示保留期间页面照常显示「粘贴查返利」入口（SearchView 的 SearchPasteUi.entryVisible，共性第 11 条）。
    */
   private searchDisabled(view: SearchResultView, requested: string): void {
     const platform: string = view.platform ?? requested;
@@ -1072,7 +1072,12 @@ export class ProductDetailController {
     return this.state;
   }
 
-  load(platform: string, productKey: string, itemRef: string | null): void {
+  /**
+   * seed：进程内的卡片种子（APP-07 G09：剪贴板 parse 的卡，product_key 与路由参数一致时才用）：直接进内容态、不发 getProduct，
+   * 卡上的 link_id 原样保留给购买（entry_source=parse）。没有种子照常 getProduct。
+   */
+  load(platform: string, productKey: string, itemRef: string | null,
+    seed: Record<string, Object> | null = null): void {
     this.left = false;
     this.platform = platform;
     this.productKey = productKey;
@@ -1080,6 +1085,20 @@ export class ProductDetailController {
     this.state.purchaseStatus = this.currentPurchase();
     if (this.purchase !== null && this.unsubscribe === null) {
       this.unsubscribe = this.purchase.subscribe((): void => this.purchaseChanged());
+    }
+    if (seed !== null && seed['product_key'] === productKey) {
+      const seq: number = this.session.begin('seed');
+      this.session.accept(seq);
+      const s: ProductSnapshot = this.state;
+      s.shownSeq = seq;
+      s.product = seed;
+      s.view = ProductDetailState.map(seed, this.context());
+      s.phase = ProductPhase.CONTENT;
+      s.errorCode = 0;
+      s.errorTextKey = null;
+      s.creditNote = this.currentCredit();
+      this.emit();
+      return;
     }
     this.fetch();
   }

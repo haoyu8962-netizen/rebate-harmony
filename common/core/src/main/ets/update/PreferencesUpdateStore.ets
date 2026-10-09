@@ -26,6 +26,7 @@ interface StoredState {
   forcedBy10405: boolean;
   forcedMinimum: string | null;
   forcedAppVersion: string | null;
+  forcedByServer?: boolean;
   dismissedLatest: string | null;
 }
 
@@ -106,6 +107,7 @@ export class PreferencesUpdateStore implements UpdateStore {
       forcedBy10405: value.forcedBy10405,
       forcedMinimum: value.forcedMinimum,
       forcedAppVersion: value.forcedAppVersion,
+      forcedByServer: value.forcedByServer,
       dismissedLatest: value.dismissedLatest
     };
     return JSON.stringify(state);
@@ -133,6 +135,7 @@ export class PreferencesUpdateStore implements UpdateStore {
     out.forcedBy10405 = state.forcedBy10405 === true;
     out.forcedMinimum = PreferencesUpdateStore.text(state.forcedMinimum);
     out.forcedAppVersion = PreferencesUpdateStore.text(state.forcedAppVersion);
+    out.forcedByServer = state.forcedByServer === true;
     out.dismissedLatest = PreferencesUpdateStore.text(state.dismissedLatest);
     return out;
   }

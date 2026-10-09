@@ -15,6 +15,7 @@ import { AppSearch } from '../search/AppSearch';
 import { AppTrade } from '../trade/AppTrade';
 import { AppUpdate } from '../update/AppUpdate';
 import { AppBridge } from '../web/AppBridge';
+import { AppClipboard } from '../clipboard/AppClipboard';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -44,6 +45,8 @@ export default class EntryAbility extends UIAbility {
     AppClientCore.shared.compose(this.context);
     // APP-04：JSBridge 与两类 WebView 容器的接线（可信 origin、链接形态表、Router 目标白名单都读 ConfigStore）。
     AppBridge.attach(this.context);
+    // APP-07：剪贴板识别（鸿蒙只有 PasteButton）：系统剪贴板、ApiClient、Router、隐私与配置在这里接上；App 写剪贴板只经它的写入口。
+    AppClipboard.shared.compose(appContext);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
@@ -86,6 +89,8 @@ export default class EntryAbility extends UIAbility {
 
   /** 回前台（含冷启动后的第一次）：距上次成功的版本检查超过复查间隔再查（03 §4.1）。 */
   onForeground(): void {
+    // APP-07：一次回前台（冷启动后的第一次也算）：鸿蒙只判定跳过，不读剪贴板。
+    AppClipboard.shared.onForeground();
     AppUpdate.shared.onForeground();
     // 回前台带 ETag 拉配置（03 §4.3），埋点尝试上报一次；未完成的撤回清理再试一次（R1-06）。
     AppClientCore.shared.onForeground();
@@ -99,6 +104,8 @@ export default class EntryAbility extends UIAbility {
    * 滚动停下的回调与异步 flush）。
    */
   onBackground(): void {
+    // APP-07：进后台即作废（PasteButton 临时授权随之失效；在途读取与 parse 的迟到结果只丢弃）。
+    AppClipboard.shared.onBackground();
     AppSearch.shared.saveNow();
     // APP-06b：进入后台作废购买的续执行许可（在途响应之后只更新卡片、不外跳，03 §4.5）。
     AppTrade.shared.onAppBackground();

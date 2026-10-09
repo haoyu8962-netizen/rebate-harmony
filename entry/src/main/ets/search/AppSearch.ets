@@ -21,6 +21,8 @@ import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from './SearchDraftTexts';
+import { AppClipboard } from '../clipboard/AppClipboard';
+import { SearchPasteArea } from '../clipboard/ClipboardViews';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliSearch';
@@ -371,6 +373,8 @@ export class AppSearch {
       });
     binder.onState = (s: PurchaseState, modal: boolean): void => {
       ui.modal = modal;
+      // APP-07：模态购买弹层（AuthSheet、授权跳转等）出现即作废本页发起的粘贴读取与 parse（共性第 4 条）
+      AppClipboard.shared.purchaseModal(binder, modal);
       timeout.apply(s);
     };
     ui.onRetryTimeout = (): void => timeout.retry();
@@ -395,6 +399,7 @@ export class AppSearch {
     const timeout: PurchaseTimeoutBinding = new PurchaseTimeoutBinding(binder.controller,
       new ProductTimeoutView(config.purchase));
     binder.onState = (s: PurchaseState, modal: boolean): void => {
+      AppClipboard.shared.purchaseModal(binder, modal);
       const ui: ProductPurchaseUi = config.purchase;
       ui.buyState = s.phase === PurchasePhase.LOADING ? 'loading' : (s.rateLimited ? 'disabled' : '');
       ui.buyText = s.notInstalledCopied ? TradeDraftTexts.text(TradeKeys.COPY_TPWD) : '';
@@ -434,6 +439,8 @@ export class AppSearch {
     config.platform = stringParam(param, 'platform') ?? '';
     config.productKey = stringParam(param, 'product_key') ?? '';
     config.itemRef = stringParam(param, 'item_ref');
+    // APP-07 G09：从剪贴板 parse 打开的详情，以进程内的卡片种子显示（不重取，购买沿用 parse 卡的 link_id）
+    config.seed = AppClipboard.shared.takeSeed(param);
     config.onAskAi = (): void => {
       // TODO(AgentChat 任务)：带商品上下文（routes.json AgentChat.context）；APP-06a 只打开 AI 助手。
       AppRouting.shared.openInApp(AGENT_ROUTE);
@@ -521,6 +528,19 @@ export struct AppSearchPage {
   private config: SearchPageConfig | null = null;
   private trade: TradeBinder | null = null;
 
+  /** APP-07：SearchTyping「粘贴查返利」与粘贴结果（30132【用商品名搜索】填进本页搜索框，rule-gaps A15）。 */
+  @Builder
+  pasteSlot() {
+    if (this.config !== null) {
+      SearchPasteArea({
+        paste: this.config.paste,
+        fill: (q: string): void => {
+          this.config?.fillAndSearch(q);
+        }
+      })
+    }
+  }
+
   aboutToAppear(): void {
     this.config = AppSearch.shared.searchConfig(this.param);
     this.config.onBack = (): void => {
@@ -535,7 +555,11 @@ export struct AppSearchPage {
     NavDestination() {
       Stack() {
         if (this.config !== null) {
-          SearchView({ config: this.config })
+          SearchView({
+            config: this.config, pasteSlot: (): void => {
+              this.pasteSlot()
+            }
+          })
         }
         if (this.trade !== null) {
           TradeOverlay({ model: this.trade.overlay })
@@ -548,6 +572,8 @@ export struct AppSearchPage {
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack || (this.trade !== null && this.trade.overlay.back()))
     .onHidden((): void => {
+      // APP-07：被盖住即作废本页发起的粘贴读取与 parse（回到同一实例也不恢复，共性第 2 条）。
+      AppClipboard.shared.pageLeft();
       // 被详情等页面盖住：冻结滚动记录（共性第 29、32 条）；作废购买的续执行许可（APP-06b 共性第 3 条）。
       this.config?.onCovered(true);
       if (this.trade !== null) {
@@ -561,6 +587,8 @@ export struct AppSearchPage {
       }
     })
     .onWillDisappear((): void => {
+      // APP-07：出栈的同步出口，本页发起的粘贴读取与 parse 一并作废。
+      AppClipboard.shared.pageLeft();
       // 真正出栈的同步出口：执行器、滚动恢复任务、页面回调一起作废，页面状态作废（之后重开不恢复；共性第 29、39 条）。
       if (this.config !== null) {
         AppSearch.shared.searchWillDisappear(this.config);

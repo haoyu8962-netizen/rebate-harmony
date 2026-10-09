@@ -10,6 +10,7 @@ import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
 import { AppUpdate } from '../update/AppUpdate';
+import { AppClipboard } from '../clipboard/AppClipboard';
 import { LoginDraftTexts } from './LoginDraftTexts';
 
 const DOMAIN: number = 0x0000;
@@ -182,6 +183,8 @@ export class AppLogin {
     }
     const config: LoginPageConfig = new LoginPageConfig(service, this.texts);
     config.restricted = restricted;
+    // APP-07：邀请码行【粘贴】（PasteButton）与游客邀请确认的预填（进入验证码页时取一次）。
+    AppClipboard.shared.bindLogin(config, restricted);
     config.sessionExpired = this.sessionExpiredPending;
     this.sessionExpiredPending = false;
     // LoginPublicHarmony 的【华为账号登录】：HM-08 / APP-13 才做，只在 Debug / Staging 构建显示占位（版式比对用），Release 不显示。

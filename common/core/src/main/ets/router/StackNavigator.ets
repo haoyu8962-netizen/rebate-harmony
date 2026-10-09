@@ -38,6 +38,12 @@ export class StackNavigator implements RouteNavigator {
   /** reset([]) 回首页时首页 Tab 的只读标记来源。 */
   homeReadonly: () => boolean = () => false;
   /**
+   * 导航栈经本类改动之后的同步通知（APP-07：剪贴板识别的「当前前台界面」，页面被覆盖、出栈、清栈即作废发起页的读取与请求，
+   * 共性第 2、3 条）。参数为改动后自底向上的页面名。系统返回等不经本类的出栈由页面的 onWillDisappear 另行通知。
+   */
+  onStackChanged: (names: string[]) => void = (_names: string[]) => {
+  };
+  /**
    * 页面确定被移出导航栈的同步出口（APP-05a harmony-review-r2 R2-01，共性 9）：remove / 清栈（reset、Tab 根路由）在改动导航栈
    * 之前、同一同步区内按页面名逐个通知。组件的 aboutToDisappear 要等退场动画结束才执行，迟到的响应会落在这段空档里，
    * 所以「离开这一页就作废」的逻辑接在这里；系统返回等不经本类的出栈由页面的 NavDestination.onWillDisappear 兜住。
@@ -84,6 +90,15 @@ export class StackNavigator implements RouteNavigator {
       this.notifyRemoved([name]);
     }
     this.stack.removeByName(name);
+    this.stackChanged();
+  }
+
+  private stackChanged(): void {
+    try {
+      this.onStackChanged(this.pathNames());
+    } catch (e) {
+      // 监听方出错不影响导航。
+    }
   }
 
   /** 清空到导航根：先通知栈里每个页面（同名只通知一次），再清。 */
@@ -129,11 +144,13 @@ export class StackNavigator implements RouteNavigator {
     if (this.tabRootHandler(destination)) {
       // Tab 根页：回到导航根并切 Tab（03 §4.4 Tab 外壳；只读标记随 destination 保留）。
       this.clearStack(this.stack);
+      this.stackChanged();
       return;
     }
     const name: string = destination.route ?? UPGRADE_PROMPT_PAGE;
     this.stack.pushPathByName(name, destination);
     this.pushCounts.set(name, this.pushCount(name) + 1);
+    this.stackChanged();
   }
 
   reset(destinations: RouteDestination[]): void {
@@ -144,11 +161,13 @@ export class StackNavigator implements RouteNavigator {
     if (destinations.length === 0) {
       // 回到首页：Router 打开 Home 时调 reset([])，首页 Tab 的只读标记按当时的结论。
       this.tabRootHandler(new RouteDestination(RoutePolicy.HOME, {}, this.homeReadonly()));
+      this.stackChanged();
       return;
     }
     for (const d of destinations) {
       this.push(d);
     }
+    this.stackChanged();
   }
 
   requestConsent(): void {

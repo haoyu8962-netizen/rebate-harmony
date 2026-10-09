@@ -162,6 +162,18 @@ export {
 export {
   BaichuanOpenResult, BaichuanAuthResult, BAICHUAN_APP_KEY_PLACEHOLDER, BaichuanAdapter, UnavailableBaichuan
 } from './src/main/ets/tradejump/Baichuan';
+// clipboard（APP-07）：剪贴板识别的纯逻辑（向量 specs/clipboard-vectors.json）与执行层（PasteButton 与页面在 entry / features）。
+export {
+  ClipboardRules, ClipboardText, InviteCodeExtractor, ClipboardSensitive, ClipboardReadDecision, ClipboardReadPolicy,
+  ClipboardPromptStamp, ClipboardContext, ClipboardClassification, ClipboardClassifier, ClipboardHashStore,
+  MemoryClipboardHashStore, ClipboardWriteLedger, PromptHistory, ParseRow, ParseAction, ParseResultAction,
+  ManualPasteDecision, ManualPasteAction, InviteEligibility, InviteConfirmDecision, InviteConfirmAction
+} from './src/main/ets/clipboard/Clipboard';
+export {
+  PasteboardPort, ClipboardWriter, ParseOutcome, ParseInputService, ClipboardWatcher, InvitePrefill, ProductSeeds,
+  ClipboardPromptView, ClipboardResultView, ClipboardNoticeText, ClipboardSnapshot, InvitePasteOutcome, PasteOutcome, ClipboardDeps,
+  ClipboardController, ClipboardResultBinding, ClipboardPromptBinding
+} from './src/main/ets/clipboard/ClipboardController';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

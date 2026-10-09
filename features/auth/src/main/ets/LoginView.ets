@@ -5,7 +5,7 @@ import {
 import {
   CodeCellLayout, CouliButton, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
-  CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
+  CouliPasteButton, CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
 } from 'designsystem';
 
 /**
@@ -74,6 +74,16 @@ export interface LoginTexts {
   format(key: string, vars: Map<string, string>): string;
 }
 
+/**
+ * 邀请码行【粘贴】（APP-07，LoginCodeInvite；鸿蒙为系统 PasteButton，读屏名由系统提供）：available 为 entry 判定可以放粘贴入口
+ * （已同意隐私政策、不是受限登录）；blocked 为 42901 禁用期（按钮置灰，执行层另拦）。
+ */
+@ObservedV2
+export class LoginInvitePasteUi {
+  @Trace available: boolean = false;
+  @Trace blocked: boolean = false;
+}
+
 /** 页面的出口（entry 接 Router 与 App 能力）。 */
 export class LoginPageConfig {
   readonly service: LoginService;
@@ -110,6 +120,16 @@ export class LoginPageConfig {
   /** 10405（受限登录查不到账号 no_account 等）：提示先更新后回到强更页（BR-ID-01 细则「受限登录」）。 */
   onForceUpdate: () => void = () => {
   };
+  /** 邀请码【粘贴】的显示状态（APP-07）。 */
+  readonly invitePaste: LoginInvitePasteUi = new LoginInvitePasteUi();
+  /**
+   * 邀请码【粘贴】被点（success = PasteButton 结果为 SUCCESS）：entry 读剪贴板只抽码，返回要填进输入框的码；抽不到、被限流、
+   * 不能读时返回 null（轻提示由 entry 给；不清空已有输入，BR-INV-04）。
+   */
+  onInvitePaste: (success: boolean) => Promise<string | null> = (_s: boolean): Promise<string | null> =>
+  Promise.resolve(null);
+  /** 进入验证码步时取一次游客邀请确认留下的预填码（APP-07 G16，取走即丢弃）；没有为 null。 */
+  takeInvitePrefill: () => string | null = (): string | null => null;
   /** 系统返回（页面挂上后由 LoginView 设置）：验证码步先回手机号步，返回 true；手机号步返回 false，交给导航关闭。 */
   systemBack: () => boolean = () => false;
   /**
@@ -382,6 +402,11 @@ export struct LoginView {
     this.model.codeText = '';
     this.model.codeError = '';
     this.model.step = LoginModel.STEP_CODE;
+    // APP-07 G16：游客从剪贴板邀请确认过来的码，进入验证码页时填一次（之后以用户输入为准；受限登录不显示邀请码）。
+    const prefill: string | null = this.config.restricted ? null : this.config.takeInvitePrefill();
+    if (prefill !== null && this.model.inviteText.length === 0) {
+      this.model.inviteText = prefill;
+    }
     // 倒计时按这个号码保存的截止时间现算（_seconds 与之相同，只作说明）。
     this.refreshTimers();
   }
@@ -807,9 +832,23 @@ export struct LoginView {
   @Builder
   inviteField() {
     Column({ space: CouliSpacing.space2 }) {
-      Text(this.t(LoginKeys.INVITE_LABEL))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-        .accessibilityLevel('no')
+      Row({ space: CouliSpacing.space2 }) {
+        Text(this.t(LoginKeys.INVITE_LABEL))
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          .accessibilityLevel('no')
+          .layoutWeight(1)
+        if (this.config.invitePaste.available) {
+          // LoginCodeInvite 邀请码行右侧【粘贴】：系统 PasteButton，SUCCESS 后才读，只抽码填入（APP-07）
+          CouliPasteButton({
+            disabled: this.config.invitePaste.blocked,
+            buttonId: 'login_invite_paste',
+            onResult: (success: boolean) => {
+              this.pasteInvite(success);
+            }
+          })
+        }
+      }
+      .width('100%')
       Row() {
         TextInput({ text: this.model.inviteText, placeholder: this.t(LoginKeys.INVITE_PLACEHOLDER) })
           .maxLength(32)
@@ -849,6 +888,13 @@ export struct LoginView {
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
+  }
+
+  private async pasteInvite(success: boolean): Promise<void> {
+    const code: string | null = await this.config.onInvitePaste(success);
+    if (code !== null) {
+      this.model.inviteText = code;
+    }
   }
 
   private inviteDecision(): InviteDecision {

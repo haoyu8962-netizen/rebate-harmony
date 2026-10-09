@@ -1,0 +1,59 @@
+import { DefaultTexts } from 'generated';
+
+/**
+ * 剪贴板识别（APP-07）里契约 texts.default.json 还没有的文案键（规则空白 G11，needs.md N-30）：照规划原文（BR-TEXT-14、BR-INV-04）或设计稿
+ * HomeClipboard、HomeClipboardInvite、SearchTyping、LoginCodeInvite、ShareHubInvalid 逐字集中放在这一处。三端同名（iOS / Android / 鸿蒙
+ * ClipboardDraftTexts）。有键的（clipboard.prompt、clipboard.invite_prompt、error.*）一律读 DefaultTexts，不放这里。
+ * 鸿蒙的读取按钮是系统 PasteButton（文字「粘贴」与读屏名由系统提供），所以 clipboard.prompt.action 等只用于普通按钮（邀请确认）。
+ * 设置页「打开 App 自动识别剪贴板」开关只在 Android（鸿蒙没有自动识别），这里不放 settings.clipboard_auto。
+ *
+ * TODO(N-30) 整张表都是「待定稿，不得提审」：契约补键后删除本文件、改读 DefaultTexts；提审前（QA-07）必须替换。
+ */
+export class ClipboardDraftTexts {
+  /** TODO(N-30) 待定稿，不得提审。键 → 草稿文字。 */
+  static readonly DRAFTS: Map<string, string> = ClipboardDraftTexts.build();
+
+  private static build(): Map<string, string> {
+    const m: Map<string, string> = new Map<string, string>();
+    // ---- HomeClipboardInvite：邀请确认条的按钮（设计稿按钮字「粘贴」；读屏名）与关闭
+    m.set('clipboard.invite_prompt.action', '粘贴');
+    m.set('clipboard.invite_prompt.action_label', '粘贴并绑定邀请人');
+    m.set('clipboard.prompt.close', '关闭');
+    // ---- 首页「粘贴链接，先查返利」卡（HomeClipboard / Main / HomeGuest）
+    m.set('clipboard.home_card.title', '粘贴链接，先查返利');
+    m.set('clipboard.home_card.subtitle', '支持淘宝、京东、拼多多');
+    // ---- SearchTyping 粘贴入口旁的说明文字（系统按钮旁边的说明，BR-ID-16「粘贴查返利」）
+    m.set('clipboard.paste_entry.hint', '复制了商品链接？点下方按钮识别并查返利');
+    // ---- 30132 的【用商品名搜索】（BR-TEXT-14 表 A；ShareHubInvalid 的提示样式）
+    m.set('clipboard.search_by_name', '用商品名搜索');
+    m.set('clipboard.notice.close', '关闭');
+    // ---- 多卡弹层（没有专稿，按搜索卡样式列出，标题措辞待定稿）
+    m.set('clipboard.card_list.title', '识别到的商品');
+    m.set('clipboard.card_list.close', '关闭');
+    // ---- 登录验证码页邀请码行【粘贴】（LoginCodeInvite）抽不到时的轻提示（BR-INV-04「未识别到邀请码」）
+    m.set('clipboard.login_invite.not_found', '未识别到邀请码');
+    return m;
+  }
+
+  static text(key: string): string {
+    const raw: string = DefaultTexts.text(key) ?? ClipboardDraftTexts.DRAFTS.get(key) ?? DefaultTexts.fallback(key) ?? '';
+    if (/\{[a-z0-9_]+\}/.test(raw)) {
+      return DefaultTexts.fallback(key) ?? raw.replace(/\{[a-z0-9_]+\}/g, '');
+    }
+    return raw;
+  }
+
+  /** 带 {变量}：值为空或仍有没填上的变量时用 fallback（BR-TEXT-14：缺变量回退）。 */
+  static format(key: string, vars: Map<string, string>): string {
+    let text: string = DefaultTexts.text(key) ?? ClipboardDraftTexts.DRAFTS.get(key) ?? '';
+    vars.forEach((value: string, name: string) => {
+      if (value.length > 0) {
+        text = text.split('{' + name + '}').join(value);
+      }
+    });
+    if (/\{[a-z0-9_]+\}/.test(text)) {
+      return DefaultTexts.fallback(key) ?? text.replace(/\{[a-z0-9_]+\}/g, '');
+    }
+    return text;
+  }
+}

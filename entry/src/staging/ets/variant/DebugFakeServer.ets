@@ -5,6 +5,7 @@ import {
   HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
 } from 'core';
 import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
+import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeTrade } from './DebugFakeTrade';
 
 class Waiting {
@@ -57,7 +58,7 @@ export class DebugFakeServer implements HttpTransport {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
     const search: FakeAnswer | null = DebugFakeTrade.answer(request.url, request.method,
-      request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url);
+      request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url, request.body);
     const delay: number = search === null ? 400 : search.delayMillis;
     return new Promise<TransportResponse>((resolve: (r: TransportResponse) => void) => {
       const timer: number = setTimeout(() => {
@@ -83,7 +84,11 @@ export class DebugFakeServer implements HttpTransport {
   }
 
   /** APP-06a 的接口（配置、搜索、详情）；其余为 null。 */
-  private searchAnswer(url: string): FakeAnswer | null {
+  private searchAnswer(url: string, body: string | null): FakeAnswer | null {
+    if (url.indexOf('/v1/inputs/parse') >= 0) {
+      // APP-07：剪贴板 parse（DebugFakeClipboard 按上传片段里的场景词回答）
+      return DebugFakeClipboard.answer(body);
+    }
     if (url.indexOf('/v1/config') >= 0) {
       return DebugFakeSearch.config();
     }

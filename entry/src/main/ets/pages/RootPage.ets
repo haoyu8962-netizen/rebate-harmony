@@ -23,6 +23,7 @@ import { AppBindPhonePage, AppLoginPage, destinationReadonly, SettingsPlaceholde
 import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 import { AppProductPage, AppSearch, AppSearchPage } from '../search/AppSearch';
 import { AuthManagePage } from '../trade/AuthManagePage';
+import { AppClipboard } from '../clipboard/AppClipboard';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -222,14 +223,20 @@ struct RootPage {
         .onAppear(() => {
           // 从弹窗里打开的协议页返回到宿主页（导航根，或强更页等 NavDestination，R2-02）：弹窗重新出现。
           this.pathStack.setInterception({
+            willShow: (_from: NavDestinationContext | NavBar, _to: NavDestinationContext | NavBar) => {
+              // APP-07：系统返回等不经 StackNavigator 的栈变化，在转场开始时同步给剪贴板识别（当前前台界面）。
+              AppClipboard.shared.stackChanged(this.pathStack.getAllPathName());
+            },
             didShow: (_from: NavDestinationContext | NavBar, _to: NavDestinationContext | NavBar) => {
               AppPrivacy.shared.navigationShown(this.pathStack.getAllPathName());
+              AppClipboard.shared.stackChanged(this.pathStack.getAllPathName());
             }
           });
           AppRouting.shared.attachNavigation(this.pathStack);
           // 登录成功后的邀请结果提示用根页的界面上下文（登录页已出栈）。
           AppLogin.shared.attachUi(this.getUIContext());
           AppSearch.shared.attachUi(this.getUIContext());
+          AppClipboard.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {

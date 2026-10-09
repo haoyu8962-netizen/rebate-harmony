@@ -353,7 +353,7 @@ export class BridgeHandlers {
     }
   }
 
-  /** clipboard.write：写系统剪贴板（协议层已要求最近 1 秒内有用户点击）；写失败 90500。 */
+  /** clipboard.write：写系统剪贴板（协议层已要求最近 1 秒内有用户点击；App 侧经唯一写入口先记 hash，APP-07）；写失败 90500。 */
   static clipboardWrite(write: (text: string) => Promise<boolean>): BridgeHandler {
     return async (call: BridgeCall): Promise<BridgeResult> => {
       const ok: boolean = await write(call.params['text'] as string);
@@ -361,7 +361,7 @@ export class BridgeHandlers {
     };
   }
 
-  /** clipboard.setAutoDetect：保存自动识别开关；保存失败 90500。 */
+  /** clipboard.setAutoDetect：发起容器实例的临时抑制（APP-07 G06，App 侧实现，不写本机存储）；失败 90500。 */
   static clipboardAutoDetect(save: (enabled: boolean) => boolean): BridgeHandler {
     return (call: BridgeCall): Promise<BridgeResult> => {
       const ok: boolean = save(call.params['enabled'] === true);

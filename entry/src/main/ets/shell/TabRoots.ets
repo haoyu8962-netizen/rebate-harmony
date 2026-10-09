@@ -7,6 +7,7 @@ import { TradeDraftTexts } from '../trade/TradeDraftTexts';
 import { ordersTabRootBuilder } from 'orders';
 import { TabBarItem } from 'designsystem';
 import { ShellDraftTexts } from './ShellDraftTexts';
+import { homeClipboardBuilder } from '../clipboard/ClipboardViews';
 
 /** 一个底部 Tab：根页的路由名（routes.json）、名称、图标。 */
 export class ShellTab {
@@ -51,6 +52,8 @@ export class TabRootRegistry {
     HomeActions.openSearch = (): void => {
       AppRouting.shared.openInApp('Search');
     };
+    // APP-07：首页剪贴板区（粘贴卡、邀请确认条、结果提示）在搜索框下方；基本模式（只读首页）不显示、不读。
+    HomeActions.clipboardArea = wrapBuilder(homeClipboardBuilder);
     // 「我的」顶部的授权管理入口（APP-06b 共性第 14 条）：经 Router 打开 AuthManage（auth=login：游客先登录；基本模式先补同意）。
     MeActions.authManageLabel = TradeDraftTexts.text('auth_manage.entry');
     MeActions.openAuthManage = (): void => {

@@ -52,6 +52,8 @@ import openPurchaseIntegrationTest from './OpenPurchaseIntegration.test';
 import openPurchaseReviewR1Test from './OpenPurchaseReviewR1.test';
 import openPurchaseReviewR2Test from './OpenPurchaseReviewR2.test';
 import openPurchaseReviewR3Test from './OpenPurchaseReviewR3.test';
+import clipboardVectorTest from './ClipboardVector.test';
+import clipboardIntegrationTest from './ClipboardIntegration.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -113,4 +115,6 @@ export default function testsuite() {
   openPurchaseReviewR1Test();
   openPurchaseReviewR2Test();
   openPurchaseReviewR3Test();
+  clipboardVectorTest();
+  clipboardIntegrationTest();
 }

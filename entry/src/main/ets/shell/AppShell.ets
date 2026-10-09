@@ -145,6 +145,7 @@ export struct AppShell {
           VariantHomeOverlay(this.pathStack)
         }
         .width('100%')
+        .alignItems(HorizontalAlign.Center)
         .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space1,
           bottom: CouliSpacing.space4 })
       }

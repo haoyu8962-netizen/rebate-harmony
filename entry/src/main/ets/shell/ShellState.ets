@@ -28,12 +28,20 @@ export class ShellState {
     return SHELL_TABS.findIndex((tab: ShellTab) => tab.route === route);
   }
 
+  /**
+   * 切 Tab 生效之前的同步通知（APP-07：剪贴板识别的「当前前台界面」，离开首页即作废发起的读取与请求，共性第 3 条）。
+   * 参数为目标 Tab 根路由与基本模式页标记。
+   */
+  static onTabWillChange: (route: string, basicMode: boolean) => void = (_r: string, _b: boolean) => {
+  };
+
   /** Router 打开了一个 Tab 根路由：切过去并记下只读标记。不是 Tab 根路由时返回 false（照常入栈）。 */
   showRoot(destination: RouteDestination): boolean {
     const index: number = destination.route === null ? -1 : ShellState.indexOf(destination.route);
     if (index < 0) {
       return false;
     }
+    ShellState.onTabWillChange(destination.route as string, destination.readonly);
     const flags: boolean[] = this.readonlyFlags.slice();
     flags[index] = destination.readonly;
     this.readonlyFlags = flags;

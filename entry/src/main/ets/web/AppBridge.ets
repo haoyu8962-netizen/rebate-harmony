@@ -1,14 +1,13 @@
 import { bundleManager, common } from '@kit.AbilityKit';
-import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
-import { preferences } from '@kit.ArkData';
+import { deviceInfo } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiRequest, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
-  BridgeStatePort, ClientEvent, ConfigStore, CouliPreferences, EnvironmentGate, EnvironmentSwitchGate,
+  ApiClient, ApiRequest, ClipboardController, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
+  BridgeStatePort, ClientEvent, ConfigStore, EnvironmentGate, EnvironmentSwitchGate,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
   GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
-  PrivacyState, RequestSigner, RouteRequest, RouteSource, RouteTargetAllowlist, Sha256, UpdateCheckStatus, UpdateState
+  PrivacyState, RouteRequest, RouteSource, RouteTargetAllowlist, UpdateCheckStatus, UpdateState
 } from 'core';
 import { BundledConfig } from 'generated';
 import { BridgeEnvInfo, ExternalWebConfig, TrustedWebConfig } from 'web';
@@ -21,11 +20,10 @@ import { AppRouting } from '../routing/AppRouting';
 import { AppUpdate } from '../update/AppUpdate';
 import { HARMONY_CHANNEL } from '../update/HarmonyStoreAccess';
 import { WebDraftTexts } from './WebDraftTexts';
+import { AppClipboard } from '../clipboard/AppClipboard';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliBridge';
-/** 剪贴板自动识别开关（clipboard.setAutoDetect）在 couli_app 里的键；随环境清理（TODO(APP-剪贴板识别)：识别器读它）。 */
-const AUTO_DETECT_KEY: string = 'clipboard.auto_detect';
 const LOGIN_ROUTE: string = 'Login';
 
 /**
@@ -153,8 +151,11 @@ export class AppBridge {
     }
   }
 
-  /** 新建一个容器用的宿主（每个容器一个：在途 id 按容器隔离）。 */
-  static createHost(page: string, state: BridgeStatePort): BridgeHost {
+  /** 网页容器实例的编号（clipboard.setAutoDetect 的临时抑制按容器实例记，APP-07 G06）。 */
+  private static containerSerial: number = 0;
+
+  /** 新建一个容器用的宿主（每个容器一个：在途 id 按容器隔离）。containerId：容器实例编号（剪贴板抑制用）。 */
+  static createHost(page: string, state: BridgeStatePort, containerId: string = AppBridge.nextContainerId()): BridgeHost {
     const host: BridgeHost = new BridgeHost(state);
     host.page = page;
     host.track = (event: ClientEvent): void => {
@@ -191,8 +192,16 @@ export class AppBridge {
     AppClientCore.shared.requestPermission(type, false, valid).then((r: PermissionResult): boolean => r.granted)));
     host.register('clipboard.write', BridgeHandlers.clipboardWrite((text: string): Promise<boolean> =>
     AppBridge.writeClipboard(text)));
-    host.register('clipboard.setAutoDetect', BridgeHandlers.clipboardAutoDetect((enabled: boolean): boolean =>
-    AppBridge.saveAutoDetect(enabled)));
+    // APP-07 G06：只对发起调用的这个容器实例生效的临时抑制，容器出栈即失效；不写本机存储、不改任何设置。
+    // 鸿蒙没有自动识别（只有 PasteButton），抑制只记在执行层的判定状态里。
+    host.register('clipboard.setAutoDetect', BridgeHandlers.clipboardAutoDetect((enabled: boolean): boolean => {
+      const controller: ClipboardController | null = AppClipboard.shared.controller;
+      if (controller === null) {
+        return false;
+      }
+      controller.setWebAutoDetect(containerId, enabled);
+      return true;
+    }));
     host.register('track.event', BridgeHandlers.track(page, (event: ClientEvent): boolean =>
     AppClientCore.shared.track(event)));
     return host;
@@ -228,41 +237,27 @@ export class AppBridge {
     return wait.run(hostValid);
   }
 
-  /** 剪贴板最近一次由本 App 写入的文本哈希（03 §4.6：之后识别时不把它当成用户复制的口令）。 */
-  static lastWrittenHash: string | null = null;
+  static nextContainerId(): string {
+    AppBridge.containerSerial++;
+    return 'web-' + AppBridge.containerSerial;
+  }
 
-  static async writeClipboard(text: string): Promise<boolean> {
-    try {
-      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-      await pasteboard.getSystemPasteboard().setData(data);
-      AppBridge.lastWrittenHash = RequestSigner.hex(Sha256.digest(RequestSigner.utf8(text)));
-      return true;
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'clipboard write failed');
-      return false;
-    }
+  /** 网页容器出栈：它的剪贴板抑制随之失效（G06）。 */
+  static containerClosed(containerId: string): void {
+    AppClipboard.shared.controller?.webClosed(containerId);
+  }
+
+  /**
+   * clipboard.write（03 §4.6；APP-07 brief §2.3）：经 App 唯一的写剪贴板入口，写入前先记 hash（最近 10 条），之后识别时排除。
+   */
+  static writeClipboard(text: string): Promise<boolean> {
+    return AppClipboard.shared.write(text);
   }
 
   private static context: common.UIAbilityContext | null = null;
 
   static attach(context: common.UIAbilityContext): void {
     AppBridge.context = context;
-  }
-
-  static saveAutoDetect(enabled: boolean): boolean {
-    const context: common.UIAbilityContext | null = AppBridge.context;
-    if (context === null) {
-      return false;
-    }
-    try {
-      const store: preferences.Preferences =
-        preferences.getPreferencesSync(context, { name: CouliPreferences.APP_NAMESPACE });
-      store.putSync(AUTO_DETECT_KEY, enabled);
-      store.flush();
-      return true;
-    } catch (e) {
-      return false;
-    }
   }
 
   static envInfo(): BridgeEnvInfo {
@@ -286,8 +281,10 @@ export class AppBridge {
   /** 可信容器配置（WebPage 路由；Debug 一致性入口传自己的 state）。 */
   static trustedConfig(url: string, fromForceUpdatePage: boolean, onClose: () => void,
     state: BridgeStatePort = new AppBridgeState(fromForceUpdatePage)): TrustedWebConfig {
-    const config: TrustedWebConfig = new TrustedWebConfig(url, AppBridge.createHost('WebPage', state),
+    const containerId: string = AppBridge.nextContainerId();
+    const config: TrustedWebConfig = new TrustedWebConfig(url, AppBridge.createHost('WebPage', state, containerId),
       (): string[] => state.trustedOrigins(), AppBridge.envInfo());
+    AppBridge.containers.set(config, containerId);
     config.onClose = onClose;
     config.onExternal = (target: string): void => {
       const params: Record<string, Object> = {};
@@ -298,6 +295,17 @@ export class AppBridge {
       hilog.info(DOMAIN, TAG, 'trusted web %{public}s', kind);
     };
     return config;
+  }
+
+  private static readonly containers: Map<TrustedWebConfig, string> = new Map<TrustedWebConfig, string>();
+
+  /** 可信容器出栈（AppWebPage onWillDisappear）：剪贴板抑制失效。 */
+  static trustedClosed(config: TrustedWebConfig): void {
+    const id: string | undefined = AppBridge.containers.get(config);
+    AppBridge.containers.delete(config);
+    if (id !== undefined) {
+      AppBridge.containerClosed(id);
+    }
   }
 
   /** 第三方页容器配置（ExternalPage 路由）。 */

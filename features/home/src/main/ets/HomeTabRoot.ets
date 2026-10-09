@@ -11,6 +11,11 @@ export class HomeActions {
   static searchLabel: string = '';
   static openSearch: () => void = () => {
   };
+  /**
+   * 首页剪贴板区（APP-07：粘贴卡、邀请确认条、结果提示；entry 给，基本模式不给）：放在搜索框下方（HomeClipboard 画板的位置）。
+   * TODO(APP-11)：首页 SDUI 接入后按组件位置放。
+   */
+  static clipboardArea: WrappedBuilder<[]> | null = null;
 }
 
 /**
@@ -44,6 +49,9 @@ export struct HomeTabRoot {
       .focusable(true)
       .focusBox(CouliFocus.box)
       .onClick(() => HomeActions.openSearch())
+      if (!this.readonlyMode && HomeActions.clipboardArea !== null) {
+        (HomeActions.clipboardArea as WrappedBuilder<[]>).builder()
+      }
       Text('Home')
         .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
       Text(this.readonlyMode ? 'tab root placeholder (read-only)' : 'tab root placeholder')
