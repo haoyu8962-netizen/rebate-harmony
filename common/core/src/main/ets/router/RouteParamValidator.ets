@@ -2,6 +2,7 @@ import { RouteParamSpec, RouteParamType, RouteSpec } from 'generated';
 import { RouteTargetAllowlist } from './GuardState';
 import { RoutePolicy } from './RoutePolicy';
 import { RouteSource } from './RouteRequest';
+import { HomeActionJson } from '../home/HomePolicies';
 
 /**
  * routes.json params 的 JSON Schema 校验（03 §4.4「统一入口守卫」：所有来源都校验参数）。
@@ -157,6 +158,14 @@ export class HttpsTarget {
  *   pending_action 恢复（原始来源可能是深链，TODO(N-14)）与 Agent 卡片仍按深链口径。
  */
 export class RouteTargetCheck {
+  /**
+   * APP-11（G05，rule-gaps H01）：首页卡片动作的形状解码。只认 {route: 非空字符串, params?: 对象}，其余字段（url、js、scheme…）忽略；
+   * 形状不对为 null。不查路由表（未知名称、since 交 Router）。实现在 home/HomeJson。
+   */
+  static decode(json: Record<string, Object | null> | null): Record<string, Object | null> | null {
+    return HomeActionJson.of(json);
+  }
+
   /** 该路由的目标地址是否在白名单内；不是这两个路由时恒为 true。source 不认识时按深链（最严格）。 */
   static isAllowed(route: string, params: Record<string, Object>, allowlist: RouteTargetAllowlist,
     source: RouteSource = RouteSource.DEEPLINK): boolean {

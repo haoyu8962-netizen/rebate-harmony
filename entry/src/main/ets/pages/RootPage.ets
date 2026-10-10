@@ -12,7 +12,8 @@ import { PermissionPromptModel } from '../permission/PermissionPromptModel';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { PrivacyPrompt } from '../privacy/PrivacyPrompt';
 import { AppRouting, UPGRADE_PROMPT_PAGE } from '../routing/AppRouting';
-import { AppShell } from '../shell/AppShell';
+import { AppShell, AppShellSlots, homeBasicNoticeBuilder, homeFooterBuilder } from '../shell/AppShell';
+import { HomeActions } from 'home';
 import { ShellDraftTexts } from '../shell/ShellDraftTexts';
 import { AppUpdate } from '../update/AppUpdate';
 import { ForceUpdatePage } from '../update/ForceUpdatePage';
@@ -33,6 +34,7 @@ import {
 } from '../wallet/WalletPages';
 import { CsSheetView } from 'me';
 import { AppMe } from '../me/AppMe';
+import { AppHome } from '../home/AppHome';
 import { AppCsSheet } from '../me/AppCsSheet';
 import {
   AppAboutPage, AppAppealPage, AppPrivacyCenterPage, AppRiskNoticePage, AppSettingsPage, appMeTabBuilder
@@ -104,6 +106,10 @@ struct RootPage {
     TabRootSlots.orders = wrapBuilder(appOrdersTabBuilder);
     // APP-12：「我的」Tab 根页（entry 组合）同样在外壳构建前登记。
     TabRootSlots.me = wrapBuilder(appMeTabBuilder);
+    // APP-11：首页列表里的基本模式提示与 Debug 开发信息（外壳的 builder，首页模块不 import entry）。
+    AppShellSlots.pathStack = this.pathStack;
+    HomeActions.basicNotice = wrapBuilder(homeBasicNoticeBuilder);
+    HomeActions.footer = wrapBuilder(homeFooterBuilder);
   }
 
   /** 弹窗显示时吞掉返回键（不进入首页、不记为同意或拒绝）；协议页盖在上面时照常返回到弹窗。可关闭更新提示同样只能点按钮。 */
@@ -211,6 +217,9 @@ struct RootPage {
     } else if (name === 'Appeal') {
       // 账户申诉（APP-12）：提交、进度、结果同一页。
       AppAppealPage()
+    } else if (BuildVariant.ownsRoute(name)) {
+      // Debug / Staging 的调试专用页（APP-11 HomePreview 等，debug_only）：Release 的同名函数恒为 false。
+      VariantDestination(name, param)
     } else if (name === UPGRADE_PROMPT_PAGE || RouteTable.has(name)) {
       // 业务路由与内置升级提示页：占位页（各 Feature 的入口视图接入前）。参数只认 Router 放进来的 RouteDestination。
       // 强更状态下守卫只放行从强更页进入的次要入口，所以 below_min 时出现的这几页都来自强更页：带强更状态 / 受限登录标记。
@@ -288,15 +297,21 @@ struct RootPage {
               AppClipboard.shared.stackChanged(this.pathStack.getAllPathName());
               // FU-HM-0712 R1-02：栈非空即 Tab 根被盖住，订单列表顶部的待跟单卡同步离开显示位置。
               AppOrders.shared.stackChanged(this.pathStack.getAllPathName());
+              // APP-11 R2-03：首页被推入的页面盖住时，在转场开始就收起或抑制首页弹窗。
+              AppHome.shared.navigationWillShow(this.pathStack.getAllPathName());
             },
             didShow: (_from: NavDestinationContext | NavBar, _to: NavDestinationContext | NavBar) => {
               AppPrivacy.shared.navigationShown(this.pathStack.getAllPathName());
               AppClipboard.shared.stackChanged(this.pathStack.getAllPathName());
               // APP-12：从子页回到「我的」Tab（导航根）时取一次 /v1/me（G36）。
               AppMe.shared.navigationShown(this.pathStack.getAllPathName());
+              // APP-11：回到首页（导航根）时复核弹窗阻挡项。
+              AppHome.shared.navigationShown(this.pathStack.getAllPathName());
             }
           });
           AppRouting.shared.attachNavigation(this.pathStack);
+          // APP-11 鸿蒙复核 RC-01：Ability 重建后挂上新的（可能为空的）导航栈，空栈初显没有转场回调，按真实 Tab、栈、前后台重设首页可见性。
+          AppHome.shared.navigationAttached(this.pathStack.getAllPathName());
           // 登录成功后的邀请结果提示用根页的界面上下文（登录页已出栈）。
           AppLogin.shared.attachUi(this.getUIContext());
           AppSearch.shared.attachUi(this.getUIContext());
@@ -304,6 +319,7 @@ struct RootPage {
           AppOrders.shared.attachUi(this.getUIContext());
           AppWallet.shared.attachUi(this.getUIContext());
           AppMe.shared.attachUi(this.getUIContext());
+          AppHome.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {

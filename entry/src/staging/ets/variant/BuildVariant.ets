@@ -5,7 +5,8 @@ import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import {
-  AmountMaskStore, AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MeContractPort,
+  AmountMaskStore, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugMockGate,
+  DeepLinkConfig, HomeContractPort, HomeDebugSources, HttpTransport, JumpPorts, MeContractPort,
   MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, PushTokenSource, RouteTable, ThirdPartyAuthAdapter,
   UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
@@ -21,9 +22,12 @@ import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeOrders } from './DebugFakeOrders';
 import { DEBUG_STEP_UP_PHONE, DEBUG_WALLET_SCENE_KEY, DebugFakeWallet } from './DebugFakeWallet';
 import { DEBUG_ME_SCENE_KEY, DebugFakeMe, DebugPushTokenSource } from './DebugFakeMe';
+import { DEBUG_HOME_SCENE_KEY, DebugFakeHome } from './DebugFakeHome';
+import { HOME_PREVIEW_ROUTE, HomePreviewPage } from '../home/HomePreviewPage';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import { AppLogin } from '../../../main/ets/login/AppLogin';
 import { AppClipboard } from '../../../main/ets/clipboard/AppClipboard';
+import { AppHome } from '../../../main/ets/home/AppHome';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -177,6 +181,46 @@ export class BuildVariant {
     return DebugFakeServer.enabled ? BuildVariant.guideBar : null;
   }
 
+  private static readonly fakeHome: DebugFakeHome = new DebugFakeHome();
+
+  /**
+   * 首页的 getPage / listSectionItems（APP-11 G02、G03，契约没有）：本机假服务打开、且当前环境允许调试假数据（prod 不允许）时用假实现
+   * （截图与冒烟）；否则与 Release 一样为 null（首页只显示 LKG / 包内默认，商品池与物料卡隐藏，不发请求，R1-09）。
+   */
+  static homeContract(): HomeContractPort | null {
+    return HomeDebugSources.contract(DebugFakeServer.enabled, DebugMockGate.currentEnvironment(), BuildVariant.fakeHome);
+  }
+
+  /**
+   * `--ps couli_debug_home_scene bad_default`：包内默认换成坏文件（G16 ⑦ 最后防线）。与传输入口同一道检查（R2-01 同类）：
+   * 假服务打开且当前环境允许调试假数据才替换，prod 用真实的包内默认。
+   */
+  static homeDefaultOverride(): string | null {
+    return DebugMockGate.allowedNow(DebugFakeServer.enabled) ? DebugFakeHome.defaultOverride() : null;
+  }
+
+  /** 截图：假服务页面里的测试图片地址换成本机样例图（模拟器不连网）；没打开或 prod 时原样（R2-01 同类）。 */
+  static homeImage(url: string): string {
+    return DebugMockGate.allowedNow(DebugFakeServer.enabled) ? DebugFakeHome.image(url) : url;
+  }
+
+  /** 首页时钟：截图可把上海时刻对到指定 HH:mm（`couli_debug_home_clock`，弹窗时间段核对）；没设、或当前环境不允许调时钟（prod）时为真实时钟。 */
+  static homeClock(): number {
+    const env: AppEnvironment | undefined = DebugMockGate.currentEnvironment();
+    return env !== undefined && DebugCapabilities.isAvailable(DebugCapability.CLOCK_OFFSET, env) ? DebugFakeHome.now() :
+      Date.now();
+  }
+
+  /** 首页按端门槛比较用的 App 版本：截图可覆盖（`couli_debug_home_app_version`）；没设或 prod 时为真实版本（R2-01 同类）。 */
+  static homeAppVersion(real: string): string {
+    return DebugFakeHome.appVersion.length > 0 && DebugMockGate.allowedNow(true) ? DebugFakeHome.appVersion : real;
+  }
+
+  /** 本构建自带的调试专用页（debug_only 路由，APP-11 HomePreview）。 */
+  static ownsRoute(name: string): boolean {
+    return name === HOME_PREVIEW_ROUTE;
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -294,6 +338,30 @@ export class BuildVariant {
     // 截图：`--ps couli_debug_open_cs 1` 热启动时打开统一客服出口（与页面上的【联系客服】同一个入口）。
     if (want.parameters?.['couli_debug_open_cs'] === '1' && AppRouting.shared.presentationReady) {
       setTimeout(() => AppLogin.openCustomerService(), 800);
+    }
+    // APP-11：`--ps couli_debug_home_scene <scene>` 选首页假服务场景；`--ps couli_debug_home_version <n>` 改页面版本（AC-HOME-01 冒烟）。
+    const homeScene: Object | undefined = want.parameters?.[DEBUG_HOME_SCENE_KEY];
+    if (typeof homeScene === 'string') {
+      DebugFakeHome.reset(homeScene);
+      hilog.info(0x0000, 'Couli', 'home scene %{public}s %{public}s', homeScene, DebugFakeHome.marker);
+    }
+    // `--ps couli_debug_home_clock HH:mm`：首页时钟对到上海 HH:mm（golden popup 页的时间段核对）；`couli_debug_home_app_version`：
+    // 比较门槛用的 App 版本（golden min_app_version 页核对「当前版本 ≥ 门槛」）。
+    const homeClock: Object | undefined = want.parameters?.['couli_debug_home_clock'];
+    if (typeof homeClock === 'string') {
+      DebugFakeHome.setClock(homeClock as string);
+    }
+    const homeAppVersion: Object | undefined = want.parameters?.['couli_debug_home_app_version'];
+    if (typeof homeAppVersion === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(homeAppVersion as string)) {
+      DebugFakeHome.appVersion = homeAppVersion as string;
+    }
+    // `--ps couli_debug_home_reset 1`：清掉首页 LKG、公告关闭记录与弹窗计数（反复截图用；同撤回同意的清理口径）。
+    if (want.parameters?.['couli_debug_home_reset'] === '1') {
+      AppHome.shared.clearAllLocalAndRebuild();
+    }
+    const homeVersion: Object | undefined = want.parameters?.['couli_debug_home_version'];
+    if (typeof homeVersion === 'string' && /^\d{1,6}$/.test(homeVersion as string)) {
+      DebugFakeHome.version = Number.parseInt(homeVersion as string, 10);
     }
     const tokenChange: Object | undefined = want.parameters?.['couli_debug_push_token_change'];
     if (tokenChange === '1') {
@@ -422,6 +490,10 @@ export function VariantDestination(name: string, param: Object) {
     }
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === HOME_PREVIEW_ROUTE) {
+    // 首页草稿预览（APP-11，debug_only）：预览条 + 与首页同一个渲染器；Release 没有本页与路由。页面自带 NavDestination
+    // （onReady 记本实例 id、onWillDisappear 同步作废、onBackPressed 先关弹窗）。
+    HomePreviewPage({ param: param })
   } else if (name === CATALOG_ROUTE) {
     // 组件目录页（DS-01）：从调试面板进入。
     NavDestination() {

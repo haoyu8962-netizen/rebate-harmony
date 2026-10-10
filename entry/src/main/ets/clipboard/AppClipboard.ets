@@ -11,7 +11,7 @@ import {
   ClipboardResultView, ClipboardSensitive, ClipboardSnapshot, ConfigStore,
   CouliPreferences, InvitePasteOutcome, ParseResultAction, ParseRow, PasteboardPort, PrivacyState, PurchaseModalRegistry,
   RouteDestination, ClipboardPageMark, EnvironmentGate,
-  SearchApiPort, SessionState, TransportFailure
+  SearchApiPort, SessionState, TabWillChangeRegistry, TransportFailure
 } from 'core';
 import { CouliAnnounce, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
 import { LoginPageConfig } from 'auth';
@@ -314,7 +314,8 @@ export class AppClipboard {
     // 导航栈经 Router 改动的同步出口（页面被覆盖、出栈、清栈）；系统返回等由 RootPage 的导航拦截与页面出口补上。
     AppRouting.shared.navigator.onStackChanged = (names: string[]): void => this.stackChanged(names);
     // 点 Tab：切换生效之前同步通知（共性第 3 条）。
-    ShellState.onTabWillChange = (route: string, basicMode: boolean): void => controller.tabChanged(route, basicMode);
+    ShellState.onTabWillChange.register(TabWillChangeRegistry.CLIPBOARD,
+      (route: string, basicMode: boolean): void => controller.tabChanged(route, basicMode));
     AppRouting.shared.syncClipboard = (): void => controller.sync();
     // 撤回同意与切换环境的清理第一步：作废全部、丢弃预填与种子、清掉本机 hash 记录；删除没落盘时报失败（共性第 14 条）。
     controller.installCleaner(AppConfig.cleaners);

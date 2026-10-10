@@ -78,6 +78,11 @@ import meIntegrationTest from './MeIntegration.test';
 import meReviewR1Test from './MeReviewR1.test';
 import meReviewR2Test from './MeReviewR2.test';
 import meReviewR3Test from './MeReviewR3.test';
+import homeVectorTest from './HomeVector.test';
+import homeIntegrationTest from './HomeIntegration.test';
+import homeFixR1Test from './HomeFixR1.test';
+import homeFixR2Test from './HomeFixR2.test';
+import homeFixR3Test from './HomeFixR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -165,4 +170,9 @@ export default function testsuite() {
   meReviewR1Test();
   meReviewR2Test();
   meReviewR3Test();
+  homeVectorTest();
+  homeIntegrationTest();
+  homeFixR1Test();
+  homeFixR2Test();
+  homeFixR3Test();
 }

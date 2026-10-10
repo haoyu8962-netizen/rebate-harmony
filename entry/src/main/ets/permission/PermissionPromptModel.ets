@@ -40,6 +40,9 @@ export class PermissionPromptModel {
   openSettings: () => void = () => {
   };
   private continueResolver: (() => void) | null = null;
+  /** 显示状态写入后调用（AppHome 接到首页可见性广播：首页与预览弹窗复核，APP-11 R3-01）；缺省什么都不做。 */
+  onOverlayChanged: () => void = () => {
+  };
 
   get visible(): boolean {
     return this.kind !== PermissionPromptKind.NONE;
@@ -53,6 +56,7 @@ export class PermissionPromptModel {
       this.primaryKey = continueKey ?? PermissionRequester.CONTINUE;
       this.secondaryKey = '';
       this.kind = PermissionPromptKind.RATIONALE;
+      this.onOverlayChanged();
     });
   }
 
@@ -62,11 +66,13 @@ export class PermissionPromptModel {
     this.primaryKey = buttonKey;
     this.secondaryKey = GUIDE_DISMISS_KEY;
     this.kind = PermissionPromptKind.GUIDE;
+    this.onOverlayChanged();
   }
 
   primary(): void {
     const kind: PermissionPromptKind = this.kind;
     this.kind = PermissionPromptKind.NONE;
+    this.onOverlayChanged();
     if (kind === PermissionPromptKind.RATIONALE) {
       const resolve: (() => void) | null = this.continueResolver;
       this.continueResolver = null;
@@ -80,5 +86,6 @@ export class PermissionPromptModel {
 
   secondary(): void {
     this.kind = PermissionPromptKind.NONE;
+    this.onOverlayChanged();
   }
 }

@@ -296,6 +296,9 @@ export class AppRouting {
   /** 每次状态同步之后调用（APP-12「我的」：会话、隐私、环境变化时清空「我的」类页面、推送上报按会话换代结算）；缺省什么都不做。 */
   syncMe: () => void = () => {
   };
+  /** 每次状态同步之后调用（APP-11 首页：会话、隐私、环境变化时作废首页控制器并按新身份重建、清旧账号作用域的 LKG）；缺省什么都不做。 */
+  syncHome: () => void = () => {
+  };
 
   stateChanged(resumePending: boolean = true): void {
     if (this.retryTimer >= 0) {
@@ -315,6 +318,7 @@ export class AppRouting {
     this.syncOrders();
     this.syncWallet();
     this.syncMe();
+    this.syncHome();
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;

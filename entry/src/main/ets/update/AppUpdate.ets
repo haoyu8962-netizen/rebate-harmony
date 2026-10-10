@@ -56,6 +56,9 @@ export class AppUpdate {
   privacy: () => PrivacyState = () => PrivacyState.NOT_DECIDED;
   /** 当前生效配置的回前台复查间隔（秒；App 接 /v1/config.app_update，FU-HM-0709 R1-02）；null 按成功结果里记下的间隔。 */
   recheckIntervalSec: () => number | null = () => null;
+  /** 界面字段刷新后调用（AppHome 接到首页可见性广播，APP-11 R3-01）；缺省什么都不做。 */
+  onOverlayChanged: () => void = () => {
+  };
   /** 结论或检查进度变化（EntryAbility 接上 AppRouting.stateChanged）。 */
   onChanged: () => void = () => {
   };
@@ -261,6 +264,8 @@ export class AppUpdate {
     this.showPrompt = state.showPrompt;
     this.targetVersion = state.targetVersion;
     this.result = store.load().result;
+    // 更新提示 / 强更的显示状态可能变了（不一定经过状态同步）：交首页可见性广播比较（APP-11 R3-01）。
+    this.onOverlayChanged();
     if (notify) {
       this.onChanged();
     }

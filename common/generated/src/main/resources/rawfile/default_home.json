@@ -1,0 +1,140 @@
+{
+  "page_key": "home",
+  "version": 1,
+  "sections": [
+    {
+      "id": "default_icons",
+      "type": "icon_grid",
+      "version": 1,
+      "props": {
+        "columns": 5,
+        "rows": 2
+      },
+      "data_source": {
+        "kind": "static",
+        "items": [
+          {
+            "icon": "builtin:platform.taobao",
+            "title": "淘宝",
+            "action": {
+              "route": "Search",
+              "params": {
+                "platform": "taobao"
+              }
+            }
+          },
+          {
+            "icon": "builtin:platform.jd",
+            "title": "京东",
+            "action": {
+              "route": "Search",
+              "params": {
+                "platform": "jd"
+              }
+            }
+          },
+          {
+            "icon": "builtin:platform.pdd",
+            "title": "拼多多",
+            "action": {
+              "route": "Search",
+              "params": {
+                "platform": "pdd"
+              }
+            }
+          },
+          {
+            "icon": "builtin:category.supermarket",
+            "title": "超市百货",
+            "action": {
+              "route": "Search",
+              "params": {
+                "q": "超市百货"
+              }
+            }
+          },
+          {
+            "icon": "builtin:category.fresh",
+            "title": "食品生鲜",
+            "action": {
+              "route": "Search",
+              "params": {
+                "q": "食品生鲜"
+              }
+            }
+          },
+          {
+            "icon": "builtin:category.baby",
+            "title": "母婴用品",
+            "action": {
+              "route": "Search",
+              "params": {
+                "q": "母婴用品"
+              }
+            }
+          },
+          {
+            "icon": "builtin:category.beauty",
+            "title": "美妆个护",
+            "action": {
+              "route": "Search",
+              "params": {
+                "q": "美妆个护"
+              }
+            }
+          },
+          {
+            "icon": "builtin:category.household",
+            "title": "家居日用",
+            "action": {
+              "route": "Search",
+              "params": {
+                "q": "家居日用"
+              }
+            }
+          },
+          {
+            "icon": "builtin:category.electronics",
+            "title": "数码家电",
+            "action": {
+              "route": "Search",
+              "params": {
+                "q": "数码家电"
+              }
+            }
+          },
+          {
+            "icon": "builtin:guide",
+            "title": "新人指南",
+            "action": {
+              "route": "Help"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "default_activities",
+      "type": "activity_entry",
+      "version": 1,
+      "props": {},
+      "data_source": {
+        "kind": "static",
+        "items": [
+          {
+            "title": "新人怎么拿返利",
+            "action": {
+              "route": "Help"
+            }
+          },
+          {
+            "title": "订单没显示怎么办",
+            "action": {
+              "route": "FindOrder"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

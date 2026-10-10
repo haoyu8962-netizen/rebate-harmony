@@ -52,6 +52,12 @@
     common/core/src/test/MeVectorsData.ets                    specs/me-vectors.json 全文（ME_VECTORS_JSON）与契约快照
                                                               specs/system-permissions.json 全文（ME_PERMISSIONS_JSON）（APP-12，Codex 写的
                                                               三端共用「我的」、设置、隐私中心、封禁与申诉、推送上报与客服入口向量）
+    common/core/src/test/HomeVectorsData.ets                  specs/home-sdui-vectors.json 全文（HOME_VECTORS_JSON，APP-11，Codex 写的三端共用
+                                                              首页 SDUI 向量）
+    entry/src/staging/ets/variant/HomeGoldenPages.ets         specs/home-sdui-vectors.json goldenPages 原文（APP-11 R1-17，只在 staging：
+                                                              本机假服务按 golden:<名字> 场景逐页下发，截图与 fixture 一一对应）
+    common/generated/src/main/ets/DefaultHomePage.ets         包内 default_home.json 的同一份文本（APP-11 G17：取自向量 goldenPages.default_home，
+    common/generated/src/main/resources/rawfile/default_home.json   三端同一来源；--check 保证与向量一致）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -72,7 +78,7 @@ HEADER = "// 生成物，禁止手改；来源 contract.lock（tools/codegen/gen
 RESERVED_TYPE_NAMES = {
     "ContractEnums", "RetryKind", "ErrorCodeInfo", "ErrorCodes", "RouteKind", "RouteSpec", "Routes",
     "DebugRoutes", "AppStoreSpec", "AppStores", "ApiOperation", "ApiOperations", "AppVersionCheckExample", "BridgeMethodSpec", "BridgeMethods", "BridgeErrors", "BridgeSignedPath", "BridgeContract", "DefaultTexts", "DesignTokens",
-    "ClientEvent", "ClientEvents", "ClientEventValue", "DeviceHashSeeds", "BundledConfig",
+    "ClientEvent", "ClientEvents", "ClientEventValue", "DeviceHashSeeds", "BundledConfig", "DefaultHomePage",
     "Object", "Function", "String", "Number", "Boolean", "Symbol", "Array", "Map", "Set", "Date",
     "Error", "Promise", "JSON", "Math", "RegExp", "Record", "Partial", "Required", "Readonly",
     "BigInt", "Intl", "Reflect", "Proxy", "WeakMap", "WeakSet", "Color", "Resource", "Context",
@@ -771,6 +777,63 @@ def gen_me_vectors_data():
     except ValueError as e:
         raise GenError("%s 不是合法 JSON：%s" % (SYSTEM_PERMISSIONS, e))
     return vectors + "\nexport const ME_PERMISSIONS_JSON: string = " + ts_str(text) + ";\n"
+
+
+HOME_VECTORS = os.path.join("specs", "home-sdui-vectors.json")
+
+
+def gen_home_vectors_data():
+    """specs/home-sdui-vectors.json（APP-11，Codex 先写的三端共用首页 SDUI 向量）。"""
+    return gen_vectors_data(HOME_VECTORS, "HOME_VECTORS_JSON",
+                            "首页 SDUI 向量（APP-11）：specs/home-sdui-vectors.json 全文，供 HomeVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+def default_home_text():
+    """包内 default_home.json（APP-11 G17）：逐项取向量 goldenPages.default_home（三端同一来源），按固定格式序列化。"""
+    path = os.path.join(ROOT, HOME_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + HOME_VECTORS)
+    with open(path, encoding="utf-8") as f:
+        vectors = json.load(f)
+    page = vectors.get("goldenPages", {}).get("default_home")
+    if not isinstance(page, dict):
+        raise GenError(HOME_VECTORS + " 缺 goldenPages.default_home")
+    text = json.dumps(page, ensure_ascii=False, indent=2) + "\n"
+    for _path, leaf in string_leaves(page):
+        if re.search(r"https?://", leaf):
+            raise GenError("包内默认首页不得引用网络图片或链接：%r" % leaf)
+    return text
+
+
+def gen_home_golden_pages():
+    """goldenPages 原文（APP-11 R1-17）：Debug / Staging 本机假服务按 golden:<名字> 场景逐页原样下发，截图与 fixture 一一对应。
+    只进 entry 的 staging 源码集（Release 不编译）。"""
+    path = os.path.join(ROOT, HOME_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + HOME_VECTORS)
+    with open(path, encoding="utf-8") as f:
+        vectors = json.load(f)
+    pages = vectors.get("goldenPages")
+    if not isinstance(pages, dict) or not pages:
+        raise GenError(HOME_VECTORS + " 缺 goldenPages")
+    text = json.dumps(pages, ensure_ascii=False, sort_keys=False)
+    return (HEADER.replace("来源 contract.lock", "来源 specs/home-sdui-vectors.json goldenPages")
+            + "// Debug / Staging 专用（entry staging 源码集）：首页 golden 样例原文，本机假服务按场景 golden:<名字> 逐页原样下发（R1-17）。\n\n"
+            + "export const HOME_GOLDEN_PAGES_JSON: string = " + ts_str(text) + ";\n"
+            + "export const HOME_GOLDEN_PAGE_NAMES: string[] = " + json.dumps(list(pages.keys())) + ";\n")
+
+
+def gen_default_home(text):
+    lines = [HEADER.replace("来源 contract.lock", "来源 specs/home-sdui-vectors.json goldenPages.default_home"),
+             "// 包内默认首页（APP-11 G17；03 §6.2 第 4 步三级兜底的最后一级）：与 resources/rawfile/default_home.json 同一份文本\n"
+             "// （gen.py 同时产出，--check 保证与向量一致）。只含不依赖数据源的金刚区与双入口卡；没有 banner、公告、商品卡、popup。\n"
+             "// TODO(N-35)：CT-07 / F1-02 给出正式文件后改为按契约产物生成。\n"]
+    lines.append("export class DefaultHomePage {")
+    lines.append("  /** 页面配置 JSON 文本。 */")
+    lines.append("  static readonly DATA_JSON: string = %s;" % ts_str(text))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------- 文案
@@ -1669,6 +1732,8 @@ def build_outputs():
         os.path.join(main, "ClientEvents.ets"): gen_client_events(type_names.values()),
         os.path.join(main, "DeviceHashSeeds.ets"): gen_device_hash_seeds(),
         os.path.join(main, "BundledConfig.ets"): gen_bundled_config(bundled_text),
+        os.path.join(main, "DefaultHomePage.ets"): gen_default_home(default_home_text()),
+        os.path.join(MODULE, "src", "main", "resources", "rawfile", "default_home.json"): default_home_text(),
         os.path.join(MODULE, "src", "main", "resources", "rawfile", "default_config.json"): bundled_text,
         os.path.join(CORE_MODULE, "src", "test", "ClientCoreVectorsData.ets"): gen_client_core_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "DeviceHashVectorsData.ets"): gen_device_hash_vectors_data(),
@@ -1683,6 +1748,8 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "HomeVectorsData.ets"): gen_home_vectors_data(),
+        os.path.join("entry", "src", "staging", "ets", "variant", "HomeGoldenPages.ets"): gen_home_golden_pages(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
@@ -1693,7 +1760,7 @@ def build_outputs():
 def index_exports(outputs, main):
     lines = []
     for name in ("ContractEnums", "ErrorCodes", "Routes", "BridgeMethods", "BridgeContract", "DefaultTexts", "DesignTokens", "AppStores", "ApiOperations",
-                 "ClientEvents", "DeviceHashSeeds", "BundledConfig"):
+                 "ClientEvents", "DeviceHashSeeds", "BundledConfig", "DefaultHomePage"):
         src = outputs[os.path.join(main, name + ".ets")]
         names = re.findall(r"^export (?:enum|class|function|const|type) ([A-Za-z0-9_]+)", src, re.M)
         lines.append("export {\n%s\n} from './src/main/ets/%s';" % (",\n".join("  " + n for n in names), name))

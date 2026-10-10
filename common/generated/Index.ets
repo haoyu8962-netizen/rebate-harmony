@@ -278,4 +278,7 @@ export {
 export {
   BundledConfig
 } from './src/main/ets/BundledConfig';
+export {
+  DefaultHomePage
+} from './src/main/ets/DefaultHomePage';
 export * from 'generated/ets/DebugOnly';

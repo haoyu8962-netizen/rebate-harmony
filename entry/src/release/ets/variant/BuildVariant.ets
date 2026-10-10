@@ -3,7 +3,7 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MeContractPort, NoPushTokenSource,
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HomeContractPort, HttpTransport, JumpPorts, MeContractPort, NoPushTokenSource,
   PendingKeyBackend, PushTokenSource, RcpTransport, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
   UnavailableWechatAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
@@ -134,6 +134,39 @@ export class BuildVariant {
   /** Release 不模拟视口（二次验证半屏按窗口实际高度布局）。 */
   static stepUpViewportOverride(): number {
     return 0;
+  }
+
+  /**
+   * 首页的 getPage / listSectionItems（APP-11 G02、G03，需契约）：Release 一律不发（null）——首页只显示 LKG / 包内默认，商品池与物料信息流卡隐藏。
+   * TODO(N-35)：契约补上后改为真实接口。
+   */
+  static homeContract(): HomeContractPort | null {
+    return null;
+  }
+
+  /** Release 的包内默认首页没有覆盖（Debug 用来模拟坏文件）。 */
+  static homeDefaultOverride(): string | null {
+    return null;
+  }
+
+  /** Release 的首页图片地址原样（Debug 截图可把测试图片地址换成包内样例图）。 */
+  static homeImage(url: string): string {
+    return url;
+  }
+
+  /** Release 的首页时钟是真实时钟。 */
+  static homeClock(): number {
+    return Date.now();
+  }
+
+  /** Release 的首页按端门槛比较用真实 App 版本。 */
+  static homeAppVersion(real: string): string {
+    return real;
+  }
+
+  /** Release 没有调试专用页（debug_only 路由不在路由表里）。 */
+  static ownsRoute(_name: string): boolean {
+    return false;
   }
 
   /** Release 不认任何调试启动参数。 */

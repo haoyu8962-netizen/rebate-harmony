@@ -1,4 +1,4 @@
-import { RouteDestination, TabSwitchSignal } from 'core';
+import { RouteDestination, TabSwitchSignal, TabWillChangeRegistry } from 'core';
 import { SHELL_TABS, ShellTab } from './TabRoots';
 
 /**
@@ -35,11 +35,11 @@ export class ShellState {
   }
 
   /**
-   * 切 Tab 生效之前的同步通知（APP-07：剪贴板识别的「当前前台界面」，离开首页即作废发起的读取与请求，共性第 3 条）。
-   * 参数为目标 Tab 根路由与基本模式页标记。
+   * 切 Tab 生效之前的同步通知（APP-07：剪贴板识别的「当前前台界面」，离开首页即作废发起的读取与请求，共性第 3 条；APP-11：首页可见性
+   * 目标值）。参数为目标 Tab 根路由与基本模式页标记。各模块按模块名幂等登记（AppClipboard → clipboard，AppHome → home），
+   * Ability 重建时重新 compose 只替换自己那一项，互不覆盖（鸿蒙复核 RC-01）。
    */
-  static onTabWillChange: (route: string, basicMode: boolean) => void = (_r: string, _b: boolean) => {
-  };
+  static readonly onTabWillChange: TabWillChangeRegistry = new TabWillChangeRegistry();
 
   /**
    * Tab 根页已由 Router 打开并切过去之后的通知（APP-08：订单 Tab 第一次显示时才加载列表与待跟单卡；OrderList 的 scope=share 路由参数
@@ -59,7 +59,7 @@ export class ShellState {
     if (index < 0) {
       return false;
     }
-    ShellState.onTabWillChange(destination.route as string, destination.readonly);
+    ShellState.onTabWillChange.dispatch(destination.route as string, destination.readonly);
     ShellState.tabSwitch.change(destination.route as string);
     const flags: boolean[] = this.readonlyFlags.slice();
     flags[index] = destination.readonly;

@@ -14,6 +14,49 @@ import { SHELL_TABS, shellTabItems, ShellTab, TabRootRegistry } from './TabRoots
 /** 设计稿顶部搜索框、【设置】按钮的视觉高（GUIDE §6：鸿蒙命中区扩到 48，视觉不变）。 */
 const TOP_CONTROL_HEIGHT: number = 44;
 
+/** 基本模式顶部提示条（APP-11 起放进首页列表顶部，HomeActions.basicNotice）。 */
+@Builder
+export function homeBasicNoticeBuilder() {
+  // 顶部提示条：privacy.basic_mode.notice +【开启完整功能】（privacy.basic_mode.enable）。
+  Column({ space: CouliSpacing.space3 }) {
+    Row({ space: CouliSpacing.space2 }) {
+      CouliIcon({ name: 'info', iconSize: 20, color: CouliColors.brandEmphasis })
+      Text(DefaultTexts.text('privacy.basic_mode.notice') ?? '')
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    CouliButton({
+      text: DefaultTexts.text('privacy.basic_mode.enable') ?? '',
+      buttonSize: CouliButtonSize.COMPACT,
+      fullWidth: true,
+      buttonId: 'couli-basic-enable',
+      onTap: () => {
+        AppPrivacy.shared.requestFullFunction();
+      }
+    })
+  }
+  .width('100%')
+  .padding(CouliSpacing.space4)
+  .borderRadius(CouliRadius.card)
+  .backgroundColor(CouliColors.brandSubtle)
+}
+
+
+/** Debug / Staging 的开发信息与调试面板入口（首页列表底部，HomeActions.footer）；Release 为空。 */
+@Builder
+export function homeFooterBuilder() {
+  if (AppShellSlots.pathStack !== null) {
+    VariantHomeOverlay(AppShellSlots.pathStack as NavPathStack)
+  }
+}
+
+/** 外壳给首页列表用的导航栈（调试面板入口）。 */
+export class AppShellSlots {
+  static pathStack: NavPathStack | null = null;
+}
+
 /**
  * Tab 外壳（APP-02b）：DesignSystem 的 TabBar + 四个 Tab 根页（经 TabRootRegistry 按路由名取 Feature 的占位页）。
  * - 只在隐私闸门有结论（已同意 / 基本模式）后显示；出现后告诉 AppRouting「Tab 就绪」（03 §4.4），
@@ -102,56 +145,18 @@ export struct AppShell {
   }
 
   @Builder
-  basicModeNotice() {
-    // 顶部提示条：privacy.basic_mode.notice +【开启完整功能】（privacy.basic_mode.enable）。
-    Column({ space: CouliSpacing.space3 }) {
-      Row({ space: CouliSpacing.space2 }) {
-        CouliIcon({ name: 'info', iconSize: 20, color: CouliColors.brandEmphasis })
-        Text(DefaultTexts.text('privacy.basic_mode.notice') ?? '')
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
-          .layoutWeight(1)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Top)
-      CouliButton({
-        text: DefaultTexts.text('privacy.basic_mode.enable') ?? '',
-        buttonSize: CouliButtonSize.COMPACT,
-        fullWidth: true,
-        buttonId: 'couli-basic-enable',
-        onTap: () => {
-          AppPrivacy.shared.requestFullFunction();
-        }
-      })
-    }
-    .width('100%')
-    .padding(CouliSpacing.space4)
-    .borderRadius(CouliRadius.card)
-    .backgroundColor(CouliColors.brandSubtle)
-  }
-
-  @Builder
   homeTab() {
+    // APP-11：首页自己的 Refresh + List（固定区、SDUI 区、基本模式提示与 Debug 开发信息都在列表里，随内容一起滚动，层级与改造前一致）。
     Column() {
       if (this.basicMode()) {
         this.basicModeTop()
       }
-      Scroll() {
-        Column({ space: CouliSpacing.space3 }) {
-          if (this.basicMode()) {
-            this.basicModeNotice()
-          }
-          this.tabRoot(SHELL_TABS[0])
-          // Debug / Staging：令牌版本、配置名与调试面板入口；Release 为空。
-          VariantHomeOverlay(this.pathStack)
-        }
-        .width('100%')
-        .alignItems(HorizontalAlign.Center)
-        .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space1,
-          bottom: CouliSpacing.space4 })
+      Column() {
+        this.tabRoot(SHELL_TABS[0])
       }
       .layoutWeight(1)
-      .align(Alignment.Top)
-      .edgeEffect(EdgeEffect.None)
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
     }
     .width('100%')
     .height('100%')

@@ -25,6 +25,9 @@ export class AppCsSheet {
   /** 打开半屏前的焦点控件（关闭后回到它）。 */
   returnFocusId: string = '';
   readonly actions: CsSheetActions = AppCsSheet.buildActions();
+  /** 显示状态写入后调用（AppHome 接到首页可见性广播：首页与预览弹窗复核，APP-11 R3-01）；缺省什么都不做。 */
+  onOverlayChanged: () => void = () => {
+  };
 
   private static buildActions(): CsSheetActions {
     const a: CsSheetActions = new CsSheetActions();
@@ -56,15 +59,18 @@ export class AppCsSheet {
     this.decision = decision;
     this.version++;
     this.shown = true;
+    this.onOverlayChanged();
   }
 
   hide(): void {
     this.shown = false;
+    this.onOverlayChanged();
   }
 
   /** 半屏消失（系统返回、下滑、关闭按钮、按钮动作）：同步状态并把焦点还给触发控件。 */
   disappeared(ui: UIContext): void {
     this.shown = false;
+    this.onOverlayChanged();
     if (this.returnFocusId.length > 0) {
       CouliFocusReturn.to(ui, this.returnFocusId);
     }

@@ -11,7 +11,7 @@ import {
   PermissionTypeRaw, PrivacyCenterController, PrivacyCenterPorts, PrivacyState, PrivacyWithdrawOutcomes, PushReportState,
   PushSessionTracker,
   PushTokenReporter, PushTokenSource, ResetTipRunner, RiskNoticeController, Route10006, RouteDestination, RoutePolicy,
-  RouteTable, SessionState, SettingsItems, TransportFailure, UpdateState
+  RouteTable, SessionState, SettingsItems, TransportFailure, UpdateState, HomeVersionInfo
 } from 'core';
 import { CouliAnnounce, CouliDialog, CouliDialogOptions, CouliToast } from 'designsystem';
 import { RouteSpec } from 'generated';
@@ -27,6 +27,7 @@ import { AppTrade } from '../trade/AppTrade';
 import { AppUpdate } from '../update/AppUpdate';
 import { HARMONY_CHANNEL } from '../update/HarmonyStoreAccess';
 import { AppCsSheet } from './AppCsSheet';
+import { AppHome } from '../home/AppHome';
 import { AppMeTexts } from './AppMeTexts';
 
 const DOMAIN: number = 0x0000;
@@ -731,9 +732,11 @@ export class AppMe {
     if (dict !== null) {
       fields['config_version'] = dict;
     }
-    const home: string | null = AppMe.configText('h5_release', 'version');
+    // G31（APP-11）：首页版本改取 HomeStore.currentVersion（当前显示的页面 version 与来源级别 network / lkg / default），
+    // 不再借用 h5_release.version（APP-12 H06 的代拟）。没有显示中的页面时整行省略。
+    const home: HomeVersionInfo | null = AppHome.shared.currentVersion;
     if (home !== null) {
-      fields['home_version'] = home;
+      fields['home_version'] = home.version + ' (' + home.source + ')';
     }
     return AppClipboard.shared.write(Diagnostics.lines(fields).join('\n'));
   }

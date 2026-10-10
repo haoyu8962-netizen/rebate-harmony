@@ -1,8 +1,10 @@
 // Debug / Staging 专用：模拟器冒烟与设计稿截图用的本机假服务（APP-05a）。只在 product=staging 编译，Release 没有本文件
 // （tools/ci/release-scan.sh 查 COULI_FAKE_LOGIN_SERVER_APP05A_9d2c41、couli_debug_fake_server、DebugFakeServer）。
-// 只有启动参数 `--pd couli_debug_fake_server 1` 打开时才接管请求，且一律在本机回答、不发出任何网络请求；没打开时原样交给真实传输层。
+// 只有启动参数 `--pd couli_debug_fake_server 1` 打开、且当前环境允许调试假数据（prod 不允许）时才接管请求，且一律在本机回答、
+// 不发出任何网络请求；否则原样交给真实传输层。这道检查在实际传输入口统一做（Core 的 DebugMockTransport，R2-01）：
+// send / cancel 只经它，不按接口逐个判断，草稿、公告等新增的假响应同样受它约束。
 import {
-  HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
+  DebugMockTransport, HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
 } from 'core';
 import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
@@ -10,6 +12,24 @@ import { DebugFakeTrade } from './DebugFakeTrade';
 import { DebugFakeOrders } from './DebugFakeOrders';
 import { DebugFakeWallet } from './DebugFakeWallet';
 import { DebugFakeMe } from './DebugFakeMe';
+import { DebugFakeHome } from './DebugFakeHome';
+
+/** 传输入口闸门放行时的本机回答一侧（只由 DebugMockTransport 调用）。 */
+class FakeSide implements HttpTransport {
+  private readonly server: DebugFakeServer;
+
+  constructor(server: DebugFakeServer) {
+    this.server = server;
+  }
+
+  send(request: TransportRequest): Promise<TransportResponse> {
+    return this.server.fakeSend(request);
+  }
+
+  cancel(request: TransportRequest): void {
+    this.server.fakeCancel(request);
+  }
+}
 
 class Waiting {
   readonly timer: number;
@@ -55,15 +75,24 @@ export class DebugFakeServer implements HttpTransport {
   static readonly ordersMarker: string = DebugFakeOrders.marker;
   static readonly walletMarker: string = DebugFakeWallet.marker;
   static readonly meMarker: string = DebugFakeMe.marker;
-  private readonly real: HttpTransport = new RcpTransport();
+  static readonly homeMarker: string = DebugFakeHome.marker;
   private serial: number = 0;
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
   private readonly waiting: Map<TransportRequest, Waiting> = new Map<TransportRequest, Waiting>();
+  /** 实际传输入口（R2-01）：每次发包按「假服务打开 + 当前环境允许 MOCK_DATA」选本机回答或真实传输层（RcpTransport）。 */
+  private readonly entry: DebugMockTransport = new DebugMockTransport(new FakeSide(this), new RcpTransport(),
+    (): boolean => DebugFakeServer.enabled);
 
   send(request: TransportRequest): Promise<TransportResponse> {
-    if (!DebugFakeServer.enabled) {
-      return this.real.send(request);
-    }
+    return this.entry.send(request);
+  }
+
+  cancel(request: TransportRequest): void {
+    this.entry.cancel(request);
+  }
+
+  /** 本机回答（闸门已放行）。 */
+  fakeSend(request: TransportRequest): Promise<TransportResponse> {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
@@ -86,11 +115,8 @@ export class DebugFakeServer implements HttpTransport {
     });
   }
 
-  cancel(request: TransportRequest): void {
-    if (!DebugFakeServer.enabled) {
-      this.real.cancel(request);
-      return;
-    }
+  /** 取消本机假服务接下的请求（由传输入口按当初的去向转来）。 */
+  fakeCancel(request: TransportRequest): void {
     const w: Waiting | undefined = this.waiting.get(request);
     if (w !== undefined) {
       this.waiting.delete(request);
@@ -105,8 +131,18 @@ export class DebugFakeServer implements HttpTransport {
       // APP-07：剪贴板 parse（DebugFakeClipboard 按上传片段里的场景词回答）
       return DebugFakeClipboard.answer(body);
     }
+    if (url.indexOf('/v1/pages/') >= 0 && url.indexOf('/preview') >= 0) {
+      // APP-11：previewPage（契约已有）的草稿与 30701 场景（DebugFakeHome.answerPreview）。
+      const answer: string | number = DebugFakeHome.answerPreview(url);
+      return typeof answer === 'number' ? new FakeAnswer(answer as number, '{}') : new FakeAnswer(0, answer as string);
+    }
+    // APP-11：listArticles(category=notice)（golden notice_api 页的公告 api 来源）。
+    const articles: string | null = DebugFakeHome.answerArticles(url);
+    if (articles !== null) {
+      return new FakeAnswer(0, articles);
+    }
     if (url.indexOf('/v1/config') >= 0) {
-      return DebugFakeMe.patchConfig(DebugFakeSearch.config());
+      return DebugFakeHome.patchConfig(DebugFakeMe.patchConfig(DebugFakeSearch.config()));
     }
     if (url.indexOf('/v1/products/search') >= 0) {
       return DebugFakeSearch.search(url);

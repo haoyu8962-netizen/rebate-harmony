@@ -6,6 +6,13 @@ import { EnvironmentSwitcher } from './EnvironmentSwitcher';
 
 export { DebugCapability, DebugCapabilities } from './DebugCapabilities';
 export { EnvironmentSelection, SwitchOutcome, SwitchResult, EnvironmentSwitcher } from './EnvironmentSwitcher';
+// APP-11：首页草稿预览的纯策略（HomePreview 只在 Debug / Staging）。
+export { HomePreviewPolicy } from '../home/HomePreviewPolicy';
+export {
+  HomeDebugSources, HomePreviewDeps, HomePreviewDisplay, HomePreviewNav, HomePreviewSession, HomePreviewState
+} from '../home/HomePreviewSession';
+// R2-01：本机假服务的传输入口闸门（prod 一律走真实传输）。
+export { DebugMockGate, DebugMockTransport } from '../network/DebugMockTransport';
 
 export const ENVIRONMENT_SWITCH_COMPILED: boolean = true;
 

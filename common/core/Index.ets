@@ -274,6 +274,32 @@ export {
   PushEvent, PushAction, PushReportPolicy, PushTokenSource, NoPushTokenSource, PushReportState, PushTokenReporter,
   PushSessionTracker
 } from './src/main/ets/push/PushReport';
+// home（APP-11）：首页 SDUI 的纯规则（向量 specs/home-sdui-vectors.json）、本机数据（LKG、公告关闭、弹窗计数）与执行层（页面在 features/home，
+// 组合在 entry/home）。HomePreview 的策略只在 Debug / Staging（src/staging，经 DebugOnly 导出）。
+export {
+  HomeJsonValue, HomeJsonObject, HomeCardType, HomeSourceKind, HomeReason, HomeAction, HomeBannerItem, HomeIconItem,
+  HomeActivityItem, HomeNoticeItem, HomeBuiltinIcon, HomeCard, HomeSkipped, HomeDropped, HomeDecoded
+} from './src/main/ets/home/HomeModels';
+export { HomeJsonRead, HomeJson, HomeSectionFilter, HomeAdLabel, HomeSpm } from './src/main/ets/home/HomeJson';
+export {
+  HomeLevel, HomeShanghai, HomeLkgScope, HomeLocalData, NoticeView, NoticeFilter, PopupBlocker, PopupDecision, PopupPolicy,
+  HomeActionJson, ExposureTracker, CardErrorDedupe, HomeShowing, HomeSourceStep, HomeSourcePolicy
+} from './src/main/ets/home/HomePolicies';
+export {
+  HomeLkgBackend, MemoryHomeLkgBackend, HomeLkgStore, HomePrefsBackend, HomeClearMark, MemoryHomePrefsBackend,
+  MemoryHomeClearMark, HomeLocalStore, HomeDataCleaner, HomePendingLedger, MemoryHomePendingLedger, HomeClearResult
+} from './src/main/ets/home/HomeStorage';
+export {
+  HomeIdentity, HomeContractPort, HomeNoticePort, ApiClientHomeNoticePort, HomeTimer, SystemHomeTimer, HomeDeps,
+  HomeSectionData, HomeCardView, HomeSnapshot, HomeVersionInfo, HomeController, HomeNoticeContext, HomeTicketPort
+} from './src/main/ets/home/HomeController';
+export {
+  HomeRenderTicket, HomeTap, HomeNoticeCloseTicket, HomeNoticeRow, HomeProductRow, HomeSectionTicket, HomePopupImageTicket,
+  HomePopupTicket, HomeFixedArea, HomeNoticeDisplay, HomeErrorText
+} from './src/main/ets/home/HomeTickets';
+export { HomeDraftTexts } from './src/main/ets/home/HomeDraftTexts';
+export { HomeSignal, HomeSignalHub, HomeVisibilityHub, TabWillChangeRegistry } from './src/main/ets/home/HomeSignals';
+export { HomePopupPresenter, HomePopupDialogHost } from './src/main/ets/home/HomePopupDialogHost';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

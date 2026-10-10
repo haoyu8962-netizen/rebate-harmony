@@ -19,6 +19,7 @@ import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppOrders } from '../orders/AppOrders';
 import { AppWallet } from '../wallet/AppWallet';
 import { AppMe } from '../me/AppMe';
+import { AppHome } from '../home/AppHome';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -70,6 +71,8 @@ export default class EntryAbility extends UIAbility {
     AppWallet.shared.compose(appContext);
     // APP-12：「我的」、设置、隐私中心、关于、封禁说明与申诉、推送令牌上报、统一客服出口（本机偏好登记为撤回清理第一步，在环境对账之前）。
     AppMe.shared.compose(this.context);
+    // APP-11：首页 SDUI（LKG、公告关闭与弹窗计数登记为撤回同意与切换环境的清理第一步，在环境对账之前）。
+    AppHome.shared.compose(appContext);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
@@ -140,6 +143,7 @@ export default class EntryAbility extends UIAbility {
     AppWallet.shared.onAppForeground();
     // APP-12：可见的「我的」类页面回到前台（「我的」Tab 取一次 /v1/me、通知设置重查系统状态、引导条重算）。
     AppMe.shared.onAppForeground();
+    AppHome.shared.onAppForeground();
   }
 
   /**
@@ -156,6 +160,7 @@ export default class EntryAbility extends UIAbility {
     AppWallet.shared.onAppBackground();
     // APP-12 R1-08：进后台即作废等待中的导航许可（10006 → RiskNotice、后台推送上报的导航许可）。
     AppMe.shared.onAppBackground();
+    AppHome.shared.onAppBackground();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
