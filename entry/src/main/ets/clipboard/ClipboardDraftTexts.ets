@@ -7,6 +7,7 @@ import { DefaultTexts } from 'generated';
  * 鸿蒙的读取按钮是系统 PasteButton（文字「粘贴」与读屏名由系统提供），所以 clipboard.prompt.action 等只用于普通按钮（邀请确认）。
  * 设置页「打开 App 自动识别剪贴板」开关只在 Android（鸿蒙没有自动识别），这里不放 settings.clipboard_auto。
  *
+ * TODO(N-34) FU-CLIP 新增的 clipboard.share_prompt*、clipboard.prompt.detail* 同样是草稿（K28）。
  * TODO(N-30) 整张表都是「待定稿，不得提审」：契约补键后删除本文件、改读 DefaultTexts；提审前（QA-07）必须替换。
  */
 export class ClipboardDraftTexts {
@@ -32,6 +33,14 @@ export class ClipboardDraftTexts {
     m.set('clipboard.card_list.close', '关闭');
     // ---- 登录验证码页邀请码行【粘贴】（LoginCodeInvite）抽不到时的轻提示（BR-INV-04「未识别到邀请码」）
     m.set('clipboard.login_invite.not_found', '未识别到邀请码');
+    // ---- FU-CLIP C6 / C7：系统分享提示条与「上传前可见平台」（K26、K28；TODO(N-34) 待契约补键，提审前替换）
+    m.set('clipboard.share_prompt', '收到分享的{platform_name}商品，查返利？');
+    m.set('clipboard.share_prompt.action', '查返利');
+    m.set('clipboard.share_prompt.label', '检测到{platform_name}商品链接，查返利');
+    m.set('clipboard.share_prompt.label_tpwd', '检测到{platform_name}口令，查返利');
+    m.set('clipboard.prompt.detail', '{platform_name}商品链接 {display}');
+    m.set('clipboard.prompt.detail.tpwd', '{platform_name}口令');
+    m.set('clipboard.prompt.detail.more', '等 {count} 个');
     return m;
   }
 

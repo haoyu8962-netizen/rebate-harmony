@@ -45,6 +45,8 @@
     common/core/src/test/OAuthLoginVectorsData.ets            specs/oauth-login-vectors.json 全文（APP-05b，Codex 写的三端共用第三方登录、绑手机与并号向量）
     common/core/src/test/OpenTradeVectorsData.ets             specs/open-trade-vectors.json 全文（APP-06b，Codex 写的三端共用 open 购买、外跳与授权向量）
     common/core/src/test/ClipboardVectorsData.ets             specs/clipboard-vectors.json 全文（APP-07，Codex 写的三端共用剪贴板识别向量）
+    common/core/src/test/ClipboardCandidatesVectorsData.ets   specs/clipboard-candidates-vectors.json 全文（FU-CLIP，Codex 写的三端共用商品候选、
+                                                              加盐指纹、桥读取最小化与系统分享向量）
     common/core/src/test/OrderVectorsData.ets                 specs/order-vectors.json 全文（APP-08，Codex 写的三端共用订单列表、详情与待跟单卡向量）
     common/core/src/test/WalletVectorsData.ets                specs/wallet-vectors.json 全文（APP-09，Codex 写的三端共用钱包、提现与收款账号向量）
     common/core/src/test/MeVectorsData.ets                    specs/me-vectors.json 全文（ME_VECTORS_JSON）与契约快照
@@ -716,6 +718,16 @@ def gen_clipboard_vectors_data():
     return gen_vectors_data(CLIPBOARD_VECTORS, "CLIPBOARD_VECTORS_JSON",
                             "剪贴板识别向量（APP-07）：specs/clipboard-vectors.json 全文，供 ClipboardVector.test.ets "
                             "解析。只在 src/test，不进产物。")
+
+
+CLIPBOARD_CANDIDATES_VECTORS = os.path.join("specs", "clipboard-candidates-vectors.json")
+
+
+def gen_clipboard_candidates_vectors_data():
+    """specs/clipboard-candidates-vectors.json（FU-CLIP，Codex 先写的三端共用商品候选、加盐指纹、桥读取与系统分享向量）。"""
+    return gen_vectors_data(CLIPBOARD_CANDIDATES_VECTORS, "CLIPBOARD_CANDIDATES_VECTORS_JSON",
+                            "剪贴板商品候选向量（FU-CLIP）：specs/clipboard-candidates-vectors.json 全文，供 "
+                            "ClipboardCandidatesVector.test.ets 解析。只在 src/test，不进产物。")
 
 
 ORDER_VECTORS = os.path.join("specs", "order-vectors.json")
@@ -1666,6 +1678,8 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "OAuthLoginVectorsData.ets"): gen_oauth_login_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "OpenTradeVectorsData.ets"): gen_open_trade_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "ClipboardVectorsData.ets"): gen_clipboard_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "ClipboardCandidatesVectorsData.ets"):
+            gen_clipboard_candidates_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),

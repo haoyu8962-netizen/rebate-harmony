@@ -23,6 +23,7 @@ import { DEBUG_STEP_UP_PHONE, DEBUG_WALLET_SCENE_KEY, DebugFakeWallet } from './
 import { DEBUG_ME_SCENE_KEY, DebugFakeMe, DebugPushTokenSource } from './DebugFakeMe';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import { AppLogin } from '../../../main/ets/login/AppLogin';
+import { AppClipboard } from '../../../main/ets/clipboard/AppClipboard';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -318,6 +319,13 @@ export class BuildVariant {
     const clip: Object | undefined = want.parameters?.['couli_debug_clip'];
     if (typeof clip === 'string') {
       DebugFakeClipboard.writeSample(clip as string);
+    }
+    // FU-CLIP：`--ps couli_debug_share <样例>` 模拟系统分享到达（截图与冒烟用；样例全部是演示数据，不打日志）。和真实分享走同一入口
+    // AppClipboard.shareArrived（当场抽候选、原文丢弃）；外壳就绪后才执行。
+    const share: Object | undefined = want.parameters?.['couli_debug_share'];
+    if (typeof share === 'string' && AppRouting.shared.presentationReady) {
+      const sample: string = share as string;
+      setTimeout(() => AppClipboard.shared.shareArrived('text/plain', sample), 600);
     }
     const scene: Object | undefined = want.parameters?.['couli_debug_wechat_scene'];
     if (typeof scene === 'string') {

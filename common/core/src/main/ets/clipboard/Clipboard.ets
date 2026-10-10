@@ -2,6 +2,7 @@
 // 三端同名：ClipboardRules、ClipboardText、InviteCodeExtractor、ClipboardSensitive、ClipboardReadPolicy、ClipboardClassifier、
 // ClipboardWriteLedger、PromptHistory、ParseResultAction、ManualPasteAction、InviteConfirmAction（向量 specs/clipboard-vectors.json）。
 // 这里不读系统剪贴板、不落盘、不打日志：原文只在调用方的内存里经过这些函数，结果只含抽出的片段与 hash。
+import { url } from '@kit.ArkTS';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { RequestSigner } from '../network/RequestSigner';
 import { Sha256 } from '../clientcore/Sha256';
@@ -25,9 +26,68 @@ function objectOf(value: Object | null | undefined): Record<string, Object> | nu
 }
 
 /**
- * 本地过滤规则（F-CLIP-02、BR-INV-04 细则；规则空白 G02、G03、G14）。包内默认取原文数值：长度 10～500、排除不超过 20 位的纯数字或
- * 纯字母数字、排除词表为空；邀请触发前提为文本含 config.share_domains 任一域名的 /i/{code} 落地页，或含「邀请码」字样。
- * TODO(N-30) G02：config.clipboard 在契约里是 FreeForm，键名与类型没定，fromConfig 不按猜测的键名解析，一律用包内默认。
+ * 包内默认白名单的一项（FU-CLIP §2.1 第 1 条；K01）：主机等于 host、或以「.host」结尾即命中 platform。displayName 为提示条上的平台显示名
+ * （K26：tmall.com 项显示「天猫」，platform 仍是 taobao）。
+ */
+export class ClipboardHostRule {
+  readonly host: string;
+  readonly platform: string;
+  readonly displayName: string;
+
+  constructor(host: string, platform: string, displayName: string) {
+    this.host = host;
+    this.platform = platform;
+    this.displayName = displayName;
+  }
+}
+
+/**
+ * 远程收紧项（FU-CLIP §2.1 第 5 条；K02、K03、K30）：只能减不能加。platforms 只保留这些平台（白名单之外的平台名忽略；空数组 = 全关）；
+ * removeHosts 去掉与默认项完全相同的项；tpwdEnabled 为 false 关口令。各项为 null 表示这一维度不限制。
+ */
+export class ClipboardLimits {
+  readonly platforms: string[] | null;
+  readonly removeHosts: string[] | null;
+  readonly tpwdEnabled: boolean | null;
+
+  constructor(platforms?: string[] | null, removeHosts?: string[] | null, tpwdEnabled?: boolean | null) {
+    this.platforms = platforms === undefined || platforms === null ? null : platforms.slice();
+    this.removeHosts = removeHosts === undefined || removeHosts === null ? null : removeHosts.slice();
+    this.tpwdEnabled = tpwdEnabled === undefined ? null : tpwdEnabled;
+  }
+
+  static readonly NONE: ClipboardLimits = new ClipboardLimits();
+
+  /**
+   * features.flags → 收紧项（K03；F-CLIP-05「按平台一键关闭」）：只看 clipboard.enabled.taobao|jd|pdd 为 false 的键，等价于从 platforms
+   * 去掉该平台；true 与缺键无效果；端键 clipboard.enabled.ios|android|harmony 与未知平台忽略。没有被关的平台时 platforms 为 null。
+   * TODO(N-34) K03：电商平台级开关的含义待规划确认。
+   */
+  static fromFeatureFlags(flags: Record<string, boolean> | null | undefined): ClipboardLimits {
+    if (flags === null || flags === undefined) {
+      return ClipboardLimits.NONE;
+    }
+    const kept: string[] = [];
+    let off: boolean = false;
+    for (const platform of ClipboardRules.PLATFORMS) {
+      if (flags[ClipboardLimits.FLAG_PREFIX + platform] === false) {
+        off = true;
+      } else {
+        kept.push(platform);
+      }
+    }
+    return off ? new ClipboardLimits(kept) : ClipboardLimits.NONE;
+  }
+
+  /** features.flags 的电商平台开关前缀（K03）。 */
+  static readonly FLAG_PREFIX: string = 'clipboard.enabled.';
+}
+
+/**
+ * 本地过滤规则（F-CLIP-02、BR-INV-04 细则；规则空白 G02、G03、G14；FU-CLIP K01～K04）。包内默认取原文数值：长度 10～500、排除不超过
+ * 20 位的纯数字或纯字母数字、排除词表为空；邀请触发前提为文本含 config.share_domains 任一域名的 /i/{code} 落地页，或含「邀请码」字样。
+ * 商品候选只认包内白名单（hostRules）里的链接与淘宝口令（tpwdEnabled 且 platforms 含 taobao）；白名单只能经 tightened 收紧。
+ * TODO(N-30) G02 / TODO(N-34) K02：config.clipboard 在契约里是 FreeForm，键名与类型没定，fromConfig 不按猜测的键名解析，一律用包内默认。
  */
 export class ClipboardRules {
   static readonly DEFAULT_MIN_LENGTH: number = 10;
@@ -36,6 +96,26 @@ export class ClipboardRules {
   static readonly DEFAULT_MAX_LINKS: number = 3;
   static readonly INVITE_KEYWORD: string = '邀请码';
 
+  static readonly PLATFORM_TAOBAO: string = 'taobao';
+  static readonly PLATFORM_JD: string = 'jd';
+  static readonly PLATFORM_PDD: string = 'pdd';
+  /** M-内测平台（04 §2.1），顺序即 ClipboardLimits.fromFeatureFlags 输出顺序。 */
+  static readonly PLATFORMS: string[] = ['taobao', 'jd', 'pdd'];
+
+  /**
+   * 包内默认白名单（K01，三端逐字一致）。TODO(N-34) K01 / K31：B1-07 出 link-patterns 真实规则后由契约 / 规划决定是否改为构建时生成，
+   * 仍保持「远程只能收紧」。
+   */
+  static readonly DEFAULT_HOSTS: ClipboardHostRule[] = [
+    new ClipboardHostRule('taobao.com', 'taobao', '淘宝'),
+    new ClipboardHostRule('tb.cn', 'taobao', '淘宝'),
+    new ClipboardHostRule('tmall.com', 'taobao', '天猫'),
+    new ClipboardHostRule('jd.com', 'jd', '京东'),
+    new ClipboardHostRule('3.cn', 'jd', '京东'),
+    new ClipboardHostRule('yangkeduo.com', 'pdd', '拼多多'),
+    new ClipboardHostRule('pinduoduo.com', 'pdd', '拼多多')
+  ];
+
   readonly minLength: number;
   readonly maxLength: number;
   /** 不超过这个长度的纯数字 / 纯字母数字文本排除（F-CLIP-02）。 */
@@ -43,29 +123,77 @@ export class ClipboardRules {
   readonly excludedWords: string[];
   /** 邀请触发字样（BR-INV-04 细则「含『邀请码』字样」）。 */
   readonly inviteKeyword: string;
-  /** 上传的链接最多几个（G04：按出现顺序）。 */
+  /** 上传的候选（白名单链接与口令合计）最多几个（G04、K07：按出现顺序）。 */
   readonly maxUploadLinks: number;
+  /** 商品链接白名单（K01）。 */
+  readonly hostRules: ClipboardHostRule[];
+  /** 淘口令开关（K04；收紧后可关）。 */
+  readonly tpwdEnabled: boolean;
+  /** 仍开着的电商平台（K02、K03）。 */
+  readonly platforms: string[];
 
   constructor(minLength: number = ClipboardRules.DEFAULT_MIN_LENGTH,
     maxLength: number = ClipboardRules.DEFAULT_MAX_LENGTH,
     pureAlnumMaxLength: number = ClipboardRules.DEFAULT_PURE_ALNUM_MAX, excludedWords: string[] = [],
-    inviteKeyword: string = ClipboardRules.INVITE_KEYWORD, maxUploadLinks: number = ClipboardRules.DEFAULT_MAX_LINKS) {
+    inviteKeyword: string = ClipboardRules.INVITE_KEYWORD, maxUploadLinks: number = ClipboardRules.DEFAULT_MAX_LINKS,
+    hostRules: ClipboardHostRule[] = ClipboardRules.DEFAULT_HOSTS, tpwdEnabled: boolean = true,
+    platforms: string[] = ClipboardRules.PLATFORMS) {
     this.minLength = minLength;
     this.maxLength = maxLength;
     this.pureAlnumMaxLength = pureAlnumMaxLength;
     this.excludedWords = excludedWords;
     this.inviteKeyword = inviteKeyword;
     this.maxUploadLinks = maxUploadLinks;
+    this.hostRules = hostRules.slice();
+    this.tpwdEnabled = tpwdEnabled;
+    this.platforms = platforms.slice();
   }
 
   static readonly defaults: ClipboardRules = new ClipboardRules();
 
   /**
-   * 下发的 config.clipboard（FreeForm）→ 规则。TODO(N-30) G02：结构未定，任何下发值都认不出，整体忽略、用包内默认（不按猜测的
-   * 键名解析）。契约定下键名后在这里解析，认不出的结构仍整体回落。
+   * 下发的 config.clipboard（FreeForm）→ 规则。TODO(N-30) G02 / TODO(N-34) K02：结构未定，任何下发值都认不出，整体忽略、用包内默认
+   * （不按猜测的键名解析）。契约定下键名后在这里解析，认不出的结构仍整体回落；白名单只取与包内默认的交集（tightened）。
    */
   static fromConfig(_raw: Object | null | undefined): ClipboardRules {
     return ClipboardRules.defaults;
+  }
+
+  /** 淘口令此刻可用（开关开、淘宝平台未被关）。 */
+  get tpwdActive(): boolean {
+    return this.tpwdEnabled && this.platforms.indexOf(ClipboardRules.PLATFORM_TAOBAO) >= 0;
+  }
+
+  /**
+   * 远程收紧（K02、K03、K30）：返回新规则，只减不加——platforms 与现有平台取交集（未知平台名忽略），removeHosts 只去掉完全相同的现有项，
+   * tpwdEnabled=false 关口令。任何取值都不能增加主机或放宽判定。
+   */
+  tightened(limits: ClipboardLimits): ClipboardRules {
+    let platforms: string[] = this.platforms.slice();
+    const only: string[] | null = limits.platforms;
+    if (only !== null) {
+      platforms = platforms.filter((p: string): boolean => only.indexOf(p) >= 0);
+    }
+    let hosts: ClipboardHostRule[] = this.hostRules.filter((r: ClipboardHostRule): boolean =>
+    platforms.indexOf(r.platform) >= 0);
+    const removed: string[] | null = limits.removeHosts;
+    if (removed !== null) {
+      hosts = hosts.filter((r: ClipboardHostRule): boolean => removed.indexOf(r.host) < 0);
+    }
+    const tpwd: boolean = this.tpwdEnabled && limits.tpwdEnabled !== false;
+    return new ClipboardRules(this.minLength, this.maxLength, this.pureAlnumMaxLength, this.excludedWords,
+      this.inviteKeyword, this.maxUploadLinks, hosts, tpwd, platforms);
+  }
+
+  /** 平台显示名（K26）：口令与没有主机信息时用。 */
+  static displayNameOf(platform: string): string {
+    if (platform === ClipboardRules.PLATFORM_JD) {
+      return '京东';
+    }
+    if (platform === ClipboardRules.PLATFORM_PDD) {
+      return '拼多多';
+    }
+    return '淘宝';
   }
 }
 
@@ -74,6 +202,18 @@ export class ClipboardText {
   /** http(s) 链接：只取 ASCII URL 字符，遇到空白、全角与中文标点即止（G03、G04）。 */
   private static readonly LINK: RegExp = new RegExp('https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&\'()*+,;=%]+', 'gi');
   private static readonly TITLE: RegExp = new RegExp('「([^「」]+)」');
+
+  /** 链接片段与位置（候选按原文位置排序用）。 */
+  static linkSpans(text: string): ClipboardSpan[] {
+    const out: ClipboardSpan[] = [];
+    const pattern: RegExp = new RegExp(ClipboardText.LINK.source, 'gi');
+    let match: RegExpExecArray | null = pattern.exec(text);
+    while (match !== null) {
+      out.push(new ClipboardSpan(match[0], match.index));
+      match = pattern.exec(text);
+    }
+    return out;
+  }
 
   static links(text: string): string[] {
     const out: string[] = [];
@@ -115,10 +255,36 @@ export class ClipboardText {
     return null;
   }
 
-  /** 上传内容（G04）：链接（最多 maxLinks 个，按出现顺序）加「」内的标题，换行连接；原文其余部分不上传。 */
-  static uploadText(links: string[], text: string, maxLinks: number): string {
-    const parts: string[] = links.slice(0, maxLinks);
+  /**
+   * 本地 30132（没有候选、不上传）的【用商品名搜索】预填（BR-TEXT-14：「」内或首行商品名，提取不到留空）。预填点了就发搜索，所以与上传同一套
+   * 最小化（FU-CLIP 共性第 5 条，R2-01 同类路径）：有「」标题时只用最小化后的标题（含非白名单链接 / 口令被整段舍弃时留空，不退回首行）；
+   * 首行含链接形态或像口令的片段时留空。服务端回显的 hit.raw 预填仍用 searchPrefill。
+   */
+  static localPrefill(text: string | null | undefined, rules: ClipboardRules, shareDomains: string[]): string | null {
+    if (text === null || text === undefined || text.trim().length === 0) {
+      return null;
+    }
     const title: string | null = ClipboardText.quotedTitle(text);
+    if (title !== null) {
+      return ClipboardTitlePolicy.minimize(title, rules, shareDomains);
+    }
+    const line: string | null = ClipboardText.searchPrefill(text);
+    if (line === null || ClipboardText.linkSpans(line).length > 0 || TpwdExtractor.spans(line, rules).length > 0
+      || ClipboardTitlePolicy.unsafe(line)) {
+      return null;
+    }
+    return line;
+  }
+
+  /**
+   * 上传内容（G04）：候选（最多 maxLinks 个，按出现顺序）加「」内的标题，换行连接；原文其余部分不上传。
+   * FU-CLIP 共性第 5 条（鸿蒙 R2-01，S0）：标题先经 ClipboardTitlePolicy.minimize 最小化——剔除其中的白名单链接与口令，含非白名单链接、
+   * 无法识别的口令或其他链接形态时整段舍弃；标题里的链接、口令不绕过白名单与候选总数上限。
+   */
+  static uploadText(links: string[], text: string, maxLinks: number, rules: ClipboardRules,
+    shareDomains: string[]): string {
+    const parts: string[] = links.slice(0, maxLinks);
+    const title: string | null = ClipboardTitlePolicy.minimize(ClipboardText.quotedTitle(text), rules, shareDomains);
     if (title !== null) {
       parts.push(title);
     }
@@ -149,6 +315,382 @@ export class ClipboardText {
   /** 本机记录用的 hash（G08：原文 UTF-8 字节的 SHA-256，小写十六进制）。 */
   static sha256(text: string): string {
     return RequestSigner.hex(Sha256.digest(RequestSigner.utf8(text)));
+  }
+}
+
+/** 文本里切出的一个链接片段与它在原文中的位置（只在内存里，随调用结束丢弃）。 */
+export class ClipboardSpan {
+  readonly raw: string;
+  readonly index: number;
+
+  constructor(raw: string, index: number) {
+    this.raw = raw;
+    this.index = index;
+  }
+}
+
+/** 链接判定结果（FU-CLIP §2.1 第 2 条）：allowed 时 platform、rule、host 有值；否则 reasonRaw 为第一个命中的拒绝原因。 */
+export class ClipboardHostCheck {
+  readonly allowed: boolean;
+  readonly platform: string | null;
+  readonly reasonRaw: string | null;
+  readonly rule: ClipboardHostRule | null;
+  /** 规范化后的主机（小写、去一个末尾点）；判定前就被拒绝时为 null。 */
+  readonly host: string | null;
+  /** 主机之后还有路径、查询或片段（显示为「/…」，K26）。 */
+  readonly hasRest: boolean;
+
+  constructor(allowed: boolean, platform: string | null, reasonRaw: string | null, rule: ClipboardHostRule | null = null,
+    host: string | null = null, hasRest: boolean = false) {
+    this.allowed = allowed;
+    this.platform = platform;
+    this.reasonRaw = reasonRaw;
+    this.rule = rule;
+    this.host = host;
+    this.hasRest = hasRest;
+  }
+}
+
+/**
+ * 链接白名单判定（FU-CLIP §2.1 第 2 条；K01、K06）。系统 URL 解析器（url.URL.parseURL）解析失败 → unparsable；之后按字面检查，原因顺序
+ * 固定：unparsable → scheme → userinfo → port → ip → host_invalid → not_allowed，命中第一个即返回。判定用规范化主机，上传与显示用原串。
+ * 与服务端 link-patterns 同口径：主机等于白名单某项或以「.项」结尾即命中；伪装域名（taobao.com.evil.cn、evil-taobao.com）拒绝。
+ */
+export class ClipboardHostPolicy {
+  static readonly UNPARSABLE: string = 'unparsable';
+  static readonly SCHEME: string = 'scheme';
+  static readonly USERINFO: string = 'userinfo';
+  static readonly PORT: string = 'port';
+  static readonly IP: string = 'ip';
+  static readonly HOST_INVALID: string = 'host_invalid';
+  static readonly NOT_ALLOWED: string = 'not_allowed';
+
+  private static readonly SCHEME_PATTERN: RegExp = /^([A-Za-z][A-Za-z0-9+.\-]*):/;
+  private static readonly HOST_CHARS: RegExp = /^[a-z0-9.\-]+$/;
+  private static readonly DIGITS: RegExp = /^[0-9]+$/;
+  private static readonly HEX: RegExp = /^0x[0-9a-f]*$/;
+
+  /** url.URL.parseURL 判定「不是合法 URL」的错误码（401 参数错误、10200002 Invalid url string）。 */
+  private static readonly PARSE_REJECT_CODES: number[] = [401, 10200002];
+
+  /**
+   * 系统 URL 解析器能否解析（解析器之外另做字面检查，两者都通过才算）。只有解析器明确回「不是合法 URL」（BusinessError 401 / 10200002）
+   * 才算解析失败；运行环境里解析器本身不可用（本机 Local Test 的 @ohos.url 缺 URLSearchParams，抛的不是 BusinessError）时不据此拒绝，
+   * 由后面的字面检查判定（规则空白 HS01）。
+   */
+  static systemParses: (raw: string) => boolean = (raw: string): boolean => {
+    try {
+      url.URL.parseURL(raw);
+      return true;
+    } catch (e) {
+      const code: Object | undefined = e === null || e === undefined || typeof e !== 'object' ? undefined
+        : (e as Record<string, Object>)['code'];
+      return !(typeof code === 'number' && ClipboardHostPolicy.PARSE_REJECT_CODES.indexOf(code as number) >= 0);
+    }
+  };
+
+  private static reject(reason: string, host: string | null = null): ClipboardHostCheck {
+    return new ClipboardHostCheck(false, null, reason, null, host, false);
+  }
+
+  static check(raw: string, rules: ClipboardRules): ClipboardHostCheck {
+    let parses: boolean = false;
+    try {
+      parses = ClipboardHostPolicy.systemParses(raw);
+    } catch (e) {
+      parses = false;
+    }
+    const schemeMatch: RegExpExecArray | null = ClipboardHostPolicy.SCHEME_PATTERN.exec(raw);
+    if (!parses || schemeMatch === null) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.UNPARSABLE);
+    }
+    const scheme: string = schemeMatch[1].toLowerCase();
+    const rest: string = raw.substring(schemeMatch[0].length);
+    if (scheme !== 'http' && scheme !== 'https') {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.SCHEME);
+    }
+    if (!rest.startsWith('//')) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.UNPARSABLE);
+    }
+    const afterSlashes: string = rest.substring(2);
+    let end: number = afterSlashes.length;
+    for (const stop of ['/', '?', '#', '\\']) {
+      const at: number = afterSlashes.indexOf(stop);
+      if (at >= 0 && at < end) {
+        end = at;
+      }
+    }
+    const authority: string = afterSlashes.substring(0, end);
+    const tail: string = afterSlashes.substring(end);
+    const hasRest: boolean = tail.length > 0 && tail !== '/';
+    if (authority.length === 0) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.UNPARSABLE);
+    }
+    if (authority.indexOf('@') >= 0) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.USERINFO);
+    }
+    if (authority.startsWith('[')) {
+      const close: number = authority.indexOf(']');
+      if (close < 0) {
+        return ClipboardHostPolicy.reject(ClipboardHostPolicy.UNPARSABLE);
+      }
+      if (close + 1 < authority.length) {
+        return ClipboardHostPolicy.reject(ClipboardHostPolicy.PORT);
+      }
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.IP);
+    }
+    if (authority.indexOf('[') >= 0 || authority.indexOf(']') >= 0) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.UNPARSABLE);
+    }
+    if (authority.indexOf(':') >= 0) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.PORT);
+    }
+    let host: string = authority.toLowerCase();
+    if (host.endsWith('.')) {
+      host = host.substring(0, host.length - 1);
+    }
+    const labels: string[] = host.split('.');
+    const last: string = labels[labels.length - 1];
+    if (ClipboardHostPolicy.DIGITS.test(last) || ClipboardHostPolicy.HEX.test(last)) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.IP, host);
+    }
+    if (!ClipboardHostPolicy.HOST_CHARS.test(host) || labels.length < 2
+      || labels.some((l: string): boolean => l.length === 0 || l.startsWith('-') || l.endsWith('-'))) {
+      return ClipboardHostPolicy.reject(ClipboardHostPolicy.HOST_INVALID, host);
+    }
+    for (const rule of rules.hostRules) {
+      if (host === rule.host || host.endsWith('.' + rule.host)) {
+        return new ClipboardHostCheck(true, rule.platform, null, rule, host, hasRest);
+      }
+    }
+    return ClipboardHostPolicy.reject(ClipboardHostPolicy.NOT_ALLOWED, host);
+  }
+}
+
+/**
+ * 淘口令抽取（FU-CLIP §2.1 第 3 条；K04，TODO(N-34) 待 B1-07 样本校准）：只对 taobao。旧版同一包裹符号成对、中间 8～16 位字母数字且不是
+ * 纯数字、前后不紧贴 ASCII 字母数字；新版「/CZ 四位数字 空格 8～16 位字母数字/」。抽出整段（含符号），按出现位置排序。
+ * 京口令、拼多多口令没有形态描述，不识别。
+ */
+export class TpwdExtractor {
+  private static readonly OLD: string = '([￥¥$€£₤₳¢₴₰])([A-Za-z0-9]{8,16})\\1';
+  private static readonly NEW: string = '/CZ[0-9]{4} [A-Za-z0-9]{8,16}/';
+  private static readonly ALNUM: RegExp = /^[A-Za-z0-9]$/;
+  private static readonly ALL_DIGITS: RegExp = /^[0-9]+$/;
+
+  static extract(text: string, rules: ClipboardRules): string[] {
+    return TpwdExtractor.spans(text, rules).map((s: ClipboardSpan): string => s.raw);
+  }
+
+  static spans(text: string, rules: ClipboardRules): ClipboardSpan[] {
+    const out: ClipboardSpan[] = [];
+    if (!rules.tpwdActive) {
+      return out;
+    }
+    const old: RegExp = new RegExp(TpwdExtractor.OLD, 'g');
+    let match: RegExpExecArray | null = old.exec(text);
+    while (match !== null) {
+      const start: number = match.index;
+      const stop: number = start + match[0].length;
+      const before: string = start > 0 ? text.charAt(start - 1) : '';
+      const after: string = stop < text.length ? text.charAt(stop) : '';
+      if (TpwdExtractor.ALNUM.test(before) || TpwdExtractor.ALNUM.test(after)
+        || TpwdExtractor.ALL_DIGITS.test(match[2])) {
+        old.lastIndex = start + 1;
+      } else {
+        out.push(new ClipboardSpan(match[0], start));
+      }
+      match = old.exec(text);
+    }
+    const fresh: RegExp = new RegExp(TpwdExtractor.NEW, 'g');
+    let next: RegExpExecArray | null = fresh.exec(text);
+    while (next !== null) {
+      out.push(new ClipboardSpan(next[0], next.index));
+      next = fresh.exec(text);
+    }
+    out.sort((a: ClipboardSpan, b: ClipboardSpan): number => a.index - b.index);
+    return out;
+  }
+}
+
+/** 一个本地抽出的商品候选（kindRaw url / tpwd）：只在内存里，随请求或提示条作废而释放。 */
+export class ClipboardCandidate {
+  static readonly KIND_URL: string = 'url';
+  static readonly KIND_TPWD: string = 'tpwd';
+
+  readonly kindRaw: string;
+  readonly platform: string;
+  readonly raw: string;
+  readonly index: number;
+  readonly displayName: string;
+  /** 链接的规范化主机（口令为 null）。 */
+  readonly host: string | null;
+  readonly hasRest: boolean;
+
+  constructor(kindRaw: string, platform: string, raw: string, index: number, displayName: string, host: string | null,
+    hasRest: boolean) {
+    this.kindRaw = kindRaw;
+    this.platform = platform;
+    this.raw = raw;
+    this.index = index;
+    this.displayName = displayName;
+    this.host = host;
+    this.hasRest = hasRest;
+  }
+}
+
+/**
+ * 商品候选（FU-CLIP §2.1 第 4 条；G04、K07、A02）：白名单链接（去掉邀请落地页）与淘口令，按在原文中的出现位置排序，合计最多
+ * rules.maxUploadLinks（3）个；上传内容 = 候选 + 「」内第一段标题，换行连接，原文其余部分不上传。没有候选 → 不是商品。
+ */
+export class ClipboardCandidates {
+  static extract(text: string, rules: ClipboardRules, shareDomains: string[]): ClipboardCandidate[] {
+    const all: ClipboardCandidate[] = [];
+    const links: ClipboardSpan[] = ClipboardText.linkSpans(text);
+    for (const link of links) {
+      if (ClipboardClassifier.inviteLanding(link.raw, shareDomains)) {
+        continue;
+      }
+      const check: ClipboardHostCheck = ClipboardHostPolicy.check(link.raw, rules);
+      if (check.allowed && check.rule !== null) {
+        all.push(new ClipboardCandidate(ClipboardCandidate.KIND_URL, check.rule.platform, link.raw, link.index,
+          check.rule.displayName, check.host, check.hasRest));
+      }
+    }
+    for (const token of TpwdExtractor.spans(text, rules)) {
+      const end: number = token.index + token.raw.length;
+      // 落在某个链接片段里的不算口令（链接字符集含 $ 等包裹符号）
+      const inside: boolean = links.some((l: ClipboardSpan): boolean =>
+      token.index < l.index + l.raw.length && end > l.index);
+      if (!inside) {
+        all.push(new ClipboardCandidate(ClipboardCandidate.KIND_TPWD, ClipboardRules.PLATFORM_TAOBAO, token.raw,
+          token.index, ClipboardRules.displayNameOf(ClipboardRules.PLATFORM_TAOBAO), null, false));
+      }
+    }
+    all.sort((a: ClipboardCandidate, b: ClipboardCandidate): number => a.index - b.index);
+    return all.slice(0, Math.max(0, rules.maxUploadLinks));
+  }
+
+  /** 上传内容；没有候选为 null。 */
+  static uploadText(text: string, rules: ClipboardRules, shareDomains: string[]): string | null {
+    return ClipboardCandidates.uploadOf(ClipboardCandidates.extract(text, rules, shareDomains), text, rules, shareDomains);
+  }
+
+  static uploadOf(candidates: ClipboardCandidate[], text: string, rules: ClipboardRules,
+    shareDomains: string[]): string | null {
+    if (candidates.length === 0) {
+      return null;
+    }
+    return ClipboardText.uploadText(candidates.map((c: ClipboardCandidate): string => c.raw), text, candidates.length,
+      rules, shareDomains);
+  }
+}
+
+/**
+ * 「」标题片段的最小化（FU-CLIP 共性第 5 条；鸿蒙 R2-01，S0；TODO(N-34) HS16）：标题只用来帮服务端认商品，不能夹带候选以外的东西。
+ * - 标题里的 http(s) 链接逐个按 ClipboardHostPolicy 判定：任何一个不在白名单（含邀请落地页、伪装域名、IP、端口、userinfo）→ 整段舍弃；
+ *   全部在白名单 → 从标题里剔除（它们本来就按原文位置参与候选排序与 3 个上限，超出上限的不再借标题上传）。
+ * - 能识别的淘口令从标题里剔除；剔除后仍有其他链接形态（任意 scheme://、www.、无 scheme 的域名、IPv4）或像口令的成对包裹片段
+ *   （含字母，如未识别的口令、口令被远程关闭时的口令）→ 整段舍弃。
+ * - 剔除后只剩空白 → 没有标题。
+ * 只在内存里做；本地预填（30132【用商品名搜索】）仍用原标题，不经上传。
+ */
+export class ClipboardTitlePolicy {
+  private static readonly SCHEME: RegExp = /[A-Za-z][A-Za-z0-9+.\-]*:\/\//;
+  private static readonly WWW: RegExp = /(^|[^A-Za-z0-9])www\./i;
+  private static readonly BARE_HOST: RegExp = /(^|[^A-Za-z0-9.\-])(?:[A-Za-z0-9\-]+\.)+[A-Za-z]{2,}(?![A-Za-z0-9])/;
+  private static readonly IPV4: RegExp = /(^|[^0-9.])[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(?![0-9])/;
+  private static readonly LOOSE_TOKEN: RegExp = /([￥¥$€£₤₳¢₴₰])([^\s￥¥$€£₤₳¢₴₰]{4,40})\1/g;
+  private static readonly LOOSE_NEW_TOKEN: RegExp = /\/[A-Za-z]{2}[0-9]{2,6}\s/;
+  private static readonly LETTER: RegExp = /[A-Za-z]/;
+
+  static minimize(title: string | null, rules: ClipboardRules, shareDomains: string[]): string | null {
+    if (title === null || title === undefined) {
+      return null;
+    }
+    const strip: ClipboardSpan[] = [];
+    const links: ClipboardSpan[] = ClipboardText.linkSpans(title);
+    for (const link of links) {
+      if (ClipboardClassifier.inviteLanding(link.raw, shareDomains)) {
+        return null;
+      }
+      const check: ClipboardHostCheck = ClipboardHostPolicy.check(link.raw, rules);
+      if (!check.allowed || check.rule === null) {
+        return null;
+      }
+      strip.push(link);
+    }
+    for (const token of TpwdExtractor.spans(title, rules)) {
+      const end: number = token.index + token.raw.length;
+      const inside: boolean = links.some((l: ClipboardSpan): boolean => token.index < l.index + l.raw.length && end > l.index);
+      if (!inside) {
+        strip.push(token);
+      }
+    }
+    strip.sort((a: ClipboardSpan, b: ClipboardSpan): number => b.index - a.index);
+    let rest: string = title;
+    for (const span of strip) {
+      rest = rest.substring(0, span.index) + ' ' + rest.substring(span.index + span.raw.length);
+    }
+    if (ClipboardTitlePolicy.unsafe(rest)) {
+      return null;
+    }
+    const out: string = rest.replace(/\s+/g, ' ').trim();
+    return out.length > 0 ? out : null;
+  }
+
+  /** 剔除白名单链接与口令后的残留里还有链接形态或像口令的片段。 */
+  static unsafe(rest: string): boolean {
+    if (ClipboardTitlePolicy.SCHEME.test(rest) || ClipboardTitlePolicy.WWW.test(rest) || ClipboardTitlePolicy.BARE_HOST.test(rest)
+      || ClipboardTitlePolicy.IPV4.test(rest) || ClipboardTitlePolicy.LOOSE_NEW_TOKEN.test(rest)) {
+      return true;
+    }
+    const loose: RegExp = new RegExp(ClipboardTitlePolicy.LOOSE_TOKEN.source, 'g');
+    let match: RegExpExecArray | null = loose.exec(rest);
+    while (match !== null) {
+      if (ClipboardTitlePolicy.LETTER.test(match[2])) {
+        return true;
+      }
+      loose.lastIndex = match.index + 1;
+      match = loose.exec(rest);
+    }
+    return false;
+  }
+}
+
+/** 提示条上显示的平台与缩略候选（K26）：labelRaw link / tpwd；链接 display = 小写主机 +（有路径或查询时）「/…」，口令为 null。 */
+export class ClipboardPromptInfo {
+  static readonly LABEL_LINK: string = 'link';
+  static readonly LABEL_TPWD: string = 'tpwd';
+
+  readonly platform: string;
+  readonly labelRaw: string;
+  readonly display: string | null;
+  readonly count: number;
+  readonly displayName: string;
+
+  constructor(platform: string, labelRaw: string, display: string | null, count: number, displayName: string) {
+    this.platform = platform;
+    this.labelRaw = labelRaw;
+    this.display = display;
+    this.count = count;
+    this.displayName = displayName;
+  }
+}
+
+/** 上传前可见平台（FU-CLIP §2.6；K26、K27）：取第一个候选的平台与类型；不显示路径与查询（可能带追踪参数）。 */
+export class ClipboardPromptDisplay {
+  static describe(candidates: ClipboardCandidate[]): ClipboardPromptInfo | null {
+    if (candidates.length === 0) {
+      return null;
+    }
+    const first: ClipboardCandidate = candidates[0];
+    if (first.kindRaw === ClipboardCandidate.KIND_TPWD || first.host === null) {
+      return new ClipboardPromptInfo(first.platform, ClipboardPromptInfo.LABEL_TPWD, null, candidates.length,
+        first.displayName);
+    }
+    return new ClipboardPromptInfo(first.platform, ClipboardPromptInfo.LABEL_LINK,
+      first.host + (first.hasRest ? '/…' : ''), candidates.length, first.displayName);
   }
 }
 
@@ -381,7 +923,8 @@ export class ClipboardClassification {
  * 本地分类（brief §2.2；BR-ID-16、BR-INV-04、OPS-06；规则空白 G03、G04、G08、G14）。顺序：
  * 1. App 自写的 hash → none（self_written）；
  * 2. 24 小时内（严格小于）提示过的同一 hash → none（prompted_recently）；
- * 3. 商品候选：通过长度、纯字母数字与排除词规则，并且含 http(s) 链接（G03；邀请落地页 /i/{code} 链接不算商品链接，CLIP-18）→ product；
+ * 3. 商品候选：通过长度、纯字母数字与排除词规则，并且有本地候选（FU-CLIP：白名单链接与淘口令；邀请落地页 /i/{code} 链接不算，
+ *    CLIP-18；没有候选仍回 no_link）→ product；
  * 4. 否则邀请：抽到码、满足触发前提、不是本人码、用户可绑定 → invite（邀请不套用商品的长度规则，G14）；
  * 5. 否则 none：抽到了码给邀请的拒绝原因（no_trigger / self_code / not_eligible），抽不到给商品的拒绝原因。
  */
@@ -418,12 +961,13 @@ export class ClipboardClassifier {
         return ClipboardClassifier.none(ClipboardClassifier.REASON_PROMPTED_RECENTLY, hash);
       }
     }
-    const productLinks: string[] = ClipboardText.links(text)
-      .filter((link: string): boolean => !ClipboardClassifier.inviteLanding(link, context.shareDomains));
-    const productReason: string | null = ClipboardClassifier.productRejection(text, productLinks, rules);
+    // FU-CLIP C2 / C8：商品判据从「有 http(s) 链接」换成「有本地候选」（白名单链接去掉邀请落地页 + 淘口令，K01、K04、K07）
+    const candidates: string[] = ClipboardCandidates.extract(text, rules, context.shareDomains)
+      .map((c: ClipboardCandidate): string => c.raw);
+    const productReason: string | null = ClipboardClassifier.productRejection(text, candidates, rules);
     if (productReason === null) {
       return new ClipboardClassification(ClipboardClassifier.KIND_PRODUCT, null, null,
-        ClipboardText.uploadText(productLinks, text, rules.maxUploadLinks), hash);
+        ClipboardText.uploadText(candidates, text, rules.maxUploadLinks, rules, context.shareDomains), hash);
     }
     const code: string | null = InviteCodeExtractor.extract(text);
     if (code === null) {
@@ -446,7 +990,7 @@ export class ClipboardClassifier {
   }
 
   /**
-   * 商品候选的拒绝原因；null = 是商品候选。links 为已去掉邀请落地页的链接。自动识别与手动粘贴商品入口共用（共性第 22 条，F-CLIP-02）：
+   * 商品候选的拒绝原因；null = 是商品候选。links 为本地候选（白名单链接与口令，已去掉邀请落地页）。自动识别与手动粘贴商品入口共用（共性第 22 条，F-CLIP-02）：
    * 过短、过长、短纯数字字母、含排除词、没有商品链接都不上传。
    */
   static productRejection(text: string, links: string[], rules: ClipboardRules): string | null {
@@ -561,11 +1105,21 @@ export class MemoryClipboardHashStore implements ClipboardHashStore {
 }
 
 /**
+ * 自写记录的端口（ClipboardWriter 用）：写入前 record（确认落盘返回 true），识别时 contains。生产是 ClipboardController 的加盐台账
+ * （SaltedWriteLedger，FU-CLIP C3）；ClipboardWriteLedger 是 APP-07 的通用实现（hash 由调用方注入）。
+ */
+export interface ClipboardSelfWriteLedger {
+  record(text: string): boolean;
+
+  contains(text: string): boolean;
+}
+
+/**
  * App 自己写入剪贴板的内容（F-CLIP-02；brief §2.3）：桥 clipboard.write、复制口令 copy_tpwd、各原生复制按钮都经同一个写入口
  * （ClipboardWriter），写入前先 record。保留最近 capacity 条 hash（重复写入同一内容移到最新），商品与邀请两种识别都排除。
  * 撤回同意时 clear。
  */
-export class ClipboardWriteLedger {
+export class ClipboardWriteLedger implements ClipboardSelfWriteLedger {
   static readonly DEFAULT_CAPACITY: number = 10;
   private static readonly KEY: string = 'self_written';
   private static readonly SEPARATOR: string = ',';
@@ -849,7 +1403,7 @@ export class ManualPasteDecision {
 
 /**
  * 用户主动粘贴（首页「去粘贴」卡、SearchTyping「粘贴查返利」、登录页邀请码【粘贴】；鸿蒙都是 PasteButton 返回 SUCCESS 之后）：
- * - 商品入口（home、search_typing）：剪贴板为空 → 进 SearchTyping（flow-map 23.2.25）；抽到链接且通过商品过滤（长度 10～500 等，
+ * - 商品入口（home、search_typing）：剪贴板为空 → 进 SearchTyping（flow-map 23.2.25）；抽到本地候选（FU-CLIP：白名单链接与淘口令）且通过商品过滤（长度 10～500 等，
  *   与自动识别同一套，共性第 22 条）→ 只上传链接与「」标题（G04）；非空但没抽到链接或没通过过滤 → 不上传，本地显示 30132 的同一种提示，预填「」内或首行（G10）；
  * - 登录页邀请码（login_invite）：只抽码填入输入框；抽不到 → 轻提示「未识别到邀请码」，不清空已有输入（BR-INV-04）。
  */
@@ -864,7 +1418,8 @@ export class ManualPasteAction {
   static readonly FILL_INVITE: string = 'fill_invite';
   static readonly INVITE_NOT_FOUND: string = 'invite_not_found';
 
-  static decide(entry: string, text: string | null | undefined, rules: ClipboardRules): ManualPasteDecision {
+  static decide(entry: string, text: string | null | undefined, rules: ClipboardRules,
+    shareDomains: string[] = []): ManualPasteDecision {
     if (entry === ManualPasteAction.ENTRY_LOGIN_INVITE) {
       const code: string | null = text === null || text === undefined ? null : InviteCodeExtractor.extract(text);
       return code !== null ? new ManualPasteDecision(ManualPasteAction.FILL_INVITE, null, null, code)
@@ -873,13 +1428,16 @@ export class ManualPasteAction {
     if (text === null || text === undefined || text.length === 0) {
       return new ManualPasteDecision(ManualPasteAction.OPEN_SEARCH_TYPING);
     }
-    const links: string[] = ClipboardText.links(text);
+    // FU-CLIP C2 / C8：只认本地候选（白名单链接去掉邀请落地页 + 淘口令），抽不到候选 → 本地 30132（G10 不变）
+    const links: string[] = ClipboardCandidates.extract(text, rules, shareDomains)
+      .map((c: ClipboardCandidate): string => c.raw);
     // 共性第 22 条：商品分支与自动识别同一套长度 / 形态过滤（ClipboardClassifier.productRejection），不通过不上传、走本地 30132
     if (ClipboardClassifier.productRejection(text, links, rules) === null) {
-      return new ManualPasteDecision(ManualPasteAction.PARSE, ClipboardText.uploadText(links, text, rules.maxUploadLinks));
+      return new ManualPasteDecision(ManualPasteAction.PARSE, ClipboardText.uploadText(links, text, rules.maxUploadLinks, rules,
+        shareDomains));
     }
-    return new ManualPasteDecision(ManualPasteAction.SEARCH_PREFILL, null, ClipboardText.searchPrefill(text), null,
-      ParseResultAction.key(ParseResultAction.UNRECOGNIZED));
+    return new ManualPasteDecision(ManualPasteAction.SEARCH_PREFILL, null,
+      ClipboardText.localPrefill(text, rules, shareDomains), null, ParseResultAction.key(ParseResultAction.UNRECOGNIZED));
   }
 }
 
@@ -941,5 +1499,172 @@ export class InviteConfirmAction {
       return new InviteConfirmDecision(InviteConfirmAction.BACKFILL_PENDING_CONTRACT);
     }
     return new InviteConfirmDecision(InviteConfirmAction.NONE);
+  }
+}
+
+/**
+ * 桥 clipboard.read 的最小化输出（FU-CLIP §2.3；K12、K13、K14）：读之前核对隐私已同意当前版本（不满足不读、回 ""）；读到的内容只回本地
+ * 候选拼接（白名单链接 / 口令最多 3 个 + 「」标题），邀请内容、非白名单链接与其余文字都不回，抽不到回 ""；不套自写排除与 24 小时去重。
+ * 鸿蒙：bridge.schema 里 clipboard.read 的 since.harmony 为 null，桥保持不声明（90001），这里只作三端同名的纯逻辑。
+ */
+export class ClipboardBridgeRead {
+  static respond(consentRaw: string, read: () => string | null, rules: ClipboardRules, shareDomains: string[]): string {
+    if (consentRaw !== ClipboardReadPolicy.CONSENT_AGREED) {
+      return '';
+    }
+    const text: string | null = read();
+    if (text === null || text === undefined || text.length === 0) {
+      return '';
+    }
+    return ClipboardCandidates.uploadText(text, rules, shareDomains) ?? '';
+  }
+}
+
+/**
+ * 系统分享收到的文本当场抽出的东西（FU-CLIP §2.5；K17）：只有候选、上传内容、「」标题与显示信息，原文不在这里。mime 不是 text/plain
+ * 时 mimeOk=false；文本为空 empty=true；超过 4000 字 tooLong=true（HS 段：按「没有候选」处理，不预填）。
+ */
+export class ShareImportPayload {
+  readonly mimeOk: boolean;
+  readonly empty: boolean;
+  readonly tooLong: boolean;
+  readonly candidates: ClipboardCandidate[];
+  readonly uploadText: string | null;
+  readonly prefill: string | null;
+  readonly display: ClipboardPromptInfo | null;
+
+  constructor(mimeOk: boolean, empty: boolean, tooLong: boolean, candidates: ClipboardCandidate[],
+    uploadText: string | null, prefill: string | null, display: ClipboardPromptInfo | null) {
+    this.mimeOk = mimeOk;
+    this.empty = empty;
+    this.tooLong = tooLong;
+    this.candidates = candidates;
+    this.uploadText = uploadText;
+    this.prefill = prefill;
+    this.display = display;
+  }
+}
+
+/** 分享导入的判定：actionRaw prompt / search_prefill / home_only / ignore_mime / drop / ignore_busy；scene 只在 prompt 时为 share_ext。 */
+export class ShareImportDecision {
+  readonly actionRaw: string;
+  readonly uploadText: string | null;
+  readonly prefill: string | null;
+  readonly scene: string | null;
+  readonly display: ClipboardPromptInfo | null;
+  readonly candidates: ClipboardCandidate[];
+
+  constructor(actionRaw: string, uploadText: string | null = null, prefill: string | null = null,
+    scene: string | null = null, display: ClipboardPromptInfo | null = null, candidates: ClipboardCandidate[] = []) {
+    this.actionRaw = actionRaw;
+    this.uploadText = uploadText;
+    this.prefill = prefill;
+    this.scene = scene;
+    this.display = display;
+    this.candidates = candidates;
+  }
+}
+
+/**
+ * 系统分享导入（FU-CLIP §2.5 第 3 条；K16～K23）。判定顺序：MIME 不是 text/plain → ignore_mime；未同意当前版本 / 基本模式 → drop（K18）；
+ * 敏感路由或浮层（含首启隐私弹窗、强更）→ drop（K19）；parse 在途 → ignore_busy（K22）；文本为空 → home_only；超过 4000 字或没有候选
+ * → search_prefill（预填只取「」标题，没有就留空，不拿原文首行）；有候选 → prompt（scene=share_ext，K16）。
+ * 不套 24 小时去重、不查自写记录（K21）；不套剪贴板的长度过滤（分享是用户主动动作，HS 段）。
+ */
+export class ShareImportAction {
+  static readonly PROMPT: string = 'prompt';
+  static readonly SEARCH_PREFILL: string = 'search_prefill';
+  static readonly HOME_ONLY: string = 'home_only';
+  static readonly IGNORE_MIME: string = 'ignore_mime';
+  static readonly DROP: string = 'drop';
+  static readonly IGNORE_BUSY: string = 'ignore_busy';
+
+  static readonly MIME_TEXT: string = 'text/plain';
+  static readonly SCENE_SHARE: string = 'share_ext';
+  /** ParseInputRequest.text 的上限（契约 1～4000）。 */
+  static readonly MAX_TEXT: number = 4000;
+
+  /** 当场抽候选（原文只在这次调用里经过，结果不含原文）。 */
+  static payload(mime: string, text: string | null | undefined, rules: ClipboardRules,
+    shareDomains: string[]): ShareImportPayload {
+    if (mime.toLowerCase() !== ShareImportAction.MIME_TEXT) {
+      return new ShareImportPayload(false, false, false, [], null, null, null);
+    }
+    if (text === null || text === undefined || text.length === 0) {
+      return new ShareImportPayload(true, true, false, [], null, null, null);
+    }
+    if (ClipboardText.codePoints(text) > ShareImportAction.MAX_TEXT) {
+      // TODO(N-34) HS 段：超长分享的处理口径未定，按「没有候选」给本地提示、不预填
+      return new ShareImportPayload(true, false, true, [], null, null, null);
+    }
+    const candidates: ClipboardCandidate[] = ClipboardCandidates.extract(text, rules, shareDomains);
+    return new ShareImportPayload(true, false, false, candidates, ClipboardCandidates.uploadOf(candidates, text, rules,
+      shareDomains), ClipboardTitlePolicy.minimize(ClipboardText.quotedTitle(text), rules, shareDomains),
+      ClipboardPromptDisplay.describe(candidates));
+  }
+
+  /** state 的键：consent、route、overlay（缺省 none）、parseInFlight（缺省 false）。 */
+  static decideWith(state: Record<string, Object>, payload: ShareImportPayload): ShareImportDecision {
+    if (!payload.mimeOk) {
+      return new ShareImportDecision(ShareImportAction.IGNORE_MIME);
+    }
+    if (textOf(state['consent']) !== ClipboardReadPolicy.CONSENT_AGREED) {
+      return new ShareImportDecision(ShareImportAction.DROP);
+    }
+    const overlay: string = textOf(state['overlay']) ?? ClipboardSensitive.OVERLAY_NONE;
+    if (ClipboardSensitive.sensitive(textOf(state['route']), overlay)) {
+      return new ShareImportDecision(ShareImportAction.DROP);
+    }
+    if (flagOf(state['parseInFlight']) === true) {
+      return new ShareImportDecision(ShareImportAction.IGNORE_BUSY);
+    }
+    if (payload.empty) {
+      return new ShareImportDecision(ShareImportAction.HOME_ONLY);
+    }
+    if (payload.tooLong || payload.uploadText === null || payload.candidates.length === 0) {
+      return new ShareImportDecision(ShareImportAction.SEARCH_PREFILL, null, payload.tooLong ? null : payload.prefill);
+    }
+    return new ShareImportDecision(ShareImportAction.PROMPT, payload.uploadText, payload.prefill,
+      ShareImportAction.SCENE_SHARE, payload.display, payload.candidates);
+  }
+
+  static decide(state: Record<string, Object>, mime: string, text: string | null | undefined, rules: ClipboardRules,
+    shareDomains: string[]): ShareImportDecision {
+    return ShareImportAction.decideWith(state, ShareImportAction.payload(mime, text, rules, shareDomains));
+  }
+}
+
+/**
+ * 分享提示条的文字（FU-CLIP §2.6；K26、K28，文案键草稿 TODO(N-34)，取值由调用方的文案来源给：entry 为 ClipboardDraftTexts）：
+ * 标题 clipboard.share_prompt「收到分享的{平台}商品，查返利？」；第二行 clipboard.prompt.detail「{平台}商品链接 {缩略主机}」或
+ * clipboard.prompt.detail.tpwd「{平台}口令」，多个时加 clipboard.prompt.detail.more「等 {count} 个」；读屏整条读
+ * clipboard.share_prompt.label「检测到{平台}商品链接，查返利」（口令为 label_tpwd）。只用缩略候选，不含路径与查询。
+ */
+export class SharePromptTexts {
+  readonly title: string;
+  readonly detail: string;
+  readonly badge: string;
+  readonly label: string;
+
+  constructor(title: string, detail: string, badge: string, label: string) {
+    this.title = title;
+    this.detail = detail;
+    this.badge = badge;
+    this.label = label;
+  }
+
+  static of(info: ClipboardPromptInfo, format: (key: string, vars: Map<string, string>) => string): SharePromptTexts {
+    const vars: Map<string, string> = new Map<string, string>();
+    vars.set('platform_name', info.displayName);
+    vars.set('display', info.display ?? '');
+    vars.set('count', String(info.count));
+    const tpwd: boolean = info.labelRaw === ClipboardPromptInfo.LABEL_TPWD || info.display === null;
+    let detail: string = format(tpwd ? 'clipboard.prompt.detail.tpwd' : 'clipboard.prompt.detail', vars);
+    if (info.count > 1) {
+      detail = detail + format('clipboard.prompt.detail.more', vars);
+    }
+    const title: string = format('clipboard.share_prompt', vars);
+    const label: string = format(tpwd ? 'clipboard.share_prompt.label_tpwd' : 'clipboard.share_prompt.label', vars);
+    return new SharePromptTexts(title, detail, info.displayName, label);
   }
 }

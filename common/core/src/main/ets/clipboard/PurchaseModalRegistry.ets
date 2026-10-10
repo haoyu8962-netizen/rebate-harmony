@@ -24,6 +24,8 @@ export class PurchaseModalRegistry {
   private readonly entries: Map<Object, ModalEntry> = new Map<Object, ModalEntry>();
   /** 此刻被盖住的发起页（独立于弹层登记：先于登记被盖住、弹层关了再开都要保留）。 */
   private readonly hidden: Set<Object> = new Set<Object>();
+  /** 最近一次导航栈全量同步的页面名（还没同步过为 null）。 */
+  private stack: string[] | null = null;
 
   /** 弹层显示 / 关闭。返回 true：这一下由「没有敏感浮层」变成「有」（调用方据此作废在途的粘贴读取与 parse）。 */
   setModal(owner: Object, route: string, modal: boolean): boolean {
@@ -31,6 +33,10 @@ export class PurchaseModalRegistry {
     let entry: ModalEntry | undefined = this.entries.get(owner);
     if (entry === undefined) {
       if (!modal) {
+        return false;
+      }
+      // FU-CLIP R2-02 同类排查：发起页已不在导航栈里（清栈回首页后旧页面迟到的弹层通知）不登记，不能借「敏感浮层出现」清掉新界面
+      if (this.stack !== null && this.stack.indexOf(route) < 0) {
         return false;
       }
       entry = new ModalEntry(route);
@@ -62,6 +68,7 @@ export class PurchaseModalRegistry {
 
   /** 导航栈全量同步：栈里已没有对应路由名的登记清掉（出口没走到时的兜底）。 */
   prune(stack: string[]): void {
+    this.stack = stack.slice();
     const gone: Object[] = [];
     this.entries.forEach((entry: ModalEntry, owner: Object) => {
       if (stack.indexOf(entry.route) < 0) {

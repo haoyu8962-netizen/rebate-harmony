@@ -8,12 +8,13 @@ import { ApiOutcome, ApiRequest, ApiResult, ClientScope } from '../network/ApiCl
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { disableMillisOf, SearchApiPort, trace6Of, withTrace6 } from '../search/SearchController';
 import {
-  ClipboardClassification, ClipboardClassifier, ClipboardContext, ClipboardHashStore, ClipboardReadDecision,
-  ClipboardReadPolicy, ClipboardRules, ClipboardSensitive, ClipboardText, ClipboardWriteLedger, InviteCodeExtractor,
-  InviteConfirmAction,
+  ClipboardCandidate, ClipboardCandidates, ClipboardClassification, ClipboardClassifier, ClipboardContext,
+  ClipboardHashStore, ClipboardLimits, ClipboardPromptInfo, ClipboardReadDecision, ClipboardReadPolicy, ClipboardRules,
+  ClipboardSelfWriteLedger, ClipboardSensitive, ClipboardText, ClipboardTitlePolicy, InviteCodeExtractor, InviteConfirmAction,
   InviteConfirmDecision, ManualPasteAction, ManualPasteDecision, MemoryClipboardHashStore, ParseAction, ParseResultAction,
-  ParseRow, PromptHistory
+  ParseRow, ShareImportAction, ShareImportDecision, ShareImportPayload
 } from './Clipboard';
+import { ClipboardFingerprint, ClipboardRecords, ClipboardSaltStore, MemoryClipboardSaltStore } from './ClipboardRecords';
 
 /**
  * 系统剪贴板端口。鸿蒙：readText 只在 PasteButton 的 onClick 结果为 SUCCESS 之后调用（临时授权，切后台即失效，不缓存读到的内容）；
@@ -32,9 +33,9 @@ export interface PasteboardPort {
  */
 export class ClipboardWriter {
   private readonly port: PasteboardPort;
-  private readonly ledger: ClipboardWriteLedger;
+  private readonly ledger: ClipboardSelfWriteLedger;
 
-  constructor(port: PasteboardPort, ledger: ClipboardWriteLedger) {
+  constructor(port: PasteboardPort, ledger: ClipboardSelfWriteLedger) {
     this.port = port;
     this.ledger = ledger;
   }
@@ -75,6 +76,7 @@ export class ParseOutcome {
 export class ParseInputService {
   static readonly OPERATION: string = 'parseInput';
   static readonly SCENE_CLIPBOARD: string = 'clipboard';
+  static readonly SCENE_SHARE: string = 'share_ext';
   static readonly MAX_TEXT: number = 4000;
 
   private readonly api: SearchApiPort;
@@ -87,10 +89,12 @@ export class ParseInputService {
    * title：请求前从剪贴板原文本地抽出的「」标题片段（ClipboardText.quotedTitle；没有为 null），随这次请求绑定——整体 30132（data=null）
    * 用它预填「用商品名搜索」（APP-07 共性第 30 条）：不依赖契约外的 data.raw，不从上传片段里猜，也不保存剪贴板全文。
    */
-  parse(uploadText: string, owner: () => boolean, title: string | null = null): Promise<ParseOutcome> {
+  parse(uploadText: string, owner: () => boolean, title: string | null = null,
+    scene: string = ParseInputService.SCENE_CLIPBOARD): Promise<ParseOutcome> {
     const body: Record<string, Object> = {};
     body['text'] = uploadText.substring(0, ParseInputService.MAX_TEXT);
-    body['scene'] = ParseInputService.SCENE_CLIPBOARD;
+    // scene：剪贴板与 SearchTyping 粘贴为 clipboard；系统分享提示条为 share_ext（FU-CLIP K16）
+    body['scene'] = scene;
     const request: ApiRequest = new ApiRequest(ParseInputService.OPERATION, {}, '', JSON.stringify(body));
     request.owner = owner;
     return this.api.request(request)
@@ -248,17 +252,68 @@ export class ProductSeeds {
 
 /** 页面上的提示条（只有抽出的邀请码，没有原文）。鸿蒙没有自动提示：只在商品入口的 PasteButton 读到邀请内容后出邀请确认（G07）。 */
 export class ClipboardPromptView {
+  /** 系统分享提示条（FU-CLIP C6 / C7）。 */
+  static readonly KIND_SHARE: string = 'share';
+
   readonly id: number;
   readonly kind: string;
   readonly inviteCode: string | null;
   /** 发起入口（home / search_typing）：确认条内联显示在发起入口处（共性第 15 条）。 */
   readonly entry: string;
+  /** 分享提示条显示的平台与缩略候选（K26；不含路径与查询）；邀请确认条为 null。 */
+  readonly info: ClipboardPromptInfo | null;
 
-  constructor(id: number, kind: string, inviteCode: string | null, entry: string = 'home') {
+  constructor(id: number, kind: string, inviteCode: string | null, entry: string = 'home',
+    info: ClipboardPromptInfo | null = null) {
     this.id = id;
     this.kind = kind;
     this.inviteCode = inviteCode;
     this.entry = entry;
+    this.info = info;
+  }
+}
+
+/**
+ * 分享提示条背后的候选（只在内存里，提示条作废即释放；FU-CLIP §2.5、第 26 条：点击上传的就是显示的这一份）。
+ */
+class SharePromptPayload {
+  readonly promptId: number;
+  readonly candidates: ClipboardCandidate[];
+  readonly uploadText: string;
+  readonly title: string | null;
+
+  constructor(promptId: number, candidates: ClipboardCandidate[], uploadText: string, title: string | null) {
+    this.promptId = promptId;
+    this.candidates = candidates;
+    this.uploadText = uploadText;
+    this.title = title;
+  }
+}
+
+/**
+ * 加盐的自写台账（FU-CLIP C3）：ClipboardWriter 与手动粘贴的自写排除都经它。已同意当前版本时 record 走 ClipboardRecords（盐不可用 →
+ * false，调用方不写系统剪贴板）；未同意（基本模式、版本过期）时不生成盐、不记，照常允许写（识别在未同意时整体关闭，记录随撤回清理；
+ * 规则空白 HS02）。
+ */
+export class SaltedWriteLedger implements ClipboardSelfWriteLedger {
+  private readonly records: ClipboardRecords;
+  private readonly consent: () => string;
+
+  constructor(records: ClipboardRecords, consent: () => string) {
+    this.records = records;
+    this.consent = consent;
+  }
+
+  record(text: string): boolean {
+    if (this.consent() !== ClipboardReadPolicy.CONSENT_AGREED) {
+      // TODO(N-34) HS02：未同意时不生成盐（§2.2 第 2 条），也就记不了自写；识别在未同意时关闭，同意后从零开始
+      return true;
+    }
+    return this.records.recordSelfWritten(text);
+  }
+
+  contains(text: string): boolean {
+    return this.records.isSelfWritten(text);
   }
 }
 
@@ -368,12 +423,25 @@ export class ClipboardDeps {
   false;
   clock: () => number = Date.now;
   store: ClipboardHashStore = new MemoryClipboardHashStore();
+  /** 本机盐（FU-CLIP C3）：生产为安全存储（SecureClipboardSaltStore），测试为内存。 */
+  saltStore: ClipboardSaltStore = new MemoryClipboardSaltStore();
+  /**
+   * 随机盐来源：entry 生产接线注入 ClipboardFingerprint.secureRandomSalt（系统 CSPRNG，拿不到 32 字节按盐不可用，不回落到未加盐 hash）；
+   * 缺省值 defaultRandomSalt 只为没有 CSPRNG 的本机测试环境（HS03）。
+   */
+  randomSalt: () => Uint8Array = (): Uint8Array => ClipboardFingerprint.defaultRandomSalt();
   /**
    * 强更入口：parse 外层成功、行内 10405 时由执行层主动调（共性第 20 条）。生产接 AppUpdate.onServerForced——服务端已判定强更，
    * 强制进 ForceUpdate，不交给按缓存最低版本比较的判断（共性第 21 条）；参数为 data.min_supported_version（行内没有，传 null）。
    */
   forceUpdate: (minSupported: string | null) => void = (_m: string | null): void => {
   };
+  /**
+   * 冷启动就绪（FU-CLIP 共性第 7 条，鸿蒙 R2-03）：环境对账有结论（EnvironmentGate SETTLED）、隐私闸门有结论、导航与 Tab 外壳就绪
+   * （会话凭据随之可读）。就绪之前到达的分享（冷启动票据）不生成操作身份、不出提示，就绪且在前台后才处理；就绪变化经状态同步（sync）
+   * 通知。缺省就绪（测试与运行中）。
+   */
+  bootReady: () => boolean = (): boolean => true;
 
   constructor(pasteboard: PasteboardPort, api: SearchApiPort) {
     this.pasteboard = pasteboard;
@@ -393,6 +461,106 @@ class OwnerTicket {
     this.screen = screen;
     this.round = round;
     this.scope = scope;
+  }
+}
+
+/**
+ * 页面实例与世代（FU-CLIP 共性第 6 条，鸿蒙 R2-02）：页面在 NavDestination onShown 时向执行层登记（pageShown），拿到这一份标记；
+ * onHidden / onWillDisappear 时把它交回（pageLeft）。执行层只在标记仍是「当前界面的主人」时作废——界面已因栈变化、清栈回首页等
+ * 换了主人，旧页面迟到的退出回调不再清掉新界面（如分享回首页后的提示条）。
+ */
+export class ClipboardPageMark {
+  /** 页面实例编号（pageInstance 分配，同一页面实例不变）。 */
+  readonly page: number;
+  /** 这一次显示的世代（每次 pageShown 递增）。 */
+  readonly gen: number;
+
+  constructor(page: number, gen: number) {
+    this.page = page;
+    this.gen = gen;
+  }
+}
+
+/** ShareKit 取到的一条记录（只有类型与文本内容；文件 uri 不取，K24）。 */
+export class SharedTextRecord {
+  readonly utd: string;
+  readonly content: string | null;
+
+  constructor(utd: string, content: string | null) {
+    this.utd = utd;
+    this.content = content;
+  }
+}
+
+/** 系统分享接收的入口常量与记录挑选（EntryAbility → AppClipboard.receiveShare → ClipboardController.receiveShare）。 */
+export class ShareReceipt {
+  /** 系统分享的 Want action（ShareKit 目标应用，module.json5 skills 声明，K24）。 */
+  static readonly WANT_ACTION: string = 'ohos.want.action.sendData';
+  /** 只接这几类文本记录（K24：只接文本与超链接，其余类型不声明、收到也忽略）。 */
+  static readonly TEXT_UTDS: string[] = ['general.plain-text', 'general.text', 'general.hyperlink'];
+  /** 不是分享的 Want（诊断与测试）。 */
+  static readonly NOT_SHARE: string = 'not_share';
+  /** 取内容失败（getSharedData 拒绝或没有结果）。 */
+  static readonly FETCH_FAILED: string = 'fetch_failed';
+
+  readonly mime: string;
+  readonly text: string | null;
+
+  constructor(mime: string, text: string | null) {
+    this.mime = mime;
+    this.text = text;
+  }
+
+  /** 只取第一条文本类记录的 content；没有文本类记录时 mime 为第一条记录的类型（交给 ShareImportAction 判 ignore_mime）。 */
+  static pick(records: SharedTextRecord[]): ShareReceipt {
+    for (const record of records) {
+      if (ShareReceipt.TEXT_UTDS.indexOf(record.utd) >= 0) {
+        return new ShareReceipt(ShareImportAction.MIME_TEXT, record.content);
+      }
+    }
+    return new ShareReceipt(records.length === 0 ? '' : records[0].utd, null);
+  }
+}
+
+/**
+ * 一次系统分享的接收票据（FU-CLIP R1-01 / R1-02，共性第 1、2 条）：收到 Want 的那一刻同步取定——接收编号（更新的分享替代旧的，含乱序返回）、
+ * 分享世代（换页面、进后台、撤回同意、切换环境、换号时加 1，暂存一并清空）、前台回合与是否在前台、到达身份。之后只拿它与当前状态比较。
+ */
+class ShareTicket {
+  readonly serial: number;
+  readonly epoch: number;
+  readonly round: number;
+  readonly foreground: boolean;
+  /**
+   * 到达时的归属键；冷启动就绪之前（环境对账、隐私与会话恢复、前台还没全部就绪）为 null：此时归属键里的环境端点、凭据与会话账号还会
+   * 随启动落定而变化，操作身份在就绪且在前台后处理时才取定（R2-03，rule-gaps HS12）。
+   */
+  readonly scope: string | null;
+  /**
+   * 到达时就能确定的隐私与会话世代（ClipboardController.generationOf：作废世代、登录序号、会话世代；冷启动也固定）：真实换号、撤回同意、
+   * 切换环境、清会话都会推进它，处理前一律按它比较（R2-03：不靠忽略全部归属变化来保留冷启动分享）。
+   */
+  readonly generation: string;
+
+  constructor(serial: number, epoch: number, round: number, foreground: boolean, scope: string | null,
+    generation: string) {
+    this.serial = serial;
+    this.epoch = epoch;
+    this.round = round;
+    this.foreground = foreground;
+    this.scope = scope;
+    this.generation = generation;
+  }
+}
+
+/** 不在前台时到达的分享：只有当场抽出的候选（没有原文）与接收票据，回前台按票据核对后处理一次。 */
+class PendingShare {
+  readonly payload: ShareImportPayload;
+  readonly ticket: ShareTicket;
+
+  constructor(payload: ShareImportPayload, ticket: ShareTicket) {
+    this.payload = payload;
+    this.ticket = ticket;
   }
 }
 
@@ -419,8 +587,9 @@ export class ClipboardController {
   static readonly SEARCH_Q_MAX: number = 100;
 
   private readonly deps: ClipboardDeps;
-  readonly ledger: ClipboardWriteLedger;
-  readonly history: PromptHistory;
+  /** 加盐的自写与提示记录（FU-CLIP C3）。 */
+  readonly records: ClipboardRecords;
+  readonly ledger: SaltedWriteLedger;
   readonly writer: ClipboardWriter;
   readonly watcher: ClipboardWatcher;
   readonly invitePrefill: InvitePrefill = new InvitePrefill();
@@ -434,11 +603,32 @@ export class ClipboardController {
   private screenGen: number = 0;
   private manualGen: number = 0;
   private lastScope: string | null = null;
+  /** 上次状态同步时的隐私与会话世代（generationOf）。 */
+  private lastGeneration: string | null = null;
+  /** 冷启动已就绪（bootReady 且已在前台；进程内一次性，R2-03）。 */
+  private booted: boolean = false;
+  /** 页面实例编号与显示世代的分配器、当前界面的主人（R2-02）；栈 / Tab 变化时主人清空。 */
+  private pageSerial: number = 0;
+  private pageGenSerial: number = 0;
+  private screenOwner: ClipboardPageMark | null = null;
   private reading: boolean = false;
   private clearPending: boolean = false;
   private owners: (() => boolean)[] = [];
   private suppressedWeb: Set<string> = new Set<string>();
   private promptTicket: OwnerTicket | null = null;
+  /** 当前分享提示条背后的候选（其他提示为 null）。 */
+  private sharePrompt: SharePromptPayload | null = null;
+  /**
+   * 不在前台时到达的分享（只有当场抽出的候选与接收票据，没有原文）：回前台按票据核对后处理一次，取一次即清（K17 的鸿蒙对应）；
+   * 换页面、撤回同意、切换环境、换号时与分享世代一起同步清空（R1-02）。
+   */
+  private pendingShare: PendingShare | null = null;
+  /** 最近一次收到分享 Want 的接收编号（更新的分享替代在途的旧分享，R1-01）。 */
+  private shareSerial: number = 0;
+  /** 分享世代：bumpScreen / invalidateAll 时加 1（换页面、进后台、撤回同意、切换环境、换号），在途与暂存的分享随之作废。 */
+  private shareEpoch: number = 0;
+  /** 旧版未加盐记录还没确认删掉（K09）：回前台与状态同步再试。 */
+  private legacyPending: boolean = false;
   private counter: number = 0;
   private blockUntil: number = 0;
   private blockTimer: number = -1;
@@ -447,6 +637,8 @@ export class ClipboardController {
   /** 诊断与测试：系统剪贴板的读取次数、parse 请求发出的次数（不含内容）。 */
   readCount: number = 0;
   parseCount: number = 0;
+  /** 诊断与测试：分享导入的最近一次判定（只有 actionRaw，不含内容）。 */
+  lastShareAction: string = '';
   /** 每次状态变化（页面把快照拷进可观察模型）。 */
   onChange: (snapshot: ClipboardSnapshot) => void = (_s: ClipboardSnapshot) => {
   };
@@ -457,11 +649,20 @@ export class ClipboardController {
       String(scope.credentialsAllowed), scope.privacy, scope.apiBase, scope.account ?? ''].join('|');
   }
 
+  /**
+   * 归属键里的隐私与会话世代（scopeKey 的前三段：作废世代、登录序号、会话世代）。冷启动期间环境端点、隐私规范值、凭据可读与会话账号会随
+   * 启动落定而变，这三段只在撤回同意 / 切换环境（invalidate）、登录保存、换号（onSessionChanged）、清会话时推进（R2-03）。
+   */
+  static generationOf(scope: string): string {
+    return scope.split('|').slice(0, 3).join('|');
+  }
+
   constructor(deps: ClipboardDeps) {
     this.deps = deps;
-    this.ledger = new ClipboardWriteLedger(ClipboardWriteLedger.DEFAULT_CAPACITY,
-      (text: string): string => ClipboardText.sha256(text), deps.store);
-    this.history = new PromptHistory(deps.clock, deps.store);
+    this.records = new ClipboardRecords(deps.store, deps.saltStore, deps.clock, deps.randomSalt);
+    this.ledger = new SaltedWriteLedger(this.records, (): string => deps.consent());
+    // 升级后第一次运行主动删掉旧版未加盐的记录（K09；不论是否同意），失败则回前台与状态同步时再试
+    this.legacyPending = !this.records.removeLegacy();
     this.writer = new ClipboardWriter(deps.pasteboard, this.ledger);
     this.parser = new ParseInputService(deps.api);
     this.watcher = new ClipboardWatcher((): Record<string, Object> => this.readState());
@@ -484,13 +685,62 @@ export class ClipboardController {
       // 上次撤回同意的 hash 删除没有确认落盘：回前台再试（共性第 14 条）
       this.clearRecords();
     }
-    return this.watcher.onForeground();
+    this.retryLegacy();
+    const decision: ClipboardReadDecision | null = this.watcher.onForeground();
+    this.consumePendingShare();
+    return decision;
+  }
+
+  /**
+   * 暂存分享的一次性交接（R1-02）：只消费仍有效的——接收编号仍是最新、分享世代未变、隐私与会话世代 / 身份与到达时一致、正好是到达后的
+   * 这一次回前台。冷启动票据要等启动就绪（R2-03）：还没就绪时票据仍有效就继续留着，等就绪后的状态同步再处理。
+   */
+  private consumePendingShare(): void {
+    const ready: boolean = this.settleBoot();
+    const pending: PendingShare | null = this.pendingShare;
+    if (pending === null || !this.watcher.inForeground) {
+      return;
+    }
+    if (!this.shareTicketLive(pending.ticket)) {
+      this.pendingShare = null;
+      this.lastShareAction = ShareImportAction.DROP;
+      return;
+    }
+    if (pending.ticket.scope === null && !ready) {
+      return;
+    }
+    this.pendingShare = null;
+    this.handleShare(pending.payload, pending.ticket);
+  }
+
+  /** 冷启动已就绪（R2-03）：bootReady 且在前台；一旦就绪本进程内不再回到未就绪。 */
+  private settleBoot(): boolean {
+    if (!this.booted && this.watcher.inForeground && this.deps.bootReady()) {
+      this.booted = true;
+    }
+    return this.booted;
+  }
+
+  /** 隐私与会话世代此刻的值（generationOf）。 */
+  private generation(): string {
+    return ClipboardController.generationOf(this.deps.scope());
   }
 
   /** 进后台：PasteButton 临时授权失效；作废未点击的提示条、在途读取与 parse、结果提示。 */
   onBackground(): void {
     this.watcher.onBackground();
     this.invalidateAll();
+  }
+
+  private retryLegacy(): void {
+    if (this.legacyPending) {
+      this.legacyPending = !this.records.removeLegacy();
+    }
+  }
+
+  /** 旧版未加盐记录还没确认删掉（K09）。 */
+  get legacyRecordsPending(): boolean {
+    return this.legacyPending;
   }
 
   // ---------------------------------------------------------------- 当前前台界面
@@ -508,8 +758,31 @@ export class ClipboardController {
     this.screenChanged();
   }
 
-  /** 页面确定出栈或被覆盖（NavDestination onWillDisappear / onHidden 的同步出口）：发起页的读取与请求立即作废。 */
-  pageLeft(): void {
+  /** 分配一个页面实例编号（页面 aboutToAppear 时取一次）。 */
+  pageInstance(): number {
+    this.pageSerial++;
+    return this.pageSerial;
+  }
+
+  /** 页面显示（NavDestination onShown 的同步出口）：登记为当前界面的主人，返回这一次显示的标记（R2-02）。 */
+  pageShown(page: number): ClipboardPageMark {
+    this.pageGenSerial++;
+    const mark: ClipboardPageMark = new ClipboardPageMark(page, this.pageGenSerial);
+    this.screenOwner = mark;
+    return mark;
+  }
+
+  /**
+   * 页面确定出栈或被覆盖（NavDestination onWillDisappear / onHidden 的同步出口），交回 pageShown 给的标记：标记仍是当前界面的主人（同一
+   * 页面实例、同一次显示）才作废发起页的读取、请求与提示；界面已换了主人（栈变化、清栈回首页、别的页面实例显示）时什么都不做——那次换界面
+   * 已经同步作废了这个页面的操作（R2-02）。没有标记（页面没登记过显示）也什么都不做。
+   */
+  pageLeft(mark: ClipboardPageMark | null = null): void {
+    const owner: ClipboardPageMark | null = this.screenOwner;
+    if (mark === null || owner === null || owner.page !== mark.page || owner.gen !== mark.gen) {
+      return;
+    }
+    this.screenOwner = null;
     this.bumpScreen();
   }
 
@@ -538,14 +811,24 @@ export class ClipboardController {
       return;
     }
     this.screenKey = key;
+    // 换了界面：之前登记的页面不再是主人，它迟到的退出回调不再作废新界面（R2-02）
+    this.screenOwner = null;
     this.bumpScreen();
   }
 
-  private bumpScreen(): void {
+  /**
+   * keepBootShare：只用于冷启动就绪之前、隐私与会话世代未变的归属漂移——环境对账、凭据与会话账号在 onCreate 之后异步落定会改变归属键，
+   * 冷启动收到的分享不随之作废（R2-03，HS12）；真实换号、撤回同意、切换环境推进世代，不在此列。其余一律让在途与暂存的分享作废（R1-02）。
+   */
+  private bumpScreen(keepBootShare: boolean = false): void {
     this.screenGen++;
+    if (!keepBootShare) {
+      this.expireShares();
+    }
     this.cancelOwned();
     const hadUi: boolean = this.state.prompt !== null || this.state.result !== null || this.state.busy;
     this.promptTicket = null;
+    this.sharePrompt = null;
     this.state.prompt = null;
     this.state.result = null;
     this.state.busy = false;
@@ -581,21 +864,30 @@ export class ClipboardController {
    * （撤回同意、基本模式，brief §0）；隐私 / 环境 / 会话归属变了（登录、退出、换账号、切换环境）作废全部。
    */
   sync(): void {
+    this.retryLegacy();
     if (this.deps.consent() !== ClipboardReadPolicy.CONSENT_AGREED) {
       this.invalidateAll();
       this.clearRecords();
       this.invitePrefill.clear();
       this.lastScope = null;
+      this.lastGeneration = null;
       return;
     }
     if (this.clearPending) {
       this.clearRecords();
     }
+    this.rulesChanged();
     const scope: string = this.deps.scope();
+    const generation: string = ClipboardController.generationOf(scope);
     if (this.lastScope !== null && this.lastScope !== scope) {
-      this.invalidateAll();
+      // 冷启动就绪之前、世代未变的漂移（环境端点、凭据、会话账号落定）不作废冷启动分享；换号 / 撤回 / 切环境照常同步作废（R2-03）
+      const bootDrift: boolean = !this.booted && this.lastGeneration === generation;
+      this.invalidateAll(bootDrift);
     }
     this.lastScope = scope;
+    this.lastGeneration = generation;
+    // 冷启动就绪（环境、隐私与会话、导航外壳与前台都到位）后的这次同步：处理留着的冷启动分享，此刻才取定操作身份
+    this.consumePendingShare();
   }
 
   /** 切换环境（清理注册表的第一步）：同步作废全部，预填与种子一并丢弃。 */
@@ -606,13 +898,12 @@ export class ClipboardController {
   }
 
   /**
-   * 撤回同意的本地清理：hash 记录全部删除。确认落盘成功才算清完；失败时记下待清理标记，回前台与每次状态同步再试（共性第 14 条；
-   * 未同意时每次状态同步都会再清一次，所以进程重启后同样会重试）。
+   * 撤回同意（与切换环境，K10：鸿蒙切环境清记录，盐一并清）的本地清理：同一步里先删盐、再删自写与提示两份记录（FU-CLIP §2.2 第 4 条）。
+   * 确认落盘成功才算清完；失败时记下待清理标记，回前台与每次状态同步再试（共性第 14 条；未同意时每次状态同步都会再清一次，所以进程
+   * 重启后同样会重试）。
    */
   clearRecords(): boolean {
-    const ledgerOk: boolean = this.ledger.clear();
-    const historyOk: boolean = this.history.clear();
-    this.clearPending = !(ledgerOk && historyOk);
+    this.clearPending = !this.records.withdraw();
     return !this.clearPending;
   }
 
@@ -635,9 +926,18 @@ export class ClipboardController {
     });
   }
 
-  private invalidateAll(): void {
+  private invalidateAll(keepBootShare: boolean = false): void {
     this.manualGen++;
-    this.bumpScreen();
+    this.bumpScreen(keepBootShare);
+  }
+
+  /** 在途（getSharedData 未返回）与暂存的分享同步作废（R1-02）。 */
+  private expireShares(): void {
+    this.shareEpoch++;
+    if (this.pendingShare !== null) {
+      this.pendingShare = null;
+      this.lastShareAction = ShareImportAction.DROP;
+    }
   }
 
   private cancelOwned(): void {
@@ -684,8 +984,34 @@ export class ClipboardController {
     return out;
   }
 
-  private rules(): ClipboardRules {
-    return ClipboardRules.fromConfig(this.deps.config()['clipboard']);
+  /**
+   * 当前规则：config.clipboard（G02：结构未定，整体回落包内默认）再按 features.flags 的电商平台开关收紧（K03：clipboard.enabled.taobao|jd|pdd
+   * 为 false 时去掉该平台，只收紧）。
+   */
+  rules(): ClipboardRules {
+    return ClipboardRules.fromConfig(this.deps.config()['clipboard'])
+      .tightened(ClipboardLimits.fromFeatureFlags(this.platformFlags()));
+  }
+
+  /** features.flags 里的布尔开关（其余类型忽略）。 */
+  private platformFlags(): Record<string, boolean> {
+    const out: Record<string, boolean> = {};
+    const features: Object | undefined = this.deps.config()['features'];
+    if (features === undefined || features === null || typeof features !== 'object') {
+      return out;
+    }
+    const flags: Object | undefined = (features as Record<string, Object>)['flags'];
+    if (flags === undefined || flags === null || typeof flags !== 'object' || Array.isArray(flags)) {
+      return out;
+    }
+    const record: Record<string, Object> = flags as Record<string, Object>;
+    for (const key of Object.keys(record)) {
+      const value: Object = record[key];
+      if (typeof value === 'boolean') {
+        out[key] = value as boolean;
+      }
+    }
+    return out;
   }
 
   /** 回前台判定的输入（向量 readPolicy.state 的同名键）。 */
@@ -773,7 +1099,7 @@ export class ClipboardController {
     }
     this.state.busy = false;
     const rules: ClipboardRules = this.rules();
-    const decision: ManualPasteDecision = ManualPasteAction.decide(entry, text, rules);
+    const decision: ManualPasteDecision = ManualPasteAction.decide(entry, text, rules, this.shareDomains());
     if (text === null || decision.actionRaw === ManualPasteAction.OPEN_SEARCH_TYPING) {
       this.emit();
       if (entry === ManualPasteAction.ENTRY_HOME) {
@@ -794,8 +1120,10 @@ export class ClipboardController {
     // 邀请落地页 /i/{code} 链接不算商品链接、不上传（CLIP-18 / rule-gaps A02 用于手动粘贴，H 段）
     const upload: string | null = decision.actionRaw === ManualPasteAction.PARSE ? this.productUpload(text, rules) : null;
     if (upload !== null) {
-      // 「」标题片段在请求前本地抽出、随请求绑定（共性第 30 条）；原文不保留
-      this.startParse(upload, ClipboardText.quotedTitle(text), ticket, entry, fill);
+      // 「」标题片段在请求前本地抽出、随请求绑定（共性第 30 条）；原文不保留。与上传同一套最小化（R2-01）：整体 30132 时它是【用商品名
+      // 搜索】的预填，点了会发搜索，不能借预填把标题里的私人链接 / 口令带出去
+      this.startParse(upload, ClipboardTitlePolicy.minimize(ClipboardText.quotedTitle(text), rules, this.shareDomains()),
+        ticket, entry, fill);
       return ManualPasteAction.PARSE;
     }
     if (pureInvite) {
@@ -803,6 +1131,8 @@ export class ClipboardController {
       // 不落入 30132「识别不了」，也不把邀请码预填进搜索
       const invite: ClipboardClassification | null = this.inviteCandidate(text);
       if (invite !== null && invite.inviteCode !== null) {
+        // 出了提示条就记录（点了或关了都算，G08）；只存加盐指纹与时间（FU-CLIP C3），记不上不影响这次提示
+        this.records.recordPrompted(text);
         this.showInvitePrompt(invite, ticket, entry);
         return PasteOutcome.INVITE_PROMPT;
       }
@@ -817,7 +1147,7 @@ export class ClipboardController {
   private showUnrecognized(text: string, entry: string, fill: ((q: string) => void) | null): void {
     const view: ClipboardResultView = this.newResult(ClipboardResultView.UNRECOGNIZED, entry);
     view.textKey = ParseResultAction.key(ParseResultAction.UNRECOGNIZED);
-    view.prefill = ClipboardText.searchPrefill(text);
+    view.prefill = ClipboardText.localPrefill(text, this.rules(), this.shareDomains());
     view.fill = fill;
     this.showResult(view);
   }
@@ -863,13 +1193,13 @@ export class ClipboardController {
    * （过短、超过 500、短纯数字字母、排除词；共性第 22 条，F-CLIP-02）为 null——不上传，走本地 30132 / 纯邀请分支。
    */
   private productUpload(text: string, rules: ClipboardRules): string | null {
-    const domains: string[] = this.shareDomains();
-    const links: string[] = ClipboardText.links(text)
-      .filter((link: string): boolean => !ClipboardClassifier.inviteLanding(link, domains));
-    if (ClipboardClassifier.productRejection(text, links, rules) !== null) {
+    // FU-CLIP C2 / C8：只认本地候选（白名单链接去掉邀请落地页 + 淘口令），上传候选与「」标题
+    const candidates: ClipboardCandidate[] = ClipboardCandidates.extract(text, rules, this.shareDomains());
+    const raws: string[] = candidates.map((c: ClipboardCandidate): string => c.raw);
+    if (ClipboardClassifier.productRejection(text, raws, rules) !== null) {
       return null;
     }
-    return ClipboardText.uploadText(links, text, rules.maxUploadLinks);
+    return ClipboardCandidates.uploadOf(candidates, text, rules, this.shareDomains());
   }
 
   /** 纯邀请内容本端能不能出确认（游客、触发前提、本人码、App 自写都按分类器；手动粘贴不套 24 小时去重）。 */
@@ -878,17 +1208,16 @@ export class ClipboardController {
       // TODO(N-30) G01：已登录用户的补填绑定等契约补 POST /v1/me/inviter 与 InviteBackfill 路由；界面不出已登录用户的邀请确认
       return null;
     }
-    const context: ClipboardContext = new ClipboardContext(this.ledger.hashes(), [], true, null, this.shareDomains());
+    // 自写排除已在 pasteProduct 里经加盐台账做过；这里只判邀请，指纹用当前盐（没有盐为空串，不回落到未加盐 hash）
+    const context: ClipboardContext = new ClipboardContext([], [], true, null, this.shareDomains(),
+      (t: string): string => this.records.fingerprintOf(t) ?? '');
     const verdict: ClipboardClassification = ClipboardClassifier.classify(text, context, this.rules(), this.deps.clock());
     return verdict.kindRaw === ClipboardClassifier.KIND_INVITE ? verdict : null;
   }
 
   private showInvitePrompt(verdict: ClipboardClassification, ticket: OwnerTicket, entry: string): void {
-    if (verdict.hash !== null) {
-      // 出了提示条就记录（点了或关了都算，G08）；只存 hash 与时间
-      this.history.record(verdict.hash);
-    }
     this.counter++;
+    this.sharePrompt = null;
     this.promptTicket = ticket;
     this.state.prompt = new ClipboardPromptView(this.counter, ClipboardClassifier.KIND_INVITE, verdict.inviteCode, entry);
     this.emit();
@@ -908,8 +1237,12 @@ export class ClipboardController {
       this.dropPrompt();
       return false;
     }
-    if (this.blocked) {
+    if (this.blocked || this.resultActionsBusy) {
+      // 共享禁用期、读取或 parse 在途：提示条按钮不执行（§2.4），提示条保留
       return false;
+    }
+    if (prompt.kind === ClipboardPromptView.KIND_SHARE) {
+      return this.confirmShare(prompt, ticket);
     }
     const session: string = this.deps.guest() ? InviteConfirmAction.SESSION_GUEST : InviteConfirmAction.SESSION_PHONE;
     const decision: InviteConfirmDecision = InviteConfirmAction.decide(session, null);
@@ -936,20 +1269,218 @@ export class ClipboardController {
       return;
     }
     this.promptTicket = null;
+    this.sharePrompt = null;
     this.state.prompt = null;
     this.emit();
+  }
+
+  // ---------------------------------------------------------------- 系统分享导入（FU-CLIP C6）
+
+  /**
+   * 系统分享的真实接收入口（EntryAbility onCreate / onNewWant → AppClipboard.receiveShare → 这里；R1-01，共性第 1 条）。
+   * 收到 Want 的那一刻（同步）：不是分享 Want 什么都不做；检查隐私已同意、不在敏感页与敏感浮层、读取与 parse 不在途，不过就丢弃、
+   * 连内容都不取；过了才固定接收票据（接收编号、分享世代、前台回合、到达身份）并调 fetch 取内容。fetch 返回后只比较原票据：
+   * 已被更新的分享替代（含乱序返回）、换页面、进后台、撤回同意、切环境、换号 → 丢弃。返回判定（诊断与测试，不含内容）。
+   */
+  receiveShare(action: string, fetch: () => Promise<SharedTextRecord[] | null>): Promise<string> {
+    if (action !== ShareReceipt.WANT_ACTION) {
+      return Promise.resolve(ShareReceipt.NOT_SHARE);
+    }
+    const ticket: ShareTicket | null = this.shareReceived();
+    if (ticket === null) {
+      return Promise.resolve(this.lastShareAction);
+    }
+    let pending: Promise<SharedTextRecord[] | null>;
+    try {
+      pending = fetch();
+    } catch (e) {
+      return Promise.resolve(this.shareFetchFailed(ticket));
+    }
+    return pending.then((records: SharedTextRecord[] | null): string => {
+      if (records === null) {
+        return this.shareFetchFailed(ticket);
+      }
+      const picked: ShareReceipt = ShareReceipt.pick(records);
+      return this.shareFetched(ticket, picked.mime, picked.text);
+    }, (_e: Object): string => this.shareFetchFailed(ticket));
+  }
+
+  /**
+   * 已取出文本的分享（Debug 冒烟参数与测试用；与 receiveShare 同一套票据，只是收到与取到在同一刻）：当场抽候选，原文只在这次调用里经过。
+   */
+  shareArrived(mime: string, text: string | null): string {
+    const ticket: ShareTicket | null = this.shareReceived();
+    if (ticket === null) {
+      return this.lastShareAction;
+    }
+    return this.shareFetched(ticket, mime, text);
+  }
+
+  /** 收到分享 Want 的那一刻：登记接收编号（旧的在途与暂存分享被替代）、过闸门、固定票据；闸门不过返回 null。 */
+  private shareReceived(): ShareTicket | null {
+    this.shareSerial++;
+    this.pendingShare = null;
+    const state: Record<string, Object> = {};
+    state['consent'] = this.deps.consent();
+    state['route'] = this.currentRoute();
+    state['overlay'] = this.deps.overlay();
+    state['parseInFlight'] = this.reading || this.state.busy;
+    // 到达时还没有内容：用「文本、空」的探针只判隐私、敏感页 / 浮层与 busy（K18、K19、K22）
+    const gate: ShareImportDecision = ShareImportAction.decideWith(state,
+      new ShareImportPayload(true, true, false, [], null, null, null));
+    if (gate.actionRaw !== ShareImportAction.HOME_ONLY) {
+      this.lastShareAction = gate.actionRaw;
+      return null;
+    }
+    const foreground: boolean = this.watcher.inForeground;
+    // 冷启动就绪之前（含 onCreate 时还没进过前台、或已进前台但环境 / 会话还没落定）：只固定隐私与会话世代，操作身份就绪后再取（R2-03）
+    const boot: boolean = !this.settleBoot();
+    return new ShareTicket(this.shareSerial, this.shareEpoch, this.watcher.round, foreground,
+      boot ? null : this.deps.scope(), this.generation());
+  }
+
+  private shareFetchFailed(ticket: ShareTicket): string {
+    if (ticket.serial === this.shareSerial) {
+      this.lastShareAction = ShareReceipt.FETCH_FAILED;
+    }
+    return ShareReceipt.FETCH_FAILED;
+  }
+
+  /** 内容取到：当场抽候选（原文随即丢弃）；票据失效 → 丢弃；不在前台 → 连同票据暂存；在前台 → 按票据处理。 */
+  private shareFetched(ticket: ShareTicket, mime: string, text: string | null): string {
+    const payload: ShareImportPayload = ShareImportAction.payload(mime, text, this.rules(), this.shareDomains());
+    if (!this.shareTicketLive(ticket)) {
+      if (ticket.serial === this.shareSerial) {
+        this.lastShareAction = ShareImportAction.DROP;
+      }
+      return ShareImportAction.DROP;
+    }
+    if (!this.watcher.inForeground || (ticket.scope === null && !this.settleBoot())) {
+      // 不在前台，或冷启动还没就绪：连同票据暂存，回前台 / 就绪后的状态同步再处理（R1-02、R2-03）
+      this.pendingShare = new PendingShare(payload, ticket);
+      this.lastShareAction = 'pending';
+      return this.lastShareAction;
+    }
+    return this.handleShare(payload, ticket);
+  }
+
+  /**
+   * 接收票据此刻仍有效（只比较，不重新取身份）：仍是最新一次分享、分享世代未变、隐私已同意、没有敏感浮层、当前页不敏感、到达身份未变；
+   * 前台到达的要求仍是同一前台回合；后台（含冷启动）到达的，仍在后台时要求同一回合，已回前台时要求正好是到达后的这一次回前台。
+   */
+  private shareTicketLive(t: ShareTicket): boolean {
+    if (t.serial !== this.shareSerial || t.epoch !== this.shareEpoch) {
+      return false;
+    }
+    if (!this.consentAgreed() || !this.overlayClear() || ClipboardSensitive.sensitiveRoute(this.currentRoute())) {
+      return false;
+    }
+    if (t.generation !== this.generation() || (t.scope !== null && t.scope !== this.deps.scope())) {
+      return false;
+    }
+    const round: number = this.watcher.round;
+    if (t.foreground) {
+      return this.watcher.inForeground && round === t.round;
+    }
+    return this.watcher.inForeground ? round === t.round + 1 : round === t.round;
+  }
+
+  /**
+   * 分享导入的同一条管线（§2.5 第 3 条）：身份已在收到 Want 时取定（第 65 条；冷启动到达的在启动就绪且在前台后处理时取定，R2-03、HS12）；门槛不过 → 丢弃，
+   * 不跳走；否则经 Router 回到首页 Tab 根页，再按判定出分享提示条（点了才 parse）/ 本地 30132 / 只回首页。不套 24 小时去重、不查自写、
+   * 不记提示历史。
+   */
+  private handleShare(payload: ShareImportPayload, arrival: ShareTicket): string {
+    const state: Record<string, Object> = {};
+    state['consent'] = this.deps.consent();
+    state['route'] = this.currentRoute();
+    state['overlay'] = this.deps.overlay();
+    state['parseInFlight'] = this.reading || this.state.busy;
+    const decision: ShareImportDecision = ShareImportAction.decideWith(state, payload);
+    this.lastShareAction = decision.actionRaw;
+    if (decision.actionRaw === ShareImportAction.IGNORE_MIME || decision.actionRaw === ShareImportAction.DROP
+      || decision.actionRaw === ShareImportAction.IGNORE_BUSY) {
+      return decision.actionRaw;
+    }
+    const before: OwnerTicket = this.capture();
+    if (!this.homeRoot()) {
+      const params: Record<string, Object> = {};
+      this.deps.open(ClipboardController.HOME_ROUTE, params);
+    }
+    const ticket: OwnerTicket = this.capture();
+    // 回首页之后复核：确实在首页根页、身份（隐私 / 环境 / 会话 / 前台回合）与到达时一致；否则丢弃
+    const scope: string = arrival.scope ?? before.scope;
+    if (!this.homeRoot() || ticket.gen !== before.gen || ticket.round !== before.round || ticket.scope !== scope
+      || !this.stillOwned(ticket)) {
+      this.lastShareAction = ShareImportAction.DROP;
+      return this.lastShareAction;
+    }
+    if (decision.actionRaw === ShareImportAction.HOME_ONLY) {
+      return decision.actionRaw;
+    }
+    if (decision.actionRaw === ShareImportAction.SEARCH_PREFILL || decision.uploadText === null) {
+      // 没有候选：首页出 30132 同款本地提示，【用商品名搜索】预填「」标题（没有就留空，不拿原文首行），不上传
+      this.dropPrompt();
+      const view: ClipboardResultView = this.newResult(ClipboardResultView.UNRECOGNIZED, ManualPasteAction.ENTRY_HOME);
+      view.textKey = ParseResultAction.key(ParseResultAction.UNRECOGNIZED);
+      view.prefill = decision.prefill;
+      this.showResult(view);
+      return ShareImportAction.SEARCH_PREFILL;
+    }
+    // 有候选：出分享提示条（替换未点击的旧提示条，K22），结果提示一并清掉
+    this.counter++;
+    this.promptTicket = ticket;
+    this.sharePrompt = new SharePromptPayload(this.counter, decision.candidates, decision.uploadText, decision.prefill);
+    this.state.prompt = new ClipboardPromptView(this.counter, ClipboardPromptView.KIND_SHARE, null,
+      ManualPasteAction.ENTRY_HOME, decision.display);
+    this.state.result = null;
+    this.emit();
+    return decision.actionRaw;
+  }
+
+  /** 分享提示条点击：共享 busy（读取或 parse 在途不发）、候选仍被当前规则允许，才以 scene=share_ext 上传显示的那一份候选。 */
+  private confirmShare(prompt: ClipboardPromptView, ticket: OwnerTicket): boolean {
+    const payload: SharePromptPayload | null = this.sharePrompt;
+    if (payload === null || payload.promptId !== prompt.id || this.resultActionsBusy) {
+      return false;
+    }
+    if (!this.shareStillAllowed(payload)) {
+      this.dropPrompt();
+      return false;
+    }
+    this.dropPrompt();
+    this.startParse(payload.uploadText, payload.title, ticket, ManualPasteAction.ENTRY_HOME, null,
+      ParseInputService.SCENE_SHARE);
+    return true;
+  }
+
+  /** 提示条背后的候选在当前规则下仍全部被允许（规则表收紧后作废，§2.1 第 5 条）。 */
+  private shareStillAllowed(payload: SharePromptPayload): boolean {
+    const rules: ClipboardRules = this.rules();
+    const raws: string[] = payload.candidates.map((c: ClipboardCandidate): string => c.raw);
+    const again: string[] = ClipboardCandidates.extract(raws.join('\n'), rules, this.shareDomains())
+      .map((c: ClipboardCandidate): string => c.raw);
+    return again.length === raws.length && again.every((r: string, i: number): boolean => r === raws[i]);
+  }
+
+  /** 规则表可能变了（配置更新、状态同步）：已显示但未点击的分享提示条若候选已不被允许，同步作废；在途 parse 不追回。 */
+  rulesChanged(): void {
+    const payload: SharePromptPayload | null = this.sharePrompt;
+    if (payload !== null && !this.shareStillAllowed(payload)) {
+      this.dropPrompt();
+    }
   }
 
   // ---------------------------------------------------------------- parse 与结果
 
   private startParse(upload: string, title: string | null, ticket: OwnerTicket, entry: string,
-    fill: ((q: string) => void) | null): void {
+    fill: ((q: string) => void) | null, scene: string = ParseInputService.SCENE_CLIPBOARD): void {
     const owner: () => boolean = (): boolean => this.stillOwned(ticket);
     this.owners.push(owner);
     this.parseCount++;
     this.state.busy = true;
     this.emit();
-    this.parser.parse(upload, owner, title).then((outcome: ParseOutcome): void => {
+    this.parser.parse(upload, owner, title, scene).then((outcome: ParseOutcome): void => {
       this.owners = this.owners.filter((o: () => boolean): boolean => o !== owner);
       // 等待之后复核：已进后台、离开发起页、撤回同意、换账号、换环境、敏感浮层出现后的迟到响应只丢弃
       if (!this.stillOwned(ticket)) {
@@ -1027,6 +1558,14 @@ export class ClipboardController {
     this.emit();
   }
 
+  /**
+   * 共享 busy（§2.4，FU-CLIP 共性第 4 条）：系统剪贴板读取或 parse 在途。此时所有结果操作（用商品名搜索、多卡点卡与购买）与提示条按钮
+   * 都不执行，界面按快照 busy 同步置灰。
+   */
+  get resultActionsBusy(): boolean {
+    return this.reading || this.state.busy;
+  }
+
   /** 这个结果对象仍是当前结果（渲染时绑定的回调执行前核对；共性第 16、18 条）。 */
   isCurrentResult(view: ClipboardResultView): boolean {
     const current: ClipboardResultView | null = this.state.result;
@@ -1047,8 +1586,9 @@ export class ClipboardController {
    * 搜索框并搜索；首页发起的经 Router 打开 Search（q 预填，≤100 字，提取不到就留空）。
    */
   searchByName(view: ClipboardResultView, row: ParseRow | null = null): void {
-    // 共性第 16、18 条：仍是当前结果、行属于这个结果、不在共享禁用期才执行
-    if (!this.isCurrentResult(view) || (row !== null && view.rows.indexOf(row) < 0) || this.blocked) {
+    // 共性第 16、18 条：仍是当前结果、行属于这个结果、不在共享禁用期才执行；读取或 parse 在途（旧结果还显示着）一律拒绝（§2.4，R1-04）
+    if (!this.isCurrentResult(view) || (row !== null && view.rows.indexOf(row) < 0) || this.blocked
+      || this.resultActionsBusy) {
       return;
     }
     const prefill: string | null = row === null ? view.prefill : ClipboardText.searchPrefill(row.hitRaw);
@@ -1063,7 +1603,8 @@ export class ClipboardController {
 
   /** 多卡弹层点一张卡：以这张卡为种子打开详情。view、row 为渲染时绑定的结果与行；行不属于当前结果（旧回调）时不执行。 */
   openCard(view: ClipboardResultView, row: ParseRow): boolean {
-    if (!this.isCurrentResult(view) || view.rows.indexOf(row) < 0 || row.card === null || this.blocked) {
+    if (!this.isCurrentResult(view) || view.rows.indexOf(row) < 0 || row.card === null || this.blocked
+      || this.resultActionsBusy) {
       return false;
     }
     const card: Record<string, Object> = row.card;

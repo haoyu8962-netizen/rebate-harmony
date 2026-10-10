@@ -1,8 +1,26 @@
 import { CouliColors } from '../CouliColors';
 import { CouliFocus, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
+import { PlatformBadge } from './Basics';
 import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
+
+/**
+ * 渲染时固定的点击回调（FU-CLIP R1-03，APP-09 共性第 63 条）：按钮的 onClick 在渲染那一刻就把当时的事件函数取出来固定在闭包里，执行时
+ * 不再读可更新的 @Event 属性——提示条由淘宝换成京东后，保留下来的旧点击只会调旧提示的绑定（执行层按提示编号判定为失效），不会转调新提示。
+ * renderKey 是这一次渲染所属的提示编号 / 结果编号：在属性链里读它，提示或结果换代时按钮的属性（含 onClick）随之重新登记，新按钮拿到新回调。
+ */
+export class CouliFixedTap {
+  static of(action: () => void, renderKey: number): () => void {
+    const fixed: () => void = action;
+    const key: number = renderKey;
+    return (): void => {
+      if (key >= 0) {
+        fixed();
+      }
+    };
+  }
+}
 
 /** PasteButton 的视觉高（命中区 ≥ 48：系统安全控件按自身尺寸响应，所以视觉高就取 48）。 */
 const PASTE_HEIGHT: number = 48;
@@ -137,15 +155,22 @@ export struct PasteEntry {
  * 首页剪贴板提示条（HomeClipboard / HomeClipboardInvite）：白底圆角 16 浮起卡，左文案 14/600，右浅灰胶囊按钮与独立【关闭】（命中区 48）。
  * 出现时播报一次（liveRegion 由调用方 CouliAnnounce 播报）；按钮读屏名由 actionLabel 给（邀请条为「粘贴并绑定邀请人」）。
  * 鸿蒙只在商品入口的 PasteButton 读到邀请内容后出邀请确认（读取已完成，这里的按钮不再读剪贴板，是普通按钮）。
+ * FU-CLIP C7：系统分享提示条另带 badge（平台标签，鸿蒙没有平台 logo 资源时用文字标签）与 detail（第二行：平台名 + 缩略主机），
+ * 文字区整体读作 barLabel（「检测到淘宝商品链接，查返利」）；按钮的读屏名不变。字号放大时文字换行、不截断。
  */
 @ComponentV2
 export struct ClipboardPromptBar {
   @Param text: string = '';
+  @Param detail: string = '';
+  @Param badge: string = '';
+  @Param barLabel: string = '';
   @Param actionText: string = '';
   @Param actionLabel: string = '';
   @Param closeLabel: string = '';
   @Param disabled: boolean = false;
   @Param barId: string = 'clipboard_prompt';
+  /** 这条提示的编号（渲染键）：按钮回调在渲染时固定，提示换代时随之重新登记（R1-03）。 */
+  @Param actionKey: number = 0;
   @Event onAction: () => void = () => {
   };
   @Event onClose: () => void = () => {
@@ -153,10 +178,37 @@ export struct ClipboardPromptBar {
 
   build() {
     Row({ space: CouliSpacing.space2 }) {
-      Text(this.text)
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary, CouliFontWeight.semibold))
+      if (this.detail.length === 0 && this.badge.length === 0) {
+        Text(this.text)
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary, CouliFontWeight.semibold))
+          .layoutWeight(1)
+          .id(this.barId + '_text')
+      } else {
+        Column({ space: CouliSpacing.space1 }) {
+          Text(this.text)
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary,
+              CouliFontWeight.semibold))
+            .id(this.barId + '_text')
+          Row({ space: CouliSpacing.space1 }) {
+            if (this.badge.length > 0) {
+              PlatformBadge({ label: this.badge })
+            }
+            if (this.detail.length > 0) {
+              Text(this.detail)
+                .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+                .layoutWeight(1)
+                .id(this.barId + '_detail')
+            }
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+        }
         .layoutWeight(1)
-        .id(this.barId + '_text')
+        .alignItems(HorizontalAlign.Start)
+        .accessibilityGroup(true)
+        .accessibilityText(this.barLabel.length > 0 ? this.barLabel : this.text + ' ' + this.detail)
+        .id(this.barId + '_body')
+      }
       Button({ type: ButtonType.Capsule, stateEffect: true }) {
         Text(this.actionText)
           .attributeModifier(new CouliTextModifier(CouliTypography.caption,
@@ -170,7 +222,7 @@ export struct ClipboardPromptBar {
       .accessibilityText(this.actionLabel)
       .focusBox(CouliFocus.box)
       .id(this.barId + '_action')
-      .onClick(() => this.onAction())
+      .onClick(CouliFixedTap.of(this.onAction, this.actionKey))
       Button({ type: ButtonType.Normal, stateEffect: true }) {
         CouliIcon({ name: 'close', iconSize: 20, color: CouliColors.textSecondary })
       }
@@ -180,7 +232,7 @@ export struct ClipboardPromptBar {
       .accessibilityText(this.closeLabel)
       .focusBox(CouliFocus.box)
       .id(this.barId + '_close')
-      .onClick(() => this.onClose())
+      .onClick(CouliFixedTap.of(this.onClose, this.actionKey))
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
@@ -205,6 +257,8 @@ export struct ClipboardNotice {
   @Param actionDisabled: boolean = false;
   @Param closeLabel: string = '';
   @Param noticeId: string = 'clipboard_notice';
+  /** 这条结果的编号（渲染键）：按钮回调在渲染时固定，结果换代时随之重新登记（R1-03）。 */
+  @Param actionKey: number = 0;
   @Event onAction: () => void = () => {
   };
   @Event onClose: () => void = () => {
@@ -229,7 +283,7 @@ export struct ClipboardNotice {
             .focusBox(CouliFocus.box)
             .enabled(!this.actionDisabled)
             .id(this.noticeId + '_action')
-            .onClick(() => this.onAction())
+            .onClick(CouliFixedTap.of(this.onAction, this.actionKey))
         }
       }
       .layoutWeight(1)
@@ -243,7 +297,7 @@ export struct ClipboardNotice {
         .backgroundColor(Color.Transparent)
         .accessibilityText(this.closeLabel)
         .focusBox(CouliFocus.box)
-        .onClick(() => this.onClose())
+        .onClick(CouliFixedTap.of(this.onClose, this.actionKey))
       }
     }
     .width('100%')

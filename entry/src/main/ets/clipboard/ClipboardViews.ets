@@ -8,6 +8,8 @@ import { ClipboardDraftTexts } from './ClipboardDraftTexts';
 
 const HOME_ENTRY: string = 'home';
 const SEARCH_ENTRY: string = 'search_typing';
+/** 系统分享提示条（ClipboardPromptView.KIND_SHARE）。 */
+const SHARE_KIND: string = 'share';
 
 /** 多卡弹层（G09 没有专稿：按搜索卡样式列出；行内 error_code 的那条置灰并按码给动作，共性第 5 条）。 */
 @ComponentV2
@@ -20,15 +22,17 @@ struct ClipboardCardListSheet {
       ForEach(this.model.rows, (row: ClipboardCardRow) => {
         if (row.data !== null) {
           Column() {
-            // 共享 42901 禁用期（行内 42901 或之前的整体 42901）：购买按钮按禁用卡显示，整张卡不可点（共性第 31 条；执行层 openCard 另拦）
-            ProductCard({ data: (this.model.blocked && row.limited !== null ? row.limited : row.data) as ProductCardData,
+            // 共享 42901 禁用期（行内 42901 或之前的整体 42901）与共享 busy（读取或 parse 在途，§2.4、R1-04）：购买按钮按禁用卡显示，
+            // 整张卡不可点（共性第 31 条；执行层 openCard 另拦）
+            ProductCard({
+              data: (this.model.resultActionsDisabled() && row.limited !== null ? row.limited : row.data) as ProductCardData,
               variant: ProductCardVariant.LIST, onBuy: () => {
               // 购买按钮也先进详情（以这张卡为种子），在详情页再购买（rule-gaps A03）；经这一行渲染时绑定的结果转发（共性第 18 条）
               row.open();
             } })
           }
           .width('100%')
-          .enabled(!this.model.blocked)
+          .enabled(!this.model.resultActionsDisabled())
           .onClick(() => {
             row.open();
           })
@@ -36,7 +40,7 @@ struct ClipboardCardListSheet {
           ClipboardNotice({
             text: row.errorText,
             actionText: row.searchable ? ClipboardDraftTexts.text('clipboard.search_by_name') : '',
-            actionDisabled: this.model.blocked,
+            actionDisabled: this.model.resultActionsDisabled(),
             closeLabel: '',
             noticeId: 'clipboard_row_' + row.key,
             onAction: () => {
@@ -54,6 +58,7 @@ struct ClipboardCardListSheet {
       title: this.model.resultText,
       closeLabel: ClipboardDraftTexts.text('clipboard.card_list.close'),
       titleId: 'clipboard_card_list_title',
+      closeKey: this.model.resultSerial,
       content: () => {
         this.rows()
       },
@@ -68,10 +73,12 @@ function resultNotice(model: ClipboardUiModel, id: string) {
   ClipboardNotice({
     text: model.resultText,
     actionText: model.resultSearchable ? ClipboardDraftTexts.text('clipboard.search_by_name') : '',
-    // 共享 42901 禁用期内【用商品名搜索】置灰（共性第 31 条；执行层 searchByName 另拦）
-    actionDisabled: model.blocked,
+    // 共享 42901 禁用期与共享 busy（读取或 parse 在途，R1-04）内【用商品名搜索】置灰（共性第 31 条；执行层 searchByName 另拦）
+    actionDisabled: model.resultActionsDisabled(),
     closeLabel: ClipboardDraftTexts.text('clipboard.notice.close'),
     noticeId: id,
+    // 渲染键：按钮回调在渲染时固定，结果换代时随之重新登记（R1-03）
+    actionKey: model.resultSerial,
     // 渲染时取值：回调绑定的是这条提示所属的结果（共性第 18 条）
     onAction: model.noticeSearchAction(),
     onClose: model.noticeCloseAction()
@@ -94,14 +101,31 @@ export struct HomeClipboardArea {
 
   build() {
     Column({ space: CouliSpacing.space3 }) {
-      if (this.model.promptId > 0 && this.model.promptEntry === HOME_ENTRY) {
+      if (this.model.promptId > 0 && this.model.promptEntry === HOME_ENTRY && this.model.promptKind === SHARE_KIND) {
+        // FU-CLIP C6 / C7：系统分享提示条（平台标签 + 缩略候选，点了才 parse；共享 busy 与 42901 禁用期都置灰，执行层另拦）
+        ClipboardPromptBar({
+          text: this.model.promptText,
+          detail: this.model.promptDetail,
+          badge: this.model.promptBadge,
+          barLabel: this.model.promptLabel,
+          actionText: ClipboardDraftTexts.text('clipboard.share_prompt.action'),
+          actionLabel: ClipboardDraftTexts.text('clipboard.share_prompt.action'),
+          closeLabel: ClipboardDraftTexts.text('clipboard.prompt.close'),
+          disabled: this.model.resultActionsDisabled(),
+          barId: 'clipboard_share_prompt',
+          actionKey: this.model.promptId,
+          onAction: this.model.promptConfirmAction(),
+          onClose: this.model.promptCloseAction()
+        })
+      } else if (this.model.promptId > 0 && this.model.promptEntry === HOME_ENTRY) {
         ClipboardPromptBar({
           text: this.model.promptText,
           actionText: ClipboardDraftTexts.text('clipboard.invite_prompt.action'),
           actionLabel: ClipboardDraftTexts.text('clipboard.invite_prompt.action_label'),
           closeLabel: ClipboardDraftTexts.text('clipboard.prompt.close'),
-          disabled: this.model.blocked,
+          disabled: this.model.resultActionsDisabled(),
           barId: 'clipboard_invite_prompt',
+          actionKey: this.model.promptId,
           onAction: this.model.promptConfirmAction(),
           onClose: this.model.promptCloseAction()
         })
@@ -156,8 +180,9 @@ export struct SearchPasteArea {
           actionText: ClipboardDraftTexts.text('clipboard.invite_prompt.action'),
           actionLabel: ClipboardDraftTexts.text('clipboard.invite_prompt.action_label'),
           closeLabel: ClipboardDraftTexts.text('clipboard.prompt.close'),
-          disabled: this.model.blocked,
+          disabled: this.model.resultActionsDisabled(),
           barId: 'search_invite_prompt',
+          actionKey: this.model.promptId,
           onAction: this.model.promptConfirmAction(),
           onClose: this.model.promptCloseAction()
         })

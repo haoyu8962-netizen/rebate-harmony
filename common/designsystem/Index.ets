@@ -39,7 +39,7 @@ export {
 export { ProductCardTexts, ProductCardKeys, ProductCardMapper } from './src/main/ets/format/ProductCardMapper';
 export { CouliLayout } from './src/main/ets/CouliLayout';
 export {
-  CouliPasteButton, PasteEntryStyle, PasteEntry, ClipboardPromptBar, ClipboardNotice
+  CouliPasteButton, PasteEntryStyle, PasteEntry, ClipboardPromptBar, ClipboardNotice, CouliFixedTap
 } from './src/main/ets/components/Clipboard';
 export { PriceConfirmLabel, PriceConfirmLine, PriceConfirmText } from './src/main/ets/format/PriceConfirmLabel';
 export { DisclaimerNote } from './src/main/ets/components/DisclaimerNote';

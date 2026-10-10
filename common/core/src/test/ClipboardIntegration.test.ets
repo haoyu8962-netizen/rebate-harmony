@@ -1013,18 +1013,25 @@ export default function clipboardIntegrationTest() {
       expect(m.parseCount()).assertEqual(0);
       const prompt: ClipboardPromptView | null = m.controller.snapshot.prompt;
       expect(prompt !== null && prompt.inviteCode === 'K7M3QX').assertTrue();
-      // 边界：恰好 500 字、恰好 10 字的商品链接照常上传
+      // 边界：恰好 500 字、恰好 10 字（白名单内的淘口令）、11 字的白名单短链照常上传
+      // FU-CLIP §0.2 例外改动：原用 http://x.y 当「恰好 10 字的商品链接」，x.y 不在白名单（K01），改用白名单内的候选做长度边界
       let edge: string = PRODUCT_TEXT;
       while (edge.length < 500) {
         edge = edge + '好';
       }
-      for (const text of [edge, 'http://x.y']) {
+      for (const text of [edge, '￥AbCdEf12￥', 'http://3.cn']) {
         const g: ClipFixture = new ClipFixture();
         g.pasteboard.text = text;
         expect(await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.PARSE);
         await flush();
         expect(g.parseCount()).assertEqual(1);
       }
+      // 补一例：http://x.y 不在白名单，不上传，本地 30132
+      const x: ClipFixture = new ClipFixture();
+      x.pasteboard.text = 'http://x.y';
+      expect(await x.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.SEARCH_PREFILL);
+      await flush();
+      expect(x.parseCount()).assertEqual(0);
     });
 
     it('h_r2_03_ledger_save_failure_blocks_system_write', 0, async () => {

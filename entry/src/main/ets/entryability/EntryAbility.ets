@@ -112,6 +112,8 @@ export default class EntryAbility extends UIAbility {
     // 隐私闸门：读本机决定，冷启动判定是否弹首启弹窗（未决时守卫等待，启动意图排队）。
     AppPrivacy.shared.start(appContext);
     AppRouting.shared.handleWant(want);
+    // FU-CLIP C6：系统分享拉起（ohos.want.action.sendData，K24）：当场抽候选、原文丢弃，回前台后在首页出分享提示条
+    AppClipboard.shared.receiveShare(want);
     hilog.info(DOMAIN, TAG, '%{public}s', 'EntryAbility onCreate');
   }
 
@@ -120,6 +122,8 @@ export default class EntryAbility extends UIAbility {
     BuildVariant.applyLaunchOptions(this.context.getApplicationContext(), want);
     // 热启动深链：与 onCreate 同一入口；隐私弹窗显示中时丢弃（03 §4.4）。
     AppRouting.shared.handleWant(want, true);
+    // FU-CLIP C6：热启动的系统分享，与 onCreate 同一入口
+    AppClipboard.shared.receiveShare(want);
   }
 
   /** 回前台（含冷启动后的第一次）：距上次成功的版本检查超过复查间隔再查（03 §4.1）。 */

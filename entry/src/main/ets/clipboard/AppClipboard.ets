@@ -1,13 +1,16 @@
-import { common } from '@kit.AbilityKit';
-import { pasteboard } from '@kit.BasicServicesKit';
+import { common, Want } from '@kit.AbilityKit';
+import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
+import { systemShare } from '@kit.ShareKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ClipboardDeps,
-  ClipboardHashStore, ClipboardNoticeText, ClipboardPromptBinding, ClipboardReadPolicy, ClipboardResultBinding,
+  ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AssetSecureStore, ClipboardController,
+  ClipboardDeps, ClipboardFingerprint, ClipboardHashStore, ClipboardNoticeText, ClipboardPromptBinding,
+  ClipboardPromptInfo, ClipboardPromptView, ClipboardReadPolicy, ClipboardResultBinding, SecureClipboardSaltStore,
+  SharePromptTexts, SharedTextRecord,
   ClipboardResultView, ClipboardSensitive, ClipboardSnapshot, ConfigStore,
   CouliPreferences, InvitePasteOutcome, ParseResultAction, ParseRow, PasteboardPort, PrivacyState, PurchaseModalRegistry,
-  RouteDestination,
+  RouteDestination, ClipboardPageMark, EnvironmentGate,
   SearchApiPort, SessionState, TransportFailure
 } from 'core';
 import { CouliAnnounce, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
@@ -23,8 +26,13 @@ import { ClipboardDraftTexts } from './ClipboardDraftTexts';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliClipboard';
-/** 本机 hash 记录在 couli_app 里的键前缀（只存 hash 与时间；切换环境随命名空间清理，撤回同意时 ClipboardController.sync 清）。 */
+/**
+ * 本机记录在 couli_app 里的键前缀：FU-CLIP 起只存加盐指纹、时间与 saltId（clipboard.hash.salted.*）；旧版未加盐的 clipboard.hash.self_written /
+ * clipboard.hash.prompted 升级后第一次运行删除（K09）。切换环境随命名空间清理，撤回同意时 ClipboardController 清（先删盐）。
+ */
 const HASH_KEY_PREFIX: string = 'clipboard.hash.';
+/** 本机盐的安全存储命名空间（Asset；首次解锁后可读、不同步、不随卸载保留）。 */
+const SALT_NAMESPACE: string = 'couli_clipboard';
 
 /**
  * 系统剪贴板（@kit.BasicServicesKit pasteboard）。readText 只在 PasteButton 的 onClick 结果为 SUCCESS 之后由 ClipboardController 调用
@@ -161,6 +169,14 @@ export class ClipboardUiModel {
   @Trace promptId: number = 0;
   @Trace promptText: string = '';
   @Trace promptEntry: string = '';
+  /** 提示条种类（invite / share）。 */
+  @Trace promptKind: string = '';
+  /** 分享提示条第二行：平台名 + 缩略候选（K26）；邀请条为空。 */
+  @Trace promptDetail: string = '';
+  /** 平台标签（鸿蒙没有平台 logo 资源，用 PlatformBadge 文字标签）。 */
+  @Trace promptBadge: string = '';
+  /** 整条读屏文字（分享条：「检测到淘宝商品链接，查返利」）。 */
+  @Trace promptLabel: string = '';
   @Trace resultSerial: number = 0;
   @Trace resultKind: string = '';
   @Trace resultEntry: string = '';
@@ -211,6 +227,11 @@ export class ClipboardUiModel {
     return (): void => {
       b?.close();
     };
+  }
+
+  /** 共享 42901 禁用期或共享 busy（读取 / parse 在途）：结果操作与提示条按钮一律置灰（§2.4，R1-04；执行层另拦）。 */
+  resultActionsDisabled(): boolean {
+    return this.blocked || this.busy;
   }
 
   sheetFor(entry: string): boolean {
@@ -278,8 +299,15 @@ export class AppClipboard {
     deps.open = (route: string, params: Record<string, Object>): boolean =>
     AppRouting.shared.openInApp(route, params).route === route;
     deps.store = new PreferencesHashStore(context);
+    // FU-CLIP C3：本机盐在安全存储（Asset），随机盐只用系统 CSPRNG（拿不到按盐不可用，不回落到未加盐 hash）
+    deps.saltStore = new SecureClipboardSaltStore(new AssetSecureStore(SALT_NAMESPACE));
+    deps.randomSalt = (): Uint8Array => ClipboardFingerprint.secureRandomSalt();
     // 行内 10405（parse 外层成功）：服务端已判定强更，强制进 ForceUpdate，不按缓存最低版本比较（共性第 20、21 条）
     deps.forceUpdate = (_minSupported: string | null): void => AppUpdate.shared.onServerForced();
+    // FU-CLIP 共性第 7 条（R2-03）：冷启动分享等环境对账有结论、隐私闸门有结论、导航与 Tab 外壳就绪（会话凭据随之可读）后再取操作身份；
+    // 这几项变化都会走 AppRouting.stateChanged → syncClipboard → controller.sync()，就绪后的那次同步处理留着的冷启动分享
+    deps.bootReady = (): boolean => AppConfig.gate() === EnvironmentGate.SETTLED
+      && AppRouting.shared.privacyState !== PrivacyState.NOT_DECIDED && AppRouting.shared.presentationReady;
     const controller: ClipboardController = new ClipboardController(deps);
     controller.onChange = (s: ClipboardSnapshot): void => this.apply(s);
     this.controllerInstance = controller;
@@ -290,6 +318,40 @@ export class AppClipboard {
     AppRouting.shared.syncClipboard = (): void => controller.sync();
     // 撤回同意与切换环境的清理第一步：作废全部、丢弃预填与种子、清掉本机 hash 记录；删除没落盘时报失败（共性第 14 条）。
     controller.installCleaner(AppConfig.cleaners);
+    // FU-CLIP §2.1 第 5 条：配置变化（规则表可能收紧）时，已显示但未点击的分享提示条若候选已不被允许，同步作废
+    const store: ConfigStore | null = AppClientCore.shared.config;
+    if (store !== null) {
+      store.subscribe((): void => controller.rulesChanged());
+    }
+  }
+
+  // ---------------------------------------------------------------- 系统分享接收（FU-CLIP C6）
+
+  /**
+   * EntryAbility onCreate / onNewWant：系统分享（ShareKit 目标应用，K24）。闸门、接收票据与记录挑选都在执行层
+   * ClipboardController.receiveShare（收到 Want 的那一刻检查隐私 / 敏感页 / busy 并固定身份与接收编号，返回后只比较原票据，R1-01）；
+   * 这里只把 systemShare.getSharedData 包成取内容的函数——闸门不过时根本不调。记录只交类型与文本 content（不读文件 uri），原文不打日志、
+   * 不进 AppStorage、不持久化，Want 也不保存。
+   */
+  receiveShare(want: Want): void {
+    const controller: ClipboardController | null = this.controllerInstance;
+    if (controller === null) {
+      return;
+    }
+    controller.receiveShare(want.action ?? '', (): Promise<SharedTextRecord[] | null> =>
+    systemShare.getSharedData(want).then((data: systemShare.SharedData): SharedTextRecord[] =>
+    data.getRecords().map((record: systemShare.SharedRecord): SharedTextRecord =>
+    new SharedTextRecord(record.utd, typeof record.content === 'string' ? record.content : null)))
+      .catch((e: BusinessError): null => {
+        // 只记错误码，不记任何内容
+        hilog.info(DOMAIN, TAG, 'share data unavailable %{public}d', e.code);
+        return null;
+      }));
+  }
+
+  /** 分享到达（已取出文本）：交执行层当场抽候选；调用方之后不得再保留 text。 */
+  shareArrived(mime: string, text: string | null): void {
+    this.controllerInstance?.shareArrived(mime, text);
   }
 
   attachUi(ui: UIContext): void {
@@ -318,9 +380,24 @@ export class AppClipboard {
     this.controllerInstance?.stackChanged(names);
   }
 
-  /** 发起页出栈或被覆盖（NavDestination onWillDisappear / onHidden 的同步出口）。 */
-  pageLeft(): void {
-    this.controllerInstance?.pageLeft();
+  /** 分配页面实例编号（页面 aboutToAppear 取一次；执行层还没组合时为 0）。 */
+  pageInstance(): number {
+    const controller: ClipboardController | null = this.controllerInstance;
+    return controller === null ? 0 : controller.pageInstance();
+  }
+
+  /** 页面显示（NavDestination onShown）：登记为当前界面的主人，返回这一次显示的标记（R2-02）。 */
+  pageShown(page: number): ClipboardPageMark | null {
+    const controller: ClipboardController | null = this.controllerInstance;
+    return controller === null ? null : controller.pageShown(page);
+  }
+
+  /**
+   * 发起页出栈或被覆盖（NavDestination onWillDisappear / onHidden 的同步出口），交回 pageShown 的标记：只作废仍归属这个页面这次显示的
+   * 操作；界面已换了主人（如分享清栈回首页）时什么都不做（R2-02）。
+   */
+  pageLeft(mark: ClipboardPageMark | null): void {
+    this.controllerInstance?.pageLeft(mark);
   }
 
   /**
@@ -432,15 +509,33 @@ export class AppClipboard {
       m.promptId = 0;
       m.promptText = '';
       m.promptEntry = '';
+      m.promptKind = '';
+      m.promptDetail = '';
+      m.promptBadge = '';
+      m.promptLabel = '';
       m.promptBinding = null;
     } else if (s.prompt.id !== m.promptId) {
       m.promptBinding = new ClipboardPromptBinding(controller, s.prompt.id);
       m.promptEntry = s.prompt.entry;
-      const vars: Map<string, string> = new Map<string, string>();
-      vars.set('invite_code', s.prompt.inviteCode ?? '');
-      m.promptText = ClipboardDraftTexts.format('clipboard.invite_prompt', vars);
+      m.promptKind = s.prompt.kind;
+      const info: ClipboardPromptInfo | null = s.prompt.info;
+      if (s.prompt.kind === ClipboardPromptView.KIND_SHARE && info !== null) {
+        const texts: SharePromptTexts = SharePromptTexts.of(info, (k: string, vars: Map<string, string>): string =>
+        ClipboardDraftTexts.format(k, vars));
+        m.promptText = texts.title;
+        m.promptDetail = texts.detail;
+        m.promptBadge = texts.badge;
+        m.promptLabel = texts.label;
+      } else {
+        const vars: Map<string, string> = new Map<string, string>();
+        vars.set('invite_code', s.prompt.inviteCode ?? '');
+        m.promptText = ClipboardDraftTexts.format('clipboard.invite_prompt', vars);
+        m.promptDetail = '';
+        m.promptBadge = '';
+        m.promptLabel = m.promptText;
+      }
       m.promptId = s.prompt.id;
-      this.announce(m.promptText, true);
+      this.announce(m.promptLabel, true);
     }
     const r: ClipboardResultView | null = s.result;
     if (r === null) {

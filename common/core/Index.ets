@@ -86,6 +86,8 @@ export {
   SessionTokenSet, SessionTokens, SessionReadStatus, MemorySessionTokens, SecureSessionTokens, SessionTokensCleaner
 } from './src/main/ets/session/SessionTokens';
 export { SecureEntry, SecureStore, MemorySecureStore, AssetSecureStore } from './src/main/ets/storage/SecureStore';
+// 纯 ArkTS 的 SHA-256（FU-CLIP：剪贴板加盐指纹的测试核对「不等于未加盐 SHA-256」用）。
+export { Sha256 } from './src/main/ets/clientcore/Sha256';
 export { FileOps, SystemFileOps, FileSlot } from './src/main/ets/storage/FileSlot';
 // clientcore（APP-03b）：设备标识判定、配置与 LKG、埋点队列、权限申请；设备注册（device）。
 export * from './src/main/ets/clientcore/ClientCore';
@@ -168,12 +170,21 @@ export {
   ClipboardRules, ClipboardText, InviteCodeExtractor, ClipboardSensitive, ClipboardReadDecision, ClipboardReadPolicy,
   ClipboardPromptStamp, ClipboardContext, ClipboardClassification, ClipboardClassifier, ClipboardHashStore,
   MemoryClipboardHashStore, ClipboardWriteLedger, PromptHistory, ParseRow, ParseAction, ParseResultAction,
-  ManualPasteDecision, ManualPasteAction, InviteEligibility, InviteConfirmDecision, InviteConfirmAction
+  ManualPasteDecision, ManualPasteAction, InviteEligibility, InviteConfirmDecision, InviteConfirmAction,
+  ClipboardHostRule, ClipboardLimits, ClipboardSpan, ClipboardHostCheck, ClipboardHostPolicy, TpwdExtractor,
+  ClipboardCandidate, ClipboardCandidates, ClipboardPromptInfo, ClipboardPromptDisplay, ClipboardSelfWriteLedger,
+  ClipboardTitlePolicy, ClipboardBridgeRead, ShareImportPayload, ShareImportDecision, ShareImportAction, SharePromptTexts
 } from './src/main/ets/clipboard/Clipboard';
+// FU-CLIP：剪贴板本机记录加盐（向量 specs/clipboard-candidates-vectors.json）。
+export {
+  ClipboardFingerprint, ClipboardSaltRead, ClipboardSaltStore, MemoryClipboardSaltStore, SecureClipboardSaltStore,
+  ClipboardRecords
+} from './src/main/ets/clipboard/ClipboardRecords';
 export {
   PasteboardPort, ClipboardWriter, ParseOutcome, ParseInputService, ClipboardWatcher, InvitePrefill, ProductSeeds,
   ClipboardPromptView, ClipboardResultView, ClipboardNoticeText, ClipboardSnapshot, InvitePasteOutcome, PasteOutcome, ClipboardDeps,
-  ClipboardController, ClipboardResultBinding, ClipboardPromptBinding
+  ClipboardController, ClipboardResultBinding, ClipboardPromptBinding, SaltedWriteLedger, SharedTextRecord, ShareReceipt,
+  ClipboardPageMark
 } from './src/main/ets/clipboard/ClipboardController';
 export { PurchaseModalRegistry } from './src/main/ets/clipboard/PurchaseModalRegistry';
 // orders（APP-08）：订单列表、详情与待跟单卡的纯逻辑（向量 specs/order-vectors.json）与执行层（页面在 features/orders 与 entry）。

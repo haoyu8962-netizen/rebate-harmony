@@ -26,7 +26,7 @@ import { SearchPasteArea } from '../clipboard/ClipboardViews';
 import { AppOrders, PendingTrackHost } from '../orders/AppOrders';
 import { PendingTrackArea } from '../orders/PendingTrackViews';
 import { CouliSpacing } from 'designsystem';
-import { PendingTrackJumpWatcher } from 'core';
+import { ClipboardPageMark, PendingTrackJumpWatcher } from 'core';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliSearch';
@@ -554,6 +554,9 @@ export struct AppSearchPage {
   /** APP-08 G07 ②：从本页列表卡外跳购买、回到前台后拉一次待跟单卡，只显示同平台那一张。 */
   private pending: PendingTrackHost | null = null;
   private watcher: PendingTrackJumpWatcher | null = null;
+  /** 剪贴板执行层的页面实例编号与这次显示的标记（FU-CLIP R2-02：退出回调只作废仍归属本页这次显示的操作）。 */
+  private clipboardPage: number = 0;
+  private clipboardMark: ClipboardPageMark | null = null;
 
   @Builder
   pendingSlot() {
@@ -580,6 +583,7 @@ export struct AppSearchPage {
   }
 
   aboutToAppear(): void {
+    this.clipboardPage = AppClipboard.shared.pageInstance();
     this.config = AppSearch.shared.searchConfig(this.param);
     this.config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
@@ -630,8 +634,8 @@ export struct AppSearchPage {
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack || (this.trade !== null && this.trade.overlay.back()))
     .onHidden((): void => {
-      // APP-07：被盖住即作废本页发起的粘贴读取与 parse（回到同一实例也不恢复，共性第 2 条）。
-      AppClipboard.shared.pageLeft();
+      // APP-07：被盖住即作废本页发起的粘贴读取与 parse（回到同一实例也不恢复，共性第 2 条）；只作废仍归属本页这次显示的（R2-02）。
+      AppClipboard.shared.pageLeft(this.clipboardMark);
       // 被详情等页面盖住：冻结滚动记录（共性第 29、32 条）；作废购买的续执行许可（APP-06b 共性第 3 条）。
       this.config?.onCovered(true);
       if (this.trade !== null) {
@@ -642,6 +646,8 @@ export struct AppSearchPage {
       this.pending?.ui.position?.setCovered(true);
     })
     .onShown((): void => {
+      // FU-CLIP R2-02：登记为当前界面的主人（新的显示世代）。
+      this.clipboardMark = AppClipboard.shared.pageShown(this.clipboardPage);
       this.config?.onCovered(false);
       if (this.trade !== null) {
         AppTrade.shared.pageVisible(this.trade.controller, true);
@@ -651,8 +657,9 @@ export struct AppSearchPage {
       this.pending?.ui.position?.setCovered(false);
     })
     .onWillDisappear((): void => {
-      // APP-07：出栈的同步出口，本页发起的粘贴读取与 parse 一并作废。
-      AppClipboard.shared.pageLeft();
+      // APP-07：出栈的同步出口，本页发起的粘贴读取与 parse 一并作废；界面已换主人（如分享清栈回首页）时不动新界面（R2-02）。
+      AppClipboard.shared.pageLeft(this.clipboardMark);
+      this.clipboardMark = null;
       // 真正出栈的同步出口：执行器、滚动恢复任务、页面回调一起作废，页面状态作废（之后重开不恢复；共性第 29、39 条）。
       if (this.config !== null) {
         AppSearch.shared.searchWillDisappear(this.config);

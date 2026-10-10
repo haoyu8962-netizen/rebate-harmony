@@ -6,6 +6,7 @@ import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliButton, CouliButtonVariant } from './Basics';
 import { CouliIcon } from './CouliIcon';
 import { CouliDialogLink, CouliLinkSegments, CouliTextSegment } from './CodeCells';
+import { CouliFixedTap } from './Clipboard';
 import { CouliTextModifier } from './CouliText';
 import { CouliFontScale } from './FontScale';
 
@@ -407,6 +408,10 @@ export struct CouliSheetPanel {
   @BuilderParam content: () => void = emptyBuilder;
   /** 底部操作区（固定，不随中段滚动）。 */
   @BuilderParam actions: () => void = emptyBuilder;
+  /**
+   * 关闭按钮的渲染键（如剪贴板多卡弹层的结果编号）：关闭回调在渲染时固定，换代时随之重新登记，旧点击不转调新弹层的关闭（FU-CLIP R1-03）。
+   */
+  @Param closeKey: number = 0;
   @Event onClose: () => void = () => {
   };
 
@@ -451,9 +456,7 @@ export struct CouliSheetPanel {
         .accessibilityText(this.closeLabel)
         .focusable(true)
         .focusBox(CouliFocus.box)
-        .onClick(() => {
-          this.onClose();
-        })
+        .onClick(CouliFixedTap.of(this.onClose, this.closeKey))
       }
       .width('100%')
       .flexShrink(0)
