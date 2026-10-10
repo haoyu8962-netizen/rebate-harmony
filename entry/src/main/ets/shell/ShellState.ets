@@ -38,11 +38,16 @@ export class ShellState {
   /**
    * Tab 根页已由 Router 打开并切过去之后的通知（APP-08：订单 Tab 第一次显示时才加载列表与待跟单卡；OrderList 的 scope=share 路由参数
    * 直接进分享子 Tab）。参数为 Router 给的目的地（含已校验的路由参数）。
+   * APP-12 R3-01：由 StackNavigator.tabRootShown 在本次导航的清栈、切 Tab 全部完成之后调（经 rootShown），不在 showRoot 里调——
+   * 目标页此时发起的请求绑定的导航票据就是导航最终状态，合法的 10006 不会因捕获了导航中途的旧栈而被当成迟到。
    */
   static onRootShown: (destination: RouteDestination) => void = (_d: RouteDestination) => {
   };
 
-  /** Router 打开了一个 Tab 根路由：切过去并记下只读标记。不是 Tab 根路由时返回 false（照常入栈）。 */
+  /**
+   * Router 打开了一个 Tab 根路由：切过去并记下只读标记（只识别与切换，不发「已显示」通知，R3-01）。不是 Tab 根路由时返回 false
+   * （照常入栈）。
+   */
   showRoot(destination: RouteDestination): boolean {
     const index: number = destination.route === null ? -1 : ShellState.indexOf(destination.route);
     if (index < 0) {
@@ -54,11 +59,18 @@ export class ShellState {
     this.readonlyFlags = flags;
     this.selected = index;
     this.rootsOpened = true;
+    return true;
+  }
+
+  /** 本次导航全部完成后的「已显示」通知（StackNavigator.tabRootShown 接这里，R3-01）。 */
+  static rootShown(destination: RouteDestination): void {
+    if (destination.route === null || ShellState.indexOf(destination.route) < 0) {
+      return;
+    }
     try {
       ShellState.onRootShown(destination);
     } catch (e) {
       // 监听方出错不影响切 Tab。
     }
-    return true;
   }
 }

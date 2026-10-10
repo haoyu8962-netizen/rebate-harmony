@@ -179,6 +179,25 @@ export class ApiClientDeps {
    * 设置了它时代替 sessionRefreshed 调用。
    */
   sessionRefreshedFrom: ((generation: number, scope: string, resumePending: boolean) => void) | null = null;
+  /**
+   * APP-12 G03：本机个性化推荐开关已关闭（MeLocalStore，按设备）。为 true 时非匿名请求带 X-Personalization: off；基本模式与撤回清理
+   * 未完成（匿名请求）不带。只读本机偏好，出错按开。
+   */
+  personalizationOff: () => boolean = () => false;
+  /**
+   * APP-12 G09：业务请求得到 10006（error-codes：展示封禁说明页与申诉入口）。网络层只在调用归属仍有效时通知一次（带发起时的会话世代、
+   * 调用入口时的导航标记与发起页面的导航许可，R1-08），App 经 Router 一处统一落到 RiskNotice（强更显示中、已在栈顶不重复打开；
+   * 发起后用户又导航过、发起页面已不可见则不打开）；各页不各写一份。
+   */
+  riskNotice: (generation: number, navigationMark: string, permit: (() => boolean) | null) => void =
+    (_g: number, _m: string, _p: (() => boolean) | null) => {
+    };
+  /**
+   * APP-12 R1-08、R2-03：调用入口时的导航票据（App 给真正的导航世代：导航栈每次改动、切 Tab、进后台都推进，另含栈的页面名）。
+   * 每个逻辑调用入口（request、confirmPending、abandonPending、受限会话刷新）在 bind 里同步记下，重放、刷新屏障后的续发沿用原票据；
+   * 10006 的统一落点据此核对发起后用户没有再导航。缺省空串：统一落点按「不能证明没导航过」不打开。
+   */
+  navigationMark: () => string = () => '';
 
   constructor(transport: HttpTransport, context: NetworkContext, identity: ApiAppIdentity, tokens: SessionTokens,
     update: UpdatePort) {
@@ -227,6 +246,11 @@ export class ApiRequest {
    * send_blocked 结束。与 owner 不同，它不参与响应到达后的归属核对（已发出的请求照常收响应）。null = 不限制。
    */
   sendAllowed: (() => boolean) | null = null;
+  /**
+   * APP-12 R1-08：异步结果触发导航（10006 → RiskNotice）的许可：发起页面实例仍可见、发起后没有离开过（页面给的守卫）。
+   * 只在 10006 统一落点里调用；null = 没有发起页面（只按调用入口时的导航标记核对）。
+   */
+  navigationPermit: (() => boolean) | null = null;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -377,6 +401,10 @@ class CallContext {
   owner: (() => boolean) | null = null;
   /** 调用方的发送闸门（ApiRequest.sendAllowed；只在每次实际发送前核对）。 */
   sendAllowed: (() => boolean) | null = null;
+  /** APP-12 R1-08：调用入口时的导航标记（ApiClientDeps.navigationMark）。 */
+  navigationMark: string = '';
+  /** APP-12 R1-08：发起页面给的导航许可（ApiRequest.navigationPermit）。 */
+  navigationPermit: (() => boolean) | null = null;
 
   constructor(id: number) {
     this.id = id;
@@ -823,6 +851,7 @@ export class ApiClient {
     const ctx: CallContext = this.bind(operation);
     ctx.owner = request.owner;
     ctx.sendAllowed = request.sendAllowed;
+    ctx.navigationPermit = request.navigationPermit;
     return this.runCall(new Attempt(request, operation, false, false, ctx));
   }
 
@@ -986,7 +1015,7 @@ export class ApiClient {
    * pending_store_failed（R2-05）。结果未知后 10003 → 二次验证后带新 token 再调本方法。
    */
   confirmPending(key: string, stepUpToken: string | null = null,
-    sendAllowed: (() => boolean) | null = null): Promise<ApiResult> {
+    sendAllowed: (() => boolean) | null = null, navigationPermit: (() => boolean) | null = null): Promise<ApiResult> {
     const store: PendingKeyStore | null = this.deps.pendingKeys;
     const account: string | null = this.trustedAccount();
     if (store === null || account === null) {
@@ -1024,6 +1053,8 @@ export class ApiClient {
     ctx.pendingEverUnknown = true;
     // APP-09：发起页的 42901 发送闸门（提现 / 收款账号的提交、确认、放弃共用一个截止时间），每次实际发包前核对。
     ctx.sendAllowed = sendAllowed;
+    // APP-12 R2-03：导航票据已在 bind 里固定；发起页面另给的导航许可（页面离开后写请求照常结算，但 10006 不导航）。
+    ctx.navigationPermit = navigationPermit;
     const request: ApiRequest = new ApiRequest(record.operationId, {}, '', record.body);
     request.idempotencyKey = record.key;
     request.stepUpToken = stepUpToken;
@@ -1039,7 +1070,8 @@ export class ApiClient {
    * 结束），并按记录里的原 operation 解包成原业务结果、经 ErrorActionMapper 给出 Effect（R2-04，lessons 27）；
    * 其余响应或没有明确响应 → 保持待确认。
    */
-  async abandonPending(key: string, sendAllowed: (() => boolean) | null = null): Promise<ApiResult> {
+  async abandonPending(key: string, sendAllowed: (() => boolean) | null = null,
+    navigationPermit: (() => boolean) | null = null): Promise<ApiResult> {
     const store: PendingKeyStore | null = this.deps.pendingKeys;
     const account: string | null = this.trustedAccount();
     if (store === null || account === null) {
@@ -1074,6 +1106,7 @@ export class ApiClient {
       return ApiResult.rejected(LocalRejectReason.PENDING_STORE_FAILED);
     }
     ctx.sendAllowed = sendAllowed;
+    ctx.navigationPermit = navigationPermit;
     const body: string = JSON.stringify(new AbandonBody(operation.stepUp, key));
     let result: ApiResult = ApiResult.rejected(LocalRejectReason.CANCELLED);
     try {
@@ -1228,6 +1261,13 @@ export class ApiClient {
     ctx.loginSerial = this.loginSerial;
     ctx.account = access !== null ? this.deps.tokens.account() : null;
     ctx.bound = access !== null && op.auth !== 'none';
+    // APP-12 R2-03（共性第 14 条）：导航票据在每个逻辑调用入口同步固定（request、confirmPending、abandonPending、刷新都经这里），
+    // 之后的重放、刷新屏障后的续发都沿用这个 ctx，不在续发时重新取。
+    try {
+      ctx.navigationMark = this.deps.navigationMark();
+    } catch (e) {
+      ctx.navigationMark = '';
+    }
     return ctx;
   }
 
@@ -1681,6 +1721,17 @@ export class ApiClient {
       case EffectKind.FORCE_UPDATE:
         this.deps.update.on10405(ErrorActionMapper.minSupportedVersion(failed.data));
         return failed;
+      case EffectKind.NAVIGATE: {
+        // APP-12 G09：10006 统一落到 RiskNotice（只在调用归属仍有效时；旧世代 / 别的账号的迟到响应不打开）。
+        if (failed.code === 10006 && this.ownershipLost(ctx) === null) {
+          try {
+            this.deps.riskNotice(ctx.generation, ctx.navigationMark, ctx.navigationPermit);
+          } catch (e) {
+            // App 的回调出错不影响本次结果。
+          }
+        }
+        return failed;
+      }
       case EffectKind.REFRESH_ONLY: {
         const outcome: RefreshOutcome = await this.singleFlightRefresh(usedToken, ctx);
         // 只刷新失败：结束原调用，清会话后跳登录（强更状态下停在强更页，lessons R1-09）。
@@ -1874,6 +1925,18 @@ export class ApiClient {
     if (request.ifNoneMatch !== null && request.ifNoneMatch.length > 0 && op.method === 'GET') {
       // ETag 是不透明字符串：原样发送（不拆引号、不去 W/ 前缀）。
       headers[NetworkHeaders.IF_NONE_MATCH] = request.ifNoneMatch;
+    }
+    if (!decision.anonymous) {
+      // APP-12 G03：个性化关闭期间带 X-Personalization: off（基本模式等匿名请求不带）。
+      let off: boolean = false;
+      try {
+        off = this.deps.personalizationOff();
+      } catch (e) {
+        off = false;
+      }
+      if (off) {
+        headers[NetworkHeaders.PERSONALIZATION] = 'off';
+      }
     }
     return headers;
   }
@@ -2349,6 +2412,9 @@ export class ApiClient {
       }
       const replayCtx: CallContext = this.bind(operation);
       replayCtx.owner = roundOwner;
+      // 重放沿用第一次的导航票据（R2-03）。
+      replayCtx.navigationMark = firstCtx.navigationMark;
+      replayCtx.navigationPermit = firstCtx.navigationPermit;
       const replay: Attempt = new Attempt(ApiClient.sameKey(first.request, result.idempotencyKey), operation, true,
         true, replayCtx);
       result = await this.execute(replay);

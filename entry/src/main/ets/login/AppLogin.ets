@@ -93,9 +93,15 @@ export class AppLogin {
     this.host.watchLoginPage(service);
     // R2-01：短信登录的账号一定有手机号；其余（第三方登录、冷启动未知）要等 getMe 查清。
     service.onPhoneVerifiedSession = (account: string | null): void => this.phoneBinding.set(account, true);
+    // APP-12 R1-03：真实登录成功（会话已保存、尝试仍有效）的会话世代交给推送上报，区分「恢复已有会话」与「登录成功」。
+    service.onLoginCompleted((generation: number): void => AppLogin.loginCompleted(generation));
     this.service = service;
     return service;
   }
+
+  /** APP-12：登录完成（会话世代）的接收方（AppMe 组合时接上；之前什么都不做）。 */
+  static loginCompleted: (generation: number) => void = (_g: number) => {
+  };
 
   /**
    * 第三方登录执行器（APP-05b）：微信适配器由构建变体给（Release 恒为不可用实现，按钮不显示；Debug / Staging 打开本机假服务时
@@ -306,11 +312,19 @@ export class AppLogin {
     this.releaseHeldPending();
   }
 
+  /** 统一客服出口的实现（APP-12：AppMe 组合时接上 Core 的 CustomerServiceEntry）。 */
+  static customerServiceHandler: (() => void) | null = null;
+
   /**
-   * 统一客服出口（登录页、绑手机页的【联系客服申诉】等共用）。TODO(N-26)：客服入口（cs.open，/v1/config.kf，未装微信按
-   * cs.wechat_unavailable）在客服任务实现；先打开帮助中心。
+   * 统一客服出口（登录页、绑手机页的【联系客服申诉】、授权管理、钱包、订单等共用；调用方不改）。APP-12 起委托 Core 的统一入口
+   * （/v1/config.kf.url 原样打开，未装微信给复制客服链接与帮助中心，G20）；组合之前退回帮助中心。
    */
   static openCustomerService(): void {
+    const handler: (() => void) | null = AppLogin.customerServiceHandler;
+    if (handler !== null) {
+      handler();
+      return;
+    }
     AppRouting.shared.openInApp(HELP_ROUTE);
   }
 

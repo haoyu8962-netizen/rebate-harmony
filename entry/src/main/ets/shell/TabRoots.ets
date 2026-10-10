@@ -2,10 +2,7 @@ import { agentTabRootBuilder } from 'agent';
 import { HomeActions, homeTabRootBuilder } from 'home';
 import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from '../search/SearchDraftTexts';
-import { MeActions, meTabRootBuilder } from 'me';
-import { TradeDraftTexts } from '../trade/TradeDraftTexts';
 import { TabBarItem } from 'designsystem';
-import { WalletDraftTexts } from 'core';
 import { ShellDraftTexts } from './ShellDraftTexts';
 import { homeClipboardBuilder } from '../clipboard/ClipboardViews';
 
@@ -41,12 +38,21 @@ export function shellTabItems(): TabBarItem[] {
  */
 export class TabRootSlots {
   static orders: WrappedBuilder<[boolean]> | null = null;
+  /** APP-12：「我的」Tab 根（entry 组合的 MeTabView；同订单的理由不静态 import）。 */
+  static me: WrappedBuilder<[boolean]> | null = null;
 }
 
 @Builder
 function ordersSlotBuilder(readonlyMode: boolean) {
   if (TabRootSlots.orders !== null) {
     (TabRootSlots.orders as WrappedBuilder<[boolean]>).builder(readonlyMode)
+  }
+}
+
+@Builder
+function meSlotBuilder(readonlyMode: boolean) {
+  if (TabRootSlots.me !== null) {
+    (TabRootSlots.me as WrappedBuilder<[boolean]>).builder(readonlyMode)
   }
 }
 
@@ -69,22 +75,14 @@ export class TabRootRegistry {
     };
     // APP-07：首页剪贴板区（粘贴卡、邀请确认条、结果提示）在搜索框下方；基本模式（只读首页）不显示、不读。
     HomeActions.clipboardArea = wrapBuilder(homeClipboardBuilder);
-    // 「我的」顶部的授权管理入口（APP-06b 共性第 14 条）：经 Router 打开 AuthManage（auth=login：游客先登录；基本模式先补同意）。
-    MeActions.authManageLabel = TradeDraftTexts.text('auth_manage.entry');
-    MeActions.openAuthManage = (): void => {
-      AppRouting.shared.openInApp('AuthManage');
-    };
-    // APP-09 冒烟入口（「我的」页本身属 APP-12）：【钱包】经 Router 打开 Wallet（auth=login：游客先登录）。
-    MeActions.walletLabel = WalletDraftTexts.text('me.wallet_entry');
-    MeActions.openWallet = (): void => {
-      AppRouting.shared.openInApp('Wallet');
-    };
+    // 「我的」页（APP-12）：授权管理与钱包入口在正式「我的」页的宫格里（取代 APP-06b / APP-09 的冒烟入口），都经 Router。
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));
     m.set('AgentChat', wrapBuilder(agentTabRootBuilder));
     // 订单 Tab（APP-08）：entry 组合的列表页（Core 执行器 + features/orders 页面 + 待跟单卡）。
     m.set('OrderList', wrapBuilder(ordersSlotBuilder));
-    m.set('Me', wrapBuilder(meTabRootBuilder));
+    // 「我的」Tab（APP-12）：entry 组合的页面（Core 执行器 + features/me 页面）。
+    m.set('Me', wrapBuilder(meSlotBuilder));
     return m;
   }
 }

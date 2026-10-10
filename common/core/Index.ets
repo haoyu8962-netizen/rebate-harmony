@@ -237,6 +237,31 @@ export {
 export {
   RecordsPhase, RecordsSnapshot, RecordsDetail, WithdrawRecordsGrouping, WithdrawRecordsController
 } from './src/main/ets/wallet/WithdrawRecordsController';
+// me（APP-12）：「我的」、设置、隐私中心、关于、封禁说明与申诉、客服入口的纯规则（向量 specs/me-vectors.json）、草稿文案与执行层
+// （页面在 features/me，组合在 entry/me）；push：推送令牌上报（PushReportPolicy 纯策略 + 会话级 PushTokenReporter，G17、G18）。
+export { MeRecord, MeJson, AppealListParse } from './src/main/ets/me/MeJson';
+export {
+  MeLevel, MePlatform, futureTimeText, shanghaiIso, MeView, NotifyGuideBar, SettingsItems, PrivacyCenterView,
+  Personalization, PrivacyWithdrawFlow, Graphemes, NicknameInput, serverErrorKey, codeTextKey, NicknameOutcome,
+  RiskReasonText, RiskLayout, RiskNoticeView, PendingWithdrawals, AppealView, AppealCopy, AppealForm, AppealOutcome,
+  CsEntryDecision, CsLink, Diagnostics, AboutView, Route10006, MeLocalData
+} from './src/main/ets/me/MePresentation';
+export { MeDraftTexts } from './src/main/ets/me/MeDraftTexts';
+export {
+  MeApiPort, ApiClientMePort, MeContractPort, MeSessionAware, MeMessage, MeMessages, MeFailure, MeResultInput,
+  MeSnapshotRef, MeSession, MeLocalBackend, MeClearMark, MemoryMeLocalBackend, MemoryMeClearMark, MeLocalStore,
+  MePageLife, IdentityBoundPage, IdentityBoundSlot
+} from './src/main/ets/me/MeSession';
+export {
+  MeDeps, MePhase, MeTabSnapshot, MeTabController, NicknameSnapshot, NicknameController, NotifySnapshot,
+  NotifySettingsController, PrivacyCenterPorts, PrivacyCenterSnapshot, PrivacyCenterController, RiskNoticeSnapshot,
+  RiskNoticeController, AppealSnapshot, AppealController, ResetTipRunner, PrivacyWithdrawOutcomes, memberSubPageAllowed
+} from './src/main/ets/me/MeControllers';
+export { CustomerServicePorts, CustomerServiceEntry } from './src/main/ets/me/CustomerService';
+export {
+  PushEvent, PushAction, PushReportPolicy, PushTokenSource, NoPushTokenSource, PushReportState, PushTokenReporter,
+  PushSessionTracker
+} from './src/main/ets/push/PushReport';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

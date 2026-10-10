@@ -107,6 +107,8 @@ export class AppPrivacy {
     };
     routing.navigator.tabRootHandler = (destination: RouteDestination): boolean =>
       ShellState.shared.showRoot(destination);
+    // R3-01：「已显示」在清栈、切 Tab 全部完成后才通知（订单 / 我的 Tab 第一次显示时发起的请求绑定最终的导航票据）。
+    routing.navigator.tabRootShown = (destination: RouteDestination): void => ShellState.rootShown(destination);
     routing.privacyPromptShowing = (): boolean => this.isPrompting;
     // 埋点批次的隐私世代（撤回同意加 1，lessons 16）：在第一次 publish 创建埋点队列之前接上。
     AppClientCore.shared.consentCycle = (): number => this.consentCycle();
@@ -132,11 +134,17 @@ export class AppPrivacy {
     gate.registerSdkInitSteps();
     // 联盟 SDK（03 §3.5）：百川适配层（APP-06b；SDK 未引入、AppKey 未给，不可用实现初始化一律失败并上报 sdk_init_failed，
     // TODO(N-28)）。仍由 PrivacyGate.onConsented 按固定顺序调用（硬规则 5）。京东 / 拼多多 SDK 不引入（任务书 §2.4）。
+    // 推送（APP-12 G17）：只启动令牌来源（Release 为空操作，不初始化任何推送 SDK、没有任何推送凭据）；不改初始化顺序。
+    gate.registerInitStep(PrivacyInitSteps.PUSH, (): void => AppPrivacy.pushStart());
     gate.registerInitStep(PrivacyInitSteps.UNION, (): void => AppTrade.shared.initializeUnionSdk());
     // 设备注册（APP-03b）：DeviceRegistry.register 是异步的，PrivacyGate 按 1s、2s、4s…上限 60s 退避重试到成功。
     gate.registerDeviceRegistration((): Promise<boolean> => AppNetwork.registerDevice());
     return gate;
   }
+
+  /** APP-12：PrivacyGate.onConsented 的推送步骤（AppMe 组合后接上：启动 PushTokenSource）。 */
+  static pushStart: () => void = () => {
+  };
 
   /**
    * 重新开始设备注册（DeviceRegistry.onRestartNeeded）：immediate = false 是 10402 后重新注册失败（交给退避流程）；
@@ -155,6 +163,18 @@ export class AppPrivacy {
     if (gate !== null) {
       gate.retryPendingWithdrawalCleanup();
     }
+  }
+
+  /**
+   * APP-12 R2-04：撤回没有生效时用户点【重试】：再次写入没落盘的撤回记录（并补跑没确认完成的清理）。返回撤回写入是否已可靠落盘。
+   */
+  retryWithdrawPersist(): boolean {
+    const gate: PrivacyGate | null = this.gate;
+    if (gate === null) {
+      return false;
+    }
+    gate.retryPendingWithdrawalCleanup();
+    return !gate.withdrawalUnsaved;
   }
 
   /** 隐私世代（PrivacyGate.consentCycle：撤回同意加 1）：设备注册与埋点上报的 ticket 用（lessons 12、16）。 */

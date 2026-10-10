@@ -131,6 +131,11 @@ export class JumpTipService {
   private readonly sessionKey: () => string | null;
   private cachedFor: string | null = null;
   private read: string[] | null = null;
+  /**
+   * 缓存世代（APP-12 R1-10）：invalidate 推进它；shouldShow 在等待 getTips 之后核对世代与会话归属，重置前发出的读取结果
+   * 不写回缓存（不恢复已读），本次按「未读」保守展示。
+   */
+  private generation: number = 0;
 
   constructor(api: SearchApiPort, sessionKey: () => string | null) {
     this.api = api;
@@ -143,9 +148,14 @@ export class JumpTipService {
       return false;
     }
     if (this.cachedFor !== key || this.read === null) {
+      const generation: number = this.generation;
       const request: ApiRequest = new ApiRequest(TradeOperations.GET_TIPS);
       request.owner = owner;
       const result: ApiResult = await tradeGuarded(this.api.request(request));
+      if (generation !== this.generation || this.sessionKey() !== key) {
+        // 等待期间已重置（「重新显示下单须知」）或换了会话：丢弃这次结果，不写缓存；按未读保守展示。
+        return true;
+      }
       this.cachedFor = key;
       if (result.outcome === ApiOutcome.SUCCESS) {
         const tips: Record<string, Object> | null = TradeJson.object(result.data, 'jump_tip');
@@ -164,6 +174,13 @@ export class JumpTipService {
     }
     const read: string[] | null = this.read;
     return read === null || read.indexOf(platform) < 0;
+  }
+
+  /** APP-12 设置「重新显示下单须知」（resetTip jump_tip）成功后：作废本进程缓存的已读记录，下次按服务端重新取。 */
+  invalidate(): void {
+    this.generation++;
+    this.read = null;
+    this.cachedFor = null;
   }
 
   /** 用户点了【知道了，去X】：先本地记已读，再告诉服务端（失败不影响外跳）。 */

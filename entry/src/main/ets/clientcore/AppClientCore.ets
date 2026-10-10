@@ -198,6 +198,26 @@ export class AppClientCore {
     return requester.request(permission, fromSettings, valid, purposeShown);
   }
 
+  /** APP-12：只查系统当前状态（不申请、不弹框、不改节流）。compose 之前为 unavailable。 */
+  permissionStatus(permission: string): string {
+    const requester: PermissionRequester | null = this.permissions;
+    return requester === null ? 'unavailable' : requester.currentStatus(permission);
+  }
+
+  /** APP-12 G28：这一类权限上次被系统拒绝的时刻（没有为 null）。 */
+  permissionLastDenied(permission: string): number | null {
+    const requester: PermissionRequester | null = this.permissions;
+    return requester === null ? null : requester.lastDeniedAt(permission);
+  }
+
+  /** APP-12：跳系统里本 App 的权限设置（通知：本 App 的通知设置页）；不经 PermissionRequester 申请。 */
+  openPermissionSettings(permission: string): void {
+    const system: HarmonyPermissionSystem | null = this.system;
+    if (system !== null) {
+      system.openSettings(permission);
+    }
+  }
+
   /** 切换环境的清理项调用：清空队列（内存与文件）；还没创建队列时直接删文件。删不掉抛错。 */
   clearTrackerQueue(): void {
     const queue: TrackerQueue | null = this.tracker;

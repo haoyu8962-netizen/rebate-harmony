@@ -32,6 +32,8 @@
 #     （entry/src/staging/ets/variant/DebugFakeOrders.ets）
 #   - 钱包的本机假服务（APP-09）：标记 COULI_FAKE_WALLET_SERVER_APP09_6b2f41、启动参数键 couli_debug_wallet_scene、
 #     couli_debug_open_route（entry/src/staging/ets/variant/DebugFakeWallet.ets、BuildVariant.ets）
+#   - 「我的」类本机假服务与推送令牌假来源（APP-12）：标记 COULI_FAKE_ME_SERVER_APP12_8e4b27、COULI_DEBUG_PUSH_TOKEN_APP12_3a9d52、
+#     启动参数键 couli_debug_me_scene、couli_debug_settings_sub（entry/src/staging/ets/variant/DebugFakeMe.ets、BuildVariant.ets）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
 #     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
@@ -123,6 +125,10 @@ markers = [
     # APP-09：钱包、提现、收款账号、二次验证与实名 / 劳务协议待定接口的本机假服务（entry/src/staging/ets/variant/DebugFakeWallet.ets）
     # 与场景、打开路由的启动参数键。
     "COULI_FAKE_WALLET_SERVER_APP09_6b2f41", "couli_debug_wallet_scene", "couli_debug_open_route",
+    # APP-12：「我的」、封禁与申诉、改昵称与通知设置待定接口的本机假服务与推送令牌的 Debug 假来源（entry/src/staging/ets/variant/
+    # DebugFakeMe.ets）与场景、截图覆盖的启动参数键。
+    "COULI_FAKE_ME_SERVER_APP12_8e4b27", "COULI_DEBUG_PUSH_TOKEN_APP12_3a9d52", "couli_debug_me_scene",
+    "couli_debug_settings_sub",
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:

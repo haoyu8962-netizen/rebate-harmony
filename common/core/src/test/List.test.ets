@@ -68,6 +68,11 @@ import walletReviewR2Test from './WalletReviewR2.test';
 import walletReviewR3Test from './WalletReviewR3.test';
 import followupHM0710Test from './FollowupHM0710.test';
 import followupHM0711Test from './FollowupHM0711.test';
+import meVectorTest from './MeVector.test';
+import meIntegrationTest from './MeIntegration.test';
+import meReviewR1Test from './MeReviewR1.test';
+import meReviewR2Test from './MeReviewR2.test';
+import meReviewR3Test from './MeReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -145,4 +150,9 @@ export default function testsuite() {
   walletReviewR3Test();
   followupHM0710Test();
   followupHM0711Test();
+  meVectorTest();
+  meIntegrationTest();
+  meReviewR1Test();
+  meReviewR2Test();
+  meReviewR3Test();
 }

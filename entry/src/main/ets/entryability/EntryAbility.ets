@@ -18,6 +18,7 @@ import { AppBridge } from '../web/AppBridge';
 import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppOrders } from '../orders/AppOrders';
 import { AppWallet } from '../wallet/AppWallet';
+import { AppMe } from '../me/AppMe';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -67,6 +68,8 @@ export default class EntryAbility extends UIAbility {
     AppOrders.shared.compose(appContext);
     // APP-09：钱包、提现、提现记录、实名、收款账号与劳务协议（钱包缓存同样登记为清理第一步）。
     AppWallet.shared.compose(appContext);
+    // APP-12：「我的」、设置、隐私中心、关于、封禁说明与申诉、推送令牌上报、统一客服出口（本机偏好登记为撤回清理第一步，在环境对账之前）。
+    AppMe.shared.compose(this.context);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
@@ -131,6 +134,8 @@ export default class EntryAbility extends UIAbility {
     AppTrade.shared.onAppForeground();
     // APP-09：可见的钱包类页面回到前台（提现页重取 rules 并按未决记录恢复待确认，G05、brief §2.5）。
     AppWallet.shared.onAppForeground();
+    // APP-12：可见的「我的」类页面回到前台（「我的」Tab 取一次 /v1/me、通知设置重查系统状态、引导条重算）。
+    AppMe.shared.onAppForeground();
   }
 
   /**
@@ -145,6 +150,8 @@ export default class EntryAbility extends UIAbility {
     AppTrade.shared.onAppBackground();
     // APP-09 共性第 57 条：可见的钱包类页面进后台即作废等待中的导航许可（实名前置查询、提交结果之后的自动导航）。
     AppWallet.shared.onAppBackground();
+    // APP-12 R1-08：进后台即作废等待中的导航许可（10006 → RiskNotice、后台推送上报的导航许可）。
+    AppMe.shared.onAppBackground();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

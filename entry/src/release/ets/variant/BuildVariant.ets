@@ -3,9 +3,9 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, PendingKeyBackend, RcpTransport,
-  ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer, UnavailableWechatAdapter, UpdateChecker, WalletContractPort,
-  WebCodeAuthorizer
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MeContractPort, NoPushTokenSource,
+  PendingKeyBackend, PushTokenSource, RcpTransport, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
+  UnavailableWechatAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 
 export class BuildVariant {
@@ -69,6 +69,41 @@ export class BuildVariant {
   /** 二次验证发码的号码（G31）：本机没有保存当前账号的手机号，不编造（TODO(N-32)：契约确认由服务端按令牌取号或 /v1/me 下发）。 */
   static stepUpPhone(_account: string): string | null {
     return null;
+  }
+
+  /**
+   * 改昵称与通知设置（APP-12 G01、G02）：契约还没有这两个接口，Release 一律不可用（null）——设置页「昵称」行只显示当前昵称、不可点，
+   * 通知设置页不显示「服务类推送」开关行，不发任何请求。TODO(N-33)：契约补上后改为真实接口。
+   */
+  static meContract(): MeContractPort | null {
+    return null;
+  }
+
+  /**
+   * 推送令牌来源（APP-12 G17）：Release 恒为「无令牌」——不初始化任何推送 SDK、不上报、不报错；没有任何推送凭据（AppKey 等 TODO(N-33)）。
+   */
+  static pushTokenSource(): PushTokenSource {
+    return new NoPushTokenSource();
+  }
+
+  /** 微信已装检测：Release 没有覆盖（按生成物登记的查询项判定；鸿蒙现为空，一律 unknown，rule-gaps H05）。 */
+  static wechatInstalledOverride(): string | null {
+    return null;
+  }
+
+  /** 客服链接的打开：Release 没有覆盖（经系统打开外部链接）。 */
+  static csOpenOverride(): Promise<boolean> | null {
+    return null;
+  }
+
+  /** Release 的通知引导条只按真实条件（G28）。 */
+  static guideBarOverride(): boolean | null {
+    return null;
+  }
+
+  /** Release 没有截图用的子页直达参数。 */
+  static settingsInitialSub(): string {
+    return '';
   }
 
   /** Release 没有 debug_only 路由。 */

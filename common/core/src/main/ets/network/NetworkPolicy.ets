@@ -23,6 +23,8 @@ export class NetworkHeaders {
   static readonly CONTENT_TYPE: string = 'Content-Type';
   /** 条件请求（03 §4.3：回前台带 ETag 拉 /v1/config；APP-03b）。 */
   static readonly IF_NONE_MATCH: string = 'If-None-Match';
+  /** APP-12 G03：个性化推荐关闭（值 off）。 */
+  static readonly PERSONALIZATION: string = 'X-Personalization';
 }
 
 /** 本地拒绝的原因（不发出请求）。 */

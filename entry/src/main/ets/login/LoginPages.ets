@@ -1,14 +1,8 @@
 import { RouteDestination } from 'core';
-import {
-  CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliSpacing, CouliTextModifier,
-  CouliTypography
-} from 'designsystem';
+import { CouliColors } from 'designsystem';
 import { BindPhonePageConfig, BindPhoneView, LoginPageConfig, LoginView } from 'auth';
-import { AppRouting } from '../routing/AppRouting';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppLogin } from './AppLogin';
-import { TradeDraftTexts } from '../trade/TradeDraftTexts';
-import { LoginDraftTexts } from './LoginDraftTexts';
 
 /**
  * 路由 Login（APP-05a）：登录页（features/auth LoginView）。restrictedLogin 是 APP-02c 已有的「从强更页进入」内部来源标记
@@ -70,85 +64,6 @@ export struct AppBindPhonePage {
       this.config?.service.invalidate();
       AppLogin.shared.bindPageLeft();
     })
-  }
-}
-
-/**
- * 路由 Settings 的占位页（设置页本身在 APP-12）：APP-05a 只放【退出登录】入口（BR-TEXT-14 表 C settings.logout.*：
- * 只在已登录时显示，先出确认框，确认后退出 → 回到游客）。只读打开（基本模式等）时不显示。
- */
-@ComponentV2
-export struct SettingsPlaceholderPage {
-  @Param readonlyMode: boolean = false;
-  @Local loggedIn: boolean = false;
-  @Local busy: boolean = false;
-
-  aboutToAppear(): void {
-    this.loggedIn = AppLogin.shared.loggedIn;
-  }
-
-  private confirmLogout(): void {
-    const options: CouliDialogOptions = new CouliDialogOptions();
-    options.title = LoginDraftTexts.text('settings.logout.confirm');
-    options.primaryText = LoginDraftTexts.text('settings.logout.confirm_ok');
-    options.secondaryText = LoginDraftTexts.text('settings.logout.confirm_cancel');
-    options.returnFocusId = 'settings_logout';
-    options.onPrimary = () => {
-      this.logout();
-    };
-    CouliDialog.open(this.getUIContext(), options);
-  }
-
-  private async logout(): Promise<void> {
-    this.busy = true;
-    try {
-      await AppLogin.shared.logout();
-    } finally {
-      this.busy = false;
-      this.loggedIn = AppLogin.shared.loggedIn;
-    }
-    if (!this.loggedIn) {
-      this.queryNavigationInfo()?.pathStack.pop();
-    }
-  }
-
-  build() {
-    NavDestination() {
-      Column({ space: CouliSpacing.space4 }) {
-        Text('Settings')
-          .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
-        Text(this.readonlyMode ? 'route placeholder (read-only)' : 'route placeholder')
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-        // 授权管理入口（APP-06b 共性第 14 条）：经 Router 打开 AuthManage（游客先登录、基本模式先补同意）；行样式没有画板。
-        CouliButton({
-          text: TradeDraftTexts.text('auth_manage.entry'),
-          variant: CouliButtonVariant.SECONDARY,
-          fullWidth: true,
-          buttonId: 'settings_auth_manage',
-          onTap: () => {
-            AppRouting.shared.openInApp('AuthManage');
-          }
-        })
-        if (this.loggedIn && !this.readonlyMode) {
-          CouliButton({
-            text: LoginDraftTexts.text('settings.logout'),
-            variant: CouliButtonVariant.SECONDARY,
-            fullWidth: true,
-            loading: this.busy,
-            buttonId: 'settings_logout',
-            onTap: () => this.confirmLogout()
-          })
-        }
-      }
-      .width('100%')
-      .height('100%')
-      .padding(CouliSpacing.space4)
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor(CouliColors.backgroundCanvas)
-    }
-    .title('Settings')
-    .backgroundColor(CouliColors.backgroundCanvas)
-    .onBackPressed(() => AppPrivacy.shared.blocksBack)
   }
 }
 

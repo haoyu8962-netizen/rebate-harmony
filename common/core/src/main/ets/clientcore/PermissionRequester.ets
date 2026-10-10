@@ -145,6 +145,31 @@ export class PermissionRequester {
     return run.catch((): PermissionResult => new PermissionResult(PermissionStatusRaw.UNAVAILABLE));
   }
 
+  /**
+   * APP-12：只查系统当前状态（不触发申请、不弹任何框、不改节流）——隐私中心「系统权限」一节、通知设置页、「我的」页引导条用。
+   * 读不出按 unavailable。
+   */
+  currentStatus(permission: string): string {
+    try {
+      return this.status(permission);
+    } catch (e) {
+      return PermissionStatusRaw.UNAVAILABLE;
+    }
+  }
+
+  /**
+   * APP-12 G28：这一类权限上次被系统拒绝的时刻（毫秒；没有记录为 null）。只读不改；记录读不出或损坏时按「此刻刚被拒」返回（保守：
+   * 引导条不出现），不改写记录。
+   */
+  lastDeniedAt(permission: string): number | null {
+    const stored: DenialRecords = this.readRecords();
+    if (stored.kind !== DenialRecords.LOADED) {
+      return this.clock();
+    }
+    const at: number | undefined = PermissionRequester.later(stored.values.get(permission), this.memory.get(permission));
+    return at === undefined ? null : at;
+  }
+
   private async requestNow(permission: string, fromSettings: boolean,
     valid: () => boolean, purposeShown: boolean): Promise<PermissionResult> {
     // 出队：排队期间调用方已失效（撤回同意、页面离开等）→ 取消。

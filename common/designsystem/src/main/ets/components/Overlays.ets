@@ -253,6 +253,11 @@ export class CouliDialogOptions {
   secondaryText: string = '';
   /** 点遮罩是否关闭：资金与验证类不关闭（adaptation-a11y-spec §4）。 */
   dismissOnMask: boolean = true;
+  /**
+   * dismissOnMask=false 时系统返回是否关闭弹窗（APP-12：撤回同意、退出登录的确认框点遮罩不执行也不关闭，系统返回走与【取消】相同的出口——
+   * 关闭并调 onDismissed，APP-09 第 48 条）。缺省 false：沿用原行为。
+   */
+  backDismisses: boolean = false;
   /** 关闭后焦点回到的控件 id（打开弹窗的按钮；CouliButton 的 buttonId）。 */
   returnFocusId: string = '';
   /** 正文里做成链接的文字（见 CouliDialogPanel.links）。点链接先关弹窗，再调 onLink(id)。 */
@@ -334,7 +339,11 @@ export class CouliDialog {
     }
   }
 
-  static open(ui: UIContext, options: CouliDialogOptions): void {
+  /**
+   * 打开弹窗。返回「由调用方关闭」的出口（APP-12 R3-02：页面作废时同步关掉绑定旧归属的确认框）：关闭后不调 onPrimary / onSecondary /
+   * onDismissed；弹窗已关时为空操作。不需要的调用方忽略返回值。
+   */
+  static open(ui: UIContext, options: CouliDialogOptions): () => void {
     const params: DialogParams = new DialogParams(options);
     params.maxHeight = CouliDialog.maxPanelHeight(ui);
     const content: ComponentContent<DialogParams> =
@@ -344,9 +353,16 @@ export class CouliDialog {
         // 已关闭（如点遮罩后再点按钮）时忽略。
       });
     };
+    const backOnly: boolean = !options.dismissOnMask && options.backDismisses;
     ui.getPromptAction().openCustomDialog(content, {
       isModal: true,
-      autoCancel: options.dismissOnMask,
+      autoCancel: options.dismissOnMask || backOnly,
+      onWillDismiss: backOnly ? (action: DismissDialogAction): void => {
+        // 只放行系统返回（等同【取消】）；点遮罩不关闭、不执行。
+        if (action.reason === DismissReason.PRESS_BACK) {
+          action.dismiss();
+        }
+      } : undefined,
       alignment: DialogAlignment.Center,
       maskColor: CouliShadowMask.color,
       onDidDisappear: () => {
@@ -360,6 +376,13 @@ export class CouliDialog {
     }).catch(() => {
       // 打开失败（页面已销毁等）不影响调用方；不弹第二层兜底。
     });
+    return (): void => {
+      if (params.handled) {
+        return;
+      }
+      params.handled = true;
+      params.close();
+    };
   }
 }
 

@@ -9,6 +9,7 @@ import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeTrade } from './DebugFakeTrade';
 import { DebugFakeOrders } from './DebugFakeOrders';
 import { DebugFakeWallet } from './DebugFakeWallet';
+import { DebugFakeMe } from './DebugFakeMe';
 
 class Waiting {
   readonly timer: number;
@@ -41,6 +42,8 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  * - APP-06b：open、getTips / markTipRead、listUnionBindings、getUnionAuthUrl、bindUnion（场景见 DebugFakeTrade）。
  * - APP-08：订单列表、详情、待跟单卡与关闭（场景见 DebugFakeOrders）。
  * - APP-09：钱包、提现、提现记录、收款账号、二次验证与作废（场景见 DebugFakeWallet）。
+ * - APP-12：GET /v1/me（13 个字段）、申诉、consents、推送令牌上报、resetTip；封禁场景的钱包摘要 10006（场景见 DebugFakeMe）。
+ *   /v1/config 补上客服链接与 AI 公示的测试值。
  */
 export class DebugFakeServer implements HttpTransport {
   static enabled: boolean = false;
@@ -51,6 +54,7 @@ export class DebugFakeServer implements HttpTransport {
   static readonly tradeMarker: string = DebugFakeTrade.marker;
   static readonly ordersMarker: string = DebugFakeOrders.marker;
   static readonly walletMarker: string = DebugFakeWallet.marker;
+  static readonly meMarker: string = DebugFakeMe.marker;
   private readonly real: HttpTransport = new RcpTransport();
   private serial: number = 0;
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
@@ -63,8 +67,9 @@ export class DebugFakeServer implements HttpTransport {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
-    // APP-09：钱包类接口先答（/v1/me 的 realname_status 也在这里）。
-    const search: FakeAnswer | null = DebugFakeWallet.answer(request.url, request.method, request.body,
+    // APP-12：「我的」类接口最先答（/v1/me 的 13 个字段；实名状态沿用钱包假服务的值）；APP-09：钱包类接口其次。
+    const search: FakeAnswer | null = DebugFakeMe.answer(request.url, request.method, request.body)
+      ?? DebugFakeWallet.answer(request.url, request.method, request.body,
       request.headers[NetworkHeaders.STEP_UP_TOKEN]) ?? DebugFakeOrders.answer(request.url, request.method, request.body)
       ?? DebugFakeTrade.answer(request.url, request.method,
       request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url, request.body);
@@ -101,7 +106,7 @@ export class DebugFakeServer implements HttpTransport {
       return DebugFakeClipboard.answer(body);
     }
     if (url.indexOf('/v1/config') >= 0) {
-      return DebugFakeSearch.config();
+      return DebugFakeMe.patchConfig(DebugFakeSearch.config());
     }
     if (url.indexOf('/v1/products/search') >= 0) {
       return DebugFakeSearch.search(url);

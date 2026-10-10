@@ -162,6 +162,13 @@ export class AppNetwork {
       hilog.info(DOMAIN, TAG, 'session refreshed scope=%{public}s resume=%{public}s', scope, String(resumePending));
       AppRouting.shared.stateChanged(resumePending);
     };
+    // APP-12 G03：个性化推荐关闭期间带 X-Personalization: off（本机偏好，按设备；匿名请求不带）。
+    deps.personalizationOff = (): boolean => AppNetwork.personalizationOff();
+    // APP-12 G09：任一请求得到 10006 → 经 Router 一处统一落到 RiskNotice（AppMe.on10006，组合后接上）。
+    deps.riskNotice = (generation: number, mark: string, permit: (() => boolean) | null): void =>
+      AppNetwork.riskNotice(generation, mark, permit);
+    // APP-12 R1-08：调用入口时的导航标记（导航栈页面名 + 选中的 Tab），10006 落点据此不覆盖用户后续导航。
+    deps.navigationMark = (): string => AppNetwork.navigationMark();
     const client: ApiClient = new ApiClient(deps);
     const handler: () => void = NetworkComposition.install(client, AppConfig.cleaners,
       (): void => AppRouting.shared.stateChanged());
@@ -169,6 +176,15 @@ export class AppNetwork {
     AppNetwork.updateHandler = handler;
     return handler;
   }
+
+  /** APP-12：本机个性化开关（AppMe 组合后接上；之前按开）。 */
+  static personalizationOff: () => boolean = () => false;
+  /** APP-12：10006 的统一落点（AppMe 组合后接上）。 */
+  static riskNotice: (generation: number, mark: string, permit: (() => boolean) | null) => void =
+    (_g: number, _m: string, _p: (() => boolean) | null) => {
+    };
+  /** APP-12：导航标记（AppMe 组合后接上；之前为空串 = 不核对）。 */
+  static navigationMark: () => string = () => '';
 
   private static identity(): ApiAppIdentity {
     let versionName: string = '';

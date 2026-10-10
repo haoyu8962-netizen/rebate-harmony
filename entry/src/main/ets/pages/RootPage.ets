@@ -19,7 +19,7 @@ import { ForceUpdatePage } from '../update/ForceUpdatePage';
 import { UpdatePrompt } from '../update/UpdatePrompt';
 import { RoutePlaceholderPage } from './RoutePlaceholderPage';
 import { AppLogin } from '../login/AppLogin';
-import { AppBindPhonePage, AppLoginPage, destinationReadonly, SettingsPlaceholderPage } from '../login/LoginPages';
+import { AppBindPhonePage, AppLoginPage, destinationReadonly } from '../login/LoginPages';
 import { AppExternalPage, AppWebPage, destinationUrl } from '../web/WebPages';
 import { AppProductPage, AppSearch, AppSearchPage } from '../search/AppSearch';
 import { AuthManagePage } from '../trade/AuthManagePage';
@@ -31,6 +31,12 @@ import { AppWallet } from '../wallet/AppWallet';
 import {
   AppLaborAgreementPage, AppPayoutAccountPage, AppRealNamePage, AppWalletPage, AppWithdrawPage, AppWithdrawRecordsPage
 } from '../wallet/WalletPages';
+import { CsSheetView } from 'me';
+import { AppMe } from '../me/AppMe';
+import { AppCsSheet } from '../me/AppCsSheet';
+import {
+  AppAboutPage, AppAppealPage, AppPrivacyCenterPage, AppRiskNoticePage, AppSettingsPage, appMeTabBuilder
+} from '../me/MePages';
 
 /** 启动背景的品牌块（LaunchPrivacy / LaunchSecondNotice 弹窗后面）：88 见方、圆角 20、文字 22/700。 */
 const BRAND_MARK_SIZE: number = 88;
@@ -91,10 +97,13 @@ struct RootPage {
   @Local privacy: AppPrivacy = AppPrivacy.shared;
   @Local update: AppUpdate = AppUpdate.shared;
   @Local permissionPrompt: PermissionPromptModel = PermissionPromptModel.shared;
+  @Local cs: AppCsSheet = AppCsSheet.shared;
 
   aboutToAppear(): void {
     // APP-08：订单 Tab 根页（entry 组合）在外壳构建前登记（见 TabRootSlots）。
     TabRootSlots.orders = wrapBuilder(appOrdersTabBuilder);
+    // APP-12：「我的」Tab 根页（entry 组合）同样在外壳构建前登记。
+    TabRootSlots.me = wrapBuilder(appMeTabBuilder);
   }
 
   /** 弹窗显示时吞掉返回键（不进入首页、不记为同意或拒绝）；协议页盖在上面时照常返回到弹窗。可关闭更新提示同样只能点按钮。 */
@@ -188,8 +197,20 @@ struct RootPage {
       // 授权管理（APP-06b）：只显示已授权 / 未授权，页内【去授权】由用户点击发起。
       AuthManagePage()
     } else if (name === SETTINGS_ROUTE) {
-      // 设置页占位 + 退出登录入口（APP-05a；设置页本身在 APP-12）。
-      SettingsPlaceholderPage({ readonlyMode: destinationReadonly(param) })
+      // 设置（APP-12）：按基本模式 / 游客 / 已登录裁剪条目；修改昵称、通知设置、协议选择是页内子页。
+      AppSettingsPage({ readonlyMode: destinationReadonly(param) })
+    } else if (name === 'PrivacyCenter') {
+      // 隐私中心（APP-12）：基本模式只读并显示【开启完整功能】。强更状态下守卫只放行从强更页进入的隐私中心（03 §4.1 次要入口）：
+      // 带受限上下文，只显示协议、清单与撤回入口，协议跳转走强更次要入口（R2-05）。
+      AppPrivacyCenterPage({ fromForceUpdate: AppUpdate.shared.belowMin })
+    } else if (name === 'About') {
+      AppAboutPage()
+    } else if (name === 'RiskNotice') {
+      // 封禁 / 冻结说明（APP-12）：10006 的统一落点。
+      AppRiskNoticePage()
+    } else if (name === 'Appeal') {
+      // 账户申诉（APP-12）：提交、进度、结果同一页。
+      AppAppealPage()
     } else if (name === UPGRADE_PROMPT_PAGE || RouteTable.has(name)) {
       // 业务路由与内置升级提示页：占位页（各 Feature 的入口视图接入前）。参数只认 Router 放进来的 RouteDestination。
       // 强更状态下守卫只放行从强更页进入的次要入口，所以 below_min 时出现的这几页都来自强更页：带强更状态 / 受限登录标记。
@@ -201,6 +222,14 @@ struct RootPage {
     } else {
       VariantDestination(name, param)
     }
+  }
+
+  @Builder
+  csSheet() {
+    Column() {
+      CsSheetView({ decision: this.cs.decision, actions: this.cs.actions })
+    }
+    .width('100%')
   }
 
   @Builder
@@ -261,6 +290,8 @@ struct RootPage {
             didShow: (_from: NavDestinationContext | NavBar, _to: NavDestinationContext | NavBar) => {
               AppPrivacy.shared.navigationShown(this.pathStack.getAllPathName());
               AppClipboard.shared.stackChanged(this.pathStack.getAllPathName());
+              // APP-12：从子页回到「我的」Tab（导航根）时取一次 /v1/me（G36）。
+              AppMe.shared.navigationShown(this.pathStack.getAllPathName());
             }
           });
           AppRouting.shared.attachNavigation(this.pathStack);
@@ -270,6 +301,7 @@ struct RootPage {
           AppClipboard.shared.attachUi(this.getUIContext());
           AppOrders.shared.attachUi(this.getUIContext());
           AppWallet.shared.attachUi(this.getUIContext());
+          AppMe.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {
@@ -282,6 +314,16 @@ struct RootPage {
       }
       .width(this.rootWidth())
       .height('100%')
+      // APP-12 统一客服出口的三张半屏（CsHandoff / CsWechatMissing / CsOpenFailed）：任何页面打开都盖在最上层；系统返回、下滑先关半屏，
+      // 关闭后焦点回到触发控件（AdaptSheetRules）。
+      .bindSheet(this.cs.shown, this.csSheet(), {
+        height: SheetSize.FIT_CONTENT,
+        dragBar: false,
+        showClose: false,
+        onDisappear: () => {
+          this.cs.disappeared(this.getUIContext());
+        }
+      })
     } else if (this.launch.gate === EnvironmentGate.BLOCKED) {
       this.blockedPage()
     } else {

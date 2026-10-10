@@ -47,6 +47,9 @@
     common/core/src/test/ClipboardVectorsData.ets             specs/clipboard-vectors.json 全文（APP-07，Codex 写的三端共用剪贴板识别向量）
     common/core/src/test/OrderVectorsData.ets                 specs/order-vectors.json 全文（APP-08，Codex 写的三端共用订单列表、详情与待跟单卡向量）
     common/core/src/test/WalletVectorsData.ets                specs/wallet-vectors.json 全文（APP-09，Codex 写的三端共用钱包、提现与收款账号向量）
+    common/core/src/test/MeVectorsData.ets                    specs/me-vectors.json 全文（ME_VECTORS_JSON）与契约快照
+                                                              specs/system-permissions.json 全文（ME_PERMISSIONS_JSON）（APP-12，Codex 写的
+                                                              三端共用「我的」、设置、隐私中心、封禁与申诉、推送上报与客服入口向量）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -733,6 +736,29 @@ def gen_wallet_vectors_data():
     return gen_vectors_data(WALLET_VECTORS, "WALLET_VECTORS_JSON",
                             "钱包、提现、实名与收款账号向量（APP-09）：specs/wallet-vectors.json 全文，供 WalletVector.test.ets "
                             "解析。只在 src/test，不进产物。")
+
+
+ME_VECTORS = os.path.join("specs", "me-vectors.json")
+SYSTEM_PERMISSIONS = os.path.join("contracts", "snapshot", "specs", "system-permissions.json")
+
+
+def gen_me_vectors_data():
+    """specs/me-vectors.json（APP-12，Codex 先写的三端共用向量）+ 锁定契约的 specs/system-permissions.json（隐私中心「系统权限」一节的
+    权限清单，G26：测试不另手写清单）。两份原文各成一个常量，同一文件。"""
+    vectors = gen_vectors_data(ME_VECTORS, "ME_VECTORS_JSON",
+                               "「我的」、设置、隐私中心、封禁与申诉、推送上报与客服入口向量（APP-12）：specs/me-vectors.json 全文，"
+                               "供 MeVector.test.ets 解析；ME_PERMISSIONS_JSON 是契约快照 specs/system-permissions.json 全文。"
+                               "只在 src/test，不进产物。")
+    path = os.path.join(ROOT, SYSTEM_PERMISSIONS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + SYSTEM_PERMISSIONS)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    try:
+        json.loads(text)
+    except ValueError as e:
+        raise GenError("%s 不是合法 JSON：%s" % (SYSTEM_PERMISSIONS, e))
+    return vectors + "\nexport const ME_PERMISSIONS_JSON: string = " + ts_str(text) + ";\n"
 
 
 # ---------------------------------------------------------------- 文案
@@ -1642,6 +1668,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "ClipboardVectorsData.ets"): gen_clipboard_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

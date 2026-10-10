@@ -35,6 +35,13 @@ export class StackNavigator implements RouteNavigator {
    * 返回 false 表示不是 Tab 根路由。
    */
   tabRootHandler: (destination: RouteDestination) => boolean = (_d: RouteDestination) => false;
+  /**
+   * Tab 根页「已显示」通知（APP-12 R3-01，共性第 17 条）：与 tabRootHandler（识别 + 切 Tab）拆开，在本次导航的清栈、切 Tab、
+   * 其余目的地入栈与 onStackChanged 全部完成之后才调用（目标页此时同步发起的请求记下的是导航最终状态的票据）。
+   * 一次导航里出现的每个 Tab 根目的地按顺序各通知一次；监听方里再导航照常执行（它自己的通知在它结束时发出）。
+   */
+  tabRootShown: (destination: RouteDestination) => void = (_d: RouteDestination) => {
+  };
   /** reset([]) 回首页时首页 Tab 的只读标记来源。 */
   homeReadonly: () => boolean = () => false;
   /**
@@ -55,6 +62,22 @@ export class StackNavigator implements RouteNavigator {
    * 「本次导航是否真的打开了登录页」——比较导航前后的计数（本次导航的执行结果），不比较路由状态对象。
    */
   private readonly pushCounts: Map<string, number> = new Map<string, number>();
+  /**
+   * 导航世代（APP-12 R2-03，共性第 14 条）：经本类的每次导航（push、reset、remove；切 Tab 根也经 push）在改动开始、调用任何
+   * 监听与 Tab 处理之前加 1，单调递增、不回退；Tab 根「已显示」在清栈、切 Tab 全部完成后才通知（R3-01），目标页那时同步发起的读取
+   * 记下的是新世代与最终的栈。与「栈的页面名快照」不同，A → B → A
+   * 回到同名栈也算导航过；系统返回等不经本类的出栈由页面名变化体现。
+   */
+  private changes: number = 0;
+  /** 本次导航里已切过去、等导航全部完成后再通知「已显示」的 Tab 根目的地（R3-01）。 */
+  private shownQueue: RouteDestination[] = [];
+  /** 正在执行的导航层数（push / reset 嵌套时只在最外层结束时通知）。 */
+  private depth: number = 0;
+
+  /** 导航世代（见 changes）。 */
+  get generation(): number {
+    return this.changes;
+  }
 
   attachStack(stack: PathStack): void {
     this.stack = stack;
@@ -86,6 +109,7 @@ export class StackNavigator implements RouteNavigator {
     if (this.stack === null) {
       return;
     }
+    this.changes++;
     if (this.stack.getAllPathName().indexOf(name) >= 0) {
       this.notifyRemoved([name]);
     }
@@ -141,10 +165,44 @@ export class StackNavigator implements RouteNavigator {
     if (this.stack === null) {
       return;
     }
+    this.changes++;
+    this.depth++;
+    try {
+      this.pushInner(destination);
+    } finally {
+      this.depth--;
+    }
+    this.flushShown();
+  }
+
+  /**
+   * 导航全部完成后通知 Tab 根「已显示」（R3-01）：先取走队列再逐个通知，监听方出错不影响其余通知与导航；监听方里再次导航时
+   * 它入队的通知由那次导航自己发出。
+   */
+  private flushShown(): void {
+    if (this.depth > 0 || this.shownQueue.length === 0) {
+      return;
+    }
+    const shown: RouteDestination[] = this.shownQueue;
+    this.shownQueue = [];
+    for (const d of shown) {
+      try {
+        this.tabRootShown(d);
+      } catch (e) {
+        // 监听方出错不影响切 Tab。
+      }
+    }
+  }
+
+  private pushInner(destination: RouteDestination): void {
+    if (this.stack === null) {
+      return;
+    }
     if (this.tabRootHandler(destination)) {
-      // Tab 根页：回到导航根并切 Tab（03 §4.4 Tab 外壳；只读标记随 destination 保留）。
+      // Tab 根页：回到导航根并切 Tab（03 §4.4 Tab 外壳；只读标记随 destination 保留）。「已显示」等本次导航全部完成后再通知（R3-01）。
       this.clearStack(this.stack);
       this.stackChanged();
+      this.shownQueue.push(destination);
       return;
     }
     const name: string = destination.route ?? UPGRADE_PROMPT_PAGE;
@@ -157,17 +215,27 @@ export class StackNavigator implements RouteNavigator {
     if (this.stack === null) {
       return;
     }
-    this.clearStack(this.stack);
-    if (destinations.length === 0) {
-      // 回到首页：Router 打开 Home 时调 reset([])，首页 Tab 的只读标记按当时的结论。
-      this.tabRootHandler(new RouteDestination(RoutePolicy.HOME, {}, this.homeReadonly()));
-      this.stackChanged();
-      return;
+    this.changes++;
+    this.depth++;
+    try {
+      this.clearStack(this.stack);
+      if (destinations.length === 0) {
+        // 回到首页：Router 打开 Home 时调 reset([])，首页 Tab 的只读标记按当时的结论。
+        const home: RouteDestination = new RouteDestination(RoutePolicy.HOME, {}, this.homeReadonly());
+        if (this.tabRootHandler(home)) {
+          this.shownQueue.push(home);
+        }
+        this.stackChanged();
+      } else {
+        for (const d of destinations) {
+          this.pushInner(d);
+        }
+        this.stackChanged();
+      }
+    } finally {
+      this.depth--;
     }
-    for (const d of destinations) {
-      this.push(d);
-    }
-    this.stackChanged();
+    this.flushShown();
   }
 
   requestConsent(): void {

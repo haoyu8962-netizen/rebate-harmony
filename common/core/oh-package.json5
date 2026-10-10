@@ -7,5 +7,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "generated": "file:../generated"
+  },
+  "devDependencies": {
+    "designsystem": "file:../designsystem"
   }
 }

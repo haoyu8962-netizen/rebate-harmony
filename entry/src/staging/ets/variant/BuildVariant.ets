@@ -5,8 +5,9 @@ import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, RouteTable,
-  ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
+  AmountMaskStore, AppEnvironment, CouliPreferences, DeepLinkConfig, HttpTransport, JumpPorts, MeContractPort,
+  MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, PushTokenSource, RouteTable, ThirdPartyAuthAdapter,
+  UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
@@ -19,7 +20,9 @@ import { DEBUG_TRADE_SCENE_KEY, DebugFakeTrade, DebugJumpPorts, DebugWebCodeAuth
 import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeOrders } from './DebugFakeOrders';
 import { DEBUG_STEP_UP_PHONE, DEBUG_WALLET_SCENE_KEY, DebugFakeWallet } from './DebugFakeWallet';
+import { DEBUG_ME_SCENE_KEY, DebugFakeMe, DebugPushTokenSource } from './DebugFakeMe';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
+import { AppLogin } from '../../../main/ets/login/AppLogin';
 import {
   CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
@@ -132,6 +135,47 @@ export class BuildVariant {
     return DebugFakeServer.enabled ? DEBUG_STEP_UP_PHONE : null;
   }
 
+  private static readonly fakeMe: DebugFakeMe = new DebugFakeMe();
+  private static readonly pushSource: DebugPushTokenSource = new DebugPushTokenSource((): boolean => DebugFakeServer.enabled);
+  private static wechatInstalled: string | null = null;
+  private static csOpen: string | null = null;
+  private static settingsSub: string = '';
+  private static guideBar: boolean | null = null;
+
+  /**
+   * 改昵称与通知设置的待定接口（APP-12 G01、G02）：本机假服务打开时用假实现（截图与冒烟）；没打开时与 Release 一样为 null（昵称不可改、
+   * 不显示服务类推送开关）。
+   */
+  static meContract(): MeContractPort | null {
+    return DebugFakeServer.enabled ? BuildVariant.fakeMe : null;
+  }
+
+  /** 推送令牌（G17）：Debug 假来源（假服务打开时给测试令牌）；Release 恒为无令牌。 */
+  static pushTokenSource(): PushTokenSource {
+    return BuildVariant.pushSource;
+  }
+
+  /** 截图：`--ps couli_debug_wechat_installed yes|no|unknown` 覆盖微信已装检测（Release 没有覆盖）。 */
+  static wechatInstalledOverride(): string | null {
+    return DebugFakeServer.enabled ? BuildVariant.wechatInstalled : null;
+  }
+
+  /** 截图：`--ps couli_debug_cs_open fail|ok` 模拟拉起结果（Release 经系统打开）。 */
+  static csOpenOverride(): Promise<boolean> | null {
+    const v: string | null = DebugFakeServer.enabled ? BuildVariant.csOpen : null;
+    return v === null ? null : Promise.resolve(v === 'ok');
+  }
+
+  /** 截图：`--ps couli_debug_settings_sub nickname|notify|agreement|clear_cache|logout|withdraw` 打开设置 / 隐私中心时直达。 */
+  static settingsInitialSub(): string {
+    return DebugFakeServer.enabled ? BuildVariant.settingsSub : '';
+  }
+
+  /** 截图：`--ps couli_debug_guide_bar 1` 让「我的」页通知引导条出现（模拟器上造不出 48 小时前的拒绝记录）。 */
+  static guideBarOverride(): boolean | null {
+    return DebugFakeServer.enabled ? BuildVariant.guideBar : null;
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -218,6 +262,41 @@ export class BuildVariant {
     if (typeof walletScene === 'string') {
       DebugFakeWallet.reset(walletScene);
       hilog.info(0x0000, 'Couli', 'wallet scene %{public}s %{public}s', walletScene, DebugFakeWallet.marker);
+    }
+    // APP-12：`--ps couli_debug_me_scene <scene>` 选「我的」与封禁 / 申诉假服务场景（见 DebugFakeMe）；以及截图用的覆盖参数。
+    const meScene: Object | undefined = want.parameters?.[DEBUG_ME_SCENE_KEY];
+    if (typeof meScene === 'string') {
+      DebugFakeMe.reset(meScene);
+      hilog.info(0x0000, 'Couli', 'me scene %{public}s %{public}s %{public}s', meScene, DebugFakeMe.marker,
+        DebugPushTokenSource.marker);
+    }
+    const wechat: Object | undefined = want.parameters?.['couli_debug_wechat_installed'];
+    if (typeof wechat === 'string') {
+      BuildVariant.wechatInstalled = wechat.length > 0 ? wechat : null;
+    }
+    const csOpen: Object | undefined = want.parameters?.['couli_debug_cs_open'];
+    if (typeof csOpen === 'string') {
+      BuildVariant.csOpen = csOpen.length > 0 ? csOpen : null;
+    }
+    const sub: Object | undefined = want.parameters?.['couli_debug_settings_sub'];
+    if (typeof sub === 'string') {
+      BuildVariant.settingsSub = sub;
+    }
+    const guide: Object | undefined = want.parameters?.['couli_debug_guide_bar'];
+    if (typeof guide === 'string') {
+      BuildVariant.guideBar = guide === '1' ? true : guide === '0' ? false : null;
+    }
+    const mask: Object | undefined = want.parameters?.['couli_debug_amount_mask'];
+    if (typeof mask === 'string') {
+      AmountMaskStore.shared.set(mask === '1');
+    }
+    // 截图：`--ps couli_debug_open_cs 1` 热启动时打开统一客服出口（与页面上的【联系客服】同一个入口）。
+    if (want.parameters?.['couli_debug_open_cs'] === '1' && AppRouting.shared.presentationReady) {
+      setTimeout(() => AppLogin.openCustomerService(), 800);
+    }
+    const tokenChange: Object | undefined = want.parameters?.['couli_debug_push_token_change'];
+    if (tokenChange === '1') {
+      BuildVariant.pushSource.change();
     }
     const openRoute: Object | undefined = want.parameters?.['couli_debug_open_route'];
     if (typeof openRoute === 'string' && openRoute.length > 0 && AppRouting.shared.presentationReady) {
