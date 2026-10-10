@@ -16,7 +16,7 @@
 // 本页文案只在测试包（不进用户侧字典，G24 ⑧）。
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  DebugMockGate, HomeDebugSources, HomeDropped, HomePreviewDeps, HomePreviewDisplay, HomePreviewNav, HomePreviewPolicy,
+  HomeDebugSources, HomeDropped, HomePreviewDeps, HomePreviewDisplay, HomePreviewNav, HomePreviewPolicy,
   HomePreviewSession, HomePreviewState, HomeSnapshot, RouteDestination
 } from 'core';
 import {
@@ -178,8 +178,8 @@ export struct HomePreviewPage {
     const deps: HomePreviewDeps = new HomePreviewDeps(() => AppHome.identityNow(), () => AppNetwork.client,
       this.pageKey(), this.token());
     // 待定接口的数据源：构建（本页只在 staging）+ 环境（本机假服务打开且当前环境允许调试假数据；prod 不注入，R1-09）。
-    deps.contract = () => HomeDebugSources.contract(DebugFakeServer.enabled, DebugMockGate.currentEnvironment(),
-      new DebugFakeHome());
+    // FU-HM-0711b R1-03：与普通首页同一个受保护实例（每次调用、每次异步返回前再核对闸门）。
+    deps.contract = () => HomeDebugSources.guarded(DebugFakeServer.mockGate, new DebugFakeHome());
     // 系统状态与可见性（R2-03 / R2-05）：读屏、前后台持续订阅；栈顶按本实例的 navDestinationId 比较；其他弹层与首页同一来源。
     deps.screenReader = AppHome.shared.screenReader;
     deps.foreground = AppHome.shared.foregroundSignal;

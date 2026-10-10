@@ -165,6 +165,8 @@ export class AppClientCore {
       (value: string | null): void => slot.write(value), PENDING_EVENTS_SINK, raw,
       (): string | null => AppClientCore.userId(), '', ClientPlatformRaw.HARMONY, AppNetwork.appVersion, this.sessionId,
       (): number => Date.now(), (): boolean => AppClientCore.uploadAllowed());
+    // FU-HM-0711b R2-01：deviceId() 先过统一凭据判定（环境就绪、隐私 full、撤回清理完成），不成立时零读取返回 null，
+    // TrackerQueue.track 因没有 device_id 不接受事件（不入队、不带旧 device_id）。
     queue.deviceIdSource = (): string | null => {
       const devices: DeviceRegistry | null = AppNetwork.devices;
       return devices === null ? null : devices.deviceId();

@@ -74,6 +74,8 @@ class LaunchGateModel {
     try {
       this.gate = await AppConfig.retry();
       if (this.gate === EnvironmentGate.SETTLED) {
+        // Debug / Staging：暂存的剪贴板、分享样例按此刻环境执行或丢弃（FU-HM-0711b R1-05）；Release 为空。
+        BuildVariant.environmentSettled();
         AppPrivacy.shared.environmentSettled();
       }
     } finally {

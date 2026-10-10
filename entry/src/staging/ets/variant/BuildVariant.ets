@@ -5,10 +5,11 @@ import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import {
-  AmountMaskStore, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugMockGate,
-  DeepLinkConfig, HomeContractPort, HomeDebugSources, HttpTransport, JumpPorts, MeContractPort,
-  MemoryPendingKeyBackend, PendingKeyBackend, PendingKeyRecord, PushTokenSource, RouteTable, ThirdPartyAuthAdapter,
-  UpdateChecker, WalletContractPort, WebCodeAuthorizer
+  AmountMaskStore, AppConfig, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugLaunchDeferral,
+  DebugMockGate, DebugSubstitutes, DeepLinkConfig, EnvironmentSwitchGate, GatedAuthAdapter, GatedMeContractPort,
+  GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer, HomeContractPort,
+  HomeDebugSources, HttpTransport, JumpPorts, MeContractPort, PendingKeyBackend, PushTokenSource, RouteTable,
+  ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
 import { DebugRoutes, DesignTokens } from 'generated';
@@ -38,6 +39,19 @@ import {
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
 
 export class BuildVariant {
+  /**
+   * FU-HM-0711b R1-05：模拟用户动作的启动参数（剪贴板样例、系统分享样例）执行时过替身闸门；环境未就绪（冷启动对账前、切换中）
+   * 先暂存，就绪时（environmentSettled、切换后闸门重新打开）再按闸门执行或丢弃。
+   */
+  private static readonly launchDeferral: DebugLaunchDeferral = new DebugLaunchDeferral(
+    (): boolean => AppConfig.endpoints() !== undefined, DebugFakeServer.mockGate);
+  private static reopenHooked: boolean = false;
+
+  /** 环境闸门有结论且为 SETTLED（冷启动对账通过、阻断页重试通过）时由 EntryAbility / RootPage 调用；Release 为空实现。 */
+  static environmentSettled(): void {
+    BuildVariant.launchDeferral.settle();
+  }
+
   /** 调试用的根布局宽度（vp）；没给为 null（按窗口宽度）。 */
   private static debugLayoutWidth: number | null = null;
 
@@ -88,19 +102,20 @@ export class BuildVariant {
   }
 
   /**
-   * 微信登录适配器（APP-05b）：Debug / Staging 用假适配器，只有本机假服务打开时可用（按钮出现，供测试与截图）；没打开时与
-   * Release 一样不可用、按钮不显示。Release 的同名函数恒为不可用实现。
+   * 微信登录适配器（APP-05b）：Debug / Staging 用假适配器，只有替身闸门放行（本机假服务打开且当前环境允许 MOCK_DATA，F-X-02）时可用
+   * （按钮出现，供测试与截图）；否则与 Release 一样不可用、按钮不显示。Release 的同名函数恒为不可用实现。
    */
   static wechatAdapter(): ThirdPartyAuthAdapter {
-    return new DebugWechatAdapter();
+    return new GatedAuthAdapter(new DebugWechatAdapter(), DebugFakeServer.mockGate);
   }
 
   /**
-   * 未决记录的存储（APP-05b）：本机假服务打开时放内存——模拟器的 Asset 不支持批量查询（Batch secret query is not supported），
-   * 绑手机等 step-up 操作的未决记录写不进去、请求发不出（rule-gaps【鸿蒙实现发现】EMU-ASSET）。没打开时与 Release 一样用 Asset。
+   * 未决记录的存储（APP-05b）：替身闸门放行（本机假服务打开且当前环境允许 MOCK_DATA，F-X-02）时放内存——模拟器的 Asset 不支持
+   * 批量查询（Batch secret query is not supported），绑手机等 step-up 操作的未决记录写不进去、请求发不出（rule-gaps【鸿蒙实现发现】
+   * EMU-ASSET）。否则与 Release 一样用 Asset；每次调用重新选（GatedPendingKeyBackend）。
    */
   static pendingKeyBackend(secure: PendingKeyBackend): PendingKeyBackend {
-    return new DebugPendingKeyBackend(secure);
+    return new GatedPendingKeyBackend(secure, DebugFakeServer.mockGate);
   }
 
   /**
@@ -108,7 +123,7 @@ export class BuildVariant {
    * 没打开时与 Release 一样不可用（回跳 scheme 未登记，TODO(N-28)）。
    */
   static webCodeAuthorizer(): WebCodeAuthorizer {
-    return new DebugWebCodeAuthorizer((): boolean => DebugFakeServer.enabled);
+    return new GatedWebCodeAuthorizer(new DebugWebCodeAuthorizer((): boolean => true), DebugFakeServer.mockGate);
   }
 
   /**
@@ -117,12 +132,12 @@ export class BuildVariant {
    */
   static jumpPorts(system: JumpPorts): JumpPorts {
     return new DebugJumpPorts(system, (platform: string): string | null =>
-      DebugFakeServer.enabled ? DebugFakeTrade.installed(platform) : null);
+      DebugFakeServer.mockGate() ? DebugFakeTrade.installed(platform) : null);
   }
 
   /** 「将通过浏览器打开」的停留时长（APP-06b）：本机假服务的截图场景放长；其余按缺省。 */
   static browserNoticeMillis(defaultMillis: number): number {
-    return DebugFakeServer.enabled ? DebugFakeTrade.browserNoticeMillis(defaultMillis) : defaultMillis;
+    return DebugFakeServer.mockGate() ? DebugFakeTrade.browserNoticeMillis(defaultMillis) : defaultMillis;
   }
 
   /**
@@ -130,18 +145,24 @@ export class BuildVariant {
    * （页面置灰、不发请求）。
    */
   static walletContract(): WalletContractPort | null {
-    return DebugFakeServer.enabled ? BuildVariant.fakeWallet : null;
+    return DebugSubstitutes.choose<WalletContractPort | null>(DebugFakeServer.mockGate, BuildVariant.fakeWallet, null);
   }
 
-  private static readonly fakeWallet: DebugFakeWallet = new DebugFakeWallet();
+  /** 端口实例本身也每次调用核对闸门（F-X-02）：在 test 环境拿到端口、之后切到 prod，调用一律本地拒绝、不给假数据。 */
+  private static readonly fakeWallet: WalletContractPort = new GatedWalletContractPort(new DebugFakeWallet(),
+    DebugFakeServer.mockGate);
 
   /** 二次验证发码的号码（G31）：本机假服务打开时用测试号码；没打开时与 Release 一样取不到（不编造号码）。 */
   static stepUpPhone(_account: string): string | null {
-    return DebugFakeServer.enabled ? DEBUG_STEP_UP_PHONE : null;
+    return DebugFakeServer.mockGate() ? DEBUG_STEP_UP_PHONE : null;
   }
 
-  private static readonly fakeMe: DebugFakeMe = new DebugFakeMe();
-  private static readonly pushSource: DebugPushTokenSource = new DebugPushTokenSource((): boolean => DebugFakeServer.enabled);
+  private static readonly fakeMe: MeContractPort = new GatedMeContractPort(new DebugFakeMe(), DebugFakeServer.mockGate);
+  /** 推送令牌假来源本身（启动参数可模拟令牌变化）；对外只交出外面包了闸门的 pushSource。 */
+  private static readonly debugPush: DebugPushTokenSource = new DebugPushTokenSource((): boolean => true);
+  /** 推送令牌：令牌只在替身闸门放行时给出（F-X-02），否则与 Release 一样没有令牌。 */
+  private static readonly pushSource: PushTokenSource = new GatedPushTokenSource(BuildVariant.debugPush,
+    DebugFakeServer.mockGate);
   private static wechatInstalled: string | null = null;
   private static csOpen: string | null = null;
   private static settingsSub: string = '';
@@ -152,7 +173,7 @@ export class BuildVariant {
    * 不显示服务类推送开关）。
    */
   static meContract(): MeContractPort | null {
-    return DebugFakeServer.enabled ? BuildVariant.fakeMe : null;
+    return DebugSubstitutes.choose<MeContractPort | null>(DebugFakeServer.mockGate, BuildVariant.fakeMe, null);
   }
 
   /** 推送令牌（G17）：Debug 假来源（假服务打开时给测试令牌）；Release 恒为无令牌。 */
@@ -162,23 +183,23 @@ export class BuildVariant {
 
   /** 截图：`--ps couli_debug_wechat_installed yes|no|unknown` 覆盖微信已装检测（Release 没有覆盖）。 */
   static wechatInstalledOverride(): string | null {
-    return DebugFakeServer.enabled ? BuildVariant.wechatInstalled : null;
+    return DebugFakeServer.mockGate() ? BuildVariant.wechatInstalled : null;
   }
 
   /** 截图：`--ps couli_debug_cs_open fail|ok` 模拟拉起结果（Release 经系统打开）。 */
   static csOpenOverride(): Promise<boolean> | null {
-    const v: string | null = DebugFakeServer.enabled ? BuildVariant.csOpen : null;
+    const v: string | null = DebugFakeServer.mockGate() ? BuildVariant.csOpen : null;
     return v === null ? null : Promise.resolve(v === 'ok');
   }
 
   /** 截图：`--ps couli_debug_settings_sub nickname|notify|agreement|clear_cache|logout|withdraw` 打开设置 / 隐私中心时直达。 */
   static settingsInitialSub(): string {
-    return DebugFakeServer.enabled ? BuildVariant.settingsSub : '';
+    return DebugFakeServer.mockGate() ? BuildVariant.settingsSub : '';
   }
 
   /** 截图：`--ps couli_debug_guide_bar 1` 让「我的」页通知引导条出现（模拟器上造不出 48 小时前的拒绝记录）。 */
   static guideBarOverride(): boolean | null {
-    return DebugFakeServer.enabled ? BuildVariant.guideBar : null;
+    return DebugFakeServer.mockGate() ? BuildVariant.guideBar : null;
   }
 
   private static readonly fakeHome: DebugFakeHome = new DebugFakeHome();
@@ -188,7 +209,8 @@ export class BuildVariant {
    * （截图与冒烟）；否则与 Release 一样为 null（首页只显示 LKG / 包内默认，商品池与物料卡隐藏，不发请求，R1-09）。
    */
   static homeContract(): HomeContractPort | null {
-    return HomeDebugSources.contract(DebugFakeServer.enabled, DebugMockGate.currentEnvironment(), BuildVariant.fakeHome);
+    // FU-HM-0711b R1-03：交出的实例本身每次调用、每次异步返回前再核对闸门（持有旧实例切到 prod 也不给假数据）。
+    return HomeDebugSources.guarded(DebugFakeServer.mockGate, BuildVariant.fakeHome);
   }
 
   /**
@@ -196,12 +218,12 @@ export class BuildVariant {
    * 假服务打开且当前环境允许调试假数据才替换，prod 用真实的包内默认。
    */
   static homeDefaultOverride(): string | null {
-    return DebugMockGate.allowedNow(DebugFakeServer.enabled) ? DebugFakeHome.defaultOverride() : null;
+    return DebugFakeServer.mockGate() ? DebugFakeHome.defaultOverride() : null;
   }
 
   /** 截图：假服务页面里的测试图片地址换成本机样例图（模拟器不连网）；没打开或 prod 时原样（R2-01 同类）。 */
   static homeImage(url: string): string {
-    return DebugMockGate.allowedNow(DebugFakeServer.enabled) ? DebugFakeHome.image(url) : url;
+    return DebugFakeServer.mockGate() ? DebugFakeHome.image(url) : url;
   }
 
   /** 首页时钟：截图可把上海时刻对到指定 HH:mm（`couli_debug_home_clock`，弹窗时间段核对）；没设、或当前环境不允许调时钟（prod）时为真实时钟。 */
@@ -283,11 +305,10 @@ export class BuildVariant {
         hilog.warn(0x0000, 'Couli', '%{public}s', 'fake server flag not saved');
       }
     }
-    if (on && !DebugFakeServer.enabled) {
+    if (DebugFakeServer.setEnabled(on)) {
       hilog.info(0x0000, 'Couli', 'fake server on %{public}s %{public}s %{public}s', DebugFakeServer.marker,
         DebugFakeServer.searchMarker, DebugWechatAdapter.marker);
     }
-    DebugFakeServer.enabled = on;
     hilog.info(0x0000, 'Couli', 'fake server state %{public}s', on ? 'on' : 'off');
     // APP-06b：`--ps couli_debug_trade_scene <scene>` 选购买 / 授权的假服务场景（见 DebugFakeTrade）。
     const tradeScene: Object | undefined = want.parameters?.[DEBUG_TRADE_SCENE_KEY];
@@ -365,7 +386,7 @@ export class BuildVariant {
     }
     const tokenChange: Object | undefined = want.parameters?.['couli_debug_push_token_change'];
     if (tokenChange === '1') {
-      BuildVariant.pushSource.change();
+      BuildVariant.debugPush.change();
     }
     const openRoute: Object | undefined = want.parameters?.['couli_debug_open_route'];
     if (typeof openRoute === 'string' && openRoute.length > 0 && AppRouting.shared.presentationReady) {
@@ -383,17 +404,28 @@ export class BuildVariant {
       params['order_id'] = openOrder;
       AppRouting.shared.openInApp('OrderDetail', params);
     }
+    if (!BuildVariant.reopenHooked) {
+      // 运行中切换环境：闸门重新打开后再判定暂存的样例（切到 prod 即丢弃）。
+      BuildVariant.reopenHooked = true;
+      EnvironmentSwitchGate.shared.onReopened((_switched: boolean): void => {
+        BuildVariant.launchDeferral.settle();
+      });
+    }
     // APP-07：`--ps couli_debug_clip <样例>` 把演示样例写进系统剪贴板（模拟别的 App 复制，截图用）。
+    // FU-HM-0711b R1-05：执行时过替身闸门（prod 不写）；冷启动环境未定先暂存，环境就绪后再执行或丢弃。
     const clip: Object | undefined = want.parameters?.['couli_debug_clip'];
     if (typeof clip === 'string') {
-      DebugFakeClipboard.writeSample(clip as string);
+      const text: string = clip as string;
+      BuildVariant.launchDeferral.submit('couli_debug_clip', (): void => DebugFakeClipboard.writeSample(text));
     }
     // FU-CLIP：`--ps couli_debug_share <样例>` 模拟系统分享到达（截图与冒烟用；样例全部是演示数据，不打日志）。和真实分享走同一入口
     // AppClipboard.shareArrived（当场抽候选、原文丢弃）；外壳就绪后才执行。
     const share: Object | undefined = want.parameters?.['couli_debug_share'];
     if (typeof share === 'string' && AppRouting.shared.presentationReady) {
       const sample: string = share as string;
-      setTimeout(() => AppClipboard.shared.shareArrived('text/plain', sample), 600);
+      // FU-HM-0711b R1-05：执行时过替身闸门，600 毫秒到点时再核对一次（期间切到 prod 不执行）。
+      BuildVariant.launchDeferral.submit('couli_debug_share', (): void => DebugLaunchDeferral.delayed(
+        DebugFakeServer.mockGate, 600, (): void => AppClipboard.shared.shareArrived('text/plain', sample)));
     }
     const scene: Object | undefined = want.parameters?.['couli_debug_wechat_scene'];
     if (typeof scene === 'string') {
@@ -412,41 +444,6 @@ export class BuildVariant {
     } catch (e) {
       // 设置失败时按系统字号继续。
     }
-  }
-}
-
-/** 每次调用按「本机假服务是否打开」选内存或 Asset（启动参数在网络组合之后才读到）。 */
-class DebugPendingKeyBackend implements PendingKeyBackend {
-  private readonly secure: PendingKeyBackend;
-  private readonly memory: MemoryPendingKeyBackend = new MemoryPendingKeyBackend();
-
-  constructor(secure: PendingKeyBackend) {
-    this.secure = secure;
-  }
-
-  private pick(): PendingKeyBackend {
-    return DebugFakeServer.enabled ? this.memory : this.secure;
-  }
-
-  read(account: string, key: string): PendingKeyRecord | null {
-    return this.pick().read(account, key);
-  }
-
-  list(account: string): PendingKeyRecord[] {
-    return this.pick().list(account);
-  }
-
-  write(record: PendingKeyRecord): void {
-    this.pick().write(record);
-  }
-
-  remove(account: string, key: string): void {
-    this.pick().remove(account, key);
-  }
-
-  clear(): void {
-    this.memory.clear();
-    this.secure.clear();
   }
 }
 

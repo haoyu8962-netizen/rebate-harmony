@@ -279,6 +279,8 @@ export class PendingKeyStore {
    * 一次逻辑调用的内部续发（10002、10402 重放、校时重签）期间一直占用，只有占用者自己能释放或沿用。
    */
   private readonly activeHere: Map<string, number> = new Map<string, number>();
+  /** resetAfterClear 的次数（全部持久记录被清掉的世代；FU-HM-0711b R2-02 判断「已绑定的会话归属」是否已随清理作废）。 */
+  private resets: number = 0;
 
   constructor(backend: PendingKeyBackend, clock: () => number) {
     this.backend = backend;
@@ -294,6 +296,11 @@ export class PendingKeyStore {
   /** 当前账号。 */
   get currentAccount(): string | null {
     return this.account;
+  }
+
+  /** 全部持久记录被清掉（resetAfterClear）的次数。 */
+  get resetGeneration(): number {
+    return this.resets;
   }
 
   /** 当前账号的未决记录还没有完整读出（恢复未完成，R3-01）。 */
@@ -387,6 +394,7 @@ export class PendingKeyStore {
 
   /** 全部持久记录已被清掉（切换环境）：连同删除重试一起作废。 */
   resetAfterClear(): void {
+    this.resets++;
     this.signOut();
     this.removals.clear();
     this.finished.clear();

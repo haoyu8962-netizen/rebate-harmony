@@ -73,6 +73,7 @@ import walletReviewR3Test from './WalletReviewR3.test';
 import followupHM0710Test from './FollowupHM0710.test';
 import followupHM0711Test from './FollowupHM0711.test';
 import followupHM0712Test from './FollowupHM0712.test';
+import followupHM0711bTest from './FollowupHM0711b.test';
 import meVectorTest from './MeVector.test';
 import meIntegrationTest from './MeIntegration.test';
 import meReviewR1Test from './MeReviewR1.test';
@@ -167,6 +168,7 @@ export default function testsuite() {
   followupHM0710Test();
   followupHM0711Test();
   followupHM0712Test();
+  followupHM0711bTest();
   meVectorTest();
   meIntegrationTest();
   meReviewR1Test();

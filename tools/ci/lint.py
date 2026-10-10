@@ -21,6 +21,12 @@
     HM-LINT-9 webview-navbar-size  APP-04 R4-01：TrustedWebView.ets 的标题栏 navBar() 里不得出现 Image 组件或百分比高度。
                                    标题栏只有最小高度，百分比高度会参照整页、把标题栏撑满并挤掉 layoutWeight(1) 的网页区域；
                                    背景图只能用 backgroundImage 等背景属性（不参与尺寸测量）
+    HM-LINT-10 debug-mock-gate     F-X-02：entry/src/staging 里只有 DebugFakeServer.ets 能读 DebugFakeServer.enabled。其余调试替身
+                                   一律经 DebugFakeServer.mockGate（假服务打开 且 当前环境允许 MOCK_DATA，每次使用时重新判断），
+                                   切到 prod 后不给假数据。FU-HM-0711b R1-06、R2-03：按词法检查真实的属性访问（HM10Lexer 去掉注释、
+                                   字符串内容与正则字面量，模板字符串 ${} 里的表达式按同一套规则递归扫描，其中的字符串、注释、
+                                   嵌套模板与花括号都正确配对），认导入别名（import { DebugFakeServer as X }、import * as NS）、
+                                   局部别名（const X = DebugFakeServer）、可选链、方括号取值与解构；`--self-test-hm10` 跑正反例
 """
 
 import json
@@ -55,6 +61,11 @@ BACK_PRESSED_RE = re.compile(r"\.onBackPressed\s*\(")
 NAVBAR_BUILDER_RE = re.compile(r"(?<![A-Za-z0-9_.])navBar\s*\(\s*\)\s*\{")
 NAVBAR_FORBIDDEN_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(Image\s*\(|\.\s*height\s*\(\s*['\"]\s*[0-9.]+\s*%\s*['\"]\s*\))")
+FAKE_FLAG_CLASS = "DebugFakeServer"
+FAKE_FLAG_OWNER = "entry/src/staging/ets/variant/DebugFakeServer.ets"
+IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
+NAMED_IMPORT_RE = re.compile(r"\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*(['\"])([^'\"]*)\2")
+NAMESPACE_IMPORT_RE = re.compile(r"\bimport\s+\*\s+as\s+(" + IDENT + r")\s+from\s*(['\"])([^'\"]*)\2")
 IMPORT_FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
@@ -99,6 +110,239 @@ def strip_comments_keep_strings(src):
             out.append(ch)
             i += 1
     return "".join(out), strings
+
+
+REGEX_PREV_KEYWORDS = {"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do",
+                       "else", "yield", "await"}
+
+
+class HM10Lexer:
+    """HM-LINT-10 用的词法扫描（FU-HM-0711b R2-03）：在原始源码上一次扫完，输出两份与源码逐字对齐的视图——
+    plain：注释、字符串内容、正则字面量内容、模板字符串文本都换成空格（换行保留），模板 `${}` 里的表达式按同一套规则
+    递归扫描（其中的字符串、注释、正则、嵌套模板与花括号都正确配对）；kept：同上但保留字符串内容（找导入路径用）。
+    另记下内容恰好是 enabled 的字符串字面量起点（方括号取值 X['enabled']）。正则与除号按前一个有效记号区分。"""
+
+    def __init__(self, src):
+        self.src = src
+        self.n = len(src)
+        self.plain = list(src)
+        self.kept = list(src)
+        self.enabled_strings = set()
+
+    def blank(self, a, b, keep=False):
+        for k in range(a, min(b, self.n)):
+            if self.src[k] != "\n":
+                self.plain[k] = " "
+                if not keep:
+                    self.kept[k] = " "
+
+    def run(self):
+        self.code(0, top=True)
+        return "".join(self.plain), "".join(self.kept), self.enabled_strings
+
+    def code(self, i, top=False):
+        """扫一段代码，直到与入口配对的 `}`（模板表达式）或源码结束；返回结束位置（`}` 之后）。"""
+        src, n = self.src, self.n
+        depth = 0
+        prev = ""  # 前一个有效记号：""（开头）、标点字符、"id"（标识符 / 数字 / 右括号类）或关键字本身
+        while i < n:
+            ch = src[i]
+            if ch in " \t\r\n":
+                i += 1
+            elif src.startswith("//", i):
+                j = src.find("\n", i)
+                j = n if j < 0 else j
+                self.blank(i, j)
+                i = j
+            elif src.startswith("/*", i):
+                j = src.find("*/", i + 2)
+                j = n if j < 0 else j + 2
+                self.blank(i, j)
+                i = j
+            elif ch in ("'", '"'):
+                i = self.string(i)
+                prev = "id"
+            elif ch == "`":
+                i = self.template(i)
+                prev = "id"
+            elif ch == "/":
+                if prev == "" or prev in REGEX_PREV_KEYWORDS or (len(prev) == 1 and prev not in ")]}"):
+                    i = self.regex(i)
+                    prev = "id"
+                else:
+                    i += 1
+                    prev = "/"
+            elif ch == "{":
+                depth += 1
+                i += 1
+                prev = "{"
+            elif ch == "}":
+                if depth == 0 and not top:
+                    return i + 1
+                depth = max(0, depth - 1)
+                i += 1
+                prev = "}"
+            elif ch.isalnum() or ch in "_$" or ord(ch) > 127:
+                j = i
+                while j < n and (src[j].isalnum() or src[j] in "_$" or ord(src[j]) > 127):
+                    j += 1
+                word = src[i:j]
+                prev = word if word in REGEX_PREV_KEYWORDS else "id"
+                i = j
+            else:
+                prev = ch
+                i += 1
+        return n
+
+    def string(self, i):
+        src, n, q = self.src, self.n, self.src[i]
+        j = i + 1
+        escaped = False
+        while j < n and src[j] != q and src[j] != "\n":
+            if src[j] == "\\":
+                escaped = True
+                j += 2
+                continue
+            j += 1
+        if not escaped and src[i + 1:j] == "enabled":
+            self.enabled_strings.add(i)
+        self.blank(i + 1, j, keep=True)
+        return j + 1 if j < n and src[j] == q else j
+
+    def template(self, i):
+        src, n = self.src, self.n
+        j = i + 1
+        text_start = j
+        simple = True
+        while j < n and src[j] != "`":
+            if src[j] == "\\":
+                simple = False
+                j += 2
+            elif src.startswith("${", j):
+                simple = False
+                self.blank(text_start, j, keep=True)
+                j = self.code(j + 2)
+                text_start = j
+            else:
+                j += 1
+        if simple and src[i + 1:j] == "enabled":
+            self.enabled_strings.add(i)
+        self.blank(text_start, j, keep=True)
+        return j + 1
+
+    def regex(self, i):
+        src, n = self.src, self.n
+        j = i + 1
+        in_class = False
+        while j < n and src[j] != "\n":
+            c = src[j]
+            if c == "\\":
+                j += 2
+                continue
+            if c == "[":
+                in_class = True
+            elif c == "]":
+                in_class = False
+            elif c == "/" and not in_class:
+                break
+            j += 1
+        self.blank(i + 1, j)
+        j += 1
+        while j < n and (src[j].isalnum() or src[j] in "_$"):
+            j += 1
+        return j
+
+
+def fake_flag_reads(src):
+    """HM-LINT-10：返回读 DebugFakeServer.enabled 的位置（src 为原始源码；位置与 src 对齐）。"""
+    plain, kept, enabled_strings = HM10Lexer(src).run()
+    names = {FAKE_FLAG_CLASS}
+    spaces = set()
+    for m in NAMED_IMPORT_RE.finditer(kept):
+        if not m.group(3).rstrip("/").endswith(FAKE_FLAG_CLASS):
+            continue
+        for part in m.group(1).split(","):
+            bits = part.strip().split()
+            if len(bits) == 3 and bits[0] == FAKE_FLAG_CLASS and bits[1] == "as":
+                names.add(bits[2])
+    for m in NAMESPACE_IMPORT_RE.finditer(kept):
+        if m.group(3).rstrip("/").endswith(FAKE_FLAG_CLASS):
+            spaces.add(m.group(1))
+    # 局部别名：const X = DebugFakeServer; / const X: typeof DebugFakeServer = NS.DebugFakeServer;（可连锁）
+    changed = True
+    while changed:
+        changed = False
+        refs = "|".join([re.escape(x) for x in sorted(names)]
+                        + [re.escape(x) + r"\s*\.\s*" + FAKE_FLAG_CLASS for x in sorted(spaces)])
+        for m in re.finditer(r"\b(?:const|let|var)\s+(" + IDENT + r")\s*(?::[^=;]+)?=\s*(?:" + refs + r")\s*[;\n)]",
+                             plain):
+            if m.group(1) not in names:
+                names.add(m.group(1))
+                changed = True
+    refs = "|".join([re.escape(x) for x in sorted(names)]
+                    + [re.escape(x) + r"\s*\.\s*" + FAKE_FLAG_CLASS for x in sorted(spaces)])
+    hits = []
+    access = re.compile(r"(?<![A-Za-z0-9_$.])(?:" + refs + r")\s*(?:\?\.|\.)\s*enabled(?![A-Za-z0-9_$])")
+    hits.extend(m.start() for m in access.finditer(plain))
+    # 方括号取值：X['enabled'] / X?.["enabled"] / X[`enabled`]（键名必须是内容恰好为 enabled 的字符串字面量）
+    bracket = re.compile(r"(?<![A-Za-z0-9_$.])(?:" + refs + r")\s*(?:\?\.)?\s*\[\s*(['\"`]) {7}\1\s*\]")
+    hits.extend(m.start() for m in bracket.finditer(plain) if m.start(1) in enabled_strings)
+    # 解构：const { enabled } = X; / const { enabled: on } = X;
+    destructure = re.compile(r"\{[^{}]*(?<![A-Za-z0-9_$])enabled(?![A-Za-z0-9_$])[^{}]*\}\s*=\s*(?:" + refs
+                             + r")(?![A-Za-z0-9_$])")
+    hits.extend(m.start() for m in destructure.finditer(plain))
+    return sorted(set(hits))
+
+
+HM10_CASES = [
+    # (说明, 源码, 应报的个数)
+    ("直接读", "const a = DebugFakeServer.enabled;", 1),
+    ("可选链", "const a = DebugFakeServer?.enabled;", 1),
+    ("跨行", "const a = DebugFakeServer\n  .enabled;", 1),
+    ("导入别名", "import { DebugFakeServer as Fake } from './DebugFakeServer';\nconst a = Fake.enabled;", 1),
+    ("多个导入里的别名", "import { DEBUG_FAKE_SERVER_KEY, DebugFakeServer as F } from 'entry/ets/variant/DebugFakeServer';\n"
+                  "if (F.enabled) {}", 1),
+    ("命名空间导入", "import * as S from './DebugFakeServer';\nconst a = S.DebugFakeServer.enabled;", 1),
+    ("局部别名", "const Srv = DebugFakeServer;\nconst a = Srv.enabled;", 1),
+    ("方括号取值", "const a = DebugFakeServer['enabled'];", 1),
+    ("解构", "const { enabled } = DebugFakeServer;", 1),
+    ("模板字符串里的表达式", "const a = `x${DebugFakeServer.enabled ? 1 : 0}`;", 1),
+    ("普通字符串（反例）", "const a = 'DebugFakeServer.enabled';", 0),
+    ("双引号字符串（反例）", 'log("see DebugFakeServer.enabled");', 0),
+    ("模板字符串文本（反例）", "const a = `DebugFakeServer.enabled`;", 0),
+    ("行注释（反例）", "// DebugFakeServer.enabled\nconst a = 1;", 0),
+    ("块注释（反例）", "/* DebugFakeServer.enabled */ const a = 1;", 0),
+    ("mockGate（反例）", "const a = DebugFakeServer.mockGate();", 0),
+    ("别的类的 enabled（反例）", "const a = this.enabled; const b = other.enabled; const c = Fake.enabled;", 0),
+    ("别名来自别的模块（反例）", "import { DebugFakeServer as Fake } from './Elsewhere';\nconst a = Fake.enabled;", 0),
+    ("前缀相近的名字（反例）", "const a = MyDebugFakeServer.enabled; const b = x.DebugFakeServer.enabled;", 0),
+    ("组件属性（反例）", "Button('x').enabled(true)", 0),
+    # FU-HM-0711b R2-03：评审给出的三例与同类情形
+    ("正则字面量（反例）", "const r = /DebugFakeServer.enabled/;", 0),
+    ("模板表达式里的块注释（反例）", "const a = `${ /* DebugFakeServer.enabled */ 1 }`;", 0),
+    ("模板表达式里字符串含右花括号", "const a = `${ '}' + DebugFakeServer.enabled }`;", 1),
+    ("return 之后的正则（反例）", "function f(s: string) { return /DebugFakeServer.enabled/.test(s); }", 0),
+    ("字符类里有斜杠的正则（反例）", "const r = /[/]DebugFakeServer.enabled/g;", 0),
+    ("除号不是正则", "const a = x / DebugFakeServer.enabled / 2;", 1),
+    ("模板表达式里的行注释（反例）", "const a = `${ 1 // DebugFakeServer.enabled\n}`;", 0),
+    ("嵌套模板", "const a = `${ `${DebugFakeServer.enabled}` }`;", 1),
+    ("模板表达式里的花括号嵌套", "const a = `${ ({ k: 1 }).k + (DebugFakeServer.enabled ? 1 : 0) }`;", 1),
+    ("模板表达式结束后的文本（反例）", "const a = `${ '${' } DebugFakeServer.enabled`;", 0),
+    ("模板文本里有引号", "const a = `it's ${DebugFakeServer.enabled}`;", 1),
+    ("模板字符串键名的方括号取值", "const a = DebugFakeServer[`enabled`];", 1),
+    ("字符串里的方括号形式（反例）", "const a = \"DebugFakeServer['enabled']\";", 0),
+]
+
+
+def self_test_hm10():
+    failed = 0
+    for title, src, want in HM10_CASES:
+        got = len(fake_flag_reads(src))
+        ok = got == want
+        failed += 0 if ok else 1
+        print("  %s %s：应报 %d，实报 %d" % ("PASS" if ok else "FAIL", title, want, got))
+    print("HM-LINT-10 自测：%d 例，%d 例失败" % (len(HM10_CASES), failed))
+    return 1 if failed else 0
 
 
 def ets_files(root):
@@ -213,6 +457,11 @@ def lint(root):
                        "承载 WebView 容器的页面要用 NavDestination.onBackPressed 把系统返回交给容器（%d 个容器、%d 处 onBackPressed，R1-11）"
                        % (uses, backs))
 
+        if rel.startswith("entry/src/staging/") and rel != FAKE_FLAG_OWNER:
+            for pos in fake_flag_reads(src):
+                report("HM-LINT-10", path, line_of(src, pos),
+                       "调试替身直接读了 DebugFakeServer.enabled；改用 DebugFakeServer.mockGate（含当前环境 MOCK_DATA 闸门，F-X-02）")
+
         if in_feature:
             own = rel.split("/")[1]
             for m in IMPORT_FROM_RE.finditer(code):
@@ -239,10 +488,12 @@ def lint(root):
 def main(argv):
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     args = argv[1:]
+    if args == ["--self-test-hm10"]:
+        return self_test_hm10()
     if args[:1] == ["--root"] and len(args) == 2:
         root = os.path.abspath(args[1])
     elif args:
-        print("用法：lint.py [--root <目录>]", file=sys.stderr)
+        print("用法：lint.py [--root <目录>] | --self-test-hm10", file=sys.stderr)
         return 2
     problems = lint(root)
     for p in problems:

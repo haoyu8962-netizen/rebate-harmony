@@ -113,13 +113,13 @@ export class AgentVariant {
   static readonly marker: string = AGENT_FAKE_MARKER;
   static fixture: string = 'normal';
   private static sendOnLaunch: string | null = null;
-  private static readonly fake: AgentFakeService = new AgentFakeService((): boolean => DebugFakeServer.enabled,
+  private static readonly fake: AgentFakeService = new AgentFakeService(DebugFakeServer.mockGate,
     (): AppEnvironment | undefined => DebugMockGate.currentEnvironment(), new SystemAgentTimer(),
     (body: string): AgentFakeScript => scriptOf(AgentVariant.fixture, body));
 
   /** 四个待定 operation 的端口：假服务打开且当前环境允许调试假数据才给；否则与 Release 一样为 null（「未开放」）。 */
   static contract(): AgentContractPort | null {
-    return AgentDebugSources.contract(DebugFakeServer.enabled, DebugMockGate.currentEnvironment(), AgentVariant.fake);
+    return AgentDebugSources.contract(DebugFakeServer.mockGate(), DebugMockGate.currentEnvironment(), AgentVariant.fake);
   }
 
   /** recordConsent(ai_third_party) 成功后告知本机假服务（之后不再回 10004）；撤回后恢复回 10004。 */

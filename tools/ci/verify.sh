@@ -195,8 +195,11 @@ for dir in "$ROOT"/tools/ci/lint-fixtures/HM-LINT-*; do
         fail_fast "lint-fixtures" "${rule} 没有被拦下（exit ${code}）"
     fi
 done
-[ "$FIXTURE_COUNT" -eq 9 ] || fail_fast "lint-fixtures" "应有 9 个违反样例，实际 ${FIXTURE_COUNT}"
-record "lint-fixtures" PASS "HM-LINT-1…9 均被拦下"
+[ "$FIXTURE_COUNT" -eq 10 ] || fail_fast "lint-fixtures" "应有 10 个违反样例，实际 ${FIXTURE_COUNT}"
+record "lint-fixtures" PASS "HM-LINT-1…10 均被拦下"
+# FU-HM-0711b R1-06、R2-03：HM-LINT-10 的词法检查正反例（字符串、注释、正则字面量、模板表达式、导入别名、局部别名等）。
+python3 "$ROOT/tools/ci/lint.py" --self-test-hm10 || fail_fast "lint-hm10-self-test" "HM-LINT-10 正反例自测失败"
+record "lint-hm10-self-test" PASS "HM-LINT-10 正反例全部符合"
 
 step "一致性结果断言自测（APP-04 共性 44）"
 python3 "$ROOT/tools/ci/conformance-assert.py" --self-test || fail_fast "conformance-assert" "断言脚本自测失败"

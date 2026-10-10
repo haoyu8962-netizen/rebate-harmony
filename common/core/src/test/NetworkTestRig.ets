@@ -208,7 +208,7 @@ export class Rig {
   readonly server: FakeServer = new FakeServer();
   readonly timer: FakeTimer = new FakeTimer();
   readonly random: FakeRandom = new FakeRandom();
-  readonly context: FakeContext = new FakeContext();
+  readonly context: FakeContext;
   readonly update: FakeUpdate = new FakeUpdate();
   readonly credentials: FakeCredentials = new FakeCredentials();
   readonly tokens: MemorySessionTokens;
@@ -235,7 +235,9 @@ export class Rig {
     transport: HttpTransport | null = null, tokenStore: MemorySessionTokens | null = null,
     pendingBackend: MemoryPendingKeyBackend | null = null, updatePort: UpdatePort | null = null,
     credentials: CredentialSource | null = null, registrar: DeviceRegistrar | null = null,
-    sessionTokens: SessionTokens | null = null) {
+    sessionTokens: SessionTokens | null = null, context: FakeContext | null = null) {
+    // FU-HM-0711b：可换成按真实闸门（PrivacyGate、EnvironmentSwitchGate）实时取值的上下文。
+    this.context = context ?? new FakeContext();
     this.tokens = tokenStore ?? new MemorySessionTokens(tokens);
     this.pendingBackend = pendingBackend ?? new MemoryPendingKeyBackend();
     this.pending = new PendingKeyStore(this.pendingBackend, (): number => this.nowMillis);

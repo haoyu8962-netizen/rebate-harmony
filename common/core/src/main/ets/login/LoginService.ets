@@ -673,7 +673,7 @@ export class LoginService {
       this.issuedCodes.delete(phone.normalized);
       // R2-01：短信登录的会话一定有手机号（会话已由 ApiClient 保存，这里取的是它的账号）。
       const verified: ((account: string | null) => void) | null = this.onPhoneVerifiedSession;
-      if (verified !== null && this.tokens.accessToken() !== null) {
+      if (verified !== null && this.client.sessionReadable()) {
         verified(this.client.sessionAccount());
       }
       return this.loggedIn(result, issued, restricted);
@@ -718,7 +718,8 @@ export class LoginService {
     const originalGeneration: number = this.client.sessionGenerationId();
     this.loggingOut = true;
     try {
-      if (this.tokens.accessToken() !== null) {
+      // R1-02：经统一凭据判定（环境就绪、隐私、撤回清理），不直接读令牌。
+      if (this.client.sessionReadable()) {
         // F-HM-08（APP-05a 共性 13）：登出在会话级作用域（App 的 LoginService）执行，请求不带页面归属守卫，页面出栈不取消它；
         // 请求无论正常返回、出错还是抛异常，都按原会话世代完成下面的本地清理与 Router.sessionEnded。
         await this.client.request(new ApiRequest('logout'));
@@ -728,9 +729,10 @@ export class LoginService {
     } finally {
       this.loggingOut = false;
     }
-    // 原会话此刻是否还在（在同一同步区里与下面的核对、删除一起判断）：不在 = 已被别处清除（10404、刷新失败、撤回同意）。
-    const originalPresent: boolean = this.tokens.accessToken() !== null || this.tokens.refreshToken() !== null;
-    const cleared: boolean = this.client.clearSessionIfEpoch(epoch, (): void => {
+    // FU-HM-0711b R1-02：恢复后不在这里读令牌。原会话此刻是否还在，交给受保护的清会话入口在同一同步区里判断：先核对登录世代
+    // （撤回同意、切换环境作废后不符，零读取直接返回 false），再过统一凭据判定，可读才读；不在 = 已被别处清除（10404、刷新失败、
+    // 撤回同意）。
+    const cleared: boolean = this.client.clearOwnedSession(epoch, (originalPresent: boolean): void => {
       // 同一同步区：Router 的清理绑定这次被清除的原会话（共性 23）。原会话已被别处清掉时只清它归属的待办，
       // 不清用户随后新建的 pending_action（共性 25）。
       const kept: ((originalGeneration: number) => boolean) | null = originalPresent ? null : this.onOriginalSessionEnded;
@@ -777,7 +779,7 @@ export class LoginService {
   private async loggedIn(result: ApiResult, issued: number, restricted: boolean,
     holdPending: boolean = false): Promise<LoginOutcome> {
     // ApiClient 已核对归属并保存成功（作废的尝试在保存前就以 cancelled 结束，不会走到这里）；再确认本机确有令牌。
-    if (this.tokens.accessToken() === null) {
+    if (!this.client.sessionReadable()) {
       return new LoginOutcome('service_error', LoginService.GENERIC_KEY);
     }
     if (issued !== this.serial) {
@@ -812,7 +814,7 @@ export class LoginService {
         this.host.sessionSynced();
         return new LoginOutcome('session_expired', 'error.10404');
       }
-      const again: string[] = AfterLogin.plan(LoginService.projection(this.tokens.scope(), isNew), this.planState());
+      const again: string[] = AfterLogin.plan(LoginService.projection(this.client.sessionScope(), isNew), this.planState());
       const replanned: string[] = again.filter((a: string) => a !== AfterLoginAction.REFRESH_RESTRICTED);
       if (again.indexOf(AfterLoginAction.REFRESH_RESTRICTED) >= 0) {
         replanned.push(LoginService.HOLD_PENDING);

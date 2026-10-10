@@ -134,7 +134,9 @@ class AppPushState implements PushReportState {
 
   sessionScope(): string {
     try {
-      return AppNetwork.tokens?.scope() ?? '';
+      // FU-HM-0711b R1-02 同类排查：先过 ApiClient 的统一凭据判定（环境就绪、隐私、撤回清理），不可读时不读令牌。
+      const client: ApiClient | null = AppNetwork.client;
+      return client !== null && client.sessionReadable() ? (AppNetwork.tokens?.scope() ?? '') : '';
     } catch (e) {
       return '';
     }
@@ -723,6 +725,8 @@ export class AppMe {
     } catch (e) {
       // 取不到的整行省略。
     }
+    // FU-HM-0711b R2-01：deviceId() 先过统一凭据判定；切环境、撤回清理未完成、环境未定时不读、返回 null，
+    // 这一行按「不可用」省略（与取不到相同，G23 白名单字段取不到即整行省略）。
     const deviceId: string | null = AppNetwork.devices?.deviceId() ?? null;
     if (deviceId !== null) {
       fields['device_id'] = deviceId;
@@ -811,6 +815,7 @@ export class AppMe {
 class AppPrivacyPorts implements PrivacyCenterPorts {
   deviceRegistered(): boolean {
     try {
+      // R2-01：凭据不可读时 deviceId() 零读取返回 null，按未注册处理（只记本地；此时请求本来也发不出去）。
       const id: string | null = AppNetwork.devices?.deviceId() ?? null;
       return id !== null && id.length > 0;
     } catch (e) {

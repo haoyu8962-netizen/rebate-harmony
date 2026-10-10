@@ -29,6 +29,7 @@ import { PopupBlocker } from '../../../main/ets/home/HomePolicies';
 import { HomeSignal, HomeSignalHub } from '../../../main/ets/home/HomeSignals';
 import { HomeErrorText } from '../../../main/ets/home/HomeTickets';
 import { DebugMockGate } from '../network/DebugMockTransport';
+import { GatedHomeContractPort } from '../network/DebugSubstitutes';
 import { HomePreviewPolicy } from './HomePreviewPolicy';
 
 /** 首页待定接口（getPage、listSectionItems）的数据源边界（R1-09）：构建（只在 staging 编译）+ 环境（prod 不注入假数据）。 */
@@ -36,6 +37,14 @@ export class HomeDebugSources {
   static contract(fakeEnabled: boolean, environment: AppEnvironment | undefined, fake: HomeContractPort):
     HomeContractPort | null {
     return DebugMockGate.allowed(fakeEnabled, environment) ? fake : null;
+  }
+
+  /**
+   * 受保护的数据源（FU-HM-0711b R1-03；普通首页 BuildVariant.homeContract 与 HomePreviewPage 统一用它）：取实例时闸门关闭为 null；
+   * 放行时交出的实例本身每次调用、每次异步返回前都再核对同一闸门（GatedHomeContractPort），持有旧实例切到 prod 也不给假数据。
+   */
+  static guarded(gate: () => boolean, fake: HomeContractPort): HomeContractPort | null {
+    return gate() ? new GatedHomeContractPort(fake, gate) : null;
   }
 }
 

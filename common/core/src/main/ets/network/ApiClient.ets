@@ -691,6 +691,15 @@ export class ApiClient {
   private displayOffsetMillis: number = 0;
   /** 已交给传输层、还没有结果的发送。 */
   private readonly live: Set<LiveRequest> = new Set<LiveRequest>();
+  /**
+   * 已绑定的会话归属（FU-HM-0711b R2-02）：凭据可读时最近一次读到的会话账号（游客为 null）。只在可读的读取点
+   * （trustedAccount、bind、captureScope）与本客户端自己清会话时更新，从不为了它去读凭据。环境未就绪时确认 / 放弃上一笔
+   * 用它和未决记录保留原有的拒绝分类。ownerKnown=false（外部换了会话但当时读不了）按游客计。
+   */
+  private ownerAccount: string | null = null;
+  private ownerKnown: boolean = false;
+  /** 绑定时未决存储的 resetGeneration：之后未决存储被整体清掉（切环境 cleanAll，令牌也一并清除）就不再沿用。 */
+  private ownerStoreResets: number = 0;
 
   constructor(deps: ApiClientDeps) {
     this.deps = deps;
@@ -717,6 +726,11 @@ export class ApiClient {
     this.epoch++;
     this.loginSerial++;
     this.endSessionGeneration();
+    // R2-02：撤回同意（标记先于作废写入）之后令牌会被清理，已绑定的会话归属不再沿用；切环境时隐私与撤回状态不变，
+    // 令牌在清理器运行前仍在，归属照旧保留（环境未就绪时确认 / 放弃上一笔按它保留原有拒绝分类）。
+    if (!this.privacyAllowsCredentials()) {
+      this.ownerKnown = false;
+    }
     const live: LiveRequest[] = Array.from(this.live.values());
     this.live.clear();
     for (const entry of live) {
@@ -787,6 +801,8 @@ export class ApiClient {
   onSessionChanged(): void {
     this.loginSerial++;
     this.endSessionGeneration();
+    // R2-02：会话在登录流程以外换了，之前绑定的归属不再可信；下面可读时现读重新绑定，读不了就按游客计。
+    this.ownerKnown = false;
     this.syncPendingAccount();
   }
 
@@ -807,8 +823,30 @@ export class ApiClient {
    */
   clearSessionIfEpoch(expected: number, afterClear: () => void = () => {
   }): boolean {
+    return this.clearIfEpoch(expected, false, (_originalPresent: boolean): void => afterClear());
+  }
+
+  /**
+   * 退出登录恢复后的受保护清会话入口（FU-HM-0711b R1-02）：先核对登录世代（撤回同意、切换环境的 invalidate 都会推进它），
+   * 不符直接返回 false，一次都不读令牌；相符时再过统一的凭据可读判定，可读才读「原会话此刻是否还在」，不可读（撤回清理未完成、
+   * 环境未就绪）按原会话已被别处清除（originalPresent=false）处理、不读。之后与 clearSessionIfEpoch 相同：结束会话世代、
+   * 删除令牌、同步未决记录，同一同步区内把 originalPresent 交给 afterClear。
+   */
+  clearOwnedSession(expected: number, afterClear: (originalPresent: boolean) => void): boolean {
+    return this.clearIfEpoch(expected, true, afterClear);
+  }
+
+  private clearIfEpoch(expected: number, probe: boolean, afterClear: (originalPresent: boolean) => void): boolean {
     if (expected !== this.loginSerial) {
       return false;
+    }
+    let originalPresent: boolean = false;
+    if (probe && this.credentialsAllowed()) {
+      try {
+        originalPresent = this.deps.tokens.accessToken() !== null || this.deps.tokens.refreshToken() !== null;
+      } catch (e) {
+        originalPresent = true;
+      }
     }
     this.onSessionChanged();
     try {
@@ -816,13 +854,25 @@ export class ApiClient {
     } catch (e) {
       // 删除失败：SecureSessionTokens 已在内存里作废旧令牌并持续重试删除（lessons 38），按已清除处理。
     }
+    // R2-02：本客户端清了会话：已绑定的会话归属为游客（不靠下面的现读，读不了时也成立）。
+    this.observeOwner(null);
     this.syncPendingAccount();
     try {
-      afterClear();
+      afterClear(originalPresent);
     } catch (e) {
       // 清理出口出错不影响已清除的会话。
     }
     return true;
+  }
+
+  /** 此刻有可读的会话（过统一凭据判定；不可读或没有令牌为 false）。LoginService 等调用方不直接读令牌（R1-02）。 */
+  sessionReadable(): boolean {
+    return this.credentialsAllowed() && this.deps.tokens.accessToken() !== null;
+  }
+
+  /** 此刻会话的作用域（过统一凭据判定；不可读或没有会话为 full）。 */
+  sessionScope(): string {
+    return this.currentScope();
   }
 
   /**
@@ -966,9 +1016,13 @@ export class ApiClient {
   captureScope(): ClientScope {
     const allowed: boolean = this.credentialsAllowed();
     const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
+    const account: string | null = allowed && this.deps.tokens.accessToken() !== null ? this.deps.tokens.account() : null;
+    if (allowed) {
+      this.observeOwner(account);
+    }
     return new ClientScope(this.epoch, this.loginSerial, this.sessionGeneration, allowed,
       RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()), endpoints === undefined ? '' : endpoints.apiBase,
-      allowed && this.deps.tokens.accessToken() !== null ? this.deps.tokens.account() : null);
+      account);
   }
 
   /**
@@ -1017,6 +1071,12 @@ export class ApiClient {
   confirmPending(key: string, stepUpToken: string | null = null,
     sendAllowed: (() => boolean) | null = null, navigationPermit: (() => boolean) | null = null): Promise<ApiResult> {
     const store: PendingKeyStore | null = this.deps.pendingKeys;
+    if (store !== null && this.environmentUnsettledForCredentials()) {
+      // R1-01：环境未就绪（冷启动未定、切换中）一次都不读凭据。R2-02：用已绑定的会话归属与未决记录保留原有的拒绝分类
+      // （游客 account_unknown、账号不匹配 account_mismatch、没有可确认的记录 pending_key_unresolved 等），
+      // 只有原本会发出去的有效记录按 environment_unsettled 结束。
+      return Promise.resolve(ApiResult.rejected(this.unsettledPendingReject(store, key, false)));
+    }
     const account: string | null = this.trustedAccount();
     if (store === null || account === null) {
       return Promise.resolve(ApiResult.rejected(store === null ? LocalRejectReason.PENDING_KEY_UNRESOLVED :
@@ -1073,6 +1133,10 @@ export class ApiClient {
   async abandonPending(key: string, sendAllowed: (() => boolean) | null = null,
     navigationPermit: (() => boolean) | null = null): Promise<ApiResult> {
     const store: PendingKeyStore | null = this.deps.pendingKeys;
+    if (store !== null && this.environmentUnsettledForCredentials()) {
+      // R1-01、R2-02：同 confirmPending。
+      return ApiResult.rejected(this.unsettledPendingReject(store, key, true));
+    }
     const account: string | null = this.trustedAccount();
     if (store === null || account === null) {
       return ApiResult.rejected(store === null ? LocalRejectReason.PENDING_KEY_UNRESOLVED :
@@ -1178,15 +1242,81 @@ export class ApiClient {
    * 确认 / 放弃之前核对账号（R1-02）：store 还停在别的账号、且那个账号有这条记录 → account_mismatch；
    * 之后把 store 切到当前账号。返回 null 表示可以继续（记录是否存在由调用方再查）。
    */
-  private pendingOwner(store: PendingKeyStore, key: string, account: string): string | null {
+  private pendingOwner(store: PendingKeyStore, key: string, account: string, bound: boolean = false): string | null {
     const before: PendingKeyRecord | null = store.state(key).record;
     if (before !== null && before.account !== account) {
-      this.syncPendingAccount();
+      this.followPendingAccount(store, account, bound);
       return LocalRejectReason.ACCOUNT_MISMATCH;
     }
-    this.syncPendingAccount();
+    this.followPendingAccount(store, account, bound);
     const after: PendingKeyRecord | null = store.state(key).record;
     return after !== null && after.account !== account ? LocalRejectReason.ACCOUNT_MISMATCH : null;
+  }
+
+  /**
+   * 未决记录跟随会话账号。bound=false：与原来相同，现读可信会话（syncPendingAccount）；bound=true（环境未就绪，R2-02）：
+   * 不读凭据，按已绑定的会话归属 account 切换，效果与凭据可读时 syncPendingAccount 读到同一账号相同。
+   */
+  private followPendingAccount(store: PendingKeyStore, account: string, bound: boolean): void {
+    if (!bound) {
+      this.syncPendingAccount();
+      return;
+    }
+    try {
+      if (store.currentAccount !== account) {
+        store.restore(account);
+      }
+    } catch (e) {
+      // 存储读不出：保持原状（之后 pendingStoreReady 会给出 pending_store_failed）。
+    }
+  }
+
+  /**
+   * 环境未就绪时确认 / 放弃上一笔的本地结论（FU-HM-0711b R2-02）：零凭据读取，按已绑定的会话归属与未决记录走与凭据可读时
+   * 完全相同的本地核对顺序——游客 → account_unknown；记录属于别的账号 → account_mismatch；存储确认不了 → pending_store_failed；
+   * 没有记录、记录不是结果未知、操作不认识 → 原来的 pending_key_unresolved / unknown_operation；本来会发出去的有效记录 →
+   * environment_unsettled（原来在发送前的 RequestHeaderPolicy.decide 给出同一原因）。不写在途、不发送。
+   */
+  private unsettledPendingReject(store: PendingKeyStore, key: string, abandon: boolean): string {
+    const account: string | null = this.boundOwner(store);
+    if (account === null) {
+      return LocalRejectReason.ACCOUNT_UNKNOWN;
+    }
+    const owned: string | null = this.pendingOwner(store, key, account, true);
+    if (owned !== null) {
+      return owned;
+    }
+    if (!this.pendingStoreReady(store, account)) {
+      return LocalRejectReason.PENDING_STORE_FAILED;
+    }
+    const record: PendingKeyRecord | null = store.state(key).record;
+    const operation: ApiOperation | undefined = record === null ? undefined : ApiOperations.byId(record.operationId);
+    if (abandon) {
+      if (record === null || operation === undefined || operation.stepUp === null
+        || ApiOperations.byId(ApiClient.ABANDON_OPERATION) === undefined || record.stateRaw !== PendingKeyStateRaw.UNKNOWN) {
+        return LocalRejectReason.PENDING_KEY_UNRESOLVED;
+      }
+    } else if (record === null || operation === undefined || record.stateRaw !== PendingKeyStateRaw.UNKNOWN) {
+      return operation === undefined && record !== null ? LocalRejectReason.UNKNOWN_OPERATION :
+      LocalRejectReason.PENDING_KEY_UNRESOLVED;
+    }
+    return LocalRejectReason.ENVIRONMENT_UNSETTLED;
+  }
+
+  /** 已绑定的会话归属（R2-02）：没绑定过、外部换了会话还没读到、或之后未决存储已被整体清掉时为 null（按游客计）。 */
+  private boundOwner(store: PendingKeyStore): string | null {
+    if (!this.ownerKnown || this.ownerStoreResets !== store.resetGeneration) {
+      return null;
+    }
+    return this.ownerAccount;
+  }
+
+  /** 记下凭据可读时读到的会话账号（只在可读的读取点调用；不为它另读凭据）。 */
+  private observeOwner(account: string | null): void {
+    this.ownerAccount = account !== null && account.length > 0 ? account : null;
+    this.ownerKnown = true;
+    const store: PendingKeyStore | null = this.deps.pendingKeys;
+    this.ownerStoreResets = store === null ? 0 : store.resetGeneration;
   }
 
   /**
@@ -1260,6 +1390,9 @@ export class ApiClient {
     ctx.generation = this.sessionGeneration;
     ctx.loginSerial = this.loginSerial;
     ctx.account = access !== null ? this.deps.tokens.account() : null;
+    if (allowed) {
+      this.observeOwner(ctx.account);
+    }
     ctx.bound = access !== null && op.auth !== 'none';
     // APP-12 R2-03（共性第 14 条）：导航票据在每个逻辑调用入口同步固定（request、confirmPending、abandonPending、刷新都经这里），
     // 之后的重放、刷新屏障后的续发都沿用这个 ctx，不在续发时重新取。
@@ -1760,6 +1893,8 @@ export class ApiClient {
           // 清不掉也要让旧世代失效；页面按 Effect 跳登录。
         }
         this.endSessionGeneration();
+        // R2-02：本客户端清了会话：已绑定的会话归属为游客（不靠下面的现读，读不了时也成立）。
+        this.observeOwner(null);
         this.syncPendingAccount();
         // F-HM-09（APP-05a 共性 18）：业务请求直接收到 10404 也是会话失效，和刷新失败一样交 App 的会话级回调——普通状态经
         // Router 打开 Login 并提示失效，强更状态停在 ForceUpdate（sessionFailureEffect 读这一刻的强更状态）。
@@ -1848,18 +1983,68 @@ export class ApiClient {
     SessionScope.FULL;
   }
 
-  /** 已同意隐私、撤回清理已完成：可以读、带凭据。 */
+  /**
+   * 凭据可读的统一判定（FU-HM-0711b R1-01，F-X-03 补充；对照 iOS FU-IOS-0711 readBarrier 的环境就绪条件）：环境已就绪
+   * （闸门 SETTLED；切换开始时闸门同步关闭、endpoints 即为 undefined，冷启动未定同样）、已同意隐私、撤回清理已完成，三者都成立
+   * 才可以读令牌与设备凭据。所有读取入口（bind、prepare、ownershipLost、会话查询、刷新、受限复查、按世代清会话）都先过这里，
+   * 判定不成立时一次都不读；拒绝原因仍由 RequestHeaderPolicy.decide 按原顺序给出（环境未定 → environment_unsettled 优先）。
+   */
   private credentialsAllowed(): boolean {
-    return RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()) === NetworkPrivacy.FULL
+    return this.environmentReady()
+      && RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()) === NetworkPrivacy.FULL
       && this.deps.context.credentialsReadable();
+  }
+
+  /**
+   * 设备凭据等 ApiClient 以外的凭据读取入口复用的同一判定（FU-HM-0711b R2-01）：DeviceRegistry 在访问缓存或存储之前调用，
+   * 不成立就一次都不读。本身不读任何凭据。
+   */
+  credentialReadAllowed(): boolean {
+    try {
+      return this.credentialsAllowed();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 环境已就绪、不在切换中（读不出按未就绪）。 */
+  private environmentReady(): boolean {
+    try {
+      return this.deps.context.endpoints() !== undefined;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 环境还没就绪、而隐私与撤回状态本身允许带凭据：入口按 environment_unsettled 结束，不读会话（R1-01；保持「环境未定时
+   * 确认 / 放弃上一笔按 environment_unsettled 结束」的既有口径，见 iOS FU-IOS-0711 lesson 11）。
+   */
+  private environmentUnsettledForCredentials(): boolean {
+    return !this.environmentReady() && this.privacyAllowsCredentials();
+  }
+
+  /** 隐私为 full 且撤回清理已完成（不看环境；读不出按不允许）。 */
+  private privacyAllowsCredentials(): boolean {
+    try {
+      return RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()) === NetworkPrivacy.FULL
+        && this.deps.context.credentialsReadable();
+    } catch (e) {
+      return false;
+    }
   }
 
   /** 可信会话里的账号（凭据不可读时为 null）。 */
   private trustedAccount(): string | null {
-    if (!this.credentialsAllowed() || this.deps.tokens.accessToken() === null) {
+    if (!this.credentialsAllowed()) {
+      return null;
+    }
+    if (this.deps.tokens.accessToken() === null) {
+      this.observeOwner(null);
       return null;
     }
     const account: string | null = this.deps.tokens.account();
+    this.observeOwner(account);
     return account !== null && account.length > 0 ? account : null;
   }
 
@@ -2324,6 +2509,8 @@ export class ApiClient {
           cleanupFailed = true;
         }
         this.endSessionGeneration();
+        // R2-02：本客户端清了会话：已绑定的会话归属为游客（不靠下面的现读，读不了时也成立）。
+        this.observeOwner(null);
         this.syncPendingAccount();
         const effect: ErrorEffect = this.sessionFailureEffect();
         result = new RefreshOutcome(RefreshOutcome.FAILED, null, effect, cleanupFailed);
@@ -2353,7 +2540,8 @@ export class ApiClient {
    * 结果晚于撤回同意、切换环境、登录、换账号或清会话到达（与快照不符）：丢弃，不把会话恢复回来（lessons R1-07）。
    */
   private async performRefresh(round: RefreshRound): Promise<RefreshOutcome> {
-    if (!round.credentialsAllowed) {
+    // R1-01：这一轮开始后（协调器回调之前）凭据变得不可读（切换环境、撤回同意）：不读会话状态，按会话已变结束。
+    if (!round.credentialsAllowed || !this.credentialsAllowed()) {
       return RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
     }
     const refreshToken: string | null = round.refreshToken;

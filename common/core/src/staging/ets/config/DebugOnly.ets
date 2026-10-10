@@ -17,6 +17,11 @@ export {
 } from '../agent/AgentFakeService';
 // R2-01：本机假服务的传输入口闸门（prod 一律走真实传输）。
 export { DebugMockGate, DebugMockTransport } from '../network/DebugMockTransport';
+// F-X-02：传输入口以外的调试替身统一过同一道环境闸门（每次使用时重新判断）。
+export {
+  DebugLaunchDeferral, DebugSubstitutes, GatedAuthAdapter, GatedHomeContractPort, GatedMeContractPort,
+  GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer
+} from '../network/DebugSubstitutes';
 
 export const ENVIRONMENT_SWITCH_COMPILED: boolean = true;
 

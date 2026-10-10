@@ -48,8 +48,14 @@ export class SettingsPageConfig {
   /** 订阅闸门变化；返回退订函数（出栈时释放）。 */
   subscribeTip: (listener: () => void) => () => void = (_l: () => void) => () => {
   };
-  /** 发起时固定的页面许可（同一页面实例仍可见、没离开过）。 */
+  /** 发起时固定的页面许可（同一页面实例仍可见、没离开过、没进过页内子页）。 */
   permit: () => () => boolean = () => () => true;
+  /**
+   * 页内进入了子页（修改昵称、通知设置、协议半屏；F-HM-27）：同步作废此前固定的全部导航许可（MePageLife.subPageEntered），
+   * 返回设置主页也不恢复。子页切换不触发 NavDestination.onHidden，所以由视图在切换的同一同步区里调用。
+   */
+  subPageEntered: () => void = () => {
+  };
   /** 【退出登录】确认后：只调已有的 logout()；返回是否已经 Router 回「我的」（R1-09）。 */
   logout: (identity: string, permit: () => boolean) => Promise<boolean> =
     (_i: string, _p: () => boolean) => Promise.resolve(false);
@@ -209,7 +215,7 @@ export struct SettingsView {
     } else if (sub === SUB_NOTIFY) {
       this.openNotify(this.currentBound());
     } else if (sub === 'agreement') {
-      this.model.agreementSheet = true;
+      this.openAgreementSheet();
     } else if (sub === 'clear_cache') {
       setTimeout(() => this.confirmClearCache(), 300);
     } else if (sub === 'logout') {
@@ -277,6 +283,12 @@ export struct SettingsView {
     return false;
   }
 
+  /** 协议选择半屏（页内子页）：打开前同步作废已固定的导航许可（F-HM-27）。 */
+  private openAgreementSheet(): void {
+    this.config.subPageEntered();
+    this.model.agreementSheet = true;
+  }
+
   private closeSub(): void {
     const nick: NicknameController | null = this.nickController;
     if (nick !== null) {
@@ -320,6 +332,8 @@ export struct SettingsView {
     if (c === null) {
       return;
     }
+    // F-HM-27：切到子页之前同步作废本页已固定的导航许可（撤回 AI 同意等迟到的前置码不再导航）。
+    this.config.subPageEntered();
     this.closeSub();
     this.formSeq++;
     this.nickController = c;
@@ -378,6 +392,8 @@ export struct SettingsView {
     if (c === null) {
       return;
     }
+    // F-HM-27：同 openNickname。
+    this.config.subPageEntered();
     this.closeSub();
     this.formSeq++;
     this.notifyCtl = c;
@@ -540,7 +556,7 @@ export struct SettingsView {
         this.openNotify(bound);
         return;
       case SettingsItems.ID_AGREEMENT:
-        this.model.agreementSheet = true;
+        this.openAgreementSheet();
         return;
       case SettingsItems.ID_CLEAR_CACHE:
         this.confirmClearCache();

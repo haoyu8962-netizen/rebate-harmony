@@ -61,10 +61,14 @@ export interface MeSessionAware {
  * 一个页面实例的可见性与导航世代（R1-07、R1-08、R1-09，共性第 7–9 条）：页面 onShown / onHidden / 出栈时调用。
  * permit() 在发起时固定「离开过几次」，执行或结算时只比较：同一实例、仍可见、发起后没有被盖住或离开过。
  * 会话换代把页面移出导航栈（RiskNotice、Appeal）时按「被会话清理带走」记下当时是否可见——由这次退出登录造成的移出不算用户的后续导航。
+ * 页内子页切换（设置页的修改昵称、通知设置、协议半屏，F-HM-27）不触发 onHidden，由页面调 subPageEntered() 推进页内世代：
+ * 发起时固定的许可同时比较它，进入子页即作废，回到主页也不恢复。
  */
 export class MePageLife {
   private visibleNow: boolean = false;
   private hides: number = 0;
+  /** 页内子页切换的世代（F-HM-27）：只增不减。 */
+  private subSwitches: number = 0;
   private leftNow: boolean = false;
   private leftBySession: boolean = false;
   private visibleAtLeave: boolean = false;
@@ -101,11 +105,17 @@ export class MePageLife {
     this.visibleNow = false;
   }
 
+  /** 页内进入了子页（F-HM-27）：同步作废此前固定的全部许可；返回主页不回退世代，旧许可不恢复。 */
+  subPageEntered(): void {
+    this.subSwitches++;
+  }
+
   /** 发起时固定的许可：之后只比较（不重新读取当前页面）。 */
   permit(): () => boolean {
     const hides: number = this.hides;
+    const subs: number = this.subSwitches;
     return (): boolean => {
-      if (this.hides !== hides) {
+      if (this.hides !== hides || this.subSwitches !== subs) {
         return false;
       }
       if (!this.leftNow) {

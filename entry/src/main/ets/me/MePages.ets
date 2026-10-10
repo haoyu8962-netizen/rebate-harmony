@@ -139,6 +139,8 @@ export struct AppSettingsPage {
     c.tipBlocked = (): boolean => tips.blocked;
     c.subscribeTip = (listener: () => void): () => void => tips.subscribe(listener);
     c.permit = (): () => boolean => this.life.permit();
+    // F-HM-27：页内子页切换（不触发 onHidden）同步推进本页的导航世代。
+    c.subPageEntered = (): void => this.life.subPageEntered();
     c.logout = (identity: string, permit: () => boolean): Promise<boolean> => AppMe.shared.logout(identity, permit);
     // R2-02：工厂只按设置行渲染时捕获的身份建子页控制器（不是已登录或归属已变返回 null）。
     c.nicknameController = (identity: string) => AppMe.shared.nickname(identity);

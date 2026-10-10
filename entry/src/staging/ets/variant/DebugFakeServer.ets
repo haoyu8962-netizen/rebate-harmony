@@ -4,7 +4,7 @@
 // 不发出任何网络请求；否则原样交给真实传输层。这道检查在实际传输入口统一做（Core 的 DebugMockTransport，R2-01）：
 // send / cancel 只经它，不按接口逐个判断，草稿、公告等新增的假响应同样受它约束。
 import {
-  DebugMockTransport, HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
+  DebugMockTransport, DebugSubstitutes, HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
 } from 'core';
 import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
@@ -66,7 +66,21 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  *   /v1/config 补上客服链接与 AI 公示的测试值。
  */
 export class DebugFakeServer implements HttpTransport {
-  static enabled: boolean = false;
+  /**
+   * 启动参数里的开关（只由 setEnabled 写）。F-X-02 / FU-HM-0711b R1-06：私有，本文件以外读不到（编译期拦下；tools/ci/lint.py
+   * HM-LINT-10 再按词法兜一层）——其余替身一律经 mockGate（假服务打开 且 当前环境允许 MOCK_DATA，每次使用时重新判断）；传输入口在
+   * 本文件里经 DebugMockTransport 做同一判断。
+   */
+  private static enabled: boolean = false;
+  /** 传输入口以外的调试替身共用的闸门（F-X-02）：prod、环境未定时一律关闭。 */
+  static readonly mockGate: () => boolean = DebugSubstitutes.gate((): boolean => DebugFakeServer.enabled);
+
+  /** 写开关；返回这次是否由关变开（只用于打一次标记日志）。 */
+  static setEnabled(on: boolean): boolean {
+    const turnedOn: boolean = on && !DebugFakeServer.enabled;
+    DebugFakeServer.enabled = on;
+    return turnedOn;
+  }
   /** 微信登录场景（APP-05b 第 2 轮截图用）：'' = 第三方新号；risk = 44001；old = 老用户未绑手机。 */
   static wechatScene: string = '';
   static readonly marker: string = DEBUG_FAKE_SERVER_MARKER;

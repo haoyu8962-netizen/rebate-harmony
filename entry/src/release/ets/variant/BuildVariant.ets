@@ -169,6 +169,10 @@ export class BuildVariant {
     return false;
   }
 
+  /** Release 没有暂存的调试启动参数（Debug / Staging 在环境就绪时判定剪贴板、分享样例）。 */
+  static environmentSettled(): void {
+  }
+
   /** Release 不认任何调试启动参数。 */
   static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
   }

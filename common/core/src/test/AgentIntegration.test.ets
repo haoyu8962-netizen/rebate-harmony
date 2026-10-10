@@ -2092,5 +2092,78 @@ export default function agentIntegrationTest(): void {
       await pending;
       same('still visible: navigates', routes, ['BindPhone']);
     });
+
+    // ---------------------------------------------------------------- F-HM-27 撤回挂起时进入设置页内子页，迟到的 10005 不导航
+    // 设置页的修改昵称、通知设置、协议半屏是页内子页：切换不触发 onHidden，由 SettingsView 在切换时调 MePageLife.subPageEntered()
+    // （AppSettingsPage 把 SettingsPageConfig.subPageEntered 接到本页 life）。这里用同一个 MePageLife 与真实 AgentWithdrawFlow，
+    // 前置路由的打开条件与 AppAgent.withdrawConsent 相同（固定身份 + 确认时固定的许可）。
+    it('fu_hm_27_withdraw_late_prereq_after_entering_settings_sub_page_does_not_navigate', 0, async () => {
+      const timer: AgentManualTimer = new AgentManualTimer();
+      const gate: RetryAfterGate = new RetryAfterGate((): number => timer.now, (): string => 'owner');
+      const waiters: ((r: AgentHttpResult) => void)[] = [];
+      let records: number = 0;
+      let withdrawn: number = 0;
+      const routes: string[] = [];
+      const identity: string = 'owner';
+      const flowOf = (p: () => boolean): AgentWithdrawFlow => new AgentWithdrawFlow(gate, (): Promise<AgentHttpResult> => {
+        records++;
+        return new Promise<AgentHttpResult>((resolve: (r: AgentHttpResult) => void): void => {
+          waiters.push(resolve);
+        });
+      }, (): void => {
+        withdrawn++;
+      }, (route: string): void => {
+        // 与 AppAgent.withdrawConsent 一样：打开前再核对一次固定身份与许可。
+        if (identity === 'owner' && p()) {
+          routes.push(route);
+        }
+      }, (): boolean => identity === 'owner' && p());
+      const release = (r: AgentHttpResult): void => {
+        const all: ((r: AgentHttpResult) => void)[] = waiters.splice(0, waiters.length);
+        for (const w of all) {
+          w(r);
+        }
+      };
+      // ① 挂起期间进入「通知设置」子页（设置页本身一直可见，没有 onHidden）：迟到的 10005 不导航。
+      const life: MePageLife = new MePageLife();
+      life.shown();
+      let pending: Promise<AgentWithdrawOutcome> = flowOf(life.permit()).run();
+      life.subPageEntered();
+      release(failure(10005));
+      let o: AgentWithdrawOutcome = await pending;
+      same('sub: route decided', o.route, 'BindPhone');
+      same('sub: no navigation', routes.length, 0);
+      same('sub: not withdrawn', withdrawn, 0);
+      // ② 进入「修改昵称」后又返回设置主页：旧许可不恢复，迟到的 10005 仍不导航。
+      pending = flowOf(life.permit()).run();
+      life.subPageEntered();
+      // 返回主页只是视图切回（SettingsView.closeSub），不调用 life 的任何方法；页面仍可见。
+      same('back on main: page visible', life.visible, true);
+      release(failure(10005));
+      await pending;
+      same('sub then back: no navigation', routes.length, 0);
+      // ③ 进入子页后迟到的 42901：限流照常结算（本入口禁用），禁用期内不再发请求。
+      pending = flowOf(life.permit()).run();
+      life.subPageEntered();
+      release(failure(42901, '{}', '7'));
+      o = await pending;
+      same('sub: late 42901 settles gate', gate.active, true);
+      same('sub: late 42901 disable', o.disableMs, 7000);
+      const before: number = records;
+      await flowOf((): boolean => true).run();
+      same('sub: disabled no request', records, before);
+      timer.advance(7001);
+      // ④ 进入子页后迟到的成功：应用级作废（清理）照常完成。
+      pending = flowOf(life.permit()).run();
+      life.subPageEntered();
+      release(new AgentHttpResult(true, 200, 0, 'ok', {}, 'trace-ok', null));
+      await pending;
+      same('sub: late ok withdrawn', withdrawn, 1);
+      // ⑤ 对照：返回主页后重新确认（新许可在最后一次切换之后固定）、一直留在主页 → 照常打开前置页。
+      pending = flowOf(life.permit()).run();
+      release(failure(10005));
+      await pending;
+      same('fresh permit on main: navigates', routes, ['BindPhone']);
+    });
   });
 }

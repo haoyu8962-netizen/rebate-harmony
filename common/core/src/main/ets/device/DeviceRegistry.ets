@@ -251,17 +251,38 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
     };
   }
 
+  /**
+   * 设备凭据的统一读取判定（FU-HM-0711b R2-01，与 ApiClient 读令牌同一判定）：已同意且撤回清理已完成（privacy 为 consented）、
+   * 不在切换环境（环境世代不为 null）、网络核心的凭据判定成立（ApiClient.credentialReadAllowed：环境已就绪、隐私 full、
+   * 撤回清理已完成）。所有读取入口（deviceId、installSecret、registered，以及注册内部的 current）都在访问缓存或存储之前
+   * 先过这里；不成立就一次都不读，按没有凭据返回 null。网络核心还没组合（client 为 null）按不成立。本身不读凭据。
+   */
+  credentialsReadable(): boolean {
+    if (!this.consented() || this.environment() === null) {
+      return false;
+    }
+    let client: ApiClient | null = null;
+    try {
+      client = this.client();
+    } catch (e) {
+      return false;
+    }
+    return client !== null && client.credentialReadAllowed();
+  }
+
+  /** 签名与埋点用的 device_id；凭据不可读（切环境、撤回清理未完成、未同意、环境未定）时为 null，缓存与存储都不读。 */
   deviceId(): string | null {
     const current: StoredDevice | null = this.current();
     return current === null ? null : current.deviceId;
   }
 
+  /** 签名用的 install_secret；不可读时同 deviceId。 */
   installSecret(): string | null {
     const current: StoredDevice | null = this.current();
     return current === null ? null : current.installSecret;
   }
 
-  /** 是否已有可用的凭据（读不出按没有）。 */
+  /** 是否已有可用的凭据（读不出、不可读都按没有）。 */
   get registered(): boolean {
     return this.current() !== null;
   }
@@ -307,7 +328,8 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
    */
   reregister(usedDeviceId: string | null, caller: (() => boolean) | null = null): Promise<boolean> {
     const scope: RegistrationTicket | null = this.scope();
-    if (scope === null) {
+    if (scope === null || !this.credentialsReadable()) {
+      // R2-01：凭据不可读（环境未就绪、撤回清理未完成）时不读当前凭据，也不删、不注册。
       return Promise.resolve(false);
     }
     const now: string | null = this.deviceId();
@@ -388,7 +410,7 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
    * 唯一一条退避链（PrivacyGate.restartDeviceRegistration(false) 本身只保留一条链）。ticket 无效（未同意、切换中）时不动。
    */
   isolate(usedDeviceId: string | null): void {
-    if (usedDeviceId === null || this.scope() === null) {
+    if (usedDeviceId === null || this.scope() === null || !this.credentialsReadable()) {
       return;
     }
     if (this.deviceId() !== usedDeviceId) {
@@ -514,6 +536,10 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
   }
 
   private current(): StoredDevice | null {
+    // R2-01：判定在访问缓存与存储之前；不成立零读取。
+    if (!this.credentialsReadable()) {
+      return null;
+    }
     if (!this.loaded) {
       const stored: StoredDevice = this.store.read();
       if (stored.kind === StoredDeviceKind.PRESENT) {
@@ -531,6 +557,10 @@ export class DeviceRegistry implements CredentialSource, DeviceRegistrar {
   private async ensureRegistered(window: RegistrationWindow): Promise<boolean> {
     const scope: RegistrationTicket | null = this.scope();
     if (scope === null) {
+      return false;
+    }
+    if (!this.credentialsReadable()) {
+      // R2-01：凭据不可读时不读缓存与存储，也不注册（不知道是否已有凭据，注册可能多出一个设备）；交给退避再试。
       return false;
     }
     if (this.current() !== null) {

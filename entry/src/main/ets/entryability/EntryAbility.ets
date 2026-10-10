@@ -184,6 +184,8 @@ export default class EntryAbility extends UIAbility {
           report === null ? '-' : report.target + ' ' + report.outcome);
         // 环境闸门有结论：立刻记下闸门通过时刻（强更等待从这里起算，不等 RootPage 的 Navigation 就绪）。
         if (gate === EnvironmentGate.SETTLED) {
+          // Debug / Staging：冷启动暂存的模拟用户动作（剪贴板、分享样例）按此刻环境执行或丢弃（FU-HM-0711b R1-05）；Release 为空。
+          BuildVariant.environmentSettled();
           // 已同意当前版本时开始同意后的初始化（PrivacyGate.onConsented；设备注册要用当前环境）。
           AppPrivacy.shared.environmentSettled();
         } else {
