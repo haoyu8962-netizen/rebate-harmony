@@ -1112,6 +1112,11 @@ export class ProductDetailController {
     return true;
   }
 
+  /** 页面实例已出栈（APP-10 R1-04：【问问 AI】的来源页票据按它判断来源页是否仍在）。 */
+  get isLeft(): boolean {
+    return this.left;
+  }
+
   leave(): void {
     this.left = true;
     this.session.leave();

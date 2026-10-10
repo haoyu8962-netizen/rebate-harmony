@@ -6,12 +6,13 @@ import {
   CardPatch, DetailIdentity, DetailPurchasePort, OpenPurchaseController, PageRestorer, PageStateStore, PurchasePhase,
   PurchaseState, PurchaseTimeoutBinding, PurchaseTimeoutView, TransportFailure, PrivacyDecision,
   ProductDetailController, RouteDestination, SearchApiPort, SearchConfigPort, SearchController, SearchPageRecord,
-  SearchPageStates, SearchRoutes
+  SearchPageStates, SearchRoutes, AgentContextSource, AgentContextTicket
 } from 'core';
 import { CouliColors } from 'designsystem';
 import { ProductDetailView, ProductPageConfig, ProductPurchaseUi, ProductTexts } from 'product';
 import { SearchPageConfig, SearchPurchaseUi, SearchTexts, SearchView } from 'search';
 import { AppTrade } from '../trade/AppTrade';
+import { AppAgent } from '../agent/AppAgent';
 import { PageTradeEnv, TradeBinder, TradeCardHost } from '../trade/TradeBinder';
 import { TradeDraftTexts } from '../trade/TradeDraftTexts';
 import { TradeKeys, TradeOverlay } from '../trade/TradeOverlay';
@@ -33,7 +34,6 @@ const TAG: string = 'CouliSearch';
 // 路由名集中在 Core SearchRoutes（共性第 23 条：测试逐个核对它们在 routes.json 里存在；「问问 AI」是 AgentChat）。
 const SEARCH_ROUTE: string = SearchRoutes.SEARCH;
 const PRODUCT_ROUTE: string = SearchRoutes.PRODUCT;
-const AGENT_ROUTE: string = SearchRoutes.ASK_AI;
 /** 页面状态持久化的键（couli_app 命名空间：切换环境时随业务数据一起清，03 §3.6「页面缓存」）。 */
 const PAGE_STATE_KEY: string = 'search.page_state';
 /** 本进程搜索历史条数（TODO(N-27)：上限未规定，按设计稿一屏可见的量）。 */
@@ -465,9 +465,18 @@ export class AppSearch {
     config.itemRef = stringParam(param, 'item_ref');
     // APP-07 G09：从剪贴板 parse 打开的详情，以进程内的卡片种子显示（不重取，购买沿用 parse 卡的 link_id）
     config.seed = AppClipboard.shared.takeSeed(param);
+    // APP-10 G27 / R1-04：来源页构造时固定归属键与页面票据，商品标识在构造时固定（product_key 来自路由参数）；点击时只比较。
+    const agentSource: AgentContextSource = AppAgent.shared.contextSource((): boolean => !controller.isLeft);
+    let askContext: Record<string, Object | null> | null = null;
+    if (config.productKey.length >= 3) {
+      const ctx: Record<string, Object | null> = {};
+      ctx['product_key'] = config.productKey;
+      askContext = ctx;
+    }
+    const fixedContext: Record<string, Object | null> | null = askContext;
     config.onAskAi = (): void => {
-      // TODO(AgentChat 任务)：带商品上下文（routes.json AgentChat.context）；APP-06a 只打开 AI 助手。
-      AppRouting.shared.openInApp(AGENT_ROUTE);
+      // 带商品上下文 {product_key}（in_app 入口交给 AppAgent，附在用户发的第一条消息上，不自动发送）。
+      AppAgent.shared.openWithContext(new AgentContextTicket(agentSource, fixedContext));
     };
     config.onResearch = (): void => {
       AppRouting.shared.openInApp(SEARCH_ROUTE);

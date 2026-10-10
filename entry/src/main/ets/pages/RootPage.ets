@@ -28,6 +28,8 @@ import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppOrders } from '../orders/AppOrders';
 import { AppOrderDetailPage, appOrdersTabBuilder } from '../orders/OrderPages';
 import { TabRootSlots } from '../shell/TabRoots';
+import { appAgentTabBuilder } from '../agent/AgentPages';
+import { AppAgent } from '../agent/AppAgent';
 import { AppWallet } from '../wallet/AppWallet';
 import {
   AppLaborAgreementPage, AppPayoutAccountPage, AppRealNamePage, AppWalletPage, AppWithdrawPage, AppWithdrawRecordsPage
@@ -106,6 +108,8 @@ struct RootPage {
     TabRootSlots.orders = wrapBuilder(appOrdersTabBuilder);
     // APP-12：「我的」Tab 根页（entry 组合）同样在外壳构建前登记。
     TabRootSlots.me = wrapBuilder(appMeTabBuilder);
+    // APP-10：AI 助手 Tab 根页（entry 组合：页面 + 购买浮层）。
+    TabRootSlots.agent = wrapBuilder(appAgentTabBuilder);
     // APP-11：首页列表里的基本模式提示与 Debug 开发信息（外壳的 builder，首页模块不 import entry）。
     AppShellSlots.pathStack = this.pathStack;
     HomeActions.basicNotice = wrapBuilder(homeBasicNoticeBuilder);
@@ -307,6 +311,8 @@ struct RootPage {
               AppMe.shared.navigationShown(this.pathStack.getAllPathName());
               // APP-11：回到首页（导航根）时复核弹窗阻挡项。
               AppHome.shared.navigationShown(this.pathStack.getAllPathName());
+              // APP-10：Agent 页被盖住 / 回到导航根（同意弹窗打开前复核可见性、购买续执行许可）。
+              AppAgent.shared.navigationShown(this.pathStack.getAllPathName());
             }
           });
           AppRouting.shared.attachNavigation(this.pathStack);
@@ -320,6 +326,7 @@ struct RootPage {
           AppWallet.shared.attachUi(this.getUIContext());
           AppMe.shared.attachUi(this.getUIContext());
           AppHome.shared.attachUi(this.getUIContext());
+          AppAgent.shared.attachUi(this.getUIContext());
         })
 
         if (this.promptVisible()) {

@@ -33,6 +33,10 @@ export class OrderDetailPageConfig {
   entries: OrderDetailEntries;
   onCopy: (item: OrderRecord) => void = (_i: OrderRecord) => {
   };
+  /** APP-10 G27：【问问 AI】的文字（空串不显示：Release / Agent 不可用的环境）与动作（entry 交 AppAgent，带 {order_id}）。 */
+  askAiText: string = '';
+  onAskAi: (orderId: string) => void = (_id: string) => {
+  };
 
   constructor(controller: OrderDetailController, mask: OrderMaskUi, orderId: string) {
     this.controller = controller;
@@ -108,7 +112,7 @@ class OrderDetailModel {
  * 订单详情（OrderDetail 路由；设计稿 OrderDetail* 各态、AdaptLargeTextOrderDetail、A11yAnnounce）。
  * 状态与金额卡（标题有标题角色；金额格返利在前、实付在后，放不下或 200% 时纵排）→ 原因区「为什么没返利？」/ 比价说明「查看说明」/
  * 申诉中块 → 卡内按钮（最多 2 个）；平台 +「查看商品」（不占按钮名额）+ 商品卡（订单号 + 自购单【复制】）；时间线（列表，未发生节点
- * 读「未发生」）。「问问 AI」本任务不显示（G18）。只有状态固有的【去提现】时放底部整宽按钮（设计稿 OrderDetailSettled）。
+ * 读「未发生」）。「问问 AI」（APP-10 G27）只在 Agent 可用时显示，带 {order_id}。只有状态固有的【去提现】时放底部整宽按钮（设计稿 OrderDetailSettled）。
  */
 @ComponentV2
 export struct OrderDetailView {
@@ -426,6 +430,23 @@ export struct OrderDetailView {
       }
       .alignItems(VerticalAlign.Top)
       .width('100%')
+      // APP-10 G27：【问问 AI】带 {order_id}（只在 Agent 可用的构建与环境里显示；不自动发送，附在用户发的第一条消息上）。
+      if (this.config.askAiText.length > 0) {
+        Row({ space: CouliSpacing.space1 }) {
+          CouliIcon({ name: 'chat', iconSize: 16, color: CouliColors.textLink })
+            .accessibilityLevel('no')
+          Text(this.config.askAiText)
+            .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textLink, CouliFontWeight.medium))
+        }
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+        .id('order_detail_ask_ai')
+        .accessibilityGroup(true)
+        .accessibilityText(this.config.askAiText)
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .onClick(() => this.config.onAskAi(this.config.orderId))
+      }
     }
     .width('100%')
     .padding(CouliSpacing.space4)

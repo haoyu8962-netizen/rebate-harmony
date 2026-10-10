@@ -21,7 +21,7 @@ export {
 } from './src/main/ets/components/Price';
 export {
   ProductCard, ProductCardData, ProductCardTags, ProductCardVariant, ProductTag, SkeletonProductCard, SkeletonBlock,
-  ProductCardGrid, ProductCardA11y
+  ProductCardGrid, ProductCardA11y, ProductGridLayout
 } from './src/main/ets/components/ProductCard';
 export { SearchDisclaimers } from './src/main/ets/format/SearchDisclaimers';
 export {
@@ -32,6 +32,7 @@ export { EmptyState, ErrorState, ToastView, CouliToast, CouliAnnounce } from './
 export {
   CouliDialogPanel, CouliDialog, CouliDialogOptions, CouliSheetPanel, CouliFocusReturn, CouliShadowMask
 } from './src/main/ets/components/Overlays';
+export { CouliModalPresenter, CouliModalFns, CouliModalInstance, CouliModalSlot } from './src/main/ets/components/ModalInstance';
 export { NavBar, TabBar, TabBarItem } from './src/main/ets/components/Navigation';
 export {
   CodeCellLayout, CouliTextSegment, CouliDialogLink, CouliLinkSegments

@@ -454,6 +454,17 @@ export class AppClipboard {
     controller.pasteProduct(entry, success, fill);
   }
 
+  /**
+   * APP-10 Agent 页「粘贴查返利」（G29）：PasteButton 临时授权成功后读一次系统剪贴板的纯文字，原样交回（只填进输入框，由用户点发送；
+   * 不识别、不上传、不缓存、不打日志）。授权没成功或没同意隐私时为 null。
+   */
+  readAfterPasteButton(success: boolean): Promise<string | null> {
+    if (!success || AppClipboard.consent() !== ClipboardReadPolicy.CONSENT_AGREED) {
+      return Promise.resolve(null);
+    }
+    return new HarmonyPasteboard().readText();
+  }
+
   /** 登录页接线：邀请码【粘贴】与游客邀请确认的预填（受限登录不显示邀请码）。 */
   bindLogin(config: LoginPageConfig, restricted: boolean): void {
     const controller: ClipboardController | null = this.controllerInstance;

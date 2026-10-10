@@ -58,6 +58,11 @@
                                                               本机假服务按 golden:<名字> 场景逐页下发，截图与 fixture 一一对应）
     common/generated/src/main/ets/DefaultHomePage.ets         包内 default_home.json 的同一份文本（APP-11 G17：取自向量 goldenPages.default_home，
     common/generated/src/main/resources/rawfile/default_home.json   三端同一来源；--check 保证与向量一致）
+    common/core/src/test/AgentVectorsData.ets                 specs/agent-vectors.json 全文（AGENT_VECTORS_JSON，APP-10，Codex 写的三端共用 Agent 向量）
+    common/core/src/test/AgentStreamFixturesData.ets          契约快照 contracts/fixtures/agent-streams/*.ndjson 全文（AGENT_STREAM_FIXTURES，
+                                                              APP-10，键为文件名，值为原文）
+    entry/src/staging/ets/variant/AgentFixtures.ets           同一批 ndjson 原文（APP-10，只在 staging：Debug 假服务按启动参数
+                                                              couli_debug_agent_fixture <名字> 把指定 fixture 转成 SSE 下发）
 不生成请求 / 响应模型与 apps.json 片段（归 HM-02 / HM-03 / HM-05）。
 生成物不写时间戳，同一快照重复生成逐字相同。
 """
@@ -787,6 +792,66 @@ def gen_home_vectors_data():
     return gen_vectors_data(HOME_VECTORS, "HOME_VECTORS_JSON",
                             "首页 SDUI 向量（APP-11）：specs/home-sdui-vectors.json 全文，供 HomeVector.test.ets 解析。"
                             "只在 src/test，不进产物。")
+
+
+AGENT_VECTORS = os.path.join("specs", "agent-vectors.json")
+AGENT_FIXTURE_DIR = "contracts/fixtures/agent-streams"
+
+
+def gen_agent_vectors_data():
+    """specs/agent-vectors.json（APP-10，Codex 先写的三端共用 Agent 流、卡片、文本与策略向量）。"""
+    return gen_vectors_data(AGENT_VECTORS, "AGENT_VECTORS_JSON",
+                            "Agent 向量（APP-10）：specs/agent-vectors.json 全文，供 AgentVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
+
+
+def agent_fixture_texts():
+    """契约快照里的 Agent 流样例（APP-10 §2 第 1 条：sync.sh 原样拷贝的 ndjson）；按文件名排序，逐行校验是 JSON 对象。"""
+    base = os.path.join(SNAPSHOT, *AGENT_FIXTURE_DIR.split("/"))
+    if not os.path.isdir(base):
+        raise GenError("快照缺目录：contracts/snapshot/" + AGENT_FIXTURE_DIR + "（先跑 tools/contracts/sync.sh）")
+    names = sorted(n for n in os.listdir(base) if n.endswith(".ndjson"))
+    if not names:
+        raise GenError("contracts/snapshot/" + AGENT_FIXTURE_DIR + " 下没有 ndjson")
+    result = []
+    for name in names:
+        text = read_text(AGENT_FIXTURE_DIR + "/" + name)
+        for i, line in enumerate(text.splitlines()):
+            if not line:
+                continue
+            try:
+                node = json.loads(line)
+            except ValueError as e:
+                raise GenError("%s 第 %d 行不是合法 JSON：%s" % (name, i + 1, e))
+            if not isinstance(node, dict):
+                raise GenError("%s 第 %d 行不是 JSON 对象" % (name, i + 1))
+        result.append((name, text))
+    return result
+
+
+def agent_fixture_map_source(const_name, fn_name):
+    lines = ["export const %s: Map<string, string> = %s();" % (const_name, fn_name), "",
+             "function %s(): Map<string, string> {" % fn_name,
+             "  const map: Map<string, string> = new Map<string, string>();"]
+    for name, text in agent_fixture_texts():
+        lines.append("  map.set(%s, %s);" % (ts_str(name), ts_str(text)))
+    lines.append("  return map;")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def gen_agent_stream_fixtures_data():
+    """contracts/snapshot/contracts/fixtures/agent-streams/*.ndjson（APP-10）：键为文件名（含 .ndjson），值为原文。"""
+    return (HEADER + "// Agent 流样例（APP-10）：契约快照 contracts/fixtures/agent-streams/ 下每个 ndjson 的原文，"
+            "供 AgentVector.test.ets 与 Agent 集成测试逐行喂入。只在 src/test，不进产物。\n\n"
+            + agent_fixture_map_source("AGENT_STREAM_FIXTURES", "buildAgentStreamFixtures"))
+
+
+def gen_agent_debug_fixtures():
+    """同一批 ndjson 原文（APP-10 §3 鸿蒙）：只进 entry 的 staging 源码集，Debug 假服务按 couli_debug_agent_fixture <名字> 下发。"""
+    return (HEADER.replace("来源 contract.lock", "来源 contract.lock（contracts/fixtures/agent-streams）")
+            + "// Debug / Staging 专用（entry staging 源码集）：Agent 流样例原文，本机假服务把指定 fixture 逐行转成 SSE 下发。\n\n"
+            + agent_fixture_map_source("AGENT_DEBUG_FIXTURES", "buildAgentDebugFixtures"))
 
 
 def default_home_text():
@@ -1750,6 +1815,9 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "HomeVectorsData.ets"): gen_home_vectors_data(),
         os.path.join("entry", "src", "staging", "ets", "variant", "HomeGoldenPages.ets"): gen_home_golden_pages(),
+        os.path.join(CORE_MODULE, "src", "test", "AgentVectorsData.ets"): gen_agent_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "AgentStreamFixturesData.ets"): gen_agent_stream_fixtures_data(),
+        os.path.join("entry", "src", "staging", "ets", "variant", "AgentFixtures.ets"): gen_agent_debug_fixtures(),
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }

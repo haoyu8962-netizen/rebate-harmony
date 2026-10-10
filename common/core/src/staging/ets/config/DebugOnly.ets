@@ -11,6 +11,10 @@ export { HomePreviewPolicy } from '../home/HomePreviewPolicy';
 export {
   HomeDebugSources, HomePreviewDeps, HomePreviewDisplay, HomePreviewNav, HomePreviewSession, HomePreviewState
 } from '../home/HomePreviewSession';
+// APP-10：Agent 四个待定 operation 的本机假服务（G01；Release 没有端口）。
+export {
+  AGENT_FAKE_MARKER, AgentFakeScript, AgentFakeService, AgentDebugSources
+} from '../agent/AgentFakeService';
 // R2-01：本机假服务的传输入口闸门（prod 一律走真实传输）。
 export { DebugMockGate, DebugMockTransport } from '../network/DebugMockTransport';
 

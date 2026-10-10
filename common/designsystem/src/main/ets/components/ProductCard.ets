@@ -163,6 +163,8 @@ export class ProductCardData {
 export struct ProductCard {
   @Param data: ProductCardData = new ProductCardData();
   @Param variant: ProductCardVariant = ProductCardVariant.LIST;
+  /** 网格卡也画购买按钮（Agent 卡片 layout=grid 时要能直接购买，03 §7.4；首页等网格默认不画）。 */
+  @Param showBuy: boolean = false;
   @Event onBuy: () => void = () => {
   };
   @Local badgeWidth: number = 0;
@@ -464,6 +466,9 @@ export struct ProductCard {
       if (this.showsRebate()) {
         RebateTag({ content: this.rebate(), tagSize: RebateTagSize.BLOCK, inList: true })
       }
+      if (this.showBuy) {
+        this.buyButton()
+      }
     }
     .alignItems(HorizontalAlign.Start)
     .padding(CouliSpacing.space2)
@@ -590,6 +595,24 @@ export struct SkeletonBlock {
 
 /** 网格最窄列宽：窄于此（或字号放大）时改单列，保证金额段不拆、不裁切。 */
 const GRID_MIN_COLUMN: number = 160;
+
+/**
+ * 商品网格的列数（纯函数，便于单测）：只有 1 件、可用宽度放不下两列（每列至少 160vp + 列间距）或字号放大超过阈值时单列，否则两列。
+ * 宽度未知（0，还没量到）按两列先排，量到后再定。
+ */
+export class ProductGridLayout {
+  static readonly MIN_COLUMN: number = GRID_MIN_COLUMN;
+
+  static columns(count: number, widthVp: number, fontScale: number): number {
+    if (count <= 1 || fontScale > LARGE_TEXT_SCALE) {
+      return 1;
+    }
+    if (widthVp > 0 && widthVp < 2 * GRID_MIN_COLUMN + CouliSpacing.space3) {
+      return 1;
+    }
+    return 2;
+  }
+}
 
 /**
  * 首页网格（两列网格卡）：字号放大超过阈值或容器太窄时改单列（Android 第 2 轮评审，三端统一）。

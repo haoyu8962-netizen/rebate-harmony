@@ -9,6 +9,7 @@ import { CouliDialogLink, CouliLinkSegments, CouliTextSegment } from './CodeCell
 import { CouliFixedTap } from './Clipboard';
 import { CouliTextModifier } from './CouliText';
 import { CouliFontScale } from './FontScale';
+import { CouliModalFns, CouliModalInstance } from './ModalInstance';
 
 /** 读屏焦点请求的延迟（ms）：等目标节点挂进无障碍树（弹层出现动画、页面刚挂载）后再请求。 */
 const A11Y_FOCUS_DELAY_MS: number = 120;
@@ -286,6 +287,11 @@ class DialogParams {
   close: () => void = () => {
   };
 
+  /** 按钮此刻还能不能执行：没处理过（含调用方已关闭本实例，R2-05：打开完成前就被关闭的迟到弹窗按钮不执行）。 */
+  get usable(): boolean {
+    return !this.handled;
+  }
+
   constructor(options: CouliDialogOptions) {
     this.options = options;
   }
@@ -305,16 +311,25 @@ function dialogBuilder(params: DialogParams) {
       detailValue: params.options.detailValue,
       detailIcon: params.options.detailIcon,
       onLink: (id: string) => {
+        if (!params.usable) {
+          return;
+        }
         params.handled = true;
         params.close();
         params.options.onLink(id);
       },
       onPrimary: () => {
+        if (!params.usable) {
+          return;
+        }
         params.handled = true;
         params.close();
         params.options.onPrimary();
       },
       onSecondary: () => {
+        if (!params.usable) {
+          return;
+        }
         params.handled = true;
         params.close();
         params.options.onSecondary();
@@ -349,13 +364,11 @@ export class CouliDialog {
     params.maxHeight = CouliDialog.maxPanelHeight(ui);
     const content: ComponentContent<DialogParams> =
       new ComponentContent<DialogParams>(ui, wrapBuilder<[DialogParams]>(dialogBuilder), params);
-    params.close = () => {
-      ui.getPromptAction().closeCustomDialog(content).catch(() => {
-        // 已关闭（如点遮罩后再点按钮）时忽略。
-      });
-    };
     const backOnly: boolean = !options.dismissOnMask && options.backDismisses;
-    ui.getPromptAction().openCustomDialog(content, {
+    let inst: CouliModalInstance | null = null;
+    // 本实例的出口（R2-05）：open / close 只针对这次捕获的 content；打开完成前就被关闭（closeCustomDialog 返回 103303）的，
+    // 打开完成后按本实例的取消标记再关一次，不留孤儿弹窗，迟到弹窗的按钮也不执行（params.handled）。
+    const presenter: CouliModalFns = new CouliModalFns((): Promise<void> => ui.getPromptAction().openCustomDialog(content, {
       isModal: true,
       autoCancel: options.dismissOnMask || backOnly,
       onWillDismiss: backOnly ? (action: DismissDialogAction): void => {
@@ -367,6 +380,7 @@ export class CouliDialog {
       alignment: DialogAlignment.Center,
       maskColor: CouliShadowMask.color,
       onDidDisappear: () => {
+        inst?.disappeared();
         // 不论按钮、遮罩还是系统返回关闭，焦点都回到触发控件。
         CouliFocusReturn.to(ui, options.returnFocusId);
         if (!params.handled) {
@@ -374,9 +388,17 @@ export class CouliDialog {
           options.onDismissed();
         }
       }
-    }).catch(() => {
-      // 打开失败（页面已销毁等）不影响调用方；不弹第二层兜底。
+    }), (): void => {
+      ui.getPromptAction().closeCustomDialog(content).catch(() => {
+        // 已关闭（如点遮罩后再点按钮）、尚未打开（103303）时忽略。
+      });
     });
+    const modal: CouliModalInstance = new CouliModalInstance(0, presenter);
+    inst = modal;
+    params.close = () => {
+      modal.cancel();
+    };
+    modal.start((): boolean => true);
     return (): void => {
       if (params.handled) {
         return;

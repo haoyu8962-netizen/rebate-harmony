@@ -1,5 +1,5 @@
 import {
-  AppealController, IdentityBoundSlot, MeLevel, MeMessage, MePageLife, PermissionTypeRaw, PrivacyCenterController,
+  AgentDraftTexts, AppealController, IdentityBoundSlot, MeLevel, MeMessage, MePageLife, PermissionTypeRaw, PrivacyCenterController,
   PrivacyCenterView as PrivacyRules, ResetTipRunner, RiskNoticeController
 } from 'core';
 import { CouliColors, CouliDialog, CouliDialogOptions } from 'designsystem';
@@ -15,6 +15,7 @@ import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
 import { AppMe } from './AppMe';
+import { AppAgent } from '../agent/AppAgent';
 import { AppMeTexts } from './AppMeTexts';
 
 /**
@@ -144,6 +145,20 @@ export struct AppSettingsPage {
     c.notifyController = (identity: string) => AppMe.shared.notify(identity);
     c.openSystemNotificationSettings = (): void => AppMe.shared.openSystemNotificationSettings();
     c.initialSub = BuildVariant.settingsInitialSub();
+    // APP-10 G18：【撤回 AI 服务同意】只在 Agent 可用的构建与环境里显示（Release 不显示，G01）。
+    c.aiWithdrawTexts = (): string[] => AppAgent.shared.withdrawAvailable() ? [
+      AgentDraftTexts.text('agent.draft.withdraw.row'), AgentDraftTexts.text('agent.draft.withdraw.confirm_title'),
+      AgentDraftTexts.text('agent.draft.withdraw.confirm_body'), AgentDraftTexts.text('agent.draft.withdraw.confirm'),
+      AgentDraftTexts.text('agent.draft.withdraw.cancel')] : [];
+    c.aiWithdraw = (identity: string, permit: () => boolean): Promise<string> => {
+      // 渲染时的身份仍是此刻的身份才发（换号、撤回隐私后旧确认框不发请求）。
+      if (identity !== AppMe.scopeKey()) {
+        return Promise.resolve('');
+      }
+      // R2-06：成功提示「已撤回」；失败保留原错误码与 trace_id，按统一文案与分流（42901 禁用本入口、前置路由、5xxxx 带 trace6），可重试。
+      // R3-02：本次操作的导航许可（MePageLife.permit，确认时固定）一路传到撤回结果处理，离页后的迟到前置码不导航。
+      return AppAgent.shared.withdrawConsent(permit);
+    };
     // 昵称、手机号行要当前账号的 Me 快照：没有时取一次 /v1/me（与「我的」同一个执行器与读取世代），到了就重画。
     this.unsubscribe = AppMe.shared.session.subscribe((): void => this.config.refresh());
     if (AppMe.level() === MeLevel.MEMBER && AppMe.shared.session.snapshotFor(AppMe.account()) === null) {

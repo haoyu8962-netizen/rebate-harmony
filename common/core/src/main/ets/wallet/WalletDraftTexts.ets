@@ -99,6 +99,16 @@ export class WalletDraftTexts {
     m.set('withdrawal_status.REJECTED.title', '未通过');
     m.set('withdrawal_status.FAILED.title', '打款未成功');
     m.set('withdrawal_status.UNKNOWN.title', '处理中');
+    // APP-10 G11：BR-TEXT-12 的键命名（withdrawal_status.<CODE>.label）——只给上面已有的 CODE 补同一文字，不新造标题；Agent 收益卡的
+    // latest_withdrawal.title_key 只做精确键查找（查不到整行不显示）。TODO(N-32 / N-36)：契约补 withdrawal_status 字典后删除。
+    m.set('withdrawal_status.PENDING_REVIEW.label', '审核中');
+    m.set('withdrawal_status.APPROVED.label', '审核中');
+    m.set('withdrawal_status.PAYING.label', '打款中');
+    m.set('withdrawal_status.PAID_API.label', '已到账');
+    m.set('withdrawal_status.PAID_MANUAL.label', '已到账');
+    m.set('withdrawal_status.REJECTED.label', '未通过');
+    m.set('withdrawal_status.FAILED.label', '打款未成功');
+    m.set('withdrawal_status.UNKNOWN.label', '处理中');
     m.set('withdrawal.draft.frozen', '{amount} 已冻结');
     m.set('withdrawal.draft.processing', '处理中，结果会通知你');
     m.set('withdrawal.draft.paid', '已转入{payout_channel_name} {masked_account}，到账 {net}');

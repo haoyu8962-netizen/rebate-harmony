@@ -105,6 +105,11 @@ take() {
         *.json)
             normalize_json "$raw" "$dst"
             ;;
+        *.ndjson)
+            # APP-10：Agent 流样例逐字节原样拷贝（逐行 JSON，整文件不是合法 JSON；
+            # 原样拷贝让快照哈希与 rebate-platform 锁定提交里的文件哈希直接可比）。
+            cp "$raw" "$dst"
+            ;;
         *) die "不支持的文件类型 $src" ;;
     esac
     echo "  $4  <=  $src"
@@ -146,6 +151,19 @@ for f in \
     specs/device-hash.vectors.json; do
     take "$RP_REPO" "$RP_COMMIT" "$f" "$(json_name "$f")"
 done
+
+# APP-10 加入 contracts/fixtures/agent-streams/*.ndjson（三端 StreamReducer 单测与快照测试用，原样拷贝）。
+AGENT_FIXTURES="$(git -C "$RP_REPO" ls-tree --name-only "$RP_COMMIT" contracts/fixtures/agent-streams/)" \
+    || die "取不到 contracts/fixtures/agent-streams/ 列表"
+AGENT_FIXTURES="$(printf '%s\n' "$AGENT_FIXTURES" | grep -E '\.ndjson$' || true)"
+[ -n "$AGENT_FIXTURES" ] || die "contracts/fixtures/agent-streams/ 下没有 ndjson"
+OLDIFS="$IFS"
+IFS='
+'
+for f in $AGENT_FIXTURES; do
+    take "$RP_REPO" "$RP_COMMIT" "$f" "$f"
+done
+IFS="$OLDIFS"
 
 echo "design tokens $DT_COMMIT"
 take "$DT_REPO" "$DT_COMMIT" "$DT_PATH" "design/design-tokens.json"

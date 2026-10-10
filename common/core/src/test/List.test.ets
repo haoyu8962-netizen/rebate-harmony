@@ -83,6 +83,8 @@ import homeIntegrationTest from './HomeIntegration.test';
 import homeFixR1Test from './HomeFixR1.test';
 import homeFixR2Test from './HomeFixR2.test';
 import homeFixR3Test from './HomeFixR3.test';
+import agentVectorTest from './AgentVector.test';
+import agentIntegrationTest from './AgentIntegration.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -175,4 +177,6 @@ export default function testsuite() {
   homeFixR1Test();
   homeFixR2Test();
   homeFixR3Test();
+  agentVectorTest();
+  agentIntegrationTest();
 }

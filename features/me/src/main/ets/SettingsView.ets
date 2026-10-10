@@ -73,6 +73,16 @@ export class SettingsPageConfig {
   /** 页面出栈：关子页（清空草稿、释放订阅）、退订闸门（R1-01）。由视图设置。 */
   dispose: () => void = () => {
   };
+  /**
+   * APP-10 G18：【撤回 AI 服务同意】的文字（[行名, 确认框标题, 正文, 确认, 取消]）；空数组不显示（Release / Agent 不可用的环境）。
+   */
+  aiWithdrawTexts: () => string[] = () => [];
+  /**
+   * 确认后：recordConsent{ai_third_party, accepted=false, privacy_center}；返回要提示的文字（成功或统一错误）。identity 渲染时捕获；
+   * permit 是确认时固定的导航许可（本页 MePageLife.permit，R3-02），只用来决定能否打开前置页。
+   */
+  aiWithdraw: (identity: string, permit: () => boolean) => Promise<string> =
+    (_i: string, _p: () => boolean) => Promise.resolve('');
 }
 
 /** 设置行的渲染时绑定（R1-06：回调用渲染时捕获的身份，执行时只比较）。 */
@@ -176,6 +186,10 @@ export struct SettingsView {
   /** 打开着的退出登录确认框（绑定打开时的归属；R3-02：归属变化或页面出栈时同步关掉）。 */
   private closeLogoutConfirm: () => void = () => {
   };
+  /** APP-10：撤回 AI 服务同意的确认框（一次性编号，APP-12 第 7、20 条）。 */
+  private aiConfirmSerial: number = 0;
+  private closeAiConfirm: () => void = () => {
+  };
 
   aboutToAppear(): void {
     this.config.backHandler = (): boolean => this.systemBack();
@@ -215,6 +229,7 @@ export struct SettingsView {
     this.disposed = true;
     this.closeSub();
     this.dropLogoutConfirm();
+    this.dropAiConfirm();
     this.tipUnsubscribe();
     this.tipUnsubscribe = () => {
     };
@@ -235,6 +250,7 @@ export struct SettingsView {
     if (m.identity.length > 0 && m.identity !== this.config.identity()) {
       // R3-02：绑定旧归属的退出登录确认框同步关掉（确认也只会被拒绝）。
       this.dropLogoutConfirm();
+      this.dropAiConfirm();
     }
     m.level = level;
     m.items = this.config.items();
@@ -416,6 +432,67 @@ export struct SettingsView {
       });
     };
     CouliDialog.open(this.getUIContext(), options);
+  }
+
+  private dropAiConfirm(): void {
+    this.aiConfirmSerial++;
+    const close: () => void = this.closeAiConfirm;
+    this.closeAiConfirm = () => {
+    };
+    close();
+  }
+
+  /** 【撤回 AI 服务同意】确认框：绑定渲染时身份与一次性编号；确认时核对两者（APP-12 第 7、20 条）。 */
+  private confirmAiWithdraw(bound: Bound): void {
+    const texts: string[] = this.config.aiWithdrawTexts();
+    if (texts.length < 5 || !this.boundLive(bound)) {
+      return;
+    }
+    this.dropAiConfirm();
+    const serial: number = this.aiConfirmSerial;
+    const options: CouliDialogOptions = new CouliDialogOptions();
+    options.title = texts[1];
+    options.message = texts[2];
+    options.primaryText = texts[3];
+    options.secondaryText = texts[4];
+    options.returnFocusId = 'settings_ai_withdraw';
+    options.dismissOnMask = false;
+    options.backDismisses = true;
+    options.onPrimary = (): void => {
+      if (serial !== this.aiConfirmSerial || !this.boundLive(bound)) {
+        return;
+      }
+      this.aiConfirmSerial++;
+      // R3-02：本次操作的导航许可在确认时固定（离页、被盖住、出栈后失效）。
+      const permit: () => boolean = this.config.permit();
+      this.config.aiWithdraw(bound.identity, permit).then((text: string): void => {
+        if (!this.disposed && text.length > 0) {
+          CouliToast.show(this.getUIContext(), text);
+        }
+      });
+    };
+    this.closeAiConfirm = CouliDialog.open(this.getUIContext(), options);
+  }
+
+  @Builder
+  aiWithdrawRow(bound: Bound) {
+    MeCard({
+      content: () => {
+        this.aiWithdrawRowInner(bound)
+      }
+    })
+  }
+
+  @Builder
+  aiWithdrawRowInner(bound: Bound) {
+    MeRow({
+      label: this.config.aiWithdrawTexts()[0] ?? '',
+      rowId: 'settings_ai_withdraw',
+      divider: false,
+      onTap: () => {
+        this.confirmAiWithdraw(bound);
+      }
+    })
   }
 
   private dropLogoutConfirm(): void {
@@ -697,6 +774,11 @@ export struct SettingsView {
     ForEach(this.groups(), (group: MeRecord) => {
       this.groupCard(group)
     }, (group: MeRecord) => (group['group'] as string) + '_' + this.model.version)
+    if (this.model.level !== MeLevel.BASIC && this.config.aiWithdrawTexts().length >= 5) {
+      ForEach([new Bound(this.model.identity, this.model.version)], (b: Bound) => {
+        this.aiWithdrawRow(b)
+      }, (b: Bound) => 'ai_withdraw_' + b.id)
+    }
     Column() {
       this.footer()
     }

@@ -1,4 +1,3 @@
-import { agentTabRootBuilder } from 'agent';
 import { HomeActions, homeTabRootBuilder } from 'home';
 import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from '../search/SearchDraftTexts';
@@ -40,6 +39,15 @@ export class TabRootSlots {
   static orders: WrappedBuilder<[boolean]> | null = null;
   /** APP-12：「我的」Tab 根（entry 组合的 MeTabView；同订单的理由不静态 import）。 */
   static me: WrappedBuilder<[boolean]> | null = null;
+  /** APP-10：AI 助手 Tab 根（entry 组合的 AgentTabHost：features/agent 页面 + 购买浮层；同订单的理由不静态 import）。 */
+  static agent: WrappedBuilder<[boolean]> | null = null;
+}
+
+@Builder
+function agentSlotBuilder(readonlyMode: boolean) {
+  if (TabRootSlots.agent !== null) {
+    (TabRootSlots.agent as WrappedBuilder<[boolean]>).builder(readonlyMode)
+  }
 }
 
 @Builder
@@ -78,7 +86,7 @@ export class TabRootRegistry {
     // 「我的」页（APP-12）：授权管理与钱包入口在正式「我的」页的宫格里（取代 APP-06b / APP-09 的冒烟入口），都经 Router。
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));
-    m.set('AgentChat', wrapBuilder(agentTabRootBuilder));
+    m.set('AgentChat', wrapBuilder(agentSlotBuilder));
     // 订单 Tab（APP-08）：entry 组合的列表页（Core 执行器 + features/orders 页面 + 待跟单卡）。
     m.set('OrderList', wrapBuilder(ordersSlotBuilder));
     // 「我的」Tab（APP-12）：entry 组合的页面（Core 执行器 + features/me 页面）。

@@ -4,7 +4,8 @@ import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { notificationManager } from '@kit.NotificationKit';
 import {
-  AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ConfigStore,
+  AgentContextSource, AgentContextTicket, AgentDraftTexts, AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig,
+  ClipboardController, ConfigStore,
   CouliPreferences, FileSlot, OrderAnchorKeeper, OrderCacheCleaner, OrderCacheStore, OrderCopy, OrderDetailController,
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
   OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPersistResult,
@@ -21,6 +22,7 @@ import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppLogin } from '../login/AppLogin';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
+import { AppAgent } from '../agent/AppAgent';
 import { ShellState } from '../shell/ShellState';
 import { AppUpdate } from '../update/AppUpdate';
 import { PendingTrackUi } from './PendingTrackViews';
@@ -382,6 +384,20 @@ export class AppOrders {
       AppRouting.shared.openInApp(route, params);
     }, (): void => AppLogin.openCustomerService(), (): boolean => controller.alive());
     config.onCopy = (item: OrderRecord): void => this.copy(item);
+    // APP-10 G27：订单详情【问问 AI】带 {order_id}（只在 Agent 可用的构建与环境里显示）。
+    if (AppAgent.shared.withdrawAvailable()) {
+      config.askAiText = AgentDraftTexts.text('agent.draft.ask_ai');
+      // R1-04：详情页构造时固定归属键与页面票据，订单标识固定为本页的 order_id；点击时只比较，不读当前身份重新绑定。
+      const agentSource: AgentContextSource = AppAgent.shared.contextSource((): boolean => controller.alive());
+      const askContext: Record<string, Object | null> = {};
+      askContext['order_id'] = orderId;
+      config.onAskAi = (id: string): void => {
+        if (id !== orderId) {
+          return;
+        }
+        AppAgent.shared.openWithContext(new AgentContextTicket(agentSource, askContext));
+      };
+    }
     // G17：本次详情请求成功时，返回列表只替换同 order_id 的那一行。
     controller.onLoaded = (detail: OrderRecord): void => {
       // FU-HM-0712：带详情页固定的会话归属，列表只在同一会话时替换。

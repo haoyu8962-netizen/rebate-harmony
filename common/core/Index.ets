@@ -300,6 +300,38 @@ export {
 export { HomeDraftTexts } from './src/main/ets/home/HomeDraftTexts';
 export { HomeSignal, HomeSignalHub, HomeVisibilityHub, TabWillChangeRegistry } from './src/main/ets/home/HomeSignals';
 export { HomePopupPresenter, HomePopupDialogHost } from './src/main/ets/home/HomePopupDialogHost';
+// agent（APP-10）：Agent 页的流协议纯逻辑（向量 specs/agent-vectors.json：SSE 切帧、帧与卡片解码、流归约、受限文本、页面引导与收益卡、
+// 票据与错误策略）与执行层（StreamClient、AgentController；页面在 features/agent，组合在 entry/agent）。待定 operation 只由 Debug / Staging
+// 假服务实现（G01），Release 没有端口。
+export { AgentJsonValue, AgentJsonObject, AgentJson } from './src/main/ets/agent/AgentJson';
+export { AgentSseKind, AgentSse } from './src/main/ets/agent/AgentSse';
+export {
+  AgentEvent, AgentFrameResult, AgentFrame, AgentFrameDecoder, AgentCardType, AgentCardKind, AgentCardOrigin, EarningsShape,
+  AgentCard, PageGuideCheck, AgentCardDecoder
+} from './src/main/ets/agent/AgentDecoder';
+export {
+  AgentStatus, AgentInputKind, AgentTool, AgentQuickReply, AgentTerminal, AgentStreamState, StreamReducer
+} from './src/main/ets/agent/StreamReducer';
+export { AgentTextBlockKind, AgentTextSpan, AgentTextBlock, AgentText } from './src/main/ets/agent/AgentText';
+export {
+  AgentAmount, PageGuidePolicy, EarningsButton, EarningsView, EarningsCardView, AgentTicketEvent, AgentTicketAction,
+  AgentTicketPolicy, AgentSendAction, AgentSendDecision, AgentSendErrorPolicy, AgentStreamErrorView, AgentStreamErrorPolicy,
+  AgentDuplicatePolicy, ClientMsgId, AgentConsentPolicy
+} from './src/main/ets/agent/AgentPolicies';
+export { AgentDraftTexts } from './src/main/ets/agent/AgentDraftTexts';
+export {
+  AgentHttpResult, AgentCall, AgentStreamSink, AgentStreamHandle, AgentContractPort, AgentTimer, SystemAgentTimer,
+  AgentStreamEventKind, AgentStreamEvent, StreamClient
+} from './src/main/ets/agent/StreamClient';
+export {
+  AgentIdentity, AgentRunTicket, AgentPageTicket, AgentTapKind, AgentTap, AgentBuyTap, AgentChipTap, AgentRetryMode,
+  AgentRetryTap, AgentConsentTicket, AgentProductRef, AgentProductView, AgentCardView, AgentTurnPhase, AgentErrorView,
+  AgentTurnView, AgentPhase, AgentSnapshot, AgentDeps, AgentController, AgentConsentGate, AgentSharedError
+} from './src/main/ets/agent/AgentController';
+export {
+  AgentContextSource, AgentContextTicket, AgentContextHandoff
+} from './src/main/ets/agent/AgentContextHandoff';
+export { AgentWithdrawOutcome, AgentWithdrawFlow } from './src/main/ets/agent/AgentWithdraw';
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';

@@ -34,6 +34,10 @@
 #     couli_debug_open_route（entry/src/staging/ets/variant/DebugFakeWallet.ets、BuildVariant.ets）
 #   - 「我的」类本机假服务与推送令牌假来源（APP-12）：标记 COULI_FAKE_ME_SERVER_APP12_8e4b27、COULI_DEBUG_PUSH_TOKEN_APP12_3a9d52、
 #     启动参数键 couli_debug_me_scene、couli_debug_settings_sub（entry/src/staging/ets/variant/DebugFakeMe.ets、BuildVariant.ets）
+#   - Agent 的本机假服务（APP-10）：标记 COULI_AGENT_FAKE_APP10_7d3e15、类名 AgentFakeService、
+#     启动参数键 couli_debug_agent_fixture（common/core/src/staging/ets/agent/、entry/src/staging/ets/agent/）；
+#     启动参数自动发送（harmony-review-r1 R1-11）：标记 COULI_AGENT_LAUNCH_SEND_APP10_2f9c4d、启动参数键 couli_debug_agent_send
+#     （entry/src/staging/ets/agent/AgentVariant.ets；Release 的同名文件是空实现）
 #   - 首页 SDUI 的本机假服务与草稿预览（APP-11）：标记 COULI_FAKE_HOME_SERVER_APP11_5e8c21、启动参数键 couli_debug_home_scene
 #     （entry/src/staging/ets/variant/DebugFakeHome.ets）、预览页标记 COULI_HOME_PREVIEW_APP11_9b4d27（entry/src/staging/ets/home/HomePreviewPage.ets）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
@@ -135,6 +139,11 @@ markers = [
     # 场景启动参数键，以及首页草稿预览页 HomePreview 的标记（entry/src/staging/ets/home/HomePreviewPage.ets；路由名 HomePreview 由下面
     # routes.json 的 debug_only 路由覆盖）。
     "COULI_FAKE_HOME_SERVER_APP11_5e8c21", "couli_debug_home_scene", "COULI_HOME_PREVIEW_APP11_9b4d27",
+    # APP-10：Agent 四个待定 operation 的本机假服务（common/core/src/staging/ets/agent/AgentFakeService.ets）、fixture 原文表
+    # （entry/src/staging/ets/variant/AgentFixtures.ets，gen.py 生成）与启动参数键（entry/src/staging/ets/agent/AgentVariant.ets）。
+    "COULI_AGENT_FAKE_APP10_7d3e15", "AgentFakeService", "couli_debug_agent_fixture",
+    # APP-10 R1-11：启动参数自动发送与重试计时的实现（只在 staging 源码集）。
+    "COULI_AGENT_LAUNCH_SEND_APP10_2f9c4d", "couli_debug_agent_send",
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:

@@ -20,6 +20,8 @@ import { AppOrders } from '../orders/AppOrders';
 import { AppWallet } from '../wallet/AppWallet';
 import { AppMe } from '../me/AppMe';
 import { AppHome } from '../home/AppHome';
+import { AppAgent } from '../agent/AppAgent';
+import { AgentVariant } from 'entry/ets/agent/AgentVariant';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -73,6 +75,8 @@ export default class EntryAbility extends UIAbility {
     AppMe.shared.compose(this.context);
     // APP-11：首页 SDUI（LKG、公告关闭与弹窗计数登记为撤回同意与切换环境的清理第一步，在环境对账之前）。
     AppHome.shared.compose(appContext);
+    // APP-10：Agent 页（对话只在内存；撤回同意与切换环境的清理开始时同步作废，登记在环境对账之前）。
+    AppAgent.shared.compose(appContext);
     AppRouting.shared.placeholders.targets = () => AppBridge.routeTargets();
     // APP-05a：守卫的会话状态按 ApiClient 的有效会话现算（游客 / 已绑手机 / 受限会话）。
     AppRouting.shared.placeholders.session = (): SessionState => AppLogin.shared.sessionState();
@@ -80,6 +84,7 @@ export default class EntryAbility extends UIAbility {
     AppRouting.shared.syncSession = (): void => AppLogin.shared.ensurePhoneBindingKnown();
     // Debug / Staging：冒烟与截图用的启动参数（如字号倍数）；Release 什么都不做。
     BuildVariant.applyLaunchOptions(appContext, want);
+    AgentVariant.applyLaunch(want);
     // X-01：上次生效的环境与本次不同（同 bundleName 覆盖安装）时先清理再记录；见 EnvironmentLaunchReconciler。
     // 清理或记录失败（自动重试一次后）→ BLOCKED：不装入环境，RootPage 只显示阻断页与【重试】。
     this.environmentReady = AppConfig.start(BuildVariant.defaultEnvironment(), new PreferencesEnvironmentRecord(appContext));
@@ -123,6 +128,7 @@ export default class EntryAbility extends UIAbility {
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // Debug / Staging：热启动同样认冒烟启动参数（如本机假服务开关，F-HM-13）；Release 什么都不做。
     BuildVariant.applyLaunchOptions(this.context.getApplicationContext(), want);
+    AgentVariant.applyLaunch(want);
     // 热启动深链：与 onCreate 同一入口；隐私弹窗显示中时丢弃（03 §4.4）。
     AppRouting.shared.handleWant(want, true);
     // FU-CLIP C6：热启动的系统分享，与 onCreate 同一入口
@@ -144,6 +150,7 @@ export default class EntryAbility extends UIAbility {
     // APP-12：可见的「我的」类页面回到前台（「我的」Tab 取一次 /v1/me、通知设置重查系统状态、引导条重算）。
     AppMe.shared.onAppForeground();
     AppHome.shared.onAppForeground();
+    AppAgent.shared.onAppForeground();
   }
 
   /**
@@ -161,6 +168,7 @@ export default class EntryAbility extends UIAbility {
     // APP-12 R1-08：进后台即作废等待中的导航许可（10006 → RiskNotice、后台推送上报的导航许可）。
     AppMe.shared.onAppBackground();
     AppHome.shared.onAppBackground();
+    AppAgent.shared.onAppBackground();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
