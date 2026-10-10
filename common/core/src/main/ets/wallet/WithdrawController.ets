@@ -169,7 +169,7 @@ export class WithdrawController implements WalletSessionAware {
     this.account = deps.account();
     this.boundScope = deps.scope();
     this.flow = new SensitiveFlow(deps, SensitiveOutcome.OP_WITHDRAW, WithdrawController.CREATE_OPERATION,
-      WithdrawController.STEP_UP_ACTION, deps.session.withdrawGate);
+      WithdrawController.STEP_UP_ACTION, deps.session.withdrawGate, this.account);
     const refresh: () => void = (): void => {
       if (!this.left) {
         this.emit();
@@ -223,6 +223,14 @@ export class WithdrawController implements WalletSessionAware {
   /** 本页表单的点击身份（账号、会话世代、归属键）。 */
   private click(key: string): PendingClick {
     return new PendingClick(this.account, this.state.sessionEpoch, key, this.boundScope);
+  }
+
+  /**
+   * 本页表单构建时固定的账号（FU-HM-0712，共性第 65 条）：App 恢复已输入金额时按它（而不是恢复时重读的当前会话）核对持久化记录的归属，
+   * 恢复的金额与表单身份来自同一次读取。只读，不可改。
+   */
+  get formAccount(): string | null {
+    return this.account;
   }
 
   /** 进程回收后恢复的金额（App 已按账号归属校验）；不恢复估算结果。 */
@@ -370,7 +378,8 @@ export class WithdrawController implements WalletSessionAware {
       return;
     }
     const seq: number = ++this.rulesSeq;
-    const account: string | null = this.d.account();
+    // FU-HM-0712（共性第 65 条）：估算请求的账号用本页表单固定的账号，不在发请求时重读当前会话；应用前再与当前会话比较（cur）。
+    const account: string | null = this.account;
     const page: string = this.state.pageInstance;
     const query: string = amountFen === null ? '' : 'amount_fen=' + amountFen;
     const request: ApiRequest = new ApiRequest(WithdrawController.RULES_OPERATION, {}, query);
@@ -566,9 +575,12 @@ export class WithdrawController implements WalletSessionAware {
     return WithdrawBlockGuide.of(WalletJson.int(rules, 'block_code'), WalletJson.text(rules, 'block_reason'));
   }
 
-  /** 登记延后结果：记下原键、本页实例与当前会话（F-HM-21）；ticket 为提交票据（只用于来自新提交的二次验证）。 */
+  /**
+   * 登记延后结果：记下原键、本页实例与本页表单固定的会话（F-HM-21）；ticket 为提交票据（只用于来自新提交的二次验证）。
+   * FU-HM-0712（共性第 65 条）：会话取本页构建时的世代与归属键，不在登记时重读当前会话；恢复前 stillValid 再与当前会话比较。
+   */
   private deferral(key: string | null, ticket: number = -1): DeferredResult {
-    return new DeferredResult(key, this.state.pageInstance, this.d.session.epoch, this.d.scope(), ticket);
+    return new DeferredResult(key, this.state.pageInstance, this.state.sessionEpoch, this.boundScope, ticket);
   }
 
   /** 本页停在来自确认流程的二次验证，但它的键已不是未决记录（别处已结算，R1-01）。 */
@@ -1071,6 +1083,10 @@ export class WithdrawController implements WalletSessionAware {
 
   /** 按当前账号的未决记录同步待确认状态（进入、冷启动、登录成功、回前台、每次结果之后）。 */
   syncPending(): void {
+    if (!this.owns()) {
+      // FU-HM-0712（共性第 65 条）：会话已变（新令牌已保存、清空通知还没到）——不按当前会话读未决记录绑进本页，等清空通知换代。
+      return;
+    }
     const s: WithdrawSnapshot = this.state;
     s.storeUnavailable = this.flow.storeUnavailable();
     s.inFlightElsewhere = this.flow.inFlightElsewhere() && s.phase !== WithdrawPhase.SUBMITTING;

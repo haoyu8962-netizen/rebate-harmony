@@ -167,13 +167,29 @@ export class SensitiveFlow {
   private version: number = 0;
   /** 二次验证之后沿用原键重放过一次的键（再得到 10003 不再弹面板）。 */
   private replayedKey: string | null = null;
+  /**
+   * 发起页构建时一次性取得的表单账号（FU-HM-0712，APP-09 共性第 65 条）：未决记录只认属于它的（新令牌已保存、清空通知还没到时，
+   * 不把新账号的待确认记录读进旧页面）；没有点击身份的直接调用也按它取凭据。undefined 只给不经页面的直接构造（单测），按当前会话。
+   */
+  private readonly boundAccount: string | null | undefined;
 
-  constructor(deps: WalletDeps, op: string, operationId: string, stepUpAction: string, gate: RetryAfterGate) {
+  constructor(deps: WalletDeps, op: string, operationId: string, stepUpAction: string, gate: RetryAfterGate,
+    boundAccount: string | null | undefined = undefined) {
     this.d = deps;
     this.op = op;
     this.operationId = operationId;
     this.stepUpAction = stepUpAction;
     this.gate = gate;
+    this.boundAccount = boundAccount;
+  }
+
+  /** 当前会话账号这个操作的未决记录，且属于本页表单账号（第 65 条：当前会话只用于比较，不把别的账号的记录绑进本页）。 */
+  private ownRecord(): PendingKeyRecord | null {
+    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    if (record === null) {
+      return null;
+    }
+    return this.boundAccount === undefined || record.account === this.boundAccount ? record : null;
   }
 
   get pendingVersion(): number {
@@ -182,7 +198,7 @@ export class SensitiveFlow {
 
   /** 当前账号这个操作的未决记录（只要出现过结果未知或停在结果未知，才算待确认）。 */
   pending(): PendingView | null {
-    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    const record: PendingKeyRecord | null = this.ownRecord();
     if (record === null) {
       return null;
     }
@@ -192,7 +208,7 @@ export class SensitiveFlow {
 
   /** 有未决记录但还在首次发送的在途中（别的页面实例发起、还没有结论）。 */
   inFlightElsewhere(): boolean {
-    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    const record: PendingKeyRecord | null = this.ownRecord();
     return record !== null && !record.everUnknown && record.stateRaw === 'in_flight';
   }
 
@@ -201,14 +217,19 @@ export class SensitiveFlow {
    * 别处结算后都用它复核：别的页面已确认成功 / 放弃了这个键时为 false。
    */
   keyOpen(key: string): boolean {
-    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    const record: PendingKeyRecord | null = this.ownRecord();
     return record !== null && record.key === key;
   }
 
   /** 当前账号这个操作已有另一个键的未决记录（首次提交的 10003 恢复前复核：本次提交已被别的提交取代）。 */
   keySuperseded(key: string): boolean {
-    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    const record: PendingKeyRecord | null = this.ownRecord();
     return record !== null && record.key !== key;
+  }
+
+  /** 没有点击身份的直接调用（单测）：页面构建时固定的表单账号；直接构造（未给）时才按当前会话。 */
+  private fallbackAccount(): string | null {
+    return this.boundAccount !== undefined ? this.boundAccount : this.d.account();
   }
 
   storeUnavailable(): boolean {
@@ -224,7 +245,7 @@ export class SensitiveFlow {
       return Promise.resolve(this.judge(SensitiveOutcome.SUBMIT, false,
         ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH), replayKey));
     }
-    const account: string | null = click !== null ? click.account : this.d.account();
+    const account: string | null = click !== null ? click.account : this.fallbackAccount();
     const request: ApiRequest = new ApiRequest(this.operationId, {}, '', body);
     request.summary = summary;
     request.idempotencyKey = replayKey;
@@ -248,7 +269,7 @@ export class SensitiveFlow {
         ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH), key));
     }
     // 共性第 52 条：凭据按点击身份（表单所属账号）读取，不取执行时的当前会话。
-    const account: string | null = click !== null ? click.account : this.d.account();
+    const account: string | null = click !== null ? click.account : this.fallbackAccount();
     const t: string | null = token ?? (account === null ? null
       : this.d.session.tokens.take(this.stepUpAction, account, this.d.clock()));
     // 用户点的确认重置重放预算；二次验证后带 token 的续发占用这次预算（共性第 16 条）。

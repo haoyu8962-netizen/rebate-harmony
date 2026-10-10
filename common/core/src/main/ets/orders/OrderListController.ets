@@ -10,6 +10,7 @@ import { SearchApiPort, trace6Of } from '../search/SearchController';
 import { OrderJson, OrderRecord } from './OrderJson';
 import { OrderErrorAction, OrderQuery, OrderStatusGroup } from './OrderPresentation';
 import { OrderCacheEntry, OrderStaleCache } from './OrderStaleCache';
+import { preferences } from '@kit.ArkData';
 
 type JSONValue = Object | null;
 
@@ -241,6 +242,237 @@ export class OrderListSnapshot {
   sessionEpoch: number = 0;
 }
 
+/**
+ * 渲染时的身份票据（FU-HM-0712，APP-08 共性第 41、44 条；第 1 轮评审 R1-01）：列表卡渲染时一次取出的不可变值——列表执行器实例、页面实例、
+ * 已显示数据所属的会话归属与会话世代、子 Tab、查询轮次（查询版本）、结果版本，以及这张卡的订单标识与订单号。复制 / 打开详情回调执行前
+ * 交页面守卫（OrderListPage：页面仍在）与执行器（ticketValid：会话、子 Tab、查询、结果仍是渲染时那一份，且这一行的单号没变）比较，
+ * 都通过才走统一写入口；不在执行时读取当前会话当身份。
+ */
+export class OrderRenderTicket {
+  readonly list: number;
+  readonly page: number;
+  readonly scope: string;
+  readonly sessionEpoch: number;
+  readonly tab: string;
+  readonly round: number;
+  readonly result: number;
+  readonly orderId: string;
+  readonly orderNo: string;
+
+  constructor(list: number, page: number, scope: string, sessionEpoch: number, tab: string, round: number,
+    result: number, orderId: string, orderNo: string) {
+    this.list = list;
+    this.page = page;
+    this.scope = scope;
+    this.sessionEpoch = sessionEpoch;
+    this.tab = tab;
+    this.round = round;
+    this.result = result;
+    this.orderId = orderId;
+    this.orderNo = orderNo;
+  }
+}
+
+/**
+ * 列表页实例的守卫（FU-HM-0712 第 1 轮评审 R1-01）：页面 aboutToAppear 时创建（固定这一页的执行器与页面实例编号），aboutToDisappear
+ * 时 close。列表卡的票据由它签发；复制 / 打开详情的旧回调先核对页面仍在、票据属于本页，再交执行器核对会话、子 Tab、查询与结果版本、
+ * 单号，全部通过才调写入口——视图销毁、换条件、切子 Tab、会话换代后执行旧回调零写入。
+ */
+export class OrderListPage {
+  private static serial: number = 0;
+  readonly id: number;
+  private readonly controller: OrderListController;
+  private open: boolean = true;
+
+  constructor(controller: OrderListController) {
+    OrderListPage.serial++;
+    this.id = OrderListPage.serial;
+    this.controller = controller;
+  }
+
+  get alive(): boolean {
+    return this.open;
+  }
+
+  /** 视图销毁（aboutToDisappear 的同步出口）：本页签发过的票据永久失效。 */
+  close(): void {
+    this.open = false;
+  }
+
+  /** 渲染这一行时签发票据。 */
+  ticket(item: OrderRecord): OrderRenderTicket {
+    return this.controller.renderTicket(item, this.id);
+  }
+
+  /** 票据此刻仍有效（页面仍在、属于本页、执行器核对通过）。 */
+  valid(ticket: OrderRenderTicket | null, item: OrderRecord): boolean {
+    return ticket !== null && this.open && ticket.page === this.id && this.controller.ticketValid(ticket, item);
+  }
+
+  /** 【复制订单号】：核对通过才交统一写入口（write）。返回是否交出。 */
+  copy(ticket: OrderRenderTicket | null, item: OrderRecord, write: (item: OrderRecord) => void): boolean {
+    if (!this.valid(ticket, item)) {
+      return false;
+    }
+    write(item);
+    return true;
+  }
+
+  /** 整卡打开详情：核对通过才打开。 */
+  openDetail(ticket: OrderRenderTicket | null, item: OrderRecord, open: (item: OrderRecord) => void): boolean {
+    if (!this.valid(ticket, item)) {
+      return false;
+    }
+    open(item);
+    return true;
+  }
+
+  /** 此刻签发输入类回调的身份（第 2 轮评审 R2-01；页面在 aboutToAppear 与每次会话换代后的 apply 里调）。 */
+  inputStamp(): OrderInputStamp {
+    return this.controller.inputStamp(this.id);
+  }
+
+  /** 输入类回调的身份此刻仍有效：页面仍在、身份由本页签发、执行器核对会话归属与世代通过。 */
+  inputValid(stamp: OrderInputStamp | null): boolean {
+    return stamp !== null && this.open && stamp.page === this.id && this.controller.inputValid(stamp);
+  }
+
+  /**
+   * 渲染时绑定一组输入类回调（R2-01）：一次取出页面编号、执行器实例、会话归属与会话世代（不可变），页面把返回值放进 ForEach 的数据项，
+   * 搜索框输入 / 提交 / 清空、子 Tab、分组、平台与月份半屏的回调只经它执行。
+   */
+  inputs(model: OrderInputModel): OrderInputHandlers {
+    return new OrderInputHandlers(this, this.controller, model, this.inputStamp());
+  }
+}
+
+/**
+ * 输入类回调的渲染时身份（FU-HM-0712 第 2 轮评审 R2-01，APP-08 共性第 47 条、APP-09 第 63 条）：页面实例编号、执行器实例编号、
+ * 会话归属与会话世代，渲染时一次取出、不可变。同一个执行器在会话换代时会被 resetForSession 绑定到新会话——旧页面 / 旧渲染的输入回调
+ * 拿着这里的旧值，执行时与执行器比较不通过，就不写模型、不改查询、不持久化、不发请求。
+ */
+export class OrderInputStamp {
+  readonly list: number;
+  readonly page: number;
+  readonly scope: string;
+  readonly sessionEpoch: number;
+
+  constructor(list: number, page: number, scope: string, sessionEpoch: number) {
+    this.list = list;
+    this.page = page;
+    this.scope = scope;
+    this.sessionEpoch = sessionEpoch;
+  }
+
+  /** ForEach 键（不含会话归属原文）。 */
+  get key(): string {
+    return this.list + ':' + this.page + ':' + this.sessionEpoch;
+  }
+}
+
+/** 输入回调会写的页面模型字段（features 的 OrderListModel 实现它；测试用普通对象）。 */
+export interface OrderInputModel {
+  inputText: string;
+  platformSheet: boolean;
+  monthSheet: boolean;
+}
+
+/**
+ * 一组绑定了渲染时身份的输入回调（R2-01）。每个入口先经页面守卫与执行器核对身份（页面仍在、由本页签发、执行器实例相同、列表仍属于
+ * 当前会话、会话归属与世代都还是渲染时那一份），通过才写模型 / 改查询（查询变化随即持久化并发请求）；不通过返回 false、零写入。
+ */
+export class OrderInputHandlers {
+  readonly stamp: OrderInputStamp;
+  private readonly page: OrderListPage;
+  private readonly controller: OrderListController;
+  private readonly model: OrderInputModel;
+
+  constructor(page: OrderListPage, controller: OrderListController, model: OrderInputModel, stamp: OrderInputStamp) {
+    this.page = page;
+    this.controller = controller;
+    this.model = model;
+    this.stamp = stamp;
+  }
+
+  get key(): string {
+    return this.stamp.key;
+  }
+
+  get valid(): boolean {
+    return this.page.inputValid(this.stamp);
+  }
+
+  /** 搜索框 onChange：只写输入框文字（不发请求，G11）。 */
+  change(value: string): boolean {
+    if (!this.valid) {
+      return false;
+    }
+    this.model.inputText = value;
+    return true;
+  }
+
+  /** 搜索框【搜索】（onSubmit）：提交输入框文字。42901 禁用中执行器拒绝。 */
+  submit(): boolean {
+    if (!this.valid || this.controller.blocked) {
+      return false;
+    }
+    return this.controller.submitQuery(this.model.inputText);
+  }
+
+  /** 清空按钮：清输入框；有搜索词时也是一次提交（发不带 q 的请求）。 */
+  clear(): boolean {
+    if (!this.valid) {
+      return false;
+    }
+    this.model.inputText = '';
+    if (this.controller.conditions().q !== null) {
+      this.controller.submitQuery('');
+    }
+    return true;
+  }
+
+  /** 子 Tab「自购 / 分享」。 */
+  scope(scope: string): boolean {
+    return this.valid && this.controller.setScope(scope);
+  }
+
+  /** 状态分组胶囊。 */
+  group(group: string): boolean {
+    return this.valid && this.controller.setGroup(group);
+  }
+
+  /** 打开【平台】（kind = 'platform'）或【月份】（'month'）半屏。 */
+  openSheet(kind: string): boolean {
+    if (!this.valid) {
+      return false;
+    }
+    if (kind === 'platform') {
+      this.model.platformSheet = true;
+    } else {
+      this.model.monthSheet = true;
+    }
+    return true;
+  }
+
+  /** 平台半屏里选一项（null = 全部平台）：收起半屏并改条件。 */
+  platform(platform: string | null): boolean {
+    if (!this.valid) {
+      return false;
+    }
+    this.model.platformSheet = false;
+    return this.controller.setPlatform(platform);
+  }
+
+  /** 月份半屏里选一项（null = 全部月份）：收起半屏并改条件。 */
+  month(month: string | null): boolean {
+    if (!this.valid) {
+      return false;
+    }
+    this.model.monthSheet = false;
+    return this.controller.setMonth(month);
+  }
+}
+
 /** 列表执行器的依赖。 */
 export class OrderListDeps {
   readonly api: SearchApiPort;
@@ -311,12 +543,26 @@ export class OrderListController {
   private readonly gate: OrderRateGate;
   private readonly unsubscribe: () => void;
   private state: OrderListSnapshot = new OrderListSnapshot();
-  /** 本轮请求发出时的会话归属。 */
+  /**
+   * 已显示数据所属的会话归属（FU-HM-0712，APP-08 共性第 44 条、APP-09 第 65 条）：只在构造与会话换代通知（resetForSession）里取得；
+   * 下拉刷新、翻页、筛选等入口只拿它与当前会话比较，不再在每轮 run() 里重新绑定（旧逻辑会把已显示的旧账号列表经 begin 之后的
+   * 重新赋值绑到新会话）。
+   */
   private boundScope: string = '';
+  /** 执行器实例编号（票据核对：别的执行器签发的票据不算）。 */
+  private static instances: number = 0;
+  private readonly instanceId: number;
+  /**
+   * 结果版本（FU-HM-0712 第 1 轮评审 R1-01）：已显示的结果被整体替换或清空（新一轮结果、缓存、错误、作废、会话换代）时加 1；翻页追加与
+   * 详情回填同一行不加（那一行的单号另行核对）。
+   */
+  private resultVersion: number = 0;
   onChange: (snapshot: OrderListSnapshot) => void = (_s: OrderListSnapshot) => {
   };
 
   constructor(deps: OrderListDeps) {
+    OrderListController.instances++;
+    this.instanceId = OrderListController.instances;
     this.d = deps;
     this.gate = deps.gate ?? new OrderRateGate(deps.clock, deps.scope);
     this.boundScope = deps.scope();
@@ -449,6 +695,11 @@ export class OrderListController {
       || !this.query.sendsRequest() || this.query.cursor === null) {
       return false;
     }
+    if (!this.ownsSession()) {
+      // FU-HM-0712（共性第 44 条）：翻页发现会话已变——先作废旧列表，不翻页、不把旧数据绑到当前会话。
+      this.voidForeignSession();
+      return false;
+    }
     const seq: number = this.begin();
     const round: OrderQuery = this.query.copy();
     s.loadingMore = true;
@@ -488,10 +739,12 @@ export class OrderListController {
    * 从详情返回（G17）：本次详情请求成功时，用详情里与 OrderSummary 同名的字段替换同 order_id 的那一行；其余行、筛选、搜索词、
    * 滚动位置不动，不额外请求列表。显示缓存时不改（不把新数据混进旧快照）。
    */
-  replaceRow(detail: OrderRecord): boolean {
+  replaceRow(detail: OrderRecord, detailScope: string | null = null): boolean {
     const id: string | null = OrderJson.nonEmpty(detail, 'order_id');
     const s: OrderListSnapshot = this.state;
-    if (this.left || id === null || s.stale || OrderJson.order(detail) === null) {
+    // FU-HM-0712：详情与列表属于同一个会话（详情页固定的归属 = 列表固定的归属 = 当前会话）才替换。
+    if (this.left || id === null || s.stale || OrderJson.order(detail) === null || !this.ownsSession()
+      || (detailScope !== null && detailScope !== this.boundScope)) {
       return false;
     }
     let changed: boolean = false;
@@ -524,6 +777,7 @@ export class OrderListController {
     s.failureSeq = this.state.failureSeq;
     s.sessionEpoch = this.state.sessionEpoch + 1;
     this.state = s;
+    this.resultVersion++;
     this.syncConditions();
     this.emit();
   }
@@ -559,13 +813,86 @@ export class OrderListController {
     s.filtered = this.query.filtered;
   }
 
+  /**
+   * 已显示的列表仍属于当前会话（只比较）：页面复制、打开详情、持久化前用；会话已变（新令牌已保存、清空通知还没到）为 false。
+   */
+  ownsSession(): boolean {
+    return !this.left && this.d.scope() === this.boundScope;
+  }
+
+  /** 渲染这一行时的身份票据（经 OrderListPage.ticket 签发；page 为页面实例编号）。 */
+  renderTicket(item: OrderRecord, page: number = 0): OrderRenderTicket {
+    return new OrderRenderTicket(this.instanceId, page, this.boundScope, this.state.sessionEpoch, this.query.scope,
+      this.query.round, this.resultVersion, OrderJson.text(item, 'order_id') ?? '', OrderJson.text(item, 'order_no') ?? '');
+  }
+
+  /** 输入类回调的渲染时身份（R2-01；经 OrderListPage.inputStamp 签发）。 */
+  inputStamp(page: number): OrderInputStamp {
+    return new OrderInputStamp(this.instanceId, page, this.boundScope, this.state.sessionEpoch);
+  }
+
+  /**
+   * 输入类回调的身份此刻仍有效（R2-01，APP-08 共性第 47 条）：本执行器签发、列表仍属于当前会话（新令牌已保存、清空通知未到时为 false），
+   * 且会话归属与会话世代都还是渲染时那一份（resetForSession 换代后旧回调永久失效）。只比较，不重新绑定。
+   */
+  inputValid(stamp: OrderInputStamp | null): boolean {
+    return stamp !== null && this.ownsSession() && stamp.list === this.instanceId && stamp.scope === this.boundScope
+      && stamp.sessionEpoch === this.state.sessionEpoch;
+  }
+
+  /**
+   * 渲染时捕获的票据此刻仍有效（R1-01）：本执行器签发、列表仍属于当前会话且没有随会话换代清空过；子 Tab、查询轮次、结果版本都还是
+   * 渲染时那一份；回调带的这一行与票据同一订单、同一单号，且当前结果里这一行的单号没变。
+   */
+  ticketValid(ticket: OrderRenderTicket | null, item: OrderRecord | null = null): boolean {
+    if (ticket === null || !this.ownsSession() || ticket.list !== this.instanceId || ticket.scope !== this.boundScope
+      || ticket.sessionEpoch !== this.state.sessionEpoch || ticket.tab !== this.query.scope
+      || ticket.round !== this.query.round || ticket.result !== this.resultVersion || ticket.orderId.length === 0) {
+      return false;
+    }
+    if (item !== null && ((OrderJson.text(item, 'order_id') ?? '') !== ticket.orderId
+      || (OrderJson.text(item, 'order_no') ?? '') !== ticket.orderNo)) {
+      return false;
+    }
+    for (const row of this.state.items) {
+      if ((OrderJson.text(row, 'order_id') ?? '') === ticket.orderId) {
+        return (OrderJson.text(row, 'order_no') ?? '') === ticket.orderNo;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 会话已变（清空通知还没到）时的入口（APP-08 共性第 44 条）：先作废已显示的旧列表与在途请求，不发请求、不重新绑定当前会话，
+   * 等清空通知（resetForSession）重建。
+   */
+  private voidForeignSession(): void {
+    this.begin();
+    const s: OrderListSnapshot = this.state;
+    s.items = [];
+    this.resultVersion++;
+    s.hasMore = false;
+    s.loadingMore = false;
+    s.loadMoreError = null;
+    s.refreshing = false;
+    s.stale = false;
+    s.staleFetchedAt = 0;
+    s.earliestVisibleDate = null;
+    s.error = null;
+    s.phase = OrderPhase.IDLE;
+    this.emit();
+  }
+
   /** 第一页（新轮次）。keepItems：下拉刷新时保留已有结果。 */
   private run(keepItems: boolean): void {
     if (this.left) {
       return;
     }
+    if (!this.ownsSession()) {
+      this.voidForeignSession();
+      return;
+    }
     const seq: number = this.begin();
-    this.boundScope = this.d.scope();
     const round: OrderQuery = this.query.copy();
     const s: OrderListSnapshot = this.state;
     s.round = round.round;
@@ -577,6 +904,7 @@ export class OrderListController {
     } else {
       s.refreshing = false;
       s.items = [];
+      this.resultVersion++;
       s.hasMore = false;
       s.stale = false;
       s.earliestVisibleDate = null;
@@ -586,6 +914,7 @@ export class OrderListController {
       // 限流只限制发送（APP-06a 第 19 条）：条件照常更新，页面保持限流错误。
       s.refreshing = false;
       s.items = [];
+      this.resultVersion++;
       s.hasMore = false;
       s.stale = false;
       s.error = this.gate.heldView(OrderErrorAction.LIST_FIRST, this.query.filtered);
@@ -605,6 +934,7 @@ export class OrderListController {
         s.shownSeq = seq;
         s.failureSeq++;
         s.items = [];
+        this.resultVersion++;
         s.stale = false;
         s.hasMore = false;
         s.error = this.gate.heldView(OrderErrorAction.LIST_FIRST, round.filtered);
@@ -615,6 +945,7 @@ export class OrderListController {
       if (outcome.ok) {
         const data: OrderRecord = result.data as OrderRecord;
         s.items = OrderJson.summaries(data);
+        this.resultVersion++;
         s.earliestVisibleDate = OrderJson.earliestVisibleDate(data);
         s.stale = false;
         s.staleFetchedAt = 0;
@@ -635,6 +966,7 @@ export class OrderListController {
       s.failureSeq++;
       if (view.actionRaw === OrderErrorAction.SHOW_STALE && cached !== null) {
         s.items = OrderJson.summaries(cached.data);
+        this.resultVersion++;
         s.earliestVisibleDate = OrderJson.earliestVisibleDate(cached.data);
         s.stale = true;
         s.staleFetchedAt = cached.fetchedAt;
@@ -648,6 +980,7 @@ export class OrderListController {
         return;
       }
       s.items = [];
+      this.resultVersion++;
       s.stale = false;
       s.hasMore = false;
       s.error = view;
@@ -1054,6 +1387,8 @@ export class OrderPageRestorer {
   private wipePending: boolean = false;
   /** 恢复出的输入框文字（同一账号的记录才有）。 */
   input: string = '';
+  /** 写盘用的固定账号（恢复决策、会话换代时一次性取得；FU-HM-0712）。 */
+  private owner: string | null = null;
 
   constructor(read: () => string | null, write: (value: string | null) => void, account: () => string | null,
     keeper: OrderAnchorKeeper) {
@@ -1087,6 +1422,7 @@ export class OrderPageRestorer {
       }
     }
     const account: string | null = this.account();
+    this.owner = account;
     let conditions: OrderListConditions | null = null;
     let anchor: string = '';
     this.input = '';
@@ -1103,28 +1439,49 @@ export class OrderPageRestorer {
     list.restore(conditions, routeScope);
   }
 
-  /** 页面状态写盘：账号短标识 + 条件 + 滚动锚点。恢复决策完成前（隐藏挂载的初始快照）不写。 */
+  /** 页面状态写盘（结果见 save）。 */
   persist(list: OrderListController): void {
-    if (!this.decided) {
-      return;
-    }
-    const account: string | null = this.account();
-    if (account === null) {
-      return;
-    }
-    this.write(new OrderPageState(OrderStaleCache.accountTag(account), list.conditions().encode(), this.keeper.anchor,
-      '').encode());
+    this.save(list);
   }
 
-  /** 会话变化（共性第 19 条）：删记录、清锚点与待恢复输入。 */
-  reset(): void {
-    try {
-      this.write(null);
-    } catch (e) {
-      // 删不掉：下面照常清内存；撤回 / 切环境的清理走 wipe（确认删除）。
+  /**
+   * 页面状态写盘：账号短标识 + 条件 + 滚动锚点。恢复决策完成前（隐藏挂载的初始快照）不写。
+   * FU-HM-0712（共性第 65 条）：账号标签用恢复决策 / 会话换代时固定的账号（owner），不在写盘时重读当前会话打标签；列表已不属于当前
+   * 会话、或当前账号已不是 owner（新令牌已保存、清空通知还没到）时不写——不把旧账号的条件（可能含完整订单号）记到新账号名下。
+   * 第 2 轮评审 R2-02（APP-08 共性第 40、48 条）：写入经同步落盘接口（OrderPageStateStore.write → put + flushSync），返回明确结果：
+   * SAVED = 已确认落盘；SKIPPED = 按规则不写；FAILED = 写入或落盘失败——不算保存完成，记 wipePending（本进程内不按这份记录恢复，
+   * 下次恢复前先重试删除），交调用方报告。
+   */
+  save(list: OrderListController): string {
+    if (!this.decided || !list.ownsSession()) {
+      return OrderPersistResult.SKIPPED;
     }
-    this.keeper.reset();
-    this.input = '';
+    const owner: string | null = this.owner;
+    if (owner === null || this.account() !== owner) {
+      return OrderPersistResult.SKIPPED;
+    }
+    try {
+      this.write(new OrderPageState(OrderStaleCache.accountTag(owner), list.conditions().encode(), this.keeper.anchor,
+        '').encode());
+    } catch (e) {
+      this.wipePending = true;
+      return OrderPersistResult.FAILED;
+    }
+    return OrderPersistResult.SAVED;
+  }
+
+  /** 有没确认的写入或删除（共性第 36、40 条）：本进程内不按落盘记录恢复。 */
+  get unconfirmed(): boolean {
+    return this.wipePending;
+  }
+
+  /**
+   * 会话变化（共性第 19 条，状态同步的清空通知里调）：删记录、清锚点与待恢复输入，并按新会话重取固定账号（A 类）。
+   * FU-HM-0712（APP-08 共性第 45 条）：删除没确认（写或读回失败）时与 wipe 一样记 wipePending——本进程内不再按落盘记录恢复。
+   */
+  reset(): void {
+    this.wipe();
+    this.owner = this.account();
   }
 
   /**
@@ -1146,11 +1503,22 @@ export class OrderPageRestorer {
   }
 }
 
+/** 页面状态写盘的结果（R2-02）。 */
+export class OrderPersistResult {
+  /** 已确认同步落盘。 */
+  static readonly SAVED: string = 'saved';
+  /** 按规则不写（恢复决策前、会话已变、账号不是固定账号）。 */
+  static readonly SKIPPED: string = 'skipped';
+  /** 写入或落盘失败：不算保存完成。 */
+  static readonly FAILED: string = 'failed';
+}
+
 /** 页面恢复记录所在的键值存储（App 用系统偏好适配）。读、写、删失败一律抛错。 */
 export interface OrderPageStateKv {
   /** 读取：没有这个键返回 null。 */
   get(key: string): string | null;
 
+  /** 写入并同步落盘（flushSync）；失败抛错（R2-02）。 */
   put(key: string, value: string): void;
 
   /** 删除并同步落盘（flushSync）。 */
@@ -1160,8 +1528,8 @@ export interface OrderPageStateKv {
 /**
  * 订单页面恢复记录的读写（FU-HM-0710 R2-01，APP-08 共性第 28、36 条）。区分「记录不存在」（read 返回 null）与「存储打不开 / 读取失败」
  * （read、write(null) 抛错）：清理路径（OrderPageRestorer.wipe）据此只在确认删除落盘、读回确实没有时才算完成；存储打不开时删除与读回
- * 都抛错，清理报失败、保留待清理状态并禁止恢复——不能因为「打不开所以读回 null」误判为删除成功。普通持久化（非 null 写入）失败只吞掉，
- * 不影响页面。
+ * 都抛错，清理报失败、保留待清理状态并禁止恢复——不能因为「打不开所以读回 null」误判为删除成功。
+ * 第 2 轮评审 R2-02：普通持久化（非 null 写入）失败同样向上抛（不再吞掉），由 OrderPageRestorer.save 记为 FAILED、不算保存完成。
  */
 export class OrderPageStateStore {
   private readonly open: () => OrderPageStateKv | null;
@@ -1191,16 +1559,60 @@ export class OrderPageStateStore {
     return value !== null && value.length > 0 ? value : null;
   }
 
-  /** 写入；value 为 null 时删除并落盘——存储打不开或删除失败抛错（清理据此报失败）。 */
+  /** 写入并同步落盘；value 为 null 时删除并落盘——存储打不开、写入 / 删除或落盘失败都抛错（R2-02：调用方据此报失败）。 */
   write(value: string | null): void {
     if (value === null) {
       this.kv().remove(this.key);
       return;
     }
-    try {
-      this.kv().put(this.key, value);
-    } catch (e) {
-      // 写不进：不影响页面。
-    }
+    this.kv().put(this.key, value);
+  }
+}
+
+/**
+ * 系统偏好上的页面恢复记录存取（生产适配层；R2-02，APP-08 共性第 40、48 条）：写入与删除都是 putSync / deleteSync 之后 flushSync
+ * 同步落盘，任一步失败照常抛出（不再「flush() 异步 + 空 catch」），交 OrderPageStateStore / OrderPageRestorer 区分已落盘与只改了内存。
+ * 用四个同步函数构造（测试可注入落盘失败）；App 用 of(preferences) 接系统偏好。
+ */
+export class FlushedPageStateKv implements OrderPageStateKv {
+  private readonly getFn: (key: string) => string | null;
+  private readonly putFn: (key: string, value: string) => void;
+  private readonly deleteFn: (key: string) => void;
+  private readonly flushFn: () => void;
+
+  constructor(get: (key: string) => string | null, put: (key: string, value: string) => void,
+    del: (key: string) => void, flush: () => void) {
+    this.getFn = get;
+    this.putFn = put;
+    this.deleteFn = del;
+    this.flushFn = flush;
+  }
+
+  /** 系统偏好（getSync / putSync / deleteSync API 11，flushSync API 14，均不高于 API 20）。 */
+  static of(p: preferences.Preferences): FlushedPageStateKv {
+    return new FlushedPageStateKv((key: string): string | null => {
+      const value: preferences.ValueType = p.getSync(key, '');
+      return typeof value === 'string' ? value : null;
+    }, (key: string, value: string): void => {
+      p.putSync(key, value);
+    }, (key: string): void => {
+      p.deleteSync(key);
+    }, (): void => {
+      p.flushSync();
+    });
+  }
+
+  get(key: string): string | null {
+    return this.getFn(key);
+  }
+
+  put(key: string, value: string): void {
+    this.putFn(key, value);
+    this.flushFn();
+  }
+
+  remove(key: string): void {
+    this.deleteFn(key);
+    this.flushFn();
   }
 }

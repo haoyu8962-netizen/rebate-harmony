@@ -1,6 +1,6 @@
 import {
-  CreditPeriodText, OrderAmountCells, OrderDraftTexts, OrderJson, OrderNumberDisplay, OrderRecord, OrderStatus,
-  OrderMessages, OrderStatusText, OrderTitleImage
+  CreditPeriodText, OrderAmountCells, OrderDraftTexts, OrderJson, OrderNumberDisplay, OrderRecord, OrderRenderTicket,
+  OrderStatus, OrderMessages, OrderStatusText, OrderTitleImage
 } from 'core';
 import {
   AmountGridItem, AmountTone, CouliChip, CouliChipTone, CouliColors, CouliFocus, CouliFormat, CouliIcon,
@@ -123,9 +123,15 @@ export class OrderView {
   readonly detailStacked: AmountGridItem[];
   /** 金额隐藏时的状态标题（部分扣回不带金额）。 */
   readonly statusLabelMasked: string;
+  /**
+   * 渲染时的身份票据（FU-HM-0712，APP-08 共性第 41、44 条；R1-01）：列表卡构建时由页面守卫签发的不可变值（执行器与页面实例、会话归属
+   * 与世代、子 Tab、查询 / 结果版本、订单标识与单号），复制 / 打开详情回调执行前交页面守卫与执行器核对。详情头部不用（null）。
+   */
+  readonly ticket: OrderRenderTicket | null;
 
-  constructor(raw: OrderRecord, texts: OrderTexts, nowMs: number) {
+  constructor(raw: OrderRecord, texts: OrderTexts, nowMs: number, ticket: OrderRenderTicket | null = null) {
     this.raw = raw;
+    this.ticket = ticket;
     this.orderId = OrderJson.text(raw, 'order_id') ?? '';
     this.status = OrderStatus.ofItem(raw);
     const platform: string = OrderJson.text(raw, 'platform') ?? '';

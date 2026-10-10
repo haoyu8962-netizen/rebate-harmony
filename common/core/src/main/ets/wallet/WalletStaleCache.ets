@@ -49,8 +49,16 @@ export class WalletStaleCache {
     return WalletStaleCache.CLEAR_EVENTS.indexOf(event) >= 0;
   }
 
-  private tag(): string | null {
-    const account: string | null = this.account();
+  /**
+   * 写入 / 读取用的账号标签。owner：调用页固定的账号（FU-HM-0712，共性第 65 条）——标签按它打，当前会话只用于比较（不一致就不读不写，
+   * 不把旧页面的摘要记到新账号名下）；undefined 只给没有页面身份的调用，按当前会话。
+   */
+  private tag(owner: string | null | undefined = undefined): string | null {
+    const current: string | null = this.account();
+    if (owner !== undefined && owner !== current) {
+      return null;
+    }
+    const account: string | null = owner !== undefined ? owner : current;
     return account === null || account.length === 0 ? null : OrderStaleCache.accountTag(account);
   }
 
@@ -71,8 +79,8 @@ export class WalletStaleCache {
   }
 
   /** 成功取得的摘要（调用方已校验字段）。 */
-  save(summary: WalletRecord): void {
-    const tag: string | null = this.tag();
+  save(summary: WalletRecord, owner: string | null | undefined = undefined): void {
+    const tag: string | null = this.tag(owner);
     if (tag === null || !this.settled()) {
       return;
     }
@@ -87,8 +95,8 @@ export class WalletStaleCache {
   }
 
   /** 读缓存（读不出、内容损坏、字段不全一律按没有）。 */
-  load(): WalletCacheEntry | null {
-    const tag: string | null = this.tag();
+  load(owner: string | null | undefined = undefined): WalletCacheEntry | null {
+    const tag: string | null = this.tag(owner);
     if (tag === null || !this.settled()) {
       return null;
     }

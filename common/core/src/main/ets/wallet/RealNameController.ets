@@ -34,6 +34,8 @@ export class RealNameSnapshot {
 export class RealNameController implements WalletSessionAware {
   private readonly d: WalletDeps;
   private readonly boundScope: string;
+  /** 本页表单固定的账号（FU-HM-0712，共性第 65 条）：构造时与 boundScope 一起取得；实名成功的结论按它落地。 */
+  private readonly account: string | null;
   private left: boolean = false;
   private seq: number = 0;
   private state: RealNameSnapshot = new RealNameSnapshot();
@@ -47,6 +49,7 @@ export class RealNameController implements WalletSessionAware {
   constructor(deps: WalletDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.account = deps.account();
     this.state.unavailable = deps.contract === null;
     this.state.sessionEpoch = deps.session.epoch;
     this.unsubscribe = deps.session.realnameGate.subscribe((): void => {
@@ -203,7 +206,8 @@ export class RealNameController implements WalletSessionAware {
   /** 成功：刷新 GET /v1/me 的 realname_status，清空已填内容，出栈回发起页（G05）。 */
   private verified(): void {
     const s: RealNameSnapshot = this.state;
-    const account: string | null = this.d.account();
+    // FU-HM-0712（共性第 65 条）：实名结论记在本页表单固定的账号名下，不在结果到达时重读当前会话（调用方已核对归属未变）。
+    const account: string | null = this.account;
     s.name = '';
     s.idNo = '';
     s.done = true;

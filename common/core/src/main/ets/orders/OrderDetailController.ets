@@ -60,12 +60,19 @@ export class OrderDetailController {
   constructor(deps: OrderDetailDeps) {
     this.d = deps;
     this.gate = deps.gate ?? new OrderRateGate(deps.clock, deps.scope);
+    // FU-HM-0712（共性第 65 条）：详情页构造时一次性取得所属会话；之后的读取、重试只与它比较，不在 fetch 里重新绑定。
+    this.boundScope = deps.scope();
     this.state.blocked = this.gate.active;
     this.unsubscribe = this.gate.subscribe((): void => {
       if (!this.left && this.state.blocked !== this.gate.active) {
         this.emit();
       }
     });
+  }
+
+  /** 本详情页固定的会话归属（列表按它判断能否用本页结果替换同一行）。 */
+  get ownerScope(): string {
+    return this.boundScope;
   }
 
   get snapshot(): OrderDetailSnapshot {
@@ -148,12 +155,37 @@ export class OrderDetailController {
     return !this.left && this.d.scope() === this.boundScope;
   }
 
+  /**
+   * 详情头部【复制订单号】执行前的核对（FU-HM-0712 第 1 轮评审 R1-01 顺带）：本页仍有效（未出栈、会话没变），正在显示的仍是本页的订单，
+   * 且回调带的这一行与正在显示的详情同一订单、同一单号（重试 / 刷新清空或换了结果后的旧按钮零写入）。
+   */
+  copyValid(item: OrderRecord): boolean {
+    const shown: OrderRecord | null = this.state.detail;
+    if (!this.alive() || shown === null) {
+      return false;
+    }
+    const id: string = OrderJson.text(item, 'order_id') ?? '';
+    const no: string = OrderJson.text(item, 'order_no') ?? '';
+    return id.length > 0 && id === this.orderId && id === (OrderJson.text(shown, 'order_id') ?? '')
+      && no === (OrderJson.text(shown, 'order_no') ?? '');
+  }
+
   private fetch(): void {
     if (this.left || this.orderId.length === 0) {
       return;
     }
+    if (!this.alive()) {
+      // FU-HM-0712：会话已变（新令牌已保存、清空通知还没到）——不把正在显示的旧详情（含断网缓存）重新绑定到当前会话、不为它发请求；
+      // 作废并清空显示，等清空通知把旧会话的详情页移出。
+      this.begin();
+      const blank: OrderDetailSnapshot = new OrderDetailSnapshot();
+      blank.phase = OrderPhase.IDLE;
+      blank.failureSeq = this.state.failureSeq;
+      this.state = blank;
+      this.emit();
+      return;
+    }
     const seq: number = this.begin();
-    this.boundScope = this.d.scope();
     const s: OrderDetailSnapshot = this.state;
     const held: OrderErrorView | null = this.gate.view;
     if (this.gate.active) {

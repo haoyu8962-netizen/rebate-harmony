@@ -364,6 +364,10 @@ export class AppMe {
 
   /** 修改昵称子页（R2-02）：identity 是设置行渲染时捕获的归属；不是已登录或归属已变返回 null。 */
   nickname(identity: string): NicknameController | null {
+    // FU-HM-0712（共性第 65 条）：先与渲染时捕获的归属比较，再按同一会话的账号取预填昵称（归属已变不读当前会话的快照）。
+    if (identity !== AppMe.scopeKey()) {
+      return null;
+    }
     const me: MeRecord | null = this.session.snapshotFor(AppMe.account());
     const current: string = me !== null && typeof me['nickname'] === 'string' ? me['nickname'] as string : '';
     return NicknameController.forIdentity(this.deps(), identity, current);

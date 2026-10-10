@@ -413,7 +413,8 @@ export struct OrderDetailView {
               copySpoken: this.t(OrderKeys.COPY_SPOKEN),
               rowId: 'order_detail',
               onCopy: () => {
-                if (this.config.controller.alive()) {
+                // FU-HM-0712 R1-01：页面仍有效、正在显示的仍是这一单且单号一致，才走统一写入口。
+                if (this.config.controller.copyValid(view.raw)) {
                   this.config.onCopy(view.raw);
                 }
               }

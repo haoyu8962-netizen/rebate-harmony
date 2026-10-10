@@ -7,9 +7,10 @@ import {
   AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ConfigStore,
   CouliPreferences, FileSlot, OrderAnchorKeeper, OrderCacheCleaner, OrderCacheStore, OrderCopy, OrderDetailController,
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
-  OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPendingMark,
+  OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPersistResult,
+  FlushedPageStateKv, OrderPendingMark,
   OrderRecord, OrderSessionHub, OrderStaleCache, PendingTrackController,
-  PendingTrackDeps, PendingTrackJumpWatcher, PermissionResult, RouteDestination, SearchApiPort, SessionState,
+  PendingTrackDeps, PendingTrackJumpWatcher, PendingTrackPosition, PermissionResult, RouteDestination, SearchApiPort, SessionState,
   TransportFailure
 } from 'core';
 import { CouliAnnounce, CouliToast } from 'designsystem';
@@ -129,31 +130,6 @@ export class PendingTrackHost {
   constructor(controller: PendingTrackController, ui: PendingTrackUi) {
     this.controller = controller;
     this.ui = ui;
-  }
-}
-
-/** 系统偏好上的页面恢复记录存取（读、写、删失败照常抛出，交给 OrderPageStateStore 区分）。 */
-class PreferencesPageStateKv implements OrderPageStateKv {
-  private readonly p: preferences.Preferences;
-
-  constructor(p: preferences.Preferences) {
-    this.p = p;
-  }
-
-  get(key: string): string | null {
-    const value: preferences.ValueType = this.p.getSync(key, '');
-    return typeof value === 'string' ? value : null;
-  }
-
-  put(key: string, value: string): void {
-    this.p.putSync(key, value);
-    this.p.flush().catch((): void => {
-    });
-  }
-
-  remove(key: string): void {
-    this.p.deleteSync(key);
-    this.p.flushSync();
   }
 }
 
@@ -364,15 +340,27 @@ export class AppOrders {
 
   /** 页面状态：账号短标识 + 条件 + 滚动锚点（稳定 order_id）；恢复决策完成前不写（R3-01）。 */
   private persistPage(list: OrderListController): void {
-    this.restorer.persist(list);
+    // R2-02（APP-08 共性第 40、48 条）：同步落盘并拿到明确结果；失败不算保存完成（restorer 已记待清理、本进程内不按记录恢复）。
+    if (this.restorer.save(list) === OrderPersistResult.FAILED) {
+      hilog.warn(DOMAIN, TAG, 'order page state write failed; restore disabled');
+    }
   }
 
   /** 订单列表自购子 Tab 顶部的待跟单卡（全部未关闭的卡）。 */
   listPendingHost(): PendingTrackHost {
     if (this.listPending === null) {
-      this.listPending = this.pendingHost();
+      // FU-HM-0712 R1-02：订单 Tab 根上的位置接主 Tab 切换信号（切走只设为不可见、不卸载，靠它同步作废）。
+      this.listPending = this.pendingHost(ORDER_LIST_ROUTE);
     }
     return this.listPending;
+  }
+
+  /**
+   * 导航栈变化的同步出口（RootPage 的 willShow，转场开始时；FU-HM-0712 R1-02）：栈非空即 Tab 根被盖住——订单列表顶部的待跟单卡离开
+   * 显示位置、同步作废；栈回到空时重新出现并重拉（取新的位置世代）。
+   */
+  stackChanged(names: string[]): void {
+    this.listPending?.ui.position?.setCovered(names.length > 0);
   }
 
   // ---------------------------------------------------------------- 详情
@@ -396,7 +384,8 @@ export class AppOrders {
     config.onCopy = (item: OrderRecord): void => this.copy(item);
     // G17：本次详情请求成功时，返回列表只替换同 order_id 的那一行。
     controller.onLoaded = (detail: OrderRecord): void => {
-      this.listInstance?.replaceRow(detail);
+      // FU-HM-0712：带详情页固定的会话归属，列表只在同一会话时替换。
+      this.listInstance?.replaceRow(detail, controller.ownerScope);
     };
     this.hub.addDetail(controller);
     return config;
@@ -437,7 +426,7 @@ export class AppOrders {
   // ---------------------------------------------------------------- 待跟单卡
 
   /** 一个显示位置的待跟单卡（列表顶部、商品详情、搜索页）；页面出栈时调 releaseHost。 */
-  pendingHost(): PendingTrackHost {
+  pendingHost(tabRoute: string | null = null): PendingTrackHost {
     const deps: PendingTrackDeps = new PendingTrackDeps(this.api);
     deps.scope = (): string => AppOrders.scopeKey();
     deps.session = (): string => AppRouting.shared.sessionState === SessionState.GUEST ? 'guest' : 'member';
@@ -456,13 +445,16 @@ export class AppOrders {
     };
     const ui: PendingTrackUi = new PendingTrackUi();
     const controller: PendingTrackController = new PendingTrackController(deps);
-    ui.bind(controller, (key: string, trace: string): void => this.toast(key, trace));
+    const position: PendingTrackPosition = tabRoute === null ? new PendingTrackPosition(controller, null, null)
+      : PendingTrackPosition.onTab(controller, tabRoute, ShellState.tabSwitch);
+    ui.bind(controller, position, (key: string, trace: string): void => this.toast(key, trace));
     const host: PendingTrackHost = new PendingTrackHost(controller, ui);
     this.hub.addPending(controller);
     return host;
   }
 
   releaseHost(host: PendingTrackHost): void {
+    host.ui.position?.release();
     host.controller.leave();
     this.hub.removePending(host.controller);
   }
@@ -554,7 +546,8 @@ export class AppOrders {
   private pageStateStore(): OrderPageStateStore {
     return new OrderPageStateStore((): OrderPageStateKv | null => {
       const p: preferences.Preferences | null = this.prefs(CouliPreferences.APP_NAMESPACE);
-      return p === null ? null : new PreferencesPageStateKv(p);
+      // R2-02：写入与删除都同步落盘（putSync / deleteSync + flushSync），失败照常抛出。
+      return p === null ? null : FlushedPageStateKv.of(p);
     }, PAGE_STATE_KEY);
   }
 

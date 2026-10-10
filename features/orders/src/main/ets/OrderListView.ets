@@ -1,7 +1,7 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
-  OrderAnchorKeeper, OrderListController, OrderListEntries, OrderListSnapshot, OrderMonthOptions, OrderPhase,
-  OrderPlatformOptions, OrderRecord, OrderStatusGroup, OrderQuery
+  OrderAnchorKeeper, OrderInputHandlers, OrderInputModel, OrderListController, OrderListEntries, OrderListSnapshot,
+  OrderMonthOptions, OrderPhase, OrderListPage, OrderPlatformOptions, OrderRecord, OrderStatusGroup, OrderQuery
 } from 'core';
 import {
   AmountGrid, CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn,
@@ -77,7 +77,7 @@ class OrderCardSource implements IDataSource {
 }
 
 @ObservedV2
-class OrderListModel {
+class OrderListModel implements OrderInputModel {
   @Trace scope: string = 'self';
   @Trace group: string = OrderStatusGroup.ALL;
   @Trace platform: string | null = null;
@@ -100,6 +100,11 @@ class OrderListModel {
   @Trace platformSheet: boolean = false;
   @Trace monthSheet: boolean = false;
   @Trace generation: number = 0;
+  /**
+   * 渲染时绑定身份的输入回调（FU-HM-0712 第 2 轮评审 R2-01，APP-08 共性第 47 条）：本页签发、带页面编号 + 执行器实例 + 会话归属与世代
+   * 的不可变值；会话换代时换新一份，搜索框、子 Tab、分组、平台 / 月份半屏经 ForEach 数据项捕获它，旧回调执行时核对不通过零写入。
+   */
+  @Trace inputs: OrderInputHandlers | null = null;
 }
 
 const ID_RETRY: string = 'orders_retry';
@@ -135,8 +140,12 @@ export struct OrderListView {
   /** 待执行的锚点对齐回调（-1 = 没有；R3-02）。 */
   private alignTimer: number = -1;
   private alive: boolean = true;
+  /** 本页实例的守卫（FU-HM-0712 R1-01）：签发列表卡票据；视图销毁时关闭，旧回调零写入。 */
+  private page: OrderListPage | null = null;
 
   aboutToAppear(): void {
+    this.page = new OrderListPage(this.config.controller);
+    this.model.inputs = this.page.inputs(this.model);
     this.model.inputText = this.config.initialInput;
     this.shownEpoch = this.config.controller.snapshot.sessionEpoch;
     this.config.controller.onChange = (s: OrderListSnapshot): void => this.apply(s);
@@ -145,6 +154,7 @@ export struct OrderListView {
 
   aboutToDisappear(): void {
     this.alive = false;
+    this.page?.close();
     if (this.alignTimer >= 0) {
       // 页面没了：取消待执行的对齐并解冻（锚点保留原恢复目标，不滚动、不持久化）。
       this.cancelAlignTimer();
@@ -174,6 +184,10 @@ export struct OrderListView {
       m.inputText = '';
       m.platformSheet = false;
       m.monthSheet = false;
+      // R2-01：按换代后的执行器重新签发输入回调的身份（旧回调手里的是旧值，核对不通过）。
+      if (this.page !== null) {
+        m.inputs = this.page.inputs(m);
+      }
     }
     if (m.scope !== s.scope || m.q !== s.q) {
       m.inputText = s.q ?? '';
@@ -207,7 +221,11 @@ export struct OrderListView {
     } else {
       m.historyText = '';
     }
-    this.cards = s.items.map((item: OrderRecord): OrderView => new OrderView(item, texts, now));
+    // FU-HM-0712（R1-01）：每张卡带渲染时由本页签发的票据（页面实例、会话、子 Tab、查询 / 结果版本、订单标识，一次取出的不可变值），
+    // 回调执行前核对，不在执行时读当前会话。
+    const page: OrderListPage | null = this.page;
+    this.cards = s.items.map((item: OrderRecord): OrderView => new OrderView(item, texts, now,
+      page === null ? null : page.ticket(item)));
     m.count = this.cards.length;
     this.source.reload(this.cards);
     if (s.round !== this.shownRound) {
@@ -297,11 +315,10 @@ export struct OrderListView {
     }
   }
 
-  private submit(): void {
-    if (this.model.blocked) {
-      return;
-    }
-    this.config.controller.submitQuery(this.model.inputText);
+  /** 输入回调的数据项（ForEach 一项；还没签发时为空）：回调捕获的是渲染时这一份，不在执行时读 model.inputs。 */
+  private handlerList(): OrderInputHandlers[] {
+    const h: OrderInputHandlers | null = this.model.inputs;
+    return h === null ? [] : [h];
   }
 
   private monthLabel(month: string): string {
@@ -344,6 +361,13 @@ export struct OrderListView {
 
   @Builder
   scopeTabs() {
+    ForEach(this.handlerList(), (h: OrderInputHandlers) => {
+      this.scopeTabRow(h)
+    }, (h: OrderInputHandlers) => 'scope_tabs_' + h.key)
+  }
+
+  @Builder
+  scopeTabRow(h: OrderInputHandlers) {
     Row({ space: CouliSpacing.space1 }) {
       ForEach(['self', 'share'], (scope: string) => {
         Text(this.t(scope === 'self' ? OrderKeys.SCOPE_SELF : OrderKeys.SCOPE_SHARE))
@@ -361,7 +385,7 @@ export struct OrderListView {
           .focusable(true)
           .focusBox(CouliFocus.box)
           .onClick(() => {
-            this.config.controller.setScope(scope);
+            h.scope(scope);
           })
       }, (scope: string) => scope)
     }
@@ -373,6 +397,13 @@ export struct OrderListView {
 
   @Builder
   searchBox() {
+    ForEach(this.handlerList(), (h: OrderInputHandlers) => {
+      this.searchRow(h)
+    }, (h: OrderInputHandlers) => 'search_' + h.key)
+  }
+
+  @Builder
+  searchRow(h: OrderInputHandlers) {
     Row({ space: CouliSpacing.space2 }) {
       CouliIcon({ name: 'search', iconSize: 20, color: CouliColors.textSecondary })
         .accessibilityLevel('no')
@@ -391,9 +422,12 @@ export struct OrderListView {
         .enabled(!this.model.blocked)
         .accessibilityText(this.t(OrderKeys.SEARCH_LABEL))
         .onChange((value: string) => {
-          this.model.inputText = value;
+          // R2-01：只经渲染时绑定身份的回调写输入框文字（换号后旧回调零写入）。
+          h.change(value);
         })
-        .onSubmit(() => this.submit())
+        .onSubmit(() => {
+          h.submit();
+        })
       if (this.model.inputText.length > 0) {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           CouliIcon({ name: 'close', iconSize: 16, color: CouliColors.textSecondary })
@@ -406,11 +440,8 @@ export struct OrderListView {
         .focusBox(CouliFocus.box)
         .enabled(!this.model.blocked)
         .onClick(() => {
-          this.model.inputText = '';
-          // 清空也是一次提交（G11）：有搜索词时发不带 q 的请求。
-          if (this.model.q !== null) {
-            this.config.controller.submitQuery('');
-          }
+          // 清空也是一次提交（G11）：有搜索词时发不带 q 的请求；身份核对不通过零写入（R2-01）。
+          h.clear();
         })
       }
     }
@@ -498,11 +529,18 @@ export struct OrderListView {
 
   @Builder
   groups() {
+    ForEach(this.handlerList(), (h: OrderInputHandlers) => {
+      this.groupRow(h)
+    }, (h: OrderInputHandlers) => 'groups_' + h.key)
+  }
+
+  @Builder
+  groupRow(h: OrderInputHandlers) {
     Scroll() {
       Row({ space: CouliSpacing.space2 }) {
         ForEach(OrderStatusGroup.ALL_GROUPS, (group: string) => {
           this.pill(GROUP_ID_PREFIX + group, '', () => {
-            this.config.controller.setGroup(group);
+            h.group(group);
           })
         }, (group: string) => group)
       }
@@ -516,13 +554,20 @@ export struct OrderListView {
 
   @Builder
   filters() {
+    ForEach(this.handlerList(), (h: OrderInputHandlers) => {
+      this.filterRow(h)
+    }, (h: OrderInputHandlers) => 'filters_' + h.key)
+  }
+
+  @Builder
+  filterRow(h: OrderInputHandlers) {
     Row() {
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space2), cross: LengthMetrics.vp(0) } }) {
         this.pill(ID_PLATFORM, 'chevron-down', () => {
-          this.model.platformSheet = true;
+          h.openSheet('platform');
         })
         this.pill(ID_MONTH, 'chevron-down', () => {
-          this.model.monthSheet = true;
+          h.openSheet('month');
         })
       }
       .layoutWeight(1)
@@ -596,15 +641,20 @@ export struct OrderListView {
 
   @Builder
   platformOptions() {
+    ForEach(this.handlerList(), (h: OrderInputHandlers) => {
+      this.platformList(h)
+    }, (h: OrderInputHandlers) => 'platforms_' + h.key)
+  }
+
+  @Builder
+  platformList(h: OrderInputHandlers) {
     Column() {
       this.option(this.t(OrderKeys.ALL_PLATFORMS), this.model.platform === null, 'orders_platform_all', () => {
-        this.model.platformSheet = false;
-        this.config.controller.setPlatform(null);
+        h.platform(null);
       })
       ForEach(OrderPlatformOptions.PLATFORMS, (p: string) => {
         this.option(this.t(OrderKeys.platform(p)), this.model.platform === p, 'orders_platform_' + p, () => {
-          this.model.platformSheet = false;
-          this.config.controller.setPlatform(p);
+          h.platform(p);
         })
       }, (p: string) => p)
     }
@@ -629,19 +679,24 @@ export struct OrderListView {
 
   @Builder
   monthOptions() {
+    ForEach(this.handlerList(), (h: OrderInputHandlers) => {
+      this.monthList(h)
+    }, (h: OrderInputHandlers) => 'months_' + h.key)
+  }
+
+  @Builder
+  monthList(h: OrderInputHandlers) {
     Column() {
       Text(this.t(OrderKeys.MONTH_NOTE))
         .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
         .width('100%')
         .margin({ bottom: CouliSpacing.space2 })
       this.option(this.t(OrderKeys.ALL_MONTHS), this.model.month === null, 'orders_month_all', () => {
-        this.model.monthSheet = false;
-        this.config.controller.setMonth(null);
+        h.month(null);
       })
       ForEach(OrderMonthOptions.months(this.model.earliest, this.config.now()), (month: string) => {
         this.option(this.monthLabel(month), this.model.month === month, 'orders_month_' + month, () => {
-          this.model.monthSheet = false;
-          this.config.controller.setMonth(month);
+          h.month(month);
         })
       }, (month: string) => month)
     }
@@ -682,8 +737,11 @@ export struct OrderListView {
               copySpoken: this.t(OrderKeys.COPY_SPOKEN),
               rowId: 'orders_card_' + view.orderId,
               onCopy: () => {
-                // 绑定渲染时的这一行（APP-07 第 18 条）。
-                this.config.onCopy(view.raw);
+                // 绑定渲染时的这一行（APP-07 第 18 条）；FU-HM-0712：经本页守卫核对票据（页面已销毁、换条件、切子 Tab、会话已变的旧卡零写入）。
+                const page: OrderListPage | null = this.page;
+                if (page !== null) {
+                  page.copy(view.ticket, view.raw, (item: OrderRecord): void => this.config.onCopy(item));
+                }
               }
             })
           }
@@ -716,7 +774,12 @@ export struct OrderListView {
     .backgroundColor(CouliColors.backgroundSurface)
     .id('orders_card_' + view.orderId)
     .onClick(() => {
-      this.config.entries.openDetail(view.raw);
+      const page: OrderListPage | null = this.page;
+      if (page !== null) {
+        page.openDetail(view.ticket, view.raw, (item: OrderRecord): void => {
+          this.config.entries.openDetail(item);
+        });
+      }
     })
   }
 

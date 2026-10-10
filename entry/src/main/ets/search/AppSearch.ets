@@ -638,6 +638,8 @@ export struct AppSearchPage {
         AppTrade.shared.pageVisible(this.trade.controller, false);
       }
       this.watcher?.onBackground();
+      // FU-HM-0712 R1-02：被盖住即离开待跟单卡的显示位置（卡片与通知许可同步作废）。
+      this.pending?.ui.position?.setCovered(true);
     })
     .onShown((): void => {
       this.config?.onCovered(false);
@@ -645,6 +647,8 @@ export struct AppSearchPage {
         AppTrade.shared.pageVisible(this.trade.controller, true);
       }
       this.watcher?.onForeground();
+      // 回到可见：取新的位置世代（外跳回来的拉取已由 watcher 发起时不重复拉）。
+      this.pending?.ui.position?.setCovered(false);
     })
     .onWillDisappear((): void => {
       // APP-07：出栈的同步出口，本页发起的粘贴读取与 parse 一并作废。
@@ -745,6 +749,8 @@ export struct AppProductPage {
         AppTrade.shared.pageVisible(this.trade.controller, false);
       }
       this.watcher?.onBackground();
+      // FU-HM-0712 R1-02：被盖住即离开待跟单卡的显示位置（卡片与通知许可同步作废）。
+      this.pending?.ui.position?.setCovered(true);
     })
     .onShown((): void => {
       // 回到本页（含登录页关掉）：等前台的自动动作、登录后的购买待办（BR-ID-10）。
@@ -752,6 +758,8 @@ export struct AppProductPage {
         AppTrade.shared.pageVisible(this.trade.controller, true);
       }
       this.watcher?.onForeground();
+      // 回到可见：取新的位置世代（外跳回来的拉取已由 watcher 发起时不重复拉）。
+      this.pending?.ui.position?.setCovered(false);
     })
     .onWillDisappear((): void => {
       if (this.pending !== null) {

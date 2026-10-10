@@ -137,7 +137,7 @@ export class PayoutAccountController implements WalletSessionAware {
     this.account = deps.account();
     this.state.sessionEpoch = deps.session.epoch;
     this.flow = new SensitiveFlow(deps, SensitiveOutcome.OP_PAYOUT, PayoutAccountController.SAVE_OPERATION,
-      PayoutAccountController.STEP_UP_ACTION, deps.session.payoutGate);
+      PayoutAccountController.STEP_UP_ACTION, deps.session.payoutGate, this.account);
     const refresh: () => void = (): void => {
       if (!this.left) {
         this.emit();
@@ -357,7 +357,8 @@ export class PayoutAccountController implements WalletSessionAware {
   }
 
   private deferral(key: string | null, ticket: number = -1): DeferredResult {
-    return new DeferredResult(key, this.pageId, this.d.session.epoch, this.d.scope(), ticket);
+    // FU-HM-0712（共性第 65 条）：会话取本页构建时的世代与归属键，不在登记时重读当前会话；恢复前 stillValid 再比较。
+    return new DeferredResult(key, this.pageId, this.state.sessionEpoch, this.boundScope, ticket);
   }
 
   /** 本页停在来自确认流程的二次验证，但它的键已不是未决记录（别处已结算，R1-01）。 */
@@ -818,6 +819,10 @@ export class PayoutAccountController implements WalletSessionAware {
   }
 
   syncPending(): void {
+    if (!this.owns()) {
+      // FU-HM-0712（共性第 65 条）：会话已变（新令牌已保存、清空通知还没到）——不按当前会话读未决记录绑进本页，等清空通知换代。
+      return;
+    }
     const s: PayoutSnapshot = this.state;
     s.storeUnavailable = this.flow.storeUnavailable();
     s.inFlightElsewhere = this.flow.inFlightElsewhere() && s.phase !== PayoutPhase.SAVING;

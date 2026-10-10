@@ -63,7 +63,6 @@ export struct AppMeTab {
     config.texts = new AppMeTexts();
     config.availableRoutes = (): string[] => AppMe.availableRoutes();
     config.earningsFlag = (): boolean | null => AppMe.earningsFlag();
-    config.identity = (): string => AppMe.scopeKey();
     config.open = (route: string, params: Record<string, Object>, identity: string): void => {
       openChecked(route, params, identity);
     };

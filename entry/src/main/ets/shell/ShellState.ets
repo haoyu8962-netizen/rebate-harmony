@@ -1,4 +1,4 @@
-import { RouteDestination } from 'core';
+import { RouteDestination, TabSwitchSignal } from 'core';
 import { SHELL_TABS, ShellTab } from './TabRoots';
 
 /**
@@ -23,6 +23,12 @@ export class ShellState {
   @Trace readonlyFlags: boolean[] = SHELL_TABS.map((_tab: ShellTab) => false);
   /** Router 已经打开过 Tab 根页（外壳重建时不再重新判定、不覆盖已保存的只读标记；只有用户点 Tab 才重新判定）。 */
   rootsOpened: boolean = false;
+
+  /**
+   * 主 Tab 切换的同步信号（FU-HM-0712 R1-02）：showRoot 改 selected 之前发出。Tab 根页切走只是不可见、不卸载，订单列表顶部待跟单卡等
+   * 显示位置靠它同步作废（AppOrders 订阅）。初值与 selected 的初值（第 0 个 Tab）一致。
+   */
+  static readonly tabSwitch: TabSwitchSignal = new TabSwitchSignal(SHELL_TABS[0].route);
 
   static indexOf(route: string): number {
     return SHELL_TABS.findIndex((tab: ShellTab) => tab.route === route);
@@ -54,6 +60,7 @@ export class ShellState {
       return false;
     }
     ShellState.onTabWillChange(destination.route as string, destination.readonly);
+    ShellState.tabSwitch.change(destination.route as string);
     const flags: boolean[] = this.readonlyFlags.slice();
     flags[index] = destination.readonly;
     this.readonlyFlags = flags;

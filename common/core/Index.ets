@@ -191,14 +191,15 @@ export {
 export {
   OrderPhase, OrderErrorView, OrderOutcome, guardedOrder, OrderRateGate, OrderListSnapshot, OrderListDeps,
   OrderListConditions, OrderListController, OrderScrollAnchor, OrderAnchorKeeper, OrderPageState,
-  OrderPageRestorer, OrderPageStateKv, OrderPageStateStore
+  OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderRenderTicket, OrderListPage, OrderInputStamp,
+  OrderInputModel, OrderInputHandlers, OrderPersistResult, FlushedPageStateKv
 } from './src/main/ets/orders/OrderListController';
 export { OrderListEntries, OrderDetailEntries } from './src/main/ets/orders/OrderEntries';
 export { OrderDetailSnapshot, OrderDetailDeps, OrderDetailController } from './src/main/ets/orders/OrderDetailController';
 export { OrderSessionHub } from './src/main/ets/orders/OrderSessionHub';
 export {
   PendingTrackCard, PendingTrackSnapshot, PendingTrackDeps, PendingTrackController, PendingTrackJumpWatcher, OrderCopy,
-  PendingDismissals, PendingPushRowSignal
+  PendingDismissals, PendingPushRowSignal, PendingTrackPosition, TabSwitchSignal
 } from './src/main/ets/orders/PendingTrackController';
 // wallet（APP-09）：钱包、提现、提现记录、实名、收款账号、劳务协议与二次验证的纯规则（向量 specs/wallet-vectors.json）与执行层
 // （页面在 features/wallet，组合在 entry）。金额隐藏偏好按 G24 挪到 clientcore（订单页与钱包页共用）；共用的 Retry-After 门控在 network。

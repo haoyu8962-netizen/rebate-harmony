@@ -335,7 +335,8 @@ export class AppWallet {
   withdraw(): WithdrawController {
     const c: WithdrawController = new WithdrawController(this.deps());
     // 进程回收后恢复已输入金额（按账号归属校验，不恢复估算）。
-    const saved: string | null = this.readWithdrawInput();
+    // FU-HM-0712（共性第 65 条）：恢复的金额按提现页表单构建时固定的账号核对，不在恢复时另读一次当前会话。
+    const saved: string | null = this.readWithdrawInput(c.formAccount);
     if (saved !== null) {
       c.restoreInput(saved);
     }
@@ -392,10 +393,10 @@ export class AppWallet {
     }
   }
 
-  private readWithdrawInput(): string | null {
+  private readWithdrawInput(account: string | null): string | null {
     const p: preferences.Preferences | null = this.prefs();
-    const account: string | null = AppWallet.account();
-    if (p === null || account === null) {
+    // 表单账号此刻仍是当前会话账号才恢复（当前会话只用于比较）。
+    if (p === null || account === null || AppWallet.account() !== account) {
       return null;
     }
     try {

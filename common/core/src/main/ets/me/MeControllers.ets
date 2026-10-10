@@ -187,6 +187,11 @@ export class MeTabSnapshot {
   blocked: boolean = false;
   /** 数据版本：每次换内容加 1。 */
   version: number = 0;
+  /**
+   * 已显示数据所属的会话归属（FU-HM-0712，APP-09 共性第 63、65 条）：与 me 同源，由执行器在构造与会话换代通知里写入；页面渲染时把它
+   * 捕获进按钮回调（复制邀请码、宫格入口），不在 apply 时现读当前会话当身份。
+   */
+  identity: string = '';
 }
 
 /**
@@ -207,6 +212,7 @@ export class MeTabController implements MeSessionAware {
   constructor(deps: MeDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.state.identity = this.boundScope;
     this.state.blocked = deps.session.readGate.active;
     deps.session.readGate.subscribe((): void => {
       if (this.state.blocked !== deps.session.readGate.active) {
@@ -248,6 +254,7 @@ export class MeTabController implements MeSessionAware {
     this.current = -1;
     this.cancelReads();
     this.boundScope = this.d.scope();
+    this.state.identity = this.boundScope;
     this.state.me = null;
     this.state.account = null;
     this.state.error = null;
@@ -298,11 +305,23 @@ export class MeTabController implements MeSessionAware {
 
   private run(keep: boolean): void {
     const s: MeTabSnapshot = this.state;
+    if (this.d.scope() !== this.boundScope) {
+      // FU-HM-0712（共性第 65 条）：会话已变（新令牌已保存、清空通知还没到）——不在这里把本页重新绑定到当前会话、不发新会话的读取；
+      // 作废在途读取并清掉已显示的旧资料（不再当作任何会话的数据显示），等清空通知（resetForSession）按新会话重建。
+      this.current = -1;
+      this.cancelReads();
+      s.me = null;
+      s.account = null;
+      s.error = null;
+      s.refreshError = null;
+      s.refreshing = false;
+      s.phase = MePhase.IDLE;
+      this.emit();
+      return;
+    }
+    // 归属未变：档位与账号此刻与本页固定身份一致（账号含在归属键里；档位可在归属不变时变化，如登录态读数），按它们决定是否读取。
     const level: string = this.d.level();
     const account: string | null = this.d.account();
-    if (this.d.scope() !== this.boundScope) {
-      this.boundScope = this.d.scope();
-    }
     s.level = level;
     if (level !== MeLevel.MEMBER || account === null) {
       // 游客、基本模式：不请求 /v1/me（G36）。
@@ -827,11 +846,59 @@ export class PrivacyCenterSnapshot {
 export class PrivacyWithdrawOutcomes {
   private pendingFlag: boolean = false;
   private failureCount: number = 0;
+  /**
+   * 撤回进行中（F-HM-24，APP-12 定向复核 RC-01）：应用级，一次只允许一个撤回在途。隐私中心控制器因会话失效等被作废重建后，新实例
+   * 继承它（按钮、开关置灰），完成前拒绝重复启动；旧实例的撤回照常走完并在结束时解除。
+   */
+  private running: boolean = false;
+  private listeners: (() => void)[] = [];
   /** App：在当前可见界面提示失败并提供【重试】（retry 回到本对象）。 */
   present: (message: MeMessage, retry: () => void) => void = (_m: MeMessage, _r: () => void) => {
   };
   /** App：再次落盘撤回写入；返回是否已可靠落盘。 */
   retryPersist: () => boolean = () => false;
+
+  /** 有撤回在途。 */
+  get inFlight(): boolean {
+    return this.running;
+  }
+
+  /** 登记一次撤回开始；已有在途返回 false（不启动）。 */
+  begin(): boolean {
+    if (this.running) {
+      return false;
+    }
+    this.running = true;
+    this.notifyRunning();
+    return true;
+  }
+
+  /** 在途撤回结束（无论结果、发起实例是否已作废）。 */
+  end(): void {
+    if (!this.running) {
+      return;
+    }
+    this.running = false;
+    this.notifyRunning();
+  }
+
+  /** 订阅在途状态变化；返回退订函数。 */
+  subscribe(listener: () => void): () => void {
+    this.listeners.push(listener);
+    return (): void => {
+      this.listeners = this.listeners.filter((l: () => void): boolean => l !== listener);
+    };
+  }
+
+  private notifyRunning(): void {
+    for (const l of this.listeners.slice()) {
+      try {
+        l();
+      } catch (e) {
+        // 单个订阅方出错不影响其余。
+      }
+    }
+  }
 
   /** 本地撤回还没可靠落盘（待处理）。 */
   get pending(): boolean {
@@ -918,6 +985,16 @@ export class PrivacyCenterController implements IdentityBoundPage {
         this.emit();
       }
     }));
+    if (outcomes !== null) {
+      // F-HM-24：控制器重建（会话失效后换成游客实例等）继承应用级的撤回进行中状态；在途撤回结束时同步解除。
+      this.state.withdrawing = outcomes.inFlight;
+      this.subs.add(outcomes.subscribe((): void => {
+        if (!this.left && this.state.withdrawing !== outcomes.inFlight) {
+          this.state.withdrawing = outcomes.inFlight;
+          this.emit();
+        }
+      }));
+    }
   }
 
   get snapshot(): PrivacyCenterSnapshot {
@@ -951,7 +1028,8 @@ export class PrivacyCenterController implements IdentityBoundPage {
 
   /** 身份档变化（会话、隐私结论）：按新身份重画。 */
   refreshLevel(): void {
-    if (this.left) {
+    // FU-HM-0712：会话已变的旧实例不显示新会话的档位（IdentityBoundSlot 随后作废并重建本实例）。
+    if (this.left || this.d.scope() !== this.identity) {
       return;
     }
     this.state.level = this.d.level();
@@ -987,10 +1065,14 @@ export class PrivacyCenterController implements IdentityBoundPage {
    * （服务端记录缺失登记为已知限制）。基本模式没有开关。identity：渲染时捕获的归属（执行时只比较，R1-06 同类）。
    */
   setPersonalization(on: boolean, identity: string): void {
-    const level: string = this.d.level();
     // R2-05：强更受限上下文里没有个性化开关，执行层同样拒绝（旧回调、直达调用都不改本机偏好、不发记录）。
-    if (this.left || level === MeLevel.BASIC || this.state.withdrawing || this.forceUpdate
+    // F-HM-24：撤回在途（应用级协调器记着，含会话失效后重建的新实例）时同样拒绝。FU-HM-0712：先核对身份再读档位。
+    if (this.left || this.state.withdrawing || this.withdrawInFlight() || this.forceUpdate
       || !identityValid(this.d, identity, this.identity)) {
+      return;
+    }
+    const level: string = this.d.level();
+    if (level === MeLevel.BASIC) {
       return;
     }
     const now: number = this.d.clock();
@@ -1044,7 +1126,8 @@ export class PrivacyCenterController implements IdentityBoundPage {
    * 已出栈的页面不再更新。返回本地撤回是否已可靠落盘（false：提示「撤回没有生效」；被拒绝的旧回调也返回 false）。
    */
   async withdraw(identity: string, permit: () => boolean): Promise<boolean> {
-    if (this.state.withdrawing || this.left || !identityValid(this.d, identity, this.identity)) {
+    if (this.state.withdrawing || this.withdrawInFlight() || this.left
+      || !identityValid(this.d, identity, this.identity)) {
       return false;
     }
     let allowed: boolean = false;
@@ -1056,6 +1139,25 @@ export class PrivacyCenterController implements IdentityBoundPage {
     if (!allowed) {
       return false;
     }
+    // F-HM-24：进行中状态登记到应用级协调器（不随本实例作废）；已有撤回在途（含别的实例）就不再启动。
+    if (this.outcomes !== null && !this.outcomes.begin()) {
+      return false;
+    }
+    try {
+      return await this.runWithdraw(identity, permit);
+    } finally {
+      if (this.outcomes !== null) {
+        this.outcomes.end();
+      }
+    }
+  }
+
+  /** 撤回在途（应用级协调器；没有协调器的测试构造只看本实例）。 */
+  private withdrawInFlight(): boolean {
+    return this.outcomes !== null && this.outcomes.inFlight;
+  }
+
+  private async runWithdraw(identity: string, permit: () => boolean): Promise<boolean> {
     this.state.withdrawing = true;
     this.state.message = null;
     this.emit();

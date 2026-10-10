@@ -286,6 +286,8 @@ struct RootPage {
             willShow: (_from: NavDestinationContext | NavBar, _to: NavDestinationContext | NavBar) => {
               // APP-07：系统返回等不经 StackNavigator 的栈变化，在转场开始时同步给剪贴板识别（当前前台界面）。
               AppClipboard.shared.stackChanged(this.pathStack.getAllPathName());
+              // FU-HM-0712 R1-02：栈非空即 Tab 根被盖住，订单列表顶部的待跟单卡同步离开显示位置。
+              AppOrders.shared.stackChanged(this.pathStack.getAllPathName());
             },
             didShow: (_from: NavDestinationContext | NavBar, _to: NavDestinationContext | NavBar) => {
               AppPrivacy.shared.navigationShown(this.pathStack.getAllPathName());

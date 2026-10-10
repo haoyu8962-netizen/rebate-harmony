@@ -219,6 +219,15 @@ export class PendingTrackController {
   private readonly unsubscribe: () => void;
   /** 禁用期内被拦下的拉取（到期后补拉一次）。 */
   private deferredFetch: boolean = false;
+  /** 离开过显示位置（vacate）、还没回来重新拉（FU-HM-0712）。 */
+  private vacated: boolean = false;
+  /** 本位置拉过（离开再回来才需要重拉；从没拉过的位置回来不替页面拉，FU-HM-0712 R1-02）。 */
+  private fetchedAny: boolean = false;
+  /**
+   * 位置世代（FU-HM-0712 第 1 轮评审 R1-03）：离开显示位置（vacate）、会话换代、页面出栈时加 1，只增不减。通知申请许可捕获它与原卡编号，
+   * 出队、调系统接口前核对——离开过位置、原卡被清掉或换成新编号（同一 attempt 重新拉到也是新编号）的旧许可永久失效。
+   */
+  private positionEpoch: number = 0;
   /**
    * 会话级关闭登记（R1-03、R2-02、R2-03）：已确认关闭的尝试与在途关闭都按 link_id|attempt_id 记在全部显示位置共用的一份里；
    * 卡片忙碌从在途关闭派生，已关闭的尝试不因任何位置的迟到查询重新出现。
@@ -311,19 +320,27 @@ export class PendingTrackController {
       return;
     }
     this.platformFilter = platform;
+    this.fetchedAny = true;
     if (this.d.session() !== PendingTrackCards.MEMBER) {
       this.clearCards();
       return;
     }
+    if (this.d.scope() !== this.boundScope) {
+      // FU-HM-0712（共性第 65 条）：本位置固定的会话已不是当前会话（新令牌已保存、清空通知还没到）——不重新绑定、不拉新会话的卡；
+      // 已显示的旧卡作废，等清空通知（resetForSession）按新会话重建。
+      this.fetchSeq++;
+      this.deferredFetch = false;
+      this.clearCards();
+      return;
+    }
+    this.vacated = false;
     if (this.gate.active) {
       // 42901 禁用期内（任一订单请求触发的）不发（R1-02）：保持已显示的卡，到期后补拉一次。
       this.deferredFetch = true;
-      this.boundScope = this.d.scope();
       return;
     }
     this.fetchSeq++;
     const seq: number = this.fetchSeq;
-    this.boundScope = this.d.scope();
     const request: ApiRequest = new ApiRequest('listPendingTracks');
     const owner: () => boolean = (): boolean => this.fetchAlive(seq);
     request.owner = owner;
@@ -411,7 +428,9 @@ export class PendingTrackController {
   dismiss(card: PendingTrackCard): boolean {
     const shown: PendingTrackCard | null = this.currentCard(card.id);
     const key: string = PendingDismissals.key(card.linkId, card.attemptId);
-    if (this.left || shown === null || this.gate.active || !this.dismissals.begin(key)) {
+    // FU-HM-0712（共性第 65 条）：关闭请求的归属用本位置固定的会话，先比较再登记，不取点击执行时的当前会话。
+    const scope: string = this.boundScope;
+    if (this.left || shown === null || this.d.scope() !== scope || this.gate.active || !this.dismissals.begin(key)) {
       return false;
     }
     const spec: Record<string, JSONValue> = PendingTrackDismiss.request(PendingTrackController.cardRecord(card));
@@ -419,7 +438,6 @@ export class PendingTrackController {
     path['link_id'] = card.linkId;
     const request: ApiRequest = new ApiRequest('dismissPendingTrack', path, '',
       JSON.stringify(spec['body']));
-    const scope: string = this.d.scope();
     const owner: () => boolean = (): boolean => !this.left && this.d.scope() === scope;
     request.owner = owner;
     request.sendAllowed = this.gate.sendAllowed;
@@ -505,7 +523,8 @@ export class PendingTrackController {
    */
   enableNotification(card: PendingTrackCard): boolean {
     const shown: PendingTrackCard | null = this.currentCard(card.id);
-    if (this.left || shown === null || !shown.notificationRow) {
+    const scope: string = this.boundScope;
+    if (this.left || shown === null || !shown.notificationRow || this.d.scope() !== scope) {
       return false;
     }
     if (this.pushRow.used || this.requestedBefore()
@@ -521,9 +540,17 @@ export class PendingTrackController {
     }
     this.pushRow.markUsed();
     this.hidePushRows();
-    const scope: string = this.d.scope();
-    this.d.requestPush((): boolean => !this.left && this.d.scope() === scope).catch((): boolean => false);
+    // FU-HM-0712 R1-03：许可捕获不可变的位置世代与原卡编号；共享权限队列出队、调系统接口前都经它复核。
+    const epoch: number = this.positionEpoch;
+    const cardId: number = shown.id;
+    this.d.requestPush((): boolean => this.permitValid(scope, epoch, cardId)).catch((): boolean => false);
     return true;
+  }
+
+  /** 通知申请许可仍有效：页面没出栈、会话没变、没离开过显示位置、原卡（同一编号）仍在显示。 */
+  private permitValid(scope: string, epoch: number, cardId: number): boolean {
+    return !this.left && this.boundScope === scope && this.d.scope() === scope && this.positionEpoch === epoch
+      && this.currentCard(cardId) !== null;
   }
 
   /** 会话变化（换账号、登出）：作废拉取并清空卡片。 */
@@ -536,7 +563,33 @@ export class PendingTrackController {
     this.gate.reset();
     this.notifyUsed = false;
     this.fetchedScope = null;
+    this.vacated = false;
+    this.positionEpoch++;
+    // 会话换代通知：随清空一起按新会话重取本位置的固定归属（A 类）。
+    this.boundScope = this.d.scope();
     this.clearCards();
+  }
+
+  /**
+   * 离开显示位置（FU-HM-0712，APP-08 共性第 46 条）：订单列表切到分享子 Tab 等，本位置的卡不再显示——同步作废卡片（旧回调按编号查不到）、
+   * 在途拉取与补拉；卡片编号只增不减，回到位置后重新拉到相同 link_id / attempt_id 的卡也是新编号，旧回调不会复活。
+   */
+  vacate(): void {
+    if (this.left) {
+      return;
+    }
+    this.fetchSeq++;
+    this.deferredFetch = false;
+    this.positionEpoch++;
+    this.vacated = this.vacated || this.fetchedAny;
+    this.clearCards();
+  }
+
+  /** 回到显示位置：离开过才重新拉一次（第一次出现由页面自己的加载入口拉）。 */
+  reoccupy(): void {
+    if (!this.left && this.vacated) {
+      this.fetch(this.platformFilter);
+    }
   }
 
   /**
@@ -550,6 +603,7 @@ export class PendingTrackController {
   /** 页面出栈（同步出口）。 */
   leave(): void {
     this.left = true;
+    this.positionEpoch++;
     this.fetchSeq++;
     this.cancelOwned();
     this.unsubscribe();
@@ -597,6 +651,122 @@ export class PendingTrackController {
   private emit(): void {
     this.state.closeDisabled = this.gate.active;
     this.onChange(this.state);
+  }
+}
+
+/**
+ * 主 Tab 切换的同步信号（FU-HM-0712 第 1 轮评审 R1-02）：entry 的 ShellState.showRoot 在改 selected 之前调 change(离开的 Tab 根路由,
+ * 目标 Tab 根路由)。Tab 外壳切走只把根页设为不可见（不卸载），页面自己的 onDisAppear 不会执行，离开显示位置要靠这个同步出口。
+ */
+export class TabSwitchSignal {
+  private listeners: ((from: string, to: string) => void)[] = [];
+  private selectedRoute: string;
+
+  constructor(selected: string) {
+    this.selectedRoute = selected;
+  }
+
+  get selected(): string {
+    return this.selectedRoute;
+  }
+
+  subscribe(listener: (from: string, to: string) => void): () => void {
+    this.listeners.push(listener);
+    return (): void => {
+      this.listeners = this.listeners.filter((l: (from: string, to: string) => void): boolean => l !== listener);
+    };
+  }
+
+  /** 选中的 Tab 将要变化（同一 Tab 不通知）。 */
+  change(to: string): void {
+    const from: string = this.selectedRoute;
+    if (from === to) {
+      return;
+    }
+    this.selectedRoute = to;
+    for (const l of this.listeners.slice()) {
+      try {
+        l(from, to);
+      } catch (e) {
+        // 订阅方出错不影响切 Tab。
+      }
+    }
+  }
+}
+
+/**
+ * 一个待跟单卡显示位置的可见性（FU-HM-0712 第 1 轮评审 R1-02；APP-08 共性第 46 条）：卡片区域挂载着、所在 Tab 被选中（tabRoute 为 null
+ * 的页面不看 Tab）、没有被别的页面盖住，才算在显示位置上。任一条件变为不满足即同步 vacate（卡片、在途拉取与通知许可作废，位置世代
+ * 加 1）；重新满足时取新的位置世代：卡片区域重新挂载、盖住的页面移走由本类 reoccupy 重拉；切回 Tab 由 App 的 Tab 显示入口
+ * （AppOrders.showTab → loadTab）拉，本类不重复拉。
+ */
+export class PendingTrackPosition {
+  private readonly controller: PendingTrackController;
+  private readonly tabRoute: string | null;
+  private tab: string | null;
+  private mounted: boolean = false;
+  private covered: boolean = false;
+  private shown: boolean = false;
+  private unsubscribe: () => void = (): void => {
+  };
+
+  constructor(controller: PendingTrackController, tabRoute: string | null, selectedTab: string | null) {
+    this.controller = controller;
+    this.tabRoute = tabRoute;
+    this.tab = selectedTab;
+  }
+
+  /** 订单列表这类 Tab 根上的位置：接主 Tab 切换信号（AppOrders 与测试同一接法）。 */
+  static onTab(controller: PendingTrackController, tabRoute: string, signal: TabSwitchSignal): PendingTrackPosition {
+    const position: PendingTrackPosition = new PendingTrackPosition(controller, tabRoute, signal.selected);
+    position.unsubscribe = signal.subscribe((_from: string, to: string): void => position.tabChanged(to));
+    return position;
+  }
+
+  get visible(): boolean {
+    return this.shown;
+  }
+
+  /** 卡片区域挂载（PendingTrackArea.onAppear）。 */
+  areaAppeared(): void {
+    this.mounted = true;
+    this.update(true);
+  }
+
+  /** 卡片区域卸载（PendingTrackArea.onDisAppear：切到分享子 Tab、页面出栈等）。 */
+  areaDisappeared(): void {
+    this.mounted = false;
+    this.update(true);
+  }
+
+  /** 选中的主 Tab 变了（TabSwitchSignal）。回到本 Tab 时由 Tab 显示入口拉，不在这里拉。 */
+  tabChanged(to: string): void {
+    this.tab = to;
+    this.update(false);
+  }
+
+  /** 被别的页面盖住 / 回到可见（导航栈非空 / 为空；NavDestination onHidden / onShown）。 */
+  setCovered(covered: boolean): void {
+    this.covered = covered;
+    this.update(true);
+  }
+
+  /** 位置注销（页面出栈）：退订 Tab 信号。 */
+  release(): void {
+    this.unsubscribe();
+  }
+
+  private update(refetch: boolean): void {
+    const now: boolean = this.mounted && !this.covered && (this.tabRoute === null || this.tab === this.tabRoute);
+    if (now === this.shown) {
+      return;
+    }
+    this.shown = now;
+    if (!now) {
+      this.controller.vacate();
+    } else if (refetch) {
+      this.controller.reoccupy();
+    }
   }
 }
 

@@ -130,6 +130,11 @@ export class WalletController implements WalletSessionAware {
   /** 本轮 getMe 失败、摘要成功后还没提示过（R2-05）。 */
   private realnamePendingNotice: boolean = false;
   private boundScope: string = '';
+  /**
+   * 本页固定的账号（FU-HM-0712，APP-09 共性第 65 条）：与 boundScope 同在构造时（或会话换代通知里随清空一起）一次性取得。实名查询、
+   * 【提现】的实名分流、摘要缓存的读写都只用它；之后对当前会话的读取只用于比较。
+   */
+  private account: string | null = null;
   /** 本实例已消费的钱包失效版本（共性第 58 条，R3-02）：小于会话版本即本实例待刷新；别的钱包实例刷新不改它。 */
   private seenDirty: number = 0;
   private left: boolean = false;
@@ -143,6 +148,7 @@ export class WalletController implements WalletSessionAware {
   constructor(deps: WalletDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.account = deps.account();
     this.seenDirty = deps.session.walletDirtyVersion;
     this.state.blocked = deps.session.readGate.active;
     this.state.sessionEpoch = deps.session.epoch;
@@ -266,8 +272,9 @@ export class WalletController implements WalletSessionAware {
    * 不当作未实名继续导航。返回是否已处理（按钮不可用时 false）。
    */
   requestWithdraw(open: () => void): boolean {
-    const account: string | null = this.d.account();
-    if (this.left || !this.withdrawAllowed || account === null) {
+    // FU-HM-0712（共性第 65 条）：按本页固定的账号分流，不取点击执行时的当前会话；会话已变（清空通知还没到）就不处理。
+    const account: string | null = this.account;
+    if (this.left || !this.owns() || !this.withdrawAllowed || account === null) {
       return false;
     }
     const nav: number = ++this.navSeq;
@@ -351,7 +358,11 @@ export class WalletController implements WalletSessionAware {
     s.sessionEpoch = this.d.session.epoch;
     s.version = this.state.version + 1;
     this.state = s;
+    // 会话换代通知：随清空一起重建本页身份（A 类）；上一个会话的内存摘要不再作为断网时的旧数据。
     this.boundScope = this.d.scope();
+    this.account = this.d.account();
+    this.lastGood = null;
+    this.lastGoodAt = 0;
     this.emit();
   }
 
@@ -359,8 +370,15 @@ export class WalletController implements WalletSessionAware {
     if (this.left) {
       return;
     }
+    if (!this.owns()) {
+      // FU-HM-0712（共性第 65 条，Android FU R1-01 同类）：会话已变（新令牌已保存、清空通知还没到）时不经 begin() 把已显示的旧摘要
+      // 重新绑定到当前会话、也不为它发新会话的请求；作废在途请求，等清空通知换代后重建。
+      this.begin();
+      this.state.refreshing = false;
+      this.emit();
+      return;
+    }
     const seq: number = this.begin();
-    this.boundScope = this.d.scope();
     const s: WalletSnapshot = this.state;
     s.earningsVisible = EarningsEntry.visible(this.d.config.earningsFlag(), this.d.earningsSince(),
       this.d.appVersion());
@@ -416,7 +434,7 @@ export class WalletController implements WalletSessionAware {
         s.version++;
         this.lastGood = summary;
         this.lastGoodAt = this.d.clock();
-        this.d.cache?.save(summary);
+        this.d.cache?.save(summary, this.account);
         this.showRealnameError();
         this.emit();
         return;
@@ -425,7 +443,7 @@ export class WalletController implements WalletSessionAware {
       if (WalletLoadFailure.transport(result)) {
         // 断网（R2-08，共性第 32 条）：保留的旧摘要一律进 stale（更新时间、【提现】置灰）。时间与内容取内存里本页最近一次成功与
         // 磁盘缓存中较新的一份；磁盘写失败或被待清理阻断时仍用本页内存（本页已经显示的数据，不会把别的账号的数据带回来）。
-        const cached: WalletCacheEntry | null = this.d.cache === null ? null : this.d.cache.load();
+        const cached: WalletCacheEntry | null = this.d.cache === null ? null : this.d.cache.load(this.account);
         const memory: boolean = this.lastGood !== null && s.summary !== null
           && (cached === null || this.lastGoodAt >= cached.fetchedAt);
         if (memory || cached !== null) {
@@ -491,7 +509,8 @@ export class WalletController implements WalletSessionAware {
    * - 失败统一处理：42901 更新共享读闸门，10405 进强更；5xxxx 等在摘要已显示时给轻提示（带 trace6），不改已知的实名状态。
    */
   private fetchRealname(seq: number): void {
-    const account: string | null = this.d.account();
+    // FU-HM-0712：实名结论按本页固定的账号落地，不在发查询时重读当前会话。
+    const account: string | null = this.account;
     if (account === null) {
       return;
     }
@@ -539,6 +558,11 @@ export class WalletController implements WalletSessionAware {
       this.d.api.cancelOwned(owner);
     }
     return this.seq;
+  }
+
+  /** 本页仍属于当前会话：构建（或换代重建）时的归属键与账号都没变（只比较，不赋值）。 */
+  private owns(): boolean {
+    return !this.left && this.d.scope() === this.boundScope && this.d.account() === this.account;
   }
 
   private alive2(seq: number): boolean {

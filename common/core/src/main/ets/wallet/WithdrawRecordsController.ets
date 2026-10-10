@@ -171,8 +171,15 @@ export class WithdrawRecordsController implements WalletSessionAware {
     if (this.left) {
       return;
     }
+    if (!this.alive) {
+      // FU-HM-0712（共性第 65 条，Android FU R1-01 同类）：会话已变（新令牌已保存、清空通知还没到）时不经 begin() 把已显示的旧列表
+      // 重新绑定到当前会话、也不为它发新会话的请求；作废在途请求，清空通知随后让本页失效。
+      this.begin();
+      this.state.refreshing = false;
+      this.emit();
+      return;
+    }
     const seq: number = this.begin();
-    this.boundScope = this.d.scope();
     const s: RecordsSnapshot = this.state;
     // 新一轮开始：旧翻页（已随 begin 取消、响应按序号丢弃）的状态同步清零（R1-08，APP-08 第 7 条）；旧游标隔离，
     // 本轮第一页回来之前不能翻页（共性第 20 条）。与旧列表配套的游标与分页状态先存下：本轮失败而保留旧列表时整套恢复
@@ -501,7 +508,8 @@ export class WithdrawRecordsController implements WalletSessionAware {
    */
   copy(withdrawalId: string, renderVersion: number, renderText: string | null = null): Promise<string> {
     const row: WalletRecord = this.tradeNo(withdrawalId);
-    if (this.left || renderVersion !== this.state.version || row['show'] !== true
+    // FU-HM-0712：复制前与本页固定的会话归属比较（会话已变时旧列表的流水号不再写入剪贴板）。
+    if (!this.alive || renderVersion !== this.state.version || row['show'] !== true
       || (renderText !== null && renderText !== row['copyText'])) {
       return Promise.resolve('not_copyable');
     }

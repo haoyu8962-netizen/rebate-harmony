@@ -16,8 +16,6 @@ export class MeTabConfig {
   availableRoutes: () => string[] = () => [];
   /** features.flags 的收益看板开关（G31，APP-09 G20）。 */
   earningsFlag: () => boolean | null = () => null;
-  /** 渲染时的会话归属（按钮回调携带）。 */
-  identity: () => string = () => '';
   /** 经 Router 以路由名打开（执行前复核身份）。 */
   open: (route: string, params: Record<string, Object>, identity: string) => void =
     (_r: string, _p: Record<string, Object>, _i: string) => {
@@ -112,7 +110,8 @@ export struct MeTabView {
     m.level = s.level;
     m.blocked = s.blocked;
     m.refreshing = s.refreshing;
-    m.identity = this.config.identity();
+    // FU-HM-0712（共性第 63、65 条）：身份与显示的数据同源（执行器快照），不在 apply 时现读当前会话。
+    m.identity = s.identity;
     m.errorText = s.error === null ? '' : s.error.text;
     m.refreshError = s.refreshError === null ? '' : s.refreshError.text;
     m.nickname = s.me === null ? '' : (typeof s.me['nickname'] === 'string' ? s.me['nickname'] as string : '');

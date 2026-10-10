@@ -1,5 +1,7 @@
 import { LengthMetrics } from '@kit.ArkUI';
-import { OrderDraftTexts, PendingTrackCard, PendingTrackController, PendingTrackSnapshot } from 'core';
+import {
+  OrderDraftTexts, PendingTrackCard, PendingTrackController, PendingTrackPosition, PendingTrackSnapshot
+} from 'core';
 import {
   CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFontWeight, CouliIcon,
   CouliInteraction, CouliLayout, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography
@@ -11,10 +13,14 @@ export class PendingTrackUi {
   @Trace cards: PendingTrackCard[] = [];
   @Trace closeDisabled: boolean = false;
   controller: PendingTrackController | null = null;
+  /** 这个显示位置的可见性（FU-HM-0712 R1-02：挂载、所在 Tab、被盖住，任一离开即同步作废）。 */
+  position: PendingTrackPosition | null = null;
   private shownToast: number = 0;
 
-  bind(controller: PendingTrackController, toast: (key: string, trace: string) => void): void {
+  bind(controller: PendingTrackController, position: PendingTrackPosition,
+    toast: (key: string, trace: string) => void): void {
     this.controller = controller;
+    this.position = position;
     controller.onChange = (s: PendingTrackSnapshot): void => {
       this.cards = s.cards.slice();
       this.closeDisabled = s.closeDisabled;
@@ -144,5 +150,13 @@ export struct PendingTrackArea {
     }
     .width('100%')
     .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
+    // FU-HM-0712（APP-08 共性第 46 条；R1-02）：卡片区域卸载（如订单列表切到分享子 Tab）经位置可见性同步作废本位置的卡片与通知许可，
+    // 重新挂载时取新的位置世代并重拉；主 Tab 切走、被别的页面盖住由 ShellState / 导航栈 / NavDestination 的同步出口接到同一个位置。
+    .onAppear(() => {
+      this.ui.position?.areaAppeared();
+    })
+    .onDisAppear(() => {
+      this.ui.position?.areaDisappeared();
+    })
   }
 }
