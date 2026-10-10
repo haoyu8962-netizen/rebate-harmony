@@ -1179,7 +1179,10 @@ export class OpenPurchaseController {
       return;
     }
     const final: string = outcome.run.final;
-    if (final === JumpTypes.FINAL_OPENED || final === JumpTypes.FINAL_BROWSER) {
+    // APP-08 共性第 33 条（BR-ATTR-21）：口令复制成功也算成功外跳——平台未安装（FINAL_NOT_INSTALLED）与复制后停下（FINAL_COPIED）
+    // 都触发「外跳后回前台拉待跟单卡」；安装提示照常显示。
+    if (final === JumpTypes.FINAL_OPENED || final === JumpTypes.FINAL_BROWSER || final === JumpTypes.FINAL_COPIED
+      || final === JumpTypes.FINAL_NOT_INSTALLED) {
       try {
         this.onJumped(jump.attempt.platform);
       } catch (e) {

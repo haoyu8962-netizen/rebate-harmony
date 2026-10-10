@@ -340,15 +340,32 @@ export class OrderStaleCache {
  * PrivacyGate 不清撤回痕迹、下次冷启动再跑；本进程内由「待清理」标记阻断读取，状态同步时重试（APP-03b 第 11 条，APP-07 第 14 条）。
  */
 export class OrderCacheCleaner {
-  static install(registry: LocalDataCleanerRegistry, cache: OrderStaleCache, before: () => void): void {
+  /**
+   * pageState：订单页面恢复记录的清理（APP-08 共性第 36 条；OrderPageRestorer.wipe，返回是否确认已删）。与缓存一样在清理前第一步执行
+   * （撤回同意 cleanOnly 与切换环境 cleanAll 都会跑到；启动时补做撤回清理之前已登记），删不掉同样报失败。
+   */
+  static install(registry: LocalDataCleanerRegistry, cache: OrderStaleCache, before: () => void,
+    pageState: (() => boolean) | null = null): void {
     registry.setBeforeClear(OrderStaleCache.CLEANER_NAME, (): void => {
       try {
         before();
       } catch (e) {
         // 页面作废出错不影响删除。
       }
-      if (!cache.clear()) {
+      const cacheCleared: boolean = cache.clear();
+      let stateCleared: boolean = true;
+      if (pageState !== null) {
+        try {
+          stateCleared = pageState();
+        } catch (e) {
+          stateCleared = false;
+        }
+      }
+      if (!cacheCleared) {
         throw new Error('order cache not cleared');
+      }
+      if (!stateCleared) {
+        throw new Error('order page state not cleared');
       }
     });
   }

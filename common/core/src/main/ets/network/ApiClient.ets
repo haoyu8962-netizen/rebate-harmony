@@ -656,6 +656,11 @@ export class ApiClient {
   private callSequence: number = 0;
   /** 服务端时间 − 本机时间（秒），由 10401 的 Date 校正。 */
   private clockOffsetSeconds: number = 0;
+  /**
+   * 展示用的服务端时钟偏移（毫秒，BR-TEXT-11；APP-08 共性第 34 条）：每个带 Date 头的响应都校一次，偏差超过 5 分钟才采用，否则为 0。
+   * 只用于相对时间（今天 / 昨天）等展示，不参与签名（签名仍按 10401 校时，BR-ID-09）。
+   */
+  private displayOffsetMillis: number = 0;
   /** 已交给传输层、还没有结果的发送。 */
   private readonly live: Set<LiveRequest> = new Set<LiveRequest>();
 
@@ -1505,6 +1510,7 @@ export class ApiClient {
         return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
       }
       if (response.failure === TransportFailure.NONE) {
+        this.observeServerDate(response.headers);
         const envelope: Envelope | null = Envelope.parse(response.body);
         if (envelope !== null && envelope.code === 10401 && prepared.installSecret !== null && !resigned
           && this.adjustClock(response.headers)) {
@@ -1882,6 +1888,28 @@ export class ApiClient {
       }
     }
     return value;
+  }
+
+  /**
+   * 服务端校准后的「现在」（毫秒；BR-TEXT-11，APP-08 共性第 34 条）：最近一次响应的 Date 与本机相差超过 5 分钟时按它校准，否则就是
+   * 本机时间。订单相对时间、缓存提示时间等展示用它做基准。
+   */
+  serverNow(): number {
+    return this.deps.clock() + this.displayOffsetMillis;
+  }
+
+  /** 记下响应头 Date 的偏差（展示用；不足 5 分钟按 0）。 */
+  private observeServerDate(headers: Record<string, string>): void {
+    const date: string | null = ApiClient.headerValue(headers, 'date');
+    if (date === null) {
+      return;
+    }
+    const serverMillis: number = Date.parse(date);
+    if (Number.isNaN(serverMillis)) {
+      return;
+    }
+    const skew: number = serverMillis - this.deps.clock();
+    this.displayOffsetMillis = Math.abs(skew) > ApiClient.CLOCK_SKEW_LIMIT_SECONDS * 1000 ? skew : 0;
   }
 
   /** 响应头 Date 与本机相差超过 300 秒时记下偏移并返回 true（BR-ID-09）。 */

@@ -104,9 +104,25 @@ export class OrderDetailController {
 
   /** 页面出栈（同步出口）：作废请求并取消传输。 */
   leave(): void {
+    if (this.left) {
+      return;
+    }
     this.left = true;
     this.begin();
     this.unsubscribe();
+    // APP-08 共性第 30 条：同步结束下拉刷新（请求已取消、迟到响应被丢弃，不能让 refreshing 依赖已取消的响应）。
+    this.endRefreshing();
+  }
+
+  private endRefreshing(): void {
+    if (this.state.refreshing) {
+      this.state.refreshing = false;
+      try {
+        this.onChange(this.state);
+      } catch (e) {
+        // 页面回调出错不影响执行器。
+      }
+    }
   }
 
   /**
@@ -114,7 +130,12 @@ export class OrderDetailController {
    * phase=idle），之后不再加载；旧账号的订单号与金额不再留在页面上。App 另把旧会话的详情页移出导航栈。
    */
   resetForSession(): void {
-    this.leave();
+    if (!this.left) {
+      // 不经 leave() 的刷新态通知：下面立即换成空白快照并通知，不再把旧会话的内容多发一次。
+      this.left = true;
+      this.begin();
+      this.unsubscribe();
+    }
     const s: OrderDetailSnapshot = new OrderDetailSnapshot();
     s.phase = OrderPhase.IDLE;
     s.failureSeq = this.state.failureSeq;

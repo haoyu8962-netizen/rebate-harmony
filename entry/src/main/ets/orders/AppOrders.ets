@@ -7,8 +7,8 @@ import {
   AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClipboardController, ConfigStore,
   CouliPreferences, FileSlot, OrderAnchorKeeper, OrderCacheCleaner, OrderCacheStore, OrderCopy, OrderDetailController,
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
-  OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPendingMark, OrderRecord, OrderSessionHub, OrderStaleCache,
-  PendingTrackController,
+  OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPendingMark,
+  OrderRecord, OrderSessionHub, OrderStaleCache, PendingTrackController,
   PendingTrackDeps, PendingTrackJumpWatcher, PermissionResult, RouteDestination, SearchApiPort, SessionState,
   TransportFailure
 } from 'core';
@@ -132,6 +132,31 @@ export class PendingTrackHost {
   }
 }
 
+/** 系统偏好上的页面恢复记录存取（读、写、删失败照常抛出，交给 OrderPageStateStore 区分）。 */
+class PreferencesPageStateKv implements OrderPageStateKv {
+  private readonly p: preferences.Preferences;
+
+  constructor(p: preferences.Preferences) {
+    this.p = p;
+  }
+
+  get(key: string): string | null {
+    const value: preferences.ValueType = this.p.getSync(key, '');
+    return typeof value === 'string' ? value : null;
+  }
+
+  put(key: string, value: string): void {
+    this.p.putSync(key, value);
+    this.p.flush().catch((): void => {
+    });
+  }
+
+  remove(key: string): void {
+    this.p.deleteSync(key);
+    this.p.flushSync();
+  }
+}
+
 /**
  * App 侧的订单（APP-08 鸿蒙）：组合 Core 的列表 / 详情 / 待跟单卡执行器与订单缓存（ApiClient、文件、本机偏好、Router、统一剪贴板写入口、
  * 强更分流、PermissionRequester），页面在 features/orders。
@@ -181,14 +206,18 @@ export class AppOrders {
   compose(context: common.Context): void {
     this.context = context;
     const store: FileOrderCacheStore = new FileOrderCacheStore(context.filesDir);
-    const cache: OrderStaleCache = new OrderStaleCache(store, (): string | null => AppOrders.account(), Date.now);
+    // 缓存的获取时刻与展示的「现在」同一基准（服务端校准时钟，BR-TEXT-11）。
+    const cache: OrderStaleCache = new OrderStaleCache(store, (): string | null => AppOrders.account(),
+      (): number => AppOrders.serverNow());
     this.cacheInstance = cache;
     // F-HM-18（APP-08 共性第 28 条）：启动时先核验落盘的「待清理」标记（在缓存目录之外），上次没删完就在任何读取之前补删。
     if (!cache.retryPendingClear()) {
       hilog.warn(DOMAIN, TAG, 'order cache pending clear not finished at launch');
     }
     // 撤回同意与切换环境：先作废订单页面与在途请求，再删缓存；删不掉报失败（撤回痕迹保留、冷启动重试）。
-    OrderCacheCleaner.install(AppConfig.cleaners, cache, (): void => this.hub.reset());
+    // APP-08 共性第 36 条：订单页面恢复记录（可能含完整订单号搜索词）同样在这一步清——先作废内存里的锚点与待恢复输入，再删落盘记录并
+    // 读回确认；删不掉报失败（撤回清理不算完成），本进程内不再按它恢复。
+    OrderCacheCleaner.install(AppConfig.cleaners, cache, (): void => this.hub.reset(), (): boolean => this.wipePageState());
     this.hub.removePages = (route: string): void => AppRouting.shared.navigator.remove(route);
     const deps: OrderListDeps = new OrderListDeps(this.api);
     deps.cache = cache;
@@ -208,6 +237,12 @@ export class AppOrders {
   private static account(): string | null {
     const client: ApiClient | null = AppNetwork.client;
     return client === null ? null : client.sessionAccount();
+  }
+
+  /** 服务端校准后的「现在」（BR-TEXT-11，APP-08 共性第 34 条）：订单相对时间、缓存提示时间的基准。 */
+  static serverNow(): number {
+    const client: ApiClient | null = AppNetwork.client;
+    return client === null ? Date.now() : client.serverNow();
   }
 
   private static scopeKey(): string {
@@ -308,6 +343,7 @@ export class AppOrders {
     const list: OrderListController = this.listInstance ?? this.fallbackList();
     const config: OrderListPageConfig = new OrderListPageConfig(list, this.mask);
     config.initialInput = this.restoreInput;
+    config.now = (): number => AppOrders.serverNow();
     // 页面按钮直接调 Core 的入口方法（整卡 → OrderDetail、「未跟单？去找回」→ FindOrder、【去首页逛逛】→ Home；R2-06）。
     config.entries = new OrderListEntries((route: string, params: Record<string, Object>): void => {
       AppRouting.shared.openInApp(route, params);
@@ -350,6 +386,7 @@ export class AppOrders {
     const orderId: string = routeString(param, 'order_id') ?? '';
     const config: OrderDetailPageConfig = new OrderDetailPageConfig(controller, this.mask, orderId);
     config.routes = Routes.all;
+    config.now = (): number => AppOrders.serverNow();
     config.helpLinks = (): OrderRecord | null => AppOrders.helpLinks();
     config.onBack = back;
     // 页面按钮直接调 Core 的入口方法（R2-06）；CONTACT_CS（G09）走统一客服出口（客服任务接入前打开帮助中心）。
@@ -433,6 +470,8 @@ export class AppOrders {
   /** 发起购买的页面：外跳后回到前台拉一次，只显示同平台那一张（G07 ②）。 */
   jumpWatcher(host: PendingTrackHost): PendingTrackJumpWatcher {
     const watcher: PendingTrackJumpWatcher = new PendingTrackJumpWatcher();
+    // 共性第 38 条：撤回同意 / 切换环境（hub.reset → resetForSession）后，旧会话点购买发起的外跳回来不再拉取。
+    watcher.session = (): number => host.controller.sessionSerial;
     watcher.onReturn = (platform: string): void => host.controller.fetch(platform);
     return watcher;
   }
@@ -499,35 +538,32 @@ export class AppOrders {
     }
   }
 
+  /** 清理（撤回同意 / 切换环境）时作废并删除页面恢复记录；返回是否确认已删（共性第 36 条）。 */
+  private wipePageState(): boolean {
+    this.restoreInput = '';
+    if (this.listConfigInstance !== null) {
+      this.listConfigInstance.initialInput = '';
+    }
+    return this.restorer.wipe();
+  }
+
+  /**
+   * R2-01（APP-08 共性第 28、36 条）：页面恢复记录经 OrderPageStateStore 读写——存储打不开、读取失败、删除失败都向上抛，
+   * 不再静默返回 null（否则清理路径把「打不开」当成「已删」）。只有确认删除落盘并读回没有记录，清理才算完成。
+   */
+  private pageStateStore(): OrderPageStateStore {
+    return new OrderPageStateStore((): OrderPageStateKv | null => {
+      const p: preferences.Preferences | null = this.prefs(CouliPreferences.APP_NAMESPACE);
+      return p === null ? null : new PreferencesPageStateKv(p);
+    }, PAGE_STATE_KEY);
+  }
+
   private readPageState(): string | null {
-    const p: preferences.Preferences | null = this.prefs(CouliPreferences.APP_NAMESPACE);
-    if (p === null) {
-      return null;
-    }
-    try {
-      const value: preferences.ValueType = p.getSync(PAGE_STATE_KEY, '');
-      return typeof value === 'string' && value.length > 0 ? value : null;
-    } catch (e) {
-      return null;
-    }
+    return this.pageStateStore().read();
   }
 
   private writePageState(value: string | null): void {
-    const p: preferences.Preferences | null = this.prefs(CouliPreferences.APP_NAMESPACE);
-    if (p === null) {
-      return;
-    }
-    try {
-      if (value === null) {
-        p.deleteSync(PAGE_STATE_KEY);
-      } else {
-        p.putSync(PAGE_STATE_KEY, value);
-      }
-      p.flush().catch((): void => {
-      });
-    } catch (e) {
-      // 写不进：不影响页面。
-    }
+    this.pageStateStore().write(value);
   }
 }
 

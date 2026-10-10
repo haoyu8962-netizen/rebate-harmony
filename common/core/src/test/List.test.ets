@@ -66,6 +66,7 @@ import walletIntegrationTest from './WalletIntegration.test';
 import walletReviewR1Test from './WalletReviewR1.test';
 import walletReviewR2Test from './WalletReviewR2.test';
 import walletReviewR3Test from './WalletReviewR3.test';
+import followupHM0710Test from './FollowupHM0710.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -141,4 +142,5 @@ export default function testsuite() {
   walletReviewR1Test();
   walletReviewR2Test();
   walletReviewR3Test();
+  followupHM0710Test();
 }

@@ -6,7 +6,7 @@
 //   金额保留，不自动提交（brief §0 第 4 条）。
 // - 被前置页盖住不算出栈：保留金额与页面实例；出栈（同步出口）作废读请求，提交 / 确认 / 放弃不取消。
 import { ApiRequest, ApiResult } from '../network/ApiClient';
-import { PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
+import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
 import { StepUpController } from './StepUpController';
 import { WalletDeps } from './WalletController';
 import { WalletJson, WalletRecord } from './WalletJson';
@@ -78,6 +78,14 @@ export class WithdrawSnapshot {
   submittedSeq: number = 0;
   /** 待确认的版本（【确认】【放弃】绑定渲染时的版本）。 */
   pendingVersion: number = 0;
+  /**
+   * 被拦下的提交引导留下的手动入口（R2-02，APP-09 共性第 51 条）：提交 / 确认的结果要求补办前置（实名、劳务协议、绑手机、登录），但发起后
+   * 本页被覆盖或发生过导航，不能自动跳——独立保存结果要求的目标，不依赖之后 rules 是否取到（rules 失败时 guide() 为 null）。页面给
+   * 绑定本页、会话与渲染版本的按钮（openKeptGuide），金额保留、不自动重提。新的提交、成功、之后发出且明确允许提现的 rules 清除。
+   */
+  guideRoute: string | null = null;
+  /** 手动入口按钮文案键（withdraw.guide.*）。 */
+  guideTextKey: string | null = null;
   version: number = 0;
   sessionEpoch: number = 0;
 
@@ -100,18 +108,24 @@ export class WithdrawController implements WalletSessionAware {
   private left: boolean = false;
   private shownOnce: boolean = false;
   /**
-   * 页面可见（onHidden 置 false，onShown 置 true）。等待结果之后的导航（前置引导页、成功后以 WithdrawRecords 替换本页）只在可见时
-   * 执行：被覆盖时引导不自动打开（引导条与按钮仍在），成功的替换推迟到回到本页时（共性第 31 条同类，R2-07）。
+   * 页面可见性与导航世代（onHidden / 本页发起导航时换代，onShown 恢复可见）。等待结果之后的导航（前置引导页、成功后以
+   * WithdrawRecords 替换本页）只在「可见且发起后没有发生过导航」时执行：否则引导不自动打开（引导条与按钮仍在），成功的替换登记后
+   * 推迟到回到本页时（共性第 31 条同类，R2-07；F-HM-21：可见性布尔值不能替代导航世代）。
    */
-  private visible: boolean = true;
+  private readonly nav: PageNavGate = new PageNavGate();
   private deferredFinish: Record<string, Object> | null = null;
+  private deferredFinishAt: DeferredResult | null = null;
   /**
    * R3-04（共性第 37 条）：等待结果时本页已被覆盖（onHidden，或本页刚发起了别的导航——导航世代变了），二次验证面板与 44001 风控弹窗
    * 不立即打开：操作状态照常结算（STEP_UP 保留原键，待确认照常同步），浮层推迟到回到本页（onShown）时再打开。
+   * F-HM-21：登记时记下原键、页面实例与会话世代（DeferredResult），恢复前逐项复核。
    */
-  private deferredStepUp: boolean = false;
+  private deferredStepUp: DeferredResult | null = null;
   private deferredRisk: WalletMessage | null = null;
+  private deferredRiskAt: DeferredResult | null = null;
   private rulesSeq: number = 0;
+  /** 估算被限流拦下时给出的 rulesError（共性第 45 条）：之后任何一次 rules 成功都清掉它。 */
+  private estimateBlockedError: WalletMessage | null = null;
   private headerSeq: number = 0;
   private payoutSeq: number = 0;
   private debounce: number = -1;
@@ -120,12 +134,23 @@ export class WithdrawController implements WalletSessionAware {
   private stepUpKey: string | null = null;
   /** 最近一次【确认上一笔】点击时捕获的身份（二次验证后的续发沿用）。 */
   private pendingClick: PendingClick | null = null;
+  /** 最近一次【提交】/【保存】点击时固定的账号与会话世代（共性第 39 条；二次验证后的原键重放沿用）。 */
+  private submitClick: PendingClick | null = null;
+  /** 用户新提交的票据（每次新提交加 1；二次验证后的原键重放不变）：首次提交得到 10003 的延后面板按它复核（R1-01）。 */
+  private submitTicket: number = 0;
   private stepUpBody: string = '';
   private stepUpSummary: string = '';
   /** 30306 阻断时的 rules 序号：只有比它新的、成功应用且 can_withdraw=true 的 rules 才解除（读取失败不恢复旧的允许状态）。 */
   private blockedAtSeq: number = -1;
   private state: WithdrawSnapshot;
+  /** 手动引导目标登记时的 rules 序号：只有比它新的、成功且 can_withdraw=true 的 rules 才清除（R2-02）。 */
+  private guideAtSeq: number = -1;
   private readonly unsubscribers: (() => void)[] = [];
+  /**
+   * 成功后以 WithdrawRecords 替换「本页这个导航实例」的出口（R2-04，APP-09 共性第 50 条）：页面在 onReady 记下自己的 navDestinationId 后
+   * 接上，只替换 / 移除这个实例，不按路由名批量移除同名提现页。没接上（拿不到实例 id）时只打开记录页，不猜着移除。
+   */
+  replaceOwn: ((route: string, params: Record<string, Object>) => void) | null = null;
   onChange: (snapshot: WithdrawSnapshot) => void = (_s: WithdrawSnapshot) => {
   };
   /** 已输入金额变了（App 持久化：进程回收后按账号归属恢复，不恢复估算）。 */
@@ -160,6 +185,12 @@ export class WithdrawController implements WalletSessionAware {
   /** 别处结算了未决记录：重新同步待确认 / 在途；原先被别处挡住、现在没有待确认了，就重取 rules（余额与次数可能已变）。 */
   private pendingSettledElsewhere(): void {
     const s: WithdrawSnapshot = this.state;
+    if (this.confirmStepUpEnded()) {
+      // R1-01（共性第 49 条）：本页停在「确认上一笔」的二次验证（面板已开或已登记延后），别的页面已把这个键结算掉——同步清除旧验证
+      // 状态与延后登记，回到正常页面状态（下面按未决存储重新同步）。
+      this.dropStepUp();
+      s.phase = WithdrawPhase.PENDING;
+    }
     const wasBlocked: boolean = s.inFlightElsewhere || s.pending !== null;
     this.syncPending();
     if (wasBlocked && s.pending === null && !s.inFlightElsewhere && !s.pendingBusy) {
@@ -177,6 +208,19 @@ export class WithdrawController implements WalletSessionAware {
     return !this.left && this.d.scope() === this.boundScope;
   }
 
+  /**
+   * 页面（表单与渲染快照）仍属于当前会话（APP-09 共性第 52 条，S0）：本页构建时的会话归属（含登录序号与会话世代）、账号与钱包会话
+   * 世代都没变。提交、确认、放弃、二次验证在生成键、读取凭据之前都先核对它——不取点击执行时的当前会话，也不等稍后的会话清空通知。
+   */
+  private owns(): boolean {
+    return this.alive && this.d.account() === this.account && this.d.session.epoch === this.state.sessionEpoch;
+  }
+
+  /** 本页表单的点击身份（账号、会话世代、归属键）。 */
+  private click(key: string): PendingClick {
+    return new PendingClick(this.account, this.state.sessionEpoch, key, this.boundScope);
+  }
+
   /** 进程回收后恢复的金额（App 已按账号归属校验）；不恢复估算结果。 */
   restoreInput(text: string): void {
     const accepted: string | null = WithdrawAmountInput.accept(text);
@@ -191,11 +235,8 @@ export class WithdrawController implements WalletSessionAware {
     if (this.left) {
       return;
     }
-    this.visible = true;
-    if (this.deferredFinish !== null) {
-      const params: Record<string, Object> = this.deferredFinish;
-      this.deferredFinish = null;
-      this.d.replaceTop('WithdrawRecords', params);
+    this.nav.back();
+    if (this.surfaceFinish()) {
       return;
     }
     this.surfaceDeferred();
@@ -354,15 +395,21 @@ export class WithdrawController implements WalletSessionAware {
       if (seq > this.headerSeq) {
         this.headerSeq = seq;
         s.rules = rules;
+        if (s.guideRoute !== null && seq > this.guideAtSeq && rules['can_withdraw'] === true) {
+          // R2-02：引导登记之后发出、成功取到且明确允许提现的 rules——前置已补办，收起手动入口。
+          s.guideRoute = null;
+          s.guideTextKey = null;
+        }
         if (s.serverBlocked && seq > this.blockedAtSeq && rules['can_withdraw'] === true) {
           // 30306 之后发出、成功取到且明确允许的 rules：解除本页的服务端阻断。
           s.serverBlocked = false;
           this.blockedAtSeq = -1;
         }
         s.version++;
-        if (header) {
+        if (header || (this.estimateBlockedError !== null && s.rulesError === this.estimateBlockedError)) {
           s.rulesError = null;
         }
+        this.estimateBlockedError = null;
         if (s.phase === WithdrawPhase.LOADING || s.phase === WithdrawPhase.ERROR) {
           s.phase = s.pending !== null ? WithdrawPhase.PENDING : WithdrawPhase.EDITING;
           s.error = null;
@@ -392,6 +439,12 @@ export class WithdrawController implements WalletSessionAware {
     if (amountFen !== null && seq === this.rulesSeq && s.inputFen === amountFen) {
       // 估算失败或超时：隐藏估算行（WithdrawEstimateFailed），不阻止提交（向量 G29_estimate_unavailable）。
       s.estimate = 'hidden';
+      if (failure.kind === WalletLoadFailure.RATE && s.rules !== null && !header) {
+        // 共性第 45 条：估算被本地限流或发送前闸门拦下——结算本次估算（隐藏）并给限流提示与【重试】（rulesError 条），不留下
+        // 没有在途请求的「计算中」。
+        s.rulesError = failure.message;
+        this.estimateBlockedError = failure.message;
+      }
     }
     if (header && s.rules === null) {
       s.phase = WithdrawPhase.ERROR;
@@ -506,32 +559,137 @@ export class WithdrawController implements WalletSessionAware {
     return WithdrawBlockGuide.of(WalletJson.int(rules, 'block_code'), WalletJson.text(rules, 'block_reason'));
   }
 
-  /** 回到本页：打开被覆盖期间推迟的二次验证面板与风控弹窗（R3-04）。 */
+  /** 登记延后结果：记下原键、本页实例与当前会话（F-HM-21）；ticket 为提交票据（只用于来自新提交的二次验证）。 */
+  private deferral(key: string | null, ticket: number = -1): DeferredResult {
+    return new DeferredResult(key, this.state.pageInstance, this.d.session.epoch, this.d.scope(), ticket);
+  }
+
+  /** 本页停在来自确认流程的二次验证，但它的键已不是未决记录（别处已结算，R1-01）。 */
+  private confirmStepUpEnded(): boolean {
+    return this.state.phase === WithdrawPhase.STEP_UP && this.stepUpPhase === SensitiveOutcome.CONFIRM
+      && this.stepUpKey !== null && !this.flow.keyOpen(this.stepUpKey);
+  }
+
+  /**
+   * 延后的二次验证此刻仍有效（R1-01，共性第 49 条）：来自确认流程 → 共享未决记录仍是这个键且未结束；来自新提交 → 提交票据未变，且没有
+   * 别的键取代这次提交。
+   */
+  private stepUpStillOpen(at: DeferredResult): boolean {
+    const key: string | null = this.stepUpKey;
+    if (key === null) {
+      return false;
+    }
+    if (this.stepUpPhase === SensitiveOutcome.CONFIRM) {
+      return this.flow.keyOpen(key);
+    }
+    return at.ticket === this.submitTicket && !this.flow.keySuperseded(key);
+  }
+
+  /** 清除旧的二次验证状态与延后登记（R1-01）；调用方随后按未决存储恢复页面状态。 */
+  private dropStepUp(): void {
+    const s: WithdrawSnapshot = this.state;
+    s.stepUpAction = null;
+    s.pendingBusy = false;
+    this.stepUpKey = null;
+    this.deferredStepUp = null;
+    this.pendingClick = null;
+  }
+
+  /** 延后结果恢复前的复核：本页仍有效、可见，页面实例与会话没变，原键一致（F-HM-21）。 */
+  private stillValid(at: DeferredResult, key: string | null): boolean {
+    return this.alive && this.nav.visible && this.state.sessionEpoch === this.d.session.epoch
+      && at.matches(key, this.state.pageInstance, this.d.session.epoch, this.boundScope);
+  }
+
+  /**
+   * 回到本页：打开被覆盖期间推迟的二次验证面板与风控弹窗（R3-04）。F-HM-21：二次验证面板要求原键仍是本页等待验证的键、状态仍停在
+   * STEP_UP；任一复核不过就丢弃登记（状态已结算，【提交】/ 待确认卡仍可手动操作）。
+   */
   private surfaceDeferred(): void {
     const s: WithdrawSnapshot = this.state;
-    if (this.deferredStepUp) {
-      this.deferredStepUp = false;
-      if (s.phase === WithdrawPhase.STEP_UP && this.stepUpKey !== null) {
+    const stepUp: DeferredResult | null = this.deferredStepUp;
+    this.deferredStepUp = null;
+    if (stepUp !== null && s.phase === WithdrawPhase.STEP_UP && this.stepUpKey !== null
+      && this.stillValid(stepUp, this.stepUpKey)) {
+      if (this.stepUpStillOpen(stepUp)) {
         s.stepUpAction = WithdrawController.STEP_UP_ACTION;
+      } else {
+        // R1-01：键已在别处结束（或这次提交已被取代）——不重开面板（也就不会再发码），恢复正常页面状态。
+        this.dropStepUp();
+        s.phase = WithdrawPhase.PENDING;
+        this.syncPending();
+        s.version++;
       }
     }
-    if (this.deferredRisk !== null) {
-      s.riskDialog = this.deferredRisk;
-      this.deferredRisk = null;
+    const risk: WalletMessage | null = this.deferredRisk;
+    const riskAt: DeferredResult | null = this.deferredRiskAt;
+    this.deferredRisk = null;
+    this.deferredRiskAt = null;
+    if (risk !== null && riskAt !== null && this.stillValid(riskAt, riskAt.key)) {
+      s.riskDialog = risk;
     }
   }
 
-  /** 本页发起导航（前置页、记录、收款账号、帮助、客服）：导航世代变了，之后到达的结果不立即弹浮层或导航（R3-04）。 */
+  /** 已登记的成功替换（G19）：复核后以 WithdrawRecords 替换本页；返回是否已替换。 */
+  private surfaceFinish(): boolean {
+    const params: Record<string, Object> | null = this.deferredFinish;
+    const at: DeferredResult | null = this.deferredFinishAt;
+    this.deferredFinish = null;
+    this.deferredFinishAt = null;
+    if (params === null || at === null || !this.stillValid(at, at.key)) {
+      return false;
+    }
+    this.exitToRecords(params);
+    return true;
+  }
+
+  /** 以 WithdrawRecords 替换本页实例（R2-04：只针对本页的导航实例，不按路由名移除）。 */
+  private exitToRecords(params: Record<string, Object>): void {
+    const own: ((route: string, params: Record<string, Object>) => void) | null = this.replaceOwn;
+    if (own !== null) {
+      own('WithdrawRecords', params);
+    } else {
+      this.d.replaceTop('WithdrawRecords', params);
+    }
+  }
+
+  /** 手动引导入口（R2-02）：被拦下的提交引导目标；rules 引导已给出同一目标时不重复给。 */
+  manualGuide(): string | null {
+    const route: string | null = this.state.guideRoute;
+    if (route === null) {
+      return null;
+    }
+    const g: WalletRecord | null = this.guide();
+    return g !== null && g['route'] === route ? null : route;
+  }
+
+  /**
+   * 手动引导按钮（R2-02）：renderVersion / renderRoute 是按钮渲染时捕获的版本与目标（共性第 4 条）；本页可见、仍属当前会话、版本与目标
+   * 都对上才打开。不重提提现，金额保留。
+   */
+  openKeptGuide(renderVersion: number, renderRoute: string): boolean {
+    const s: WithdrawSnapshot = this.state;
+    if (!this.owns() || !this.nav.visible || s.guideRoute === null || s.guideRoute !== renderRoute
+      || renderVersion !== s.version) {
+      return false;
+    }
+    this.navigate(renderRoute, {});
+    s.version++;
+    this.emit();
+    return true;
+  }
+
+  /** 本页发起导航（前置页、记录、收款账号、帮助、客服）：导航世代变了，之后到达的结果不立即弹浮层或导航（R3-04、F-HM-21）。 */
   private navigate(route: string, params: Record<string, Object>): void {
-    this.visible = false;
+    this.nav.away();
     this.d.open(route, params);
   }
 
   /** 引导按钮：由用户点按钮才打开前置页（不自动跳，G05）。renderRoute 是按钮构建时显示的目标（共性第 4 条）。 */
   openGuide(renderVersion: number, renderRoute: string | null = null): boolean {
     const g: WalletRecord | null = this.guide();
-    if (this.left || renderVersion !== this.state.version || g === null || typeof g['route'] !== 'string'
-      || (renderRoute !== null && renderRoute !== g['route'])) {
+    if (!this.owns() || !this.nav.visible || renderVersion !== this.state.version || g === null
+      || typeof g['route'] !== 'string' || (renderRoute !== null && renderRoute !== g['route'])) {
       return false;
     }
     this.navigate(g['route'] as string, {});
@@ -541,7 +699,7 @@ export class WithdrawController implements WalletSessionAware {
   get canSubmit(): boolean {
     const s: WithdrawSnapshot = this.state;
     const v: WalletRecord | null = this.view();
-    return !this.left && s.phase === WithdrawPhase.EDITING && v !== null && v['submitEnabled'] === true
+    return this.owns() && s.phase === WithdrawPhase.EDITING && v !== null && v['submitEnabled'] === true
       && s.pending === null && !s.inFlightElsewhere && !s.storeUnavailable && !s.serverBlocked
       && !this.d.session.withdrawGate.active;
   }
@@ -559,6 +717,8 @@ export class WithdrawController implements WalletSessionAware {
     s.phase = WithdrawPhase.SUBMITTING;
     s.banner = null;
     s.notice = null;
+    s.guideRoute = null;
+    s.guideTextKey = null;
     this.emit();
     this.send(JSON.stringify(body), JSON.stringify(summary), null, null);
     return true;
@@ -567,16 +727,27 @@ export class WithdrawController implements WalletSessionAware {
   private send(body: string, summary: string, replayKey: string | null, token: string | null): void {
     this.stepUpBody = body;
     this.stepUpSummary = summary;
-    this.flow.submit(body, summary, replayKey, token).then((step: SensitiveStep) => this.apply(step, null));
+    // F-HM-21：请求发起时捕获导航世代，结果到达时与可见性一起校验。
+    // 共性第 39 条（S0）：用户的新提交在此固定点击时的账号与会话世代（页面绑定的账号、本页会话世代）；二次验证后的原键重放沿用
+    // 同一份，不在重放时改取当前会话。
+    if (replayKey === null || this.submitClick === null) {
+      this.submitClick = this.click('');
+    }
+    if (replayKey === null) {
+      this.submitTicket++;
+    }
+    const click: PendingClick = this.submitClick;
+    const gen: number = this.nav.capture();
+    this.flow.submit(body, summary, replayKey, token, click)
+      .then((step: SensitiveStep) => this.apply(step, null, gen));
   }
 
   /** 【确认上一笔提现】（renderVersion / renderKey 绑定渲染时的待确认版本与未决键，共性第 4 条）。 */
   confirm(renderVersion: number, renderKey: string | null = null): boolean {
     const s: WithdrawSnapshot = this.state;
     const p: PendingView | null = s.pending;
-    if (this.left || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
-      || (renderKey !== null && renderKey !== p.key) || this.d.session.withdrawGate.active || p.inFlight
-      || this.d.account() !== this.account || this.d.session.epoch !== s.sessionEpoch) {
+    if (!this.owns() || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
+      || (renderKey !== null && renderKey !== p.key) || this.d.session.withdrawGate.active || p.inFlight) {
       return false;
     }
     s.pendingBusy = true;
@@ -584,9 +755,10 @@ export class WithdrawController implements WalletSessionAware {
     this.emit();
     const version: number = this.flow.pendingVersion;
     // 点击时捕获账号、会话世代与原键（共性第 14 条）；二次验证后的续发沿用同一份。
-    const click: PendingClick = new PendingClick(this.account, s.sessionEpoch, p.key);
+    const click: PendingClick = this.click(p.key);
     this.pendingClick = click;
-    this.flow.confirm(p.key, null, click).then((step: SensitiveStep) => this.apply(step, version));
+    const gen: number = this.nav.capture();
+    this.flow.confirm(p.key, null, click).then((step: SensitiveStep) => this.apply(step, version, gen));
     return true;
   }
 
@@ -594,24 +766,25 @@ export class WithdrawController implements WalletSessionAware {
   abandon(renderVersion: number, renderKey: string | null = null): boolean {
     const s: WithdrawSnapshot = this.state;
     const p: PendingView | null = s.pending;
-    if (this.left || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
-      || (renderKey !== null && renderKey !== p.key) || this.d.session.withdrawGate.active || p.inFlight
-      || this.d.account() !== this.account || this.d.session.epoch !== s.sessionEpoch) {
+    if (!this.owns() || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
+      || (renderKey !== null && renderKey !== p.key) || this.d.session.withdrawGate.active || p.inFlight) {
       return false;
     }
     s.pendingBusy = true;
     s.banner = null;
     this.emit();
     const version: number = this.flow.pendingVersion;
-    this.flow.abandon(p.key, new PendingClick(this.account, s.sessionEpoch, p.key))
-      .then((step: SensitiveStep) => this.apply(step, version));
+    const gen: number = this.nav.capture();
+    this.flow.abandon(p.key, this.click(p.key))
+      .then((step: SensitiveStep) => this.apply(step, version, gen));
     return true;
   }
 
   /** 二次验证面板（页面 bindSheet 用；关闭后焦点回【提交】）。 */
   createStepUp(): StepUpController | null {
-    const account: string | null = this.d.account();
-    if (this.left || this.state.stepUpAction === null || account === null) {
+    const account: string | null = this.account;
+    // 共性第 52 条：面板绑定本页表单所属的账号与会话；会话已变（即使清空通知还没到）就不开面板、不发码。
+    if (!this.owns() || this.state.stepUpAction === null || account === null) {
       return null;
     }
     const c: StepUpController = new StepUpController(this.d, WithdrawController.STEP_UP_ACTION, account);
@@ -622,7 +795,7 @@ export class WithdrawController implements WalletSessionAware {
   /** 拿到 token：沿用原键重放 1 次（提交）或带 token 再确认（待确认）。 */
   private afterStepUp(token: string): void {
     const s: WithdrawSnapshot = this.state;
-    if (!this.alive || s.stepUpAction === null) {
+    if (!this.owns() || s.stepUpAction === null) {
       return;
     }
     s.stepUpAction = null;
@@ -647,7 +820,8 @@ export class WithdrawController implements WalletSessionAware {
         this.emit();
         return;
       }
-      this.flow.confirm(key, token, click).then((step: SensitiveStep) => this.apply(step, version));
+      const gen: number = this.nav.capture();
+      this.flow.confirm(key, token, click).then((step: SensitiveStep) => this.apply(step, version, gen));
     }
   }
 
@@ -688,7 +862,7 @@ export class WithdrawController implements WalletSessionAware {
   appeal(): void {
     this.state.riskDialog = null;
     this.emit();
-    this.visible = false;
+    this.nav.away();
     this.d.customerService();
   }
 
@@ -721,12 +895,22 @@ export class WithdrawController implements WalletSessionAware {
     return true;
   }
 
-  private apply(step: SensitiveStep, version: number | null): void {
+  /**
+   * 一次结果落地。gen 是请求发起时的导航世代（F-HM-21）：current = 此刻可见且发起后没有发生过导航。不是 current 时：前置引导与重新同意
+   * 只结算状态（引导条与按钮仍在，用户手动打开）；二次验证面板、风控弹窗、成功替换登记为延后结果（原键、页面、会话），回到本页或此刻
+   * 已经回到本页时复核后恢复。
+   */
+  private apply(step: SensitiveStep, version: number | null, gen: number): void {
     const s: WithdrawSnapshot = this.state;
+    const current: boolean = this.nav.current(gen);
     if (!this.alive) {
       // 已出栈或会话变了：响应不改页面，结论只落到未决记录（ApiClient 已结算）。提交成功仍标记钱包需要刷新（同一会话）。
-      if (this.d.scope() === this.boundScope && step.action === SensitiveOutcome.DONE) {
-        this.d.session.walletNeedsRefresh = true;
+      const succeeded: boolean = step.action === SensitiveOutcome.DONE
+        || (step.action === SensitiveOutcome.ALREADY_DONE && step.result.code === 0);
+      if (this.d.scope() === this.boundScope && succeeded) {
+        // 共性第 53 条：不只留标记——通知仍存在的钱包页（同一会话）作废成功前的旧摘要请求并刷新。共性第 58 条（R3-01）：确认 / 放弃
+        // 返回 ALREADY_DONE 且原结果成功（原提现已受理）同样要通知，与在页时 finish 的口径一致。
+        this.d.session.markWalletDirty(this.boundScope);
       }
       return;
     }
@@ -746,12 +930,12 @@ export class WithdrawController implements WalletSessionAware {
     }
     switch (action) {
       case SensitiveOutcome.DONE:
-        this.finish(step.data);
+        this.finish(step.data, current);
         return;
       case SensitiveOutcome.ALREADY_DONE:
         s.notice = WalletMessages.of('pending_confirm.already_done', '', false, false);
         if (step.result.code === 0) {
-          this.finish(step.data);
+          this.finish(step.data, current);
           return;
         }
         s.banner = msg;
@@ -760,11 +944,16 @@ export class WithdrawController implements WalletSessionAware {
         this.stepUpPhase = step.phase === SensitiveOutcome.SUBMIT ? SensitiveOutcome.SUBMIT : SensitiveOutcome.CONFIRM;
         this.stepUpKey = step.key;
         s.phase = WithdrawPhase.STEP_UP;
-        if (this.visible) {
+        if (current) {
           s.stepUpAction = WithdrawController.STEP_UP_ACTION;
         } else {
-          // R3-04：被覆盖时只结算到 STEP_UP（原键保留在 stepUpKey），面板推迟到回到本页。
-          this.deferredStepUp = true;
+          // R3-04：被覆盖时只结算到 STEP_UP（原键保留在 stepUpKey），面板推迟到回到本页（F-HM-21：登记原键、页面、会话）。
+          this.deferredStepUp = this.deferral(step.key,
+            this.stepUpPhase === SensitiveOutcome.SUBMIT ? this.submitTicket : -1);
+          if (this.nav.visible) {
+            // 发起后离开过、此刻已回到本页：onShown 已过，按登记复核后恢复。
+            this.surfaceDeferred();
+          }
         }
         this.emit();
         return;
@@ -772,8 +961,15 @@ export class WithdrawController implements WalletSessionAware {
         s.banner = msg;
         const route: string | null = step.route;
         const data: WalletRecord = step.result.data as WalletRecord;
-        if (!this.visible) {
-          // 等待期间本页被覆盖：不自动打开前置页（回来后引导条与按钮仍在）。
+        if (!current) {
+          // 等待期间本页被覆盖或发生过导航（含离页后又返回，F-HM-21）：不自动打开前置页。R2-02（共性第 51 条）：独立保存结果要求的
+          // 引导目标并给手动入口（openKeptGuide）——不依赖之后重取的 rules 是否成功；金额保留、不自动重提。
+          const text: string | null = route === null ? null : WithdrawController.guideText(route);
+          if (route !== null && text !== null) {
+            s.guideRoute = route;
+            s.guideTextKey = text;
+            this.guideAtSeq = this.rulesSeq;
+          }
         } else if (route !== null) {
           this.navigate(route, {});
         } else if (step.result.code === 10004) {
@@ -785,11 +981,15 @@ export class WithdrawController implements WalletSessionAware {
         break;
       }
       case SensitiveOutcome.RISK_BLOCKED:
-        if (this.visible) {
+        if (current) {
           s.riskDialog = msg;
         } else {
-          // R3-04：被覆盖时不弹窗，回到本页再弹；操作状态照常结算。
+          // R3-04：被覆盖时不弹窗，回到本页再弹；操作状态照常结算（F-HM-21：登记原键、页面、会话，恢复前复核）。
           this.deferredRisk = msg;
+          this.deferredRiskAt = this.deferral(step.key);
+          if (this.nav.visible) {
+            this.surfaceDeferred();
+          }
         }
         break;
       case SensitiveOutcome.ABANDONED:
@@ -810,12 +1010,15 @@ export class WithdrawController implements WalletSessionAware {
   }
 
   /** 成功（或放弃时得知已受理且原结果成功）：以 WithdrawRecords {withdrawal_id} 替换本页（G19），标记钱包需要刷新。 */
-  private finish(data: WalletRecord): void {
+  private finish(data: WalletRecord, current: boolean): void {
     const s: WithdrawSnapshot = this.state;
     s.phase = WithdrawPhase.DONE;
     s.pending = null;
+    s.guideRoute = null;
+    s.guideTextKey = null;
     s.submittedSeq++;
-    this.d.session.walletNeedsRefresh = true;
+    // 共性第 53 条：通知仍存在的钱包页（同一会话）作废旧摘要请求并刷新，不只留标记。
+    this.d.session.markWalletDirty(this.boundScope);
     const id: string | null = WalletJson.text(data, 'withdrawal_id');
     const params: Record<string, Object> = {};
     if (id !== null && id.length > 0) {
@@ -823,16 +1026,38 @@ export class WithdrawController implements WalletSessionAware {
     }
     this.onInputChanged('');
     this.emit();
-    if (!this.visible) {
+    if (!current) {
+      // F-HM-21：发起后被覆盖或发生过导航——登记延后替换（页面、会话），回到本页（或此刻已回到本页）复核后执行。
       this.deferredFinish = params;
+      this.deferredFinishAt = this.deferral(null);
+      if (this.nav.visible) {
+        this.surfaceFinish();
+      }
       return;
     }
-    this.d.replaceTop('WithdrawRecords', params);
+    this.exitToRecords(params);
   }
 
-  /** 页面被覆盖（进入其他页面）：之后到达的结果不自动导航（见 visible）。 */
+  /** 手动引导按钮的文案键；不认识的目标返回 null（不给按钮）。 */
+  static guideText(route: string): string | null {
+    if (route === 'RealName') {
+      return 'withdraw.guide.realname';
+    }
+    if (route === 'LaborAgreement') {
+      return 'withdraw.guide.labor';
+    }
+    if (route === 'BindPhone') {
+      return 'withdraw.guide.bind_phone';
+    }
+    if (route === 'Login') {
+      return 'withdraw.guide.login';
+    }
+    return null;
+  }
+
+  /** 页面被覆盖（进入其他页面）：导航世代换代，之后到达的结果不自动导航（见 PageNavGate）。 */
   onHidden(): void {
-    this.visible = false;
+    this.nav.away();
   }
 
   /** 按当前账号的未决记录同步待确认状态（进入、冷启动、登录成功、回前台、每次结果之后）。 */
@@ -872,9 +1097,11 @@ export class WithdrawController implements WalletSessionAware {
   resetForSession(): void {
     const epoch: number = this.d.session.epoch;
     this.leave();
-    this.deferredStepUp = false;
+    this.deferredStepUp = null;
     this.deferredRisk = null;
+    this.deferredRiskAt = null;
     this.deferredFinish = null;
+    this.deferredFinishAt = null;
     const s: WithdrawSnapshot = new WithdrawSnapshot(this.state.pageInstance);
     s.sessionEpoch = epoch;
     s.version = this.state.version + 1;

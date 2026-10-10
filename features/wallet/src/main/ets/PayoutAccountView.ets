@@ -11,12 +11,9 @@ import {
 } from 'designsystem';
 import { StepUpPanel, stepUpWillDismiss } from './StepUpSheet';
 import {
-  DraftWalletTexts, firstErrorField, fmt1, maskedSpoken, PendingAlertCard, RenderBound, scrollToComponent,
+  DraftWalletTexts, fmt1, maskedSpoken, PendingAlertCard, RenderBound, scrollToComponent,
   WalletKeyValueRow, WalletNoticeBar, WalletTexts
 } from './WalletViewKit';
-
-/** 表单字段的显示顺序（字段错误时取第一个）。 */
-const PAYOUT_FIELD_ORDER: string[] = PayoutAccountForm.FIELD_ORDER;
 
 type JSONValue = Object | null;
 
@@ -50,6 +47,9 @@ class PayoutModel {
   @Trace fieldErrors: Map<string, string> = new Map<string, string>();
   @Trace errorText: string = '';
   @Trace bannerText: string = '';
+  /** 被拦下的自动引导留下的手动入口（R1-03）：目标路由与按钮文案；没有时为空串。 */
+  @Trace guideRoute: string = '';
+  @Trace guideText: string = '';
   @Trace pending: PendingView | null = null;
   @Trace pendingBusy: boolean = false;
   @Trace pendingVersion: number = 0;
@@ -124,6 +124,8 @@ export struct PayoutAccountPage {
     m.fieldErrors = errors;
     m.errorText = s.error === null ? '' : s.error.text;
     m.bannerText = s.banner === null ? '' : s.banner.text;
+    m.guideRoute = s.guideRoute ?? '';
+    m.guideText = s.guideTextKey === null ? '' : this.t(s.guideTextKey);
     m.pending = s.pending;
     m.pendingBusy = s.pendingBusy;
     m.pendingVersion = s.pendingVersion;
@@ -135,6 +137,19 @@ export struct PayoutAccountPage {
     m.pendingCard = layout.pendingCard;
     m.busyElsewhere = layout.busyNotice;
     const ui: UIContext = this.getUIContext();
+    // F-HM-20（RC-02）：新一批字段错误先定焦点——只从当前方式可见的字段里选；没有可见出错字段时焦点移到错误条（执行层已设
+    // banner），读屏移焦即读出错误条，不再另外播报同一条 banner（避免重复播报）。
+    let fieldFocus: string | null = null;
+    let bannerFocus: boolean = false;
+    const newFieldErrors: boolean = s.fieldErrorSeq !== this.lastFieldSeq;
+    if (newFieldErrors) {
+      this.lastFieldSeq = s.fieldErrorSeq;
+      fieldFocus = PayoutAccountForm.firstVisibleErrorField(Array.from(errors.keys()), s.form.method);
+      bannerFocus = fieldFocus === null && errors.size > 0 && s.banner !== null;
+      if (bannerFocus && s.banner !== null) {
+        this.lastBannerSeq = s.banner.seq;
+      }
+    }
     if (s.banner !== null && s.banner.seq !== this.lastBannerSeq) {
       this.lastBannerSeq = s.banner.seq;
       CouliAnnounce.say(ui, s.banner.text);
@@ -148,24 +163,27 @@ export struct PayoutAccountPage {
       this.lastRiskSeq = s.riskDialog.seq;
       this.openRiskDialog(s.riskDialog.text);
     }
-    if (s.fieldErrorSeq !== this.lastFieldSeq) {
-      this.lastFieldSeq = s.fieldErrorSeq;
-      // 字段错误：即时播报一次，焦点移到第一个出错的输入框（保留输入，APP-05b 第 6 条）。
-      const first: string | undefined = firstErrorField(PAYOUT_FIELD_ORDER, errors);
-      if (first !== undefined) {
-        CouliAnnounce.say(ui, errors.get(first) ?? '');
-        setTimeout(() => {
-          // 滚到首个出错字段并移焦点（共性第 24 条），保留输入。
-          // 收款方式组没有输入框：焦点落到当前选中的选项（R3-03，共性第 36 条）。
-          const target: string = PayoutAccountForm.errorFocusId(first, this.model.method);
-          scrollToComponent(ui, this.formScroller, 'payout_scroll', target);
-          try {
-            ui.getFocusController().requestFocus(target);
-          } catch (e) {
-            // 输入框尚未出现时忽略。
-          }
-        }, 0);
-      }
+    if (fieldFocus !== null) {
+      const first: string = fieldFocus;
+      // 字段错误：即时播报一次，焦点移到第一个可见的出错输入框（保留输入，APP-05b 第 6 条）。
+      CouliAnnounce.say(ui, errors.get(first) ?? '');
+      setTimeout(() => {
+        // 滚到首个出错字段并移焦点（共性第 24 条），保留输入。
+        // 收款方式组没有输入框：焦点落到当前选中的选项（R3-03，共性第 36 条）。
+        const target: string = PayoutAccountForm.errorFocusId(first, this.model.method);
+        scrollToComponent(ui, this.formScroller, 'payout_scroll', target);
+        try {
+          ui.getFocusController().requestFocus(target);
+        } catch (e) {
+          // 输入框尚未出现时忽略。
+        }
+      }, 0);
+    } else if (bannerFocus) {
+      // 只有隐藏字段出错：焦点（键盘 + 读屏）移到实际存在的错误条 payout_banner；不对不存在的控件请求焦点。
+      setTimeout(() => {
+        scrollToComponent(ui, this.formScroller, 'payout_scroll', PayoutAccountForm.BANNER_ID);
+        CouliFocusReturn.to(ui, PayoutAccountForm.BANNER_ID);
+      }, 0);
     }
     const key: string = s.pending === null ? '' : s.pending.key;
     if (key.length > 0 && key !== this.lastPendingKey) {
@@ -281,6 +299,11 @@ export struct PayoutAccountPage {
         }
       })
     }
+  }
+
+  /** 手动引导按钮的渲染绑定（R2-03）：版本、目标路由（text）与按钮文案（extra）。 */
+  private guideBound(): RenderBound[] {
+    return [new RenderBound(this.model.version, this.model.guideRoute, 0, this.model.guideText)];
   }
 
   private pendingBound(): RenderBound[] {
@@ -624,7 +647,23 @@ export struct PayoutAccountPage {
         Scroll(this.formScroller) {
           Column({ space: CouliSpacing.space3 }) {
             if (this.model.bannerText.length > 0) {
-              WalletNoticeBar({ text: this.model.bannerText, tone: 'error', barId: 'payout_banner' })
+              WalletNoticeBar({
+                text: this.model.bannerText, tone: 'error', barId: PayoutAccountForm.BANNER_ID, focusTarget: true
+              })
+            }
+            if (this.model.guideRoute.length > 0 && this.model.guideText.length > 0) {
+              // R1-03：自动引导被拦下（等待期间离开过本页）——提示旁的手动入口；输入保留、不重提保存。
+              // R2-03（共性第 4 条）：按钮构建时捕获不可变的版本、目标与文案（RenderBound），回调只传捕获值，不在执行时读最新快照。
+              ForEach(this.guideBound(), (bound: RenderBound) => {
+                CouliButton({
+                  text: bound.extra,
+                  variant: CouliButtonVariant.SECONDARY,
+                  buttonId: 'payout_guide',
+                  onTap: () => {
+                    this.config.controller.openGuide(bound.version, bound.text);
+                  }
+                })
+              }, (bound: RenderBound) => 'payout_guide_' + bound.id)
             }
             this.pendingSection()
             if (this.model.phase === PayoutPhase.FORM || this.model.phase === PayoutPhase.SAVING

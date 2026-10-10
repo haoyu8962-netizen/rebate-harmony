@@ -852,11 +852,27 @@ export class PayoutAccountForm {
 
   /** 字段错误的显示与焦点顺序（收款方式组在最前）。 */
   static readonly FIELD_ORDER: string[] = ['payout_method', 'alipay_logon_id', 'card_no', 'bank_name', 'payee_name'];
+  /** 收款账号页错误条的控件 id（没有可见出错字段时的焦点目标，F-HM-20）。 */
+  static readonly BANNER_ID: string = 'payout_banner';
 
   /** 当前收款方式下页面上实际显示的字段（含收款方式组）：不在其中的字段错误没有可见位置（R3-03）。 */
   static visibleFields(method: string): string[] {
     return method === 'bank_card' ? ['payout_method', 'card_no', 'bank_name', 'payee_name']
       : ['payout_method', 'alipay_logon_id', 'payee_name'];
+  }
+
+  /**
+   * 字段错误的焦点字段（F-HM-20，RC-02）：只从当前方式实际显示的字段里按 FIELD_ORDER 取第一个出错的；隐藏字段（如银行卡方式下的
+   * alipay_logon_id）不参与。返回 null 表示没有可见的出错字段——页面改把焦点移到错误条（payout_banner，执行层此时已设 banner）。
+   */
+  static firstVisibleErrorField(fields: string[], method: string): string | null {
+    const shown: string[] = PayoutAccountForm.visibleFields(method);
+    for (const f of PayoutAccountForm.FIELD_ORDER) {
+      if (shown.indexOf(f) >= 0 && fields.indexOf(f) >= 0) {
+        return f;
+      }
+    }
+    return null;
   }
 
   /**

@@ -40,6 +40,9 @@ class WithdrawModel {
   @Trace version: number = 0;
   @Trace view: WalletRecord | null = null;
   @Trace guide: WalletRecord | null = null;
+  /** 被拦下的提交引导留下的手动入口（R2-02）：目标路由与按钮文案；没有时为空串。 */
+  @Trace keptGuideRoute: string = '';
+  @Trace keptGuideText: string = '';
   @Trace estimate: JSONValue = 'hidden';
   @Trace inputText: string = '';
   @Trace inputValid: boolean = false;
@@ -117,6 +120,10 @@ export struct WithdrawView {
     m.version = s.version;
     m.view = c.view();
     m.guide = c.guide();
+    const kept: string | null = c.manualGuide();
+    const keptText: string | null = kept === null ? null : WithdrawController.guideText(kept);
+    m.keptGuideRoute = kept === null || keptText === null ? '' : kept;
+    m.keptGuideText = kept === null || keptText === null ? '' : this.t(keptText);
     m.estimate = s.estimate;
     m.inputText = s.inputText;
     m.inputValid = s.inputFen !== null;
@@ -543,6 +550,32 @@ export struct WithdrawView {
     .backgroundColor(CouliColors.backgroundSurface)
   }
 
+  /** 手动引导按钮的渲染绑定（R2-02，共性第 4 条）：版本、目标路由（text）与按钮文案（extra）。 */
+  private keptGuideBound(): RenderBound[] {
+    return [new RenderBound(this.model.version, this.model.keptGuideRoute, 0, this.model.keptGuideText)];
+  }
+
+  /**
+   * 被拦下的提交引导的手动入口（R2-02，共性第 51 条）：rules 重取失败、guide() 为 null 时也有按钮；回调只传构建时捕获的版本与目标，
+   * 金额保留、不自动重提。
+   */
+  @Builder
+  keptGuideButton() {
+    if (this.model.keptGuideRoute.length > 0 && this.model.keptGuideText.length > 0) {
+      ForEach(this.keptGuideBound(), (bound: RenderBound) => {
+        CouliButton({
+          text: bound.extra,
+          variant: CouliButtonVariant.SECONDARY,
+          buttonSize: CouliButtonSize.COMPACT,
+          buttonId: 'withdraw_kept_guide',
+          onTap: () => {
+            this.config.controller.openKeptGuide(bound.version, bound.text);
+          }
+        })
+      }, (bound: RenderBound) => 'withdraw_kept_guide_' + bound.id)
+    }
+  }
+
   private guideBound(): RenderBound[] {
     const g: WalletRecord | null = this.model.guide;
     const route: JSONValue | undefined = g === null ? undefined : g['route'];
@@ -656,6 +689,7 @@ export struct WithdrawView {
       if (this.model.bannerText.length > 0) {
         WalletNoticeBar({ text: this.model.bannerText, tone: 'error', barId: 'withdraw_banner' })
       }
+      this.keptGuideButton()
       if (this.model.rulesError.length > 0) {
         // 已有 rules 时重取失败（5xxxx 带 trace6）：常驻提示 +【重试】（共性第 30 条）。
         WalletNoticeBar({
@@ -720,6 +754,7 @@ export struct WithdrawView {
               if (this.model.bannerText.length > 0) {
                 WalletNoticeBar({ text: this.model.bannerText, tone: 'error', barId: 'withdraw_banner' })
               }
+              this.keptGuideButton()
               this.pendingSection()
               if (this.model.body === FundPageLayout.ERROR) {
                 ErrorState({

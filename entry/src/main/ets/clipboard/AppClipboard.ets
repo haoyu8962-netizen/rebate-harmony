@@ -237,6 +237,18 @@ export class AppClipboard {
   readonly modals: PurchaseModalRegistry = new PurchaseModalRegistry();
   private announcedPrompt: number = 0;
   private announcedResult: number = 0;
+  /**
+   * 平台购买状态（APP-07 共性第 32 条，03 §7.4）：50301 覆盖优先、其次 features.platform_status，与搜索卡同一来源（EntryAbility 用
+   * AppTrade.platformStatus 注入，避免剪贴板与购买模块互相导入）。subscribePurchase 订阅它的变化（配置与 50301 覆盖）。
+   */
+  purchaseStatus: (platform: string) => string = (_p: string): string => ProductCardMapper.PURCHASE_ON;
+  subscribePurchase: (listener: () => void) => () => void = (_l: () => void): () => void => (): void => {
+  };
+  private purchaseUnsubscribe: (() => void) | null = null;
+  /** 购买状态变化次数：多卡弹层的行键带上它，状态变了整行重建。 */
+  private purchaseVersion: number = 0;
+  /** 当前显示的多卡结果（购买状态变化时按它重建行）。 */
+  private shownCards: ClipboardResultView | null = null;
 
   /** 惰性创建（@ObservedV2 类的实例在装饰之后创建才可观察，见 AppPrivacy.shared）。 */
   get uiModel(): ClipboardUiModel {
@@ -439,6 +451,7 @@ export class AppClipboard {
       m.resultSearchable = false;
       m.rows = [];
       m.resultBinding = null;
+      this.shownCards = null;
       return;
     }
     if (r.serial === m.resultSerial) {
@@ -455,7 +468,11 @@ export class AppClipboard {
     m.resultSearchable = r.kind === ClipboardResultView.UNRECOGNIZED;
     m.resultText = r.kind === ClipboardResultView.CARD_LIST ? ClipboardDraftTexts.text('clipboard.card_list.title')
       : AppClipboard.noticeText(r.textKey, r.traceId);
-    m.rows = r.kind === ClipboardResultView.CARD_LIST ? AppClipboard.rowsOf(r, binding) : [];
+    this.shownCards = r.kind === ClipboardResultView.CARD_LIST ? r : null;
+    if (r.kind === ClipboardResultView.CARD_LIST) {
+      this.watchPurchase();
+    }
+    m.rows = r.kind === ClipboardResultView.CARD_LIST ? this.rowsOf(r, binding) : [];
     m.resultKind = r.kind;
     this.announce(m.resultText, false);
   }
@@ -468,21 +485,49 @@ export class AppClipboard {
     ClipboardDraftTexts.format(k, vars));
   }
 
-  private static rowsOf(r: ClipboardResultView, binding: ClipboardResultBinding): ClipboardCardRow[] {
+  /**
+   * 订阅平台购买状态的变化（第一次显示多卡结果时接上，App 生命周期内一次）：变化时按当前多卡结果重建各行（not_launched 隐藏金额与
+   * 读屏金额、维护禁用购买并显示规定文案；APP-07 共性第 32 条），结果编号与绑定不变、不重复播报。
+   */
+  private watchPurchase(): void {
+    if (this.purchaseUnsubscribe !== null) {
+      return;
+    }
+    this.purchaseUnsubscribe = this.subscribePurchase((): void => {
+      const r: ClipboardResultView | null = this.shownCards;
+      const m: ClipboardUiModel = this.uiModel;
+      this.purchaseVersion++;
+      if (r === null || m.resultSerial !== r.serial || m.resultBinding === null) {
+        return;
+      }
+      m.rows = this.rowsOf(r, m.resultBinding);
+    });
+  }
+
+  private rowsOf(r: ClipboardResultView, binding: ClipboardResultBinding): ClipboardCardRow[] {
     const out: ClipboardCardRow[] = [];
+    const statusOf: (platform: string) => string = (platform: string): string => {
+      try {
+        return this.purchaseStatus(platform);
+      } catch (e) {
+        return ProductCardMapper.PURCHASE_ON;
+      }
+    };
     for (let i: number = 0; i < r.rows.length; i++) {
       const row: ParseRow = r.rows[i];
       if (row.card !== null) {
-        out.push(new ClipboardCardRow(r.serial + ':' + i, row, binding,
-          ProductCardMapper.fromCard(row.card, new CardTexts()), '', false,
-          ProductCardMapper.fromCard(row.card, new CardTexts(), false)));
+        // 复用搜索卡的同一映射（ProductCardMapper + 平台购买状态，APP-06a 第 31 条）；行键带购买状态版本，变化时整行重建。
+        out.push(new ClipboardCardRow(r.serial + ':' + i + ':' + this.purchaseVersion, row, binding,
+          ProductCardMapper.fromCardWithStatus(row.card, new CardTexts(), true, statusOf), '', false,
+          ProductCardMapper.fromCardWithStatus(row.card, new CardTexts(), false, statusOf)));
         continue;
       }
       const code: number = row.errorCode ?? ParseResultAction.UNSUPPORTED;
       const text: string = code >= ParseResultAction.SERVER_ERROR_MIN
         ? AppClipboard.noticeText(ParseResultAction.key(code), r.traceId)
         : ClipboardDraftTexts.text(ParseResultAction.key(code));
-      out.push(new ClipboardCardRow(r.serial + ':' + i, row, binding, null, text, code === ParseResultAction.UNRECOGNIZED));
+      out.push(new ClipboardCardRow(r.serial + ':' + i + ':' + this.purchaseVersion, row, binding, null, text,
+        code === ParseResultAction.UNRECOGNIZED));
     }
     return out;
   }

@@ -183,6 +183,8 @@ export class AppWallet {
   private ui: UIContext | null = null;
   /** 当前可见的钱包类页面（回到前台时重取，G05、flow-map §16）。 */
   private visible: (() => void) | null = null;
+  /** 当前可见的钱包类页面切到后台时的出口（APP-09 共性第 57 条：作废等待中的导航许可，可见世代换代）。 */
+  private hidden: (() => void) | null = null;
 
   attachUi(ui: UIContext): void {
     this.ui = ui;
@@ -271,8 +273,20 @@ export class AppWallet {
     }
   }
 
-  setVisible(onForeground: (() => void) | null): void {
+  /**
+   * App 进后台（EntryAbility.onBackground）：可见的钱包类页面视同被覆盖（共性第 57 条）——等待实名查询 / 提交结果之后的导航许可作废，
+   * 回到前台不恢复旧许可（不依赖 NavDestination 在切后台时是否回调 onHidden）。
+   */
+  onAppBackground(): void {
+    const h: (() => void) | null = this.hidden;
+    if (h !== null) {
+      h();
+    }
+  }
+
+  setVisible(onForeground: (() => void) | null, onBackground: (() => void) | null = null): void {
     this.visible = onForeground;
+    this.hidden = onForeground === null ? null : onBackground;
   }
 
   deps(): WalletDeps {
@@ -286,9 +300,9 @@ export class AppWallet {
       AppRouting.shared.openInApp(route, params);
     };
     d.replaceTop = (route: string, params: Record<string, Object>): void => {
-      // G19：以 WithdrawRecords {withdrawal_id} 替换当前 Withdraw（返回时回到钱包）。
+      // 兜底（提现页没拿到自己的导航实例 id 时）：只打开记录页，不按路由名批量移除同名提现页（R2-04，共性第 50 条）。
+      // 正常路径由 AppWithdrawPage 接 WithdrawController.replaceOwn，只替换发起页这一个实例。
       AppRouting.shared.openInApp(route, params);
-      AppRouting.shared.navigator.remove('Withdraw');
     };
     // 10405：服务端已判定强更（进强更闸门本身并持久化；没有检查结果时立即补查）。
     d.forceUpdate = (): void => AppUpdate.shared.onServerForced();

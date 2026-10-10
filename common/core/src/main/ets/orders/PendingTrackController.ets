@@ -207,6 +207,7 @@ export class PendingTrackDeps {
 export class PendingTrackController {
   static readonly FIND_ORDER: string = 'FindOrder';
   static readonly NETWORK_KEY: string = 'order.network_error';
+  private serial: number = 0;
   private readonly d: PendingTrackDeps;
   private state: PendingTrackSnapshot = new PendingTrackSnapshot();
   private fetchSeq: number = 0;
@@ -527,6 +528,7 @@ export class PendingTrackController {
 
   /** 会话变化（换账号、登出）：作废拉取并清空卡片。 */
   resetForSession(): void {
+    this.serial++;
     this.fetchSeq++;
     this.cancelOwned();
     this.dismissals.reset();
@@ -535,6 +537,14 @@ export class PendingTrackController {
     this.notifyUsed = false;
     this.fetchedScope = null;
     this.clearCards();
+  }
+
+  /**
+   * 会话序号（APP-08 共性第 38 条）：每次 resetForSession（会话变化、撤回同意、切换环境）加 1。外跳回前台的拉取（PendingTrackJumpWatcher）
+   * 在点购买时记下它，回来时不同就作废——商品详情 / 搜索页上旧会话发起的外跳不在新会话里触发拉取。
+   */
+  get sessionSerial(): number {
+    return this.serial;
   }
 
   /** 页面出栈（同步出口）。 */
@@ -596,6 +606,10 @@ export class PendingTrackController {
  */
 export class PendingTrackJumpWatcher {
   private platform: string | null = null;
+  /** 点购买时的会话序号（共性第 38 条）；回前台时 session() 不同即作废这次外跳。 */
+  private boundSession: number = -1;
+  /** 卡片位置执行器的会话序号（App 接 PendingTrackController.sessionSerial；缺省不核对）。 */
+  session: () => number = () => -1;
   private jumped: boolean = false;
   private backgrounded: boolean = false;
   private foreground: boolean = true;
@@ -606,6 +620,7 @@ export class PendingTrackJumpWatcher {
   /** 用户点了购买（新一次尝试）。 */
   buyStarted(platform: string): void {
     this.platform = platform;
+    this.boundSession = this.session();
     this.jumped = false;
     this.backgrounded = false;
   }
@@ -640,7 +655,7 @@ export class PendingTrackJumpWatcher {
     this.platform = null;
     this.jumped = false;
     this.backgrounded = false;
-    if (platform !== null) {
+    if (platform !== null && this.boundSession === this.session()) {
       this.onReturn(platform);
     }
   }

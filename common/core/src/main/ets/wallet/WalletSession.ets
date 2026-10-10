@@ -202,7 +202,9 @@ export class SmsSendOutcome {
  */
 export class SmsResendClock {
   private readonly deadlines: Map<string, number> = new Map<string, number>();
-  private readonly inFlight: Set<string> = new Set<string>();
+  /** 发送在途：键 → 本次请求的票号（共性第 40 条：槽位释放绑定本次请求身份）。 */
+  private readonly inFlight: Map<string, number> = new Map<string, number>();
+  private ticketSeq: number = 0;
   private listeners: Map<string, ((outcome: SmsSendOutcome) => void)[]> =
     new Map<string, ((outcome: SmsSendOutcome) => void)[]>();
 
@@ -227,18 +229,29 @@ export class SmsResendClock {
 
   /** 实际发送前的核对：截止时间没过或已有发送在途 → 不发。通过时登记「发送在途」。 */
   tryBegin(key: string, now: number): boolean {
+    return this.begin(key, now) > 0;
+  }
+
+  /** 同 tryBegin，通过时返回本次请求的票号（> 0），不通过返回 0；结算时把票号交回 finish。 */
+  begin(key: string, now: number): number {
     if (this.inFlight.has(key) || this.remainingMs(key, now) > 0) {
-      return false;
+      return 0;
     }
-    this.inFlight.add(key);
-    return true;
+    const ticket: number = ++this.ticketSeq;
+    this.inFlight.set(key, ticket);
+    return ticket;
   }
 
   /**
    * 发送结束：成功时记下截止时间（发起面板关了也记），失败只解除在途；然后把结算发布给订阅这个键的面板（发起面板与在途期间
    * 重新打开的面板都靠这里解除 sending、恢复倒计时或重试状态，鸿蒙 R2-01）。
    */
-  finish(key: string, untilMs: number | null, outcome: SmsSendOutcome | null = null): void {
+  finish(key: string, untilMs: number | null, outcome: SmsSendOutcome | null = null, ticket: number = 0): void {
+    if (ticket > 0 && this.inFlight.get(key) !== ticket) {
+      // 共性第 40 条：这个键的在途槽位已不属于本次请求（会话清空后同账号又发了新请求）：旧请求的结算不释放新请求的槽位、
+      // 不向新面板发布。
+      return;
+    }
     this.inFlight.delete(key);
     if (untilMs !== null) {
       this.deadlines.set(key, untilMs);
@@ -301,8 +314,13 @@ export class WalletSession {
   readonly tokens: StepUpTokenCache = new StepUpTokenCache();
   readonly realname: RealnameState = new RealnameState();
   readonly sms: SmsResendClock = new SmsResendClock();
-  /** 提交成功（或放弃时得知已受理）后钱包摘要要重取（G19）。 */
-  walletNeedsRefresh: boolean = false;
+  /**
+   * 钱包刷新的失效版本（共性第 58 条，鸿蒙 R3-02）：提现成功（或确认 / 放弃得知原提现已成功）每次加 1。每个钱包实例各自记录已消费
+   * 的版本（WalletController.seenDirty），一个实例刷新只推进它自己的记录，不清除其他实例（如被覆盖在下层的钱包）的刷新需求。
+   */
+  private dirtyVersion: number = 0;
+  /** 已被任一钱包实例消费到的最高版本：只用于 walletNeedsRefresh 的诊断读数，不参与各实例是否刷新的判断。 */
+  private dirtyConsumed: number = 0;
   /** 会话世代：每次 reset 加 1。 */
   epoch: number = 0;
   /** 把这些路由的页面全部移出导航栈（App：StackNavigator.remove）。 */
@@ -312,6 +330,7 @@ export class WalletSession {
   private members: WalletSessionAware[] = [];
   private lastScope: string | undefined = undefined;
   private pendingListeners: Map<string, ((source: Object) => void)[]> = new Map<string, ((source: Object) => void)[]>();
+  private dirtyListeners: ((scope: string) => void)[] = [];
 
   constructor(clock: () => number, scope: () => string) {
     this.scope = scope;
@@ -360,6 +379,55 @@ export class WalletSession {
       } catch (e) {
         // 单个页面出错不影响其余页面。
       }
+    }
+  }
+
+  /**
+   * 提现成功（或放弃时得知已受理且原结果成功）：标记钱包要刷新，并通知仍存在的钱包页（APP-09 共性第 53 条，BR-WDR-04、G19）。
+   * scope 是发起提现的页面所属的会话归属：只有同一归属的钱包页处理（换了会话的旧结果不刷新新会话的钱包）。钱包页收到后作废成功前
+   * 发出的旧摘要请求并重取（可见时立即，不可见时回到可见再取）。
+   */
+  markWalletDirty(scope: string): void {
+    this.dirtyVersion++;
+    const list: ((scope: string) => void)[] = this.dirtyListeners.slice();
+    for (const l of list) {
+      try {
+        l(scope);
+      } catch (e) {
+        // 单个页面出错不影响其余页面。
+      }
+    }
+  }
+
+  subscribeWalletDirty(listener: (scope: string) => void): () => void {
+    this.dirtyListeners.push(listener);
+    return (): void => {
+      this.dirtyListeners = this.dirtyListeners.filter((l: (scope: string) => void): boolean => l !== listener);
+    };
+  }
+
+  /** 当前的钱包失效版本：钱包实例创建时记下（之后的标记才算本实例的待刷新），回到可见时与自己记的版本比较。 */
+  get walletDirtyVersion(): number {
+    return this.dirtyVersion;
+  }
+
+  /** 最近一次刷新标记还没有被任何钱包实例消费（诊断读数；各实例是否刷新以自己记的版本为准）。设 true 等同加一个版本、不通知。 */
+  get walletNeedsRefresh(): boolean {
+    return this.dirtyVersion > this.dirtyConsumed;
+  }
+
+  set walletNeedsRefresh(value: boolean) {
+    if (value) {
+      this.dirtyVersion++;
+    } else {
+      this.dirtyConsumed = this.dirtyVersion;
+    }
+  }
+
+  /** 某个钱包实例已为 version 及之前的标记重取：只推进诊断读数，其他实例自己的待刷新不受影响。 */
+  noteWalletRefreshed(version: number): void {
+    if (version > this.dirtyConsumed) {
+      this.dirtyConsumed = version;
     }
   }
 

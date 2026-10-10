@@ -71,15 +71,88 @@ export class PendingClick {
   readonly account: string | null;
   readonly epoch: number;
   readonly key: string;
+  /**
+   * 表单 / 渲染快照所属的会话归属键（APP-09 共性第 52 条，S0）：页面构建时记下的 ApiClient 归属（含登录序号与会话世代），不是点击
+   * 执行时的当前会话。登录保存新令牌后归属立即变化——不依赖稍后才执行的钱包会话清空通知（WalletSession.sync 才推进 epoch）。
+   * null 只给不经页面的直接调用（单测），不核对归属。
+   */
+  readonly scope: string | null;
 
-  constructor(account: string | null, epoch: number, key: string) {
+  constructor(account: string | null, epoch: number, key: string, scope: string | null = null) {
     this.account = account;
     this.epoch = epoch;
     this.key = key;
+    this.scope = scope;
   }
 
   valid(d: WalletDeps): boolean {
-    return this.account !== null && d.account() === this.account && d.session.epoch === this.epoch;
+    return this.account !== null && d.account() === this.account && d.session.epoch === this.epoch
+      && (this.scope === null || d.scope() === this.scope);
+  }
+}
+
+/**
+ * 资金页的导航世代（F-HM-21，RC-03，共性第 37 条）：本页每次被覆盖（onHidden）或自己发起导航（前置页、记录、收款账号、帮助、
+ * 客服）都换代；onShown 只恢复可见、不换代。请求发起时 capture()，结果到达时 current(gen) 同时要求「此刻可见」与「发起后没有发生过
+ * 导航」——只靠可见性布尔值不够：离页再返回后 visible 已恢复，旧请求不能因此重新获得自动导航 / 弹浮层的资格。
+ */
+export class PageNavGate {
+  private gen: number = 0;
+  private shown: boolean = true;
+
+  get visible(): boolean {
+    return this.shown;
+  }
+
+  get generation(): number {
+    return this.gen;
+  }
+
+  capture(): number {
+    return this.gen;
+  }
+
+  current(gen: number): boolean {
+    return this.shown && gen === this.gen;
+  }
+
+  /** 页面被覆盖，或本页发起了导航（导航世代变了，onHidden 可能稍后才到）。 */
+  away(): void {
+    this.shown = false;
+    this.gen++;
+  }
+
+  /** 回到本页。 */
+  back(): void {
+    this.shown = true;
+  }
+}
+
+/**
+ * 一条已登记的延后结果（F-HM-21）：二次验证面板 / 风控弹窗 / 成功后替换本页。登记时记下原键、页面实例与会话世代；恢复前逐项复核，
+ * 任何一项变了就丢弃（只保留已结算的状态与手动入口）。
+ */
+export class DeferredResult {
+  readonly key: string | null;
+  readonly page: string;
+  readonly epoch: number;
+  readonly scope: string;
+  /**
+   * 来自用户新提交 / 保存的二次验证：登记时的提交票据（每次用户新提交加 1；R1-01，共性第 49 条）。恢复前要求票据未变——首次提交得到
+   * 的 10003 按自己这次提交复核，不借用待确认记录。其他登记为 -1。
+   */
+  readonly ticket: number;
+
+  constructor(key: string | null, page: string, epoch: number, scope: string, ticket: number = -1) {
+    this.key = key;
+    this.page = page;
+    this.epoch = epoch;
+    this.scope = scope;
+    this.ticket = ticket;
+  }
+
+  matches(key: string | null, page: string, epoch: number, scope: string): boolean {
+    return this.key === key && this.page === page && this.epoch === epoch && this.scope === scope;
   }
 }
 
@@ -123,21 +196,42 @@ export class SensitiveFlow {
     return record !== null && !record.everUnknown && record.stateRaw === 'in_flight';
   }
 
+  /**
+   * 键 key 仍是当前账号这个操作的未决记录且没有结束（终结结果会删除记录；R1-01，共性第 49 条）。来自确认流程的二次验证恢复前、以及
+   * 别处结算后都用它复核：别的页面已确认成功 / 放弃了这个键时为 false。
+   */
+  keyOpen(key: string): boolean {
+    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    return record !== null && record.key === key;
+  }
+
+  /** 当前账号这个操作已有另一个键的未决记录（首次提交的 10003 恢复前复核：本次提交已被别的提交取代）。 */
+  keySuperseded(key: string): boolean {
+    const record: PendingKeyRecord | null = this.d.api.pendingFor(this.operationId);
+    return record !== null && record.key !== key;
+  }
+
   storeUnavailable(): boolean {
     return this.d.api.pendingStoreUnavailable();
   }
 
   /** 新键提交（idempotencyKey 为 null → ApiClient 生成新键）；replayKey 非 null 时为二次验证后沿用原键重放。 */
-  submit(body: string, summary: string, replayKey: string | null = null, token: string | null = null):
-    Promise<SensitiveStep> {
-    const account: string | null = this.d.account();
+  submit(body: string, summary: string, replayKey: string | null = null, token: string | null = null,
+    click: PendingClick | null = null): Promise<SensitiveStep> {
+    // 共性第 39 条（S0）：首次提交 / 保存与二次验证重放都携带点击时固定的账号与会话世代（click）。读取凭据（step-up token）前、
+    // 登记未决记录前（ApiClient 绑定调用归属之前）、每次实际发包前都核对；会话换代时尚未发出的旧请求本地拒绝，不登记、不发送。
+    if (click !== null && !click.valid(this.d)) {
+      return Promise.resolve(this.judge(SensitiveOutcome.SUBMIT, false,
+        ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH), replayKey));
+    }
+    const account: string | null = click !== null ? click.account : this.d.account();
     const request: ApiRequest = new ApiRequest(this.operationId, {}, '', body);
     request.summary = summary;
     request.idempotencyKey = replayKey;
     request.stepUpToken = token ?? (account === null ? null
       : this.d.session.tokens.take(this.stepUpAction, account, this.d.clock()));
-    // B 类写请求：不设 owner（离开页面不取消）；42901 闸门在每次实际发包前核对。
-    request.sendAllowed = this.gate.sendAllowed;
+    // B 类写请求：不设 owner（离开页面不取消）；42901 闸门与点击身份在每次实际发包前核对。
+    request.sendAllowed = this.sendGuard(click);
     // 二次验证后原键重放至多一次，预算按一次用户提交计（共性第 16 条）：用户的新提交（replayKey 为 null）重置预算。
     this.replayedKey = replayKey;
     return this.d.api.request(request).then((result: ApiResult) =>
@@ -149,11 +243,12 @@ export class SensitiveFlow {
    * 每次实际发包前（含二次验证后的续发）都核对，连同 42901 闸门（共性第 15 条）。
    */
   confirm(key: string, token: string | null = null, click: PendingClick | null = null): Promise<SensitiveStep> {
-    const account: string | null = this.d.account();
     if (click !== null && (!click.valid(this.d) || click.key !== key)) {
       return Promise.resolve(this.judge(SensitiveOutcome.CONFIRM, true,
         ApiResult.rejected(LocalRejectReason.ACCOUNT_MISMATCH), key));
     }
+    // 共性第 52 条：凭据按点击身份（表单所属账号）读取，不取执行时的当前会话。
+    const account: string | null = click !== null ? click.account : this.d.account();
     const t: string | null = token ?? (account === null ? null
       : this.d.session.tokens.take(this.stepUpAction, account, this.d.clock()));
     // 用户点的确认重置重放预算；二次验证后带 token 的续发占用这次预算（共性第 16 条）。

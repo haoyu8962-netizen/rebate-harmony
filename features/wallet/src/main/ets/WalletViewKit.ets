@@ -132,6 +132,8 @@ export struct WalletNoticeBar {
   @Param tone: string = 'warning';
   @Param barId: string = '';
   @Param tappable: boolean = false;
+  /** 可作为焦点目标（不可点的错误条也能接住键盘焦点，F-HM-20：只有隐藏字段出错时焦点落到错误条）。 */
+  @Param focusTarget: boolean = false;
   @Event onTap: () => void = () => {
   };
 
@@ -173,7 +175,7 @@ export struct WalletNoticeBar {
     .accessibilityGroup(true)
     .accessibilityText(this.text)
     .accessibilityRole(this.tappable ? AccessibilityRoleType.BUTTON : AccessibilityRoleType.ROLE_NONE)
-    .focusable(this.tappable)
+    .focusable(this.tappable || this.focusTarget)
     .focusBox(CouliFocus.box)
     .onClick(() => {
       if (this.tappable) {

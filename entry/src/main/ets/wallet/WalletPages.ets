@@ -1,4 +1,4 @@
-import { RouteDestination } from 'core';
+import { OwnPageExit, RouteDestination } from 'core';
 import { CouliColors } from 'designsystem';
 import {
   LaborAgreementPage, LaborPageConfig, PayoutAccountPage, PayoutPageConfig, RealNamePage, RealNamePageConfig,
@@ -13,19 +13,45 @@ import { BuildVariant } from 'entry/ets/variant/BuildVariant';
  * 钱包类页面（APP-09）。出栈（onWillDisappear，早于退场动画）是同步出口：作废读请求、取消传输；提交 / 确认 / 放弃不取消（B 类，未决记录兜底）。
  * 只被盖住（进前置页、帮助页）不触发，回到可见（onShown）时按页面规则重取。资金与实名四页不读任何路由参数（Router 已丢弃）。
  */
+/** 页面实例的导航身份：onReady 时记下系统生成的唯一 navDestinationId 与所在的栈（R1-02）。 */
+class OwnNavInstance {
+  id: string | null = null;
+  stack: NavPathStack | null = null;
+
+  ready(ctx: NavDestinationContext): void {
+    this.id = ctx.navDestinationId ?? null;
+    this.stack = ctx.pathStack;
+  }
+}
+
 /**
- * 等待结果之后的「出栈回发起页」：本页在栈顶就正常 pop；等待期间被别的页面盖住（帮助、协议 H5 等）时只按路由名移除本页，
- * 不把盖在上面的页面弹掉（共性第 31 条同类：等待后的导航核对当前页面）。
+ * 等待结果之后的「出栈回发起页」只针对发起页面的唯一导航实例（R1-02，APP-09 共性第 50 条）：确认栈顶就是本实例才 pop；被盖住
+ * （帮助、协议 H5、或经允许入口推入的同名新实例）时只按 navDestinationId 移除本实例，不弹上层页、不按路由名批量移除。
  */
-function popOrRemove(stack: NavPathStack | undefined, route: string): void {
-  if (stack === undefined) {
+function exitOwnInstance(own: OwnNavInstance): void {
+  const stack: NavPathStack | null = own.stack;
+  if (stack === null) {
     return;
   }
-  const names: string[] = stack.getAllPathName();
-  if (names.length > 0 && names[names.length - 1] === route) {
+  const infos: NavPathInfo[] = stack.getPathStack();
+  const top: NavPathInfo | undefined = infos.length > 0 ? infos[infos.length - 1] : undefined;
+  const plan: string = OwnPageExit.plan(own.id, top !== undefined ? (top.navDestinationId ?? null) : null);
+  if (plan === OwnPageExit.POP) {
     stack.pop();
-  } else {
-    stack.removeByName(route);
+  } else if (plan === OwnPageExit.REMOVE && own.id !== null) {
+    stack.removeByNavDestinationId(own.id);
+  }
+}
+
+/**
+ * 以 route 替换发起页这一个导航实例（R2-04，APP-09 共性第 50 条）：先打开目标页，再只按 navDestinationId 移除本实例（被盖住时也只移除
+ * 本实例，不弹上层页）；拿不到实例 id 时只打开目标页，不按路由名猜。
+ */
+function replaceOwnInstance(own: OwnNavInstance, route: string, params: Record<string, Object>): void {
+  AppRouting.shared.openInApp(route, params);
+  const stack: NavPathStack | null = own.stack;
+  if (stack !== null && own.id !== null && own.id.length > 0) {
+    stack.removeByNavDestinationId(own.id);
   }
 }
 
@@ -65,9 +91,10 @@ export struct AppWalletPage {
       const config: WalletPageConfig | null = this.config;
       if (config !== null) {
         config.controller.onShown();
+        // 回到前台：恢复可见并重取（被共享限流挡下时进入限流错误状态，共性第 55 条）；进后台：作废等待实名查询的导航（第 57 条）。
         AppWallet.shared.setVisible((): void => {
-          config.controller.refresh();
-        });
+          config.controller.onForeground();
+        }, (): void => config.controller.onHidden());
       }
     })
     .onHidden(() => {
@@ -82,6 +109,8 @@ export struct AppWalletPage {
 @ComponentV2
 export struct AppWithdrawPage {
   private config: WithdrawPageConfig | null = null;
+  /** 本页实例的导航身份（成功后以记录页替换只针对它，R2-04）。 */
+  private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
@@ -89,6 +118,10 @@ export struct AppWithdrawPage {
     config.stepUpViewport = BuildVariant.stepUpViewportOverride();
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
+    };
+    // G19 成功后以 WithdrawRecords 替换本页：只移除发起页这一个导航实例（R2-04，共性第 50 条），不按路由名批量移除同名提现页。
+    config.controller.replaceOwn = (route: string, params: Record<string, Object>): void => {
+      replaceOwnInstance(this.own, route, params);
     };
     this.config = config;
   }
@@ -106,6 +139,7 @@ export struct AppWithdrawPage {
       }
     }
     .hideTitleBar(true)
+    .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onShown(() => {
@@ -113,7 +147,7 @@ export struct AppWithdrawPage {
       if (config !== null) {
         // 每次进入与回到前台都取 rules，并按当前账号的未决记录恢复待确认（G05、brief §2.5）。
         config.controller.onShown();
-        AppWallet.shared.setVisible((): void => config.controller.onShown());
+        AppWallet.shared.setVisible((): void => config.controller.onShown(), (): void => config.controller.onHidden());
       }
     })
     .onHidden(() => {
@@ -179,6 +213,8 @@ export struct AppWithdrawRecordsPage {
 @ComponentV2
 export struct AppPayoutAccountPage {
   private config: PayoutPageConfig | null = null;
+  /** 本页实例的导航身份（保存 / 完成后的出栈只针对它，R1-02）。 */
+  private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
@@ -187,9 +223,9 @@ export struct AppPayoutAccountPage {
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
     };
-    // 保存成功：出栈回发起页（G05）。等待期间被别的页面盖住时只移除本页，不弹掉盖在上面的页面（共性第 31 条同类）。
+    // 保存成功：出栈回发起页（G05）。只针对本页的导航实例：在栈顶才 pop，被盖住（含同名新实例）时只按实例 id 移除本页（R1-02）。
     config.controller.onSaved = (): void => {
-      popOrRemove(this.queryNavigationInfo()?.pathStack, 'PayoutAccount');
+      exitOwnInstance(this.own);
     };
     this.config = config;
   }
@@ -205,13 +241,14 @@ export struct AppPayoutAccountPage {
       }
     }
     .hideTitleBar(true)
+    .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onShown(() => {
       const config: PayoutPageConfig | null = this.config;
       if (config !== null) {
         config.controller.onShown();
-        AppWallet.shared.setVisible((): void => config.controller.onShown());
+        AppWallet.shared.setVisible((): void => config.controller.onShown(), (): void => config.controller.onHidden());
       }
     })
     .onHidden(() => {
@@ -225,6 +262,8 @@ export struct AppPayoutAccountPage {
 @ComponentV2
 export struct AppRealNamePage {
   private config: RealNamePageConfig | null = null;
+  /** 本页实例的导航身份（保存 / 完成后的出栈只针对它，R1-02）。 */
+  private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
@@ -234,7 +273,7 @@ export struct AppRealNamePage {
     };
     // 实名成功：出栈回发起页（G05，不连跳）；守卫随后按新的实名状态判定。
     config.controller.onDone = (): void => {
-      popOrRemove(this.queryNavigationInfo()?.pathStack, 'RealName');
+      exitOwnInstance(this.own);
       AppRouting.shared.stateChanged();
     };
     this.config = config;
@@ -251,6 +290,7 @@ export struct AppRealNamePage {
       }
     }
     .hideTitleBar(true)
+    .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onWillDisappear(() => this.config?.controller.leave())
@@ -260,6 +300,8 @@ export struct AppRealNamePage {
 @ComponentV2
 export struct AppLaborAgreementPage {
   private config: LaborPageConfig | null = null;
+  /** 本页实例的导航身份（保存 / 完成后的出栈只针对它，R1-02）。 */
+  private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
@@ -269,7 +311,7 @@ export struct AppLaborAgreementPage {
     };
     // 签署成功：出栈回 Withdraw（不重放提现，不调 /v1/consents）。
     config.controller.onDone = (): void => {
-      popOrRemove(this.queryNavigationInfo()?.pathStack, 'LaborAgreement');
+      exitOwnInstance(this.own);
     };
     this.config = config;
     config.controller.load();
@@ -286,6 +328,7 @@ export struct AppLaborAgreementPage {
       }
     }
     .hideTitleBar(true)
+    .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onWillDisappear(() => this.config?.controller.leave())

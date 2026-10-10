@@ -530,9 +530,23 @@ export class OrderListController {
 
   /** 页面实例销毁（App 退出前的兜底）：之后迟到的响应一律丢弃。 */
   leave(): void {
+    if (this.left) {
+      return;
+    }
     this.left = true;
     this.begin();
     this.unsubscribe();
+    // APP-08 共性第 30 条：同步结束下拉刷新与翻页加载态（请求已取消、迟到响应被丢弃）。
+    const s: OrderListSnapshot = this.state;
+    if (s.refreshing || s.loadingMore) {
+      s.refreshing = false;
+      s.loadingMore = false;
+      try {
+        this.onChange(s);
+      } catch (e) {
+        // 页面回调出错不影响执行器。
+      }
+    }
   }
 
   private syncConditions(): void {
@@ -782,6 +796,20 @@ export class OrderAnchorKeeper {
   private task: number = 0;
   /** 进入对齐时的条件（编码）：回调执行前条件变了即作废。 */
   private alignConditions: string = '';
+  /**
+   * 恢复进行中列表首次可交互时的顶部订单（位置基准；APP-06a 第 38、41 条，APP-08 共性第 35 条）：恢复任务自己在对齐前不移动列表，
+   * 之后顶部订单偏离基准即是别人（触摸、惯性、读屏 / 键盘滚动、补页期间的滚动）造成的——取消恢复，不再把用户拉回旧目标。
+   * null = 还没建立。
+   */
+  private baselineTop: string | null = null;
+  /**
+   * 同一时刻列表的实际滚动偏移（像素；FU-HM-0710 R1-04，APP-08 共性第 39 条）：顶部订单编号不变的小幅滚动（同一卡片内）、惯性、
+   * 无障碍滚动都会改变偏移——判定「用户已滚动」看偏移，不只看顶部条目。NaN = 调用方没给偏移（只比较顶部订单）。
+   */
+  private baselineOffset: number = NaN;
+
+  /** 偏移变化超过这个值（像素）才算滚动（排除浮点误差）。 */
+  static readonly SCROLL_EPSILON: number = 0.5;
 
   /** 要写进页面状态的锚点（稳定的 order_id；在顶部为空串）。 */
   get anchor(): string {
@@ -807,6 +835,8 @@ export class OrderAnchorKeeper {
     this.anchorId = target;
     this.aligning = false;
     this.boundRound = -1;
+    this.baselineTop = null;
+    this.baselineOffset = NaN;
     this.restore = target.length > 0 ? new OrderScrollAnchor(target, conditions) : null;
   }
 
@@ -855,7 +885,8 @@ export class OrderAnchorKeeper {
    * 仍是同一恢复任务、同一轮次、同一条件才解冻并返回 true（页面随后滚动并持久化）；任务已换（begin / reset / 已取消）返回 false 不改动；
    * 轮次或条件变了则取消对齐（锚点清空、解冻）并返回 false。返回 false 时页面不得滚动或持久化。
    */
-  commitAlign(ticket: number, round: number, conditions: string): boolean {
+  commitAlign(ticket: number, round: number, conditions: string, topId: string | null = null,
+    offset: number = NaN): boolean {
     if (!this.aligning || ticket !== this.task) {
       return false;
     }
@@ -863,7 +894,15 @@ export class OrderAnchorKeeper {
       this.cancelAlign();
       return false;
     }
+    if (topId !== null && this.movedFromBaseline(topId, offset)) {
+      // R1-04（共性第 39 条）：延迟对齐执行前再复核一次实际位置——等待期间用户已滚动（哪怕顶部还是同一张卡片）就取消恢复，
+      // 按用户此刻的位置记录锚点，不把用户拉回旧目标。
+      this.userScrolled(topId);
+      return false;
+    }
     this.aligning = false;
+    this.baselineTop = null;
+    this.baselineOffset = NaN;
     return true;
   }
 
@@ -872,6 +911,8 @@ export class OrderAnchorKeeper {
     this.task++;
     this.aligning = false;
     this.anchorId = '';
+    this.baselineTop = null;
+    this.baselineOffset = NaN;
   }
 
   /** 页面完成了顶对齐（或布局失败退回顶部）：解冻。 */
@@ -879,14 +920,70 @@ export class OrderAnchorKeeper {
     this.aligning = false;
   }
 
-  /** 滚动后顶部可见的订单（在顶部为空串）：冻结中忽略；返回是否变了（变了要持久化）。 */
+  /**
+   * 滚动后顶部可见的订单（在顶部为空串）；返回是否变了（变了要持久化）。恢复进行中（冻结）：第一次调用建立位置基准；之后顶部偏离基准
+   * 即视为用户已滚动（含补页期间），取消恢复任务（待执行的对齐回调经 commitAlign 失效）、解冻，并按用户的新位置记录锚点。
+   */
   visible(orderId: string): boolean {
-    if (this.frozen || orderId === this.anchorId) {
+    return this.observe(orderId, NaN);
+  }
+
+  /**
+   * 列表位置变化（onScrollIndex 与 onDidScroll 都调）：orderId 为此刻顶部可见的订单（在顶部为空串），offset 为实际滚动偏移（像素）。
+   * 恢复进行中：第一次调用建立基准（顶部订单 + 偏移）；之后顶部订单或偏移（超过 SCROLL_EPSILON）偏离基准即视为用户已滚动——含同一
+   * 卡片内的小幅滚动、惯性与无障碍滚动（R1-04，APP-08 共性第 39 条）——取消恢复任务、解冻，按用户的新位置记录锚点并返回 true。
+   * 没有恢复任务时：顶部订单变了才返回 true（要持久化）。
+   */
+  observe(orderId: string, offset: number): boolean {
+    if (this.frozen) {
+      if (this.baselineTop === null) {
+        this.baselineTop = orderId;
+        this.baselineOffset = offset;
+        return false;
+      }
+      if (Number.isNaN(this.baselineOffset) && !Number.isNaN(offset)) {
+        // 基准由只带顶部订单的调用建立：第一次拿到偏移时补上（此前没有可比较的偏移）。
+        this.baselineOffset = offset;
+      }
+      if (!this.movedFromBaseline(orderId, offset)) {
+        return false;
+      }
+      this.userScrolled(orderId);
+      return true;
+    }
+    if (orderId === this.anchorId) {
       return false;
     }
     this.anchorId = orderId;
     return true;
   }
+
+  /** 此刻位置是否偏离基准（还没有基准时不算）。 */
+  private movedFromBaseline(orderId: string, offset: number): boolean {
+    if (this.baselineTop === null) {
+      return false;
+    }
+    if (orderId !== this.baselineTop) {
+      return true;
+    }
+    return !Number.isNaN(offset) && !Number.isNaN(this.baselineOffset)
+      && Math.abs(offset - this.baselineOffset) > OrderAnchorKeeper.SCROLL_EPSILON;
+  }
+
+  /** 用户已滚动：取消恢复任务（待执行的对齐回调经 commitAlign 失效）、解冻，按用户的新位置记录锚点。 */
+  private userScrolled(orderId: string): void {
+    const r: OrderScrollAnchor | null = this.restore;
+    if (r !== null) {
+      r.cancel();
+    }
+    this.restore = null;
+    this.aligning = false;
+    this.task++;
+    this.baselineTop = null;
+    this.baselineOffset = NaN;
+    this.anchorId = orderId;
+  }
+
 
   /** 会话变化：清空并解冻。 */
   reset(): void {
@@ -895,6 +992,8 @@ export class OrderAnchorKeeper {
     this.restore = null;
     this.aligning = false;
     this.boundRound = -1;
+    this.baselineTop = null;
+    this.baselineOffset = NaN;
   }
 }
 
@@ -951,6 +1050,8 @@ export class OrderPageRestorer {
   private readonly account: () => string | null;
   readonly keeper: OrderAnchorKeeper;
   private decided: boolean = false;
+  /** 清理时没确认删掉恢复记录（共性第 36 条）：本进程内不再按落盘记录恢复，恢复时先重试删除。 */
+  private wipePending: boolean = false;
   /** 恢复出的输入框文字（同一账号的记录才有）。 */
   input: string = '';
 
@@ -972,7 +1073,19 @@ export class OrderPageRestorer {
    * 页面并持久化，恢复进行中写的仍是原锚点，R2-05）；没有可恢复的条件时从顶部开始。
    */
   restore(list: OrderListController, routeScope: string | null): void {
-    const saved: OrderPageState | null = OrderPageState.decode(this.read());
+    if (this.wipePending) {
+      // 上次清理没删掉：先重试删除；无论结果都不按这份记录恢复（禁止恢复，共性第 36 条）。
+      this.wipePending = !this.wipe();
+    }
+    let saved: OrderPageState | null = null;
+    if (!this.wipePending) {
+      try {
+        saved = OrderPageState.decode(this.read());
+      } catch (e) {
+        // 存储打不开 / 读取失败（R2-01）：不恢复，从顶部开始。
+        saved = null;
+      }
+    }
     const account: string | null = this.account();
     let conditions: OrderListConditions | null = null;
     let anchor: string = '';
@@ -1005,8 +1118,89 @@ export class OrderPageRestorer {
 
   /** 会话变化（共性第 19 条）：删记录、清锚点与待恢复输入。 */
   reset(): void {
-    this.write(null);
+    try {
+      this.write(null);
+    } catch (e) {
+      // 删不掉：下面照常清内存；撤回 / 切环境的清理走 wipe（确认删除）。
+    }
     this.keeper.reset();
     this.input = '';
+  }
+
+  /**
+   * 撤回同意 / 切换环境的清理（APP-08 共性第 36 条）：恢复记录可能含完整订单号搜索词——先作废内存里的锚点与待恢复输入，再删落盘记录，
+   * 读回确认已删才返回 true（false 时清理器报失败，撤回清理不算完成、冷启动重试）。
+   */
+  wipe(): boolean {
+    this.keeper.reset();
+    this.input = '';
+    let ok: boolean = false;
+    try {
+      this.write(null);
+      ok = this.read() === null;
+    } catch (e) {
+      ok = false;
+    }
+    this.wipePending = !ok;
+    return ok;
+  }
+}
+
+/** 页面恢复记录所在的键值存储（App 用系统偏好适配）。读、写、删失败一律抛错。 */
+export interface OrderPageStateKv {
+  /** 读取：没有这个键返回 null。 */
+  get(key: string): string | null;
+
+  put(key: string, value: string): void;
+
+  /** 删除并同步落盘（flushSync）。 */
+  remove(key: string): void;
+}
+
+/**
+ * 订单页面恢复记录的读写（FU-HM-0710 R2-01，APP-08 共性第 28、36 条）。区分「记录不存在」（read 返回 null）与「存储打不开 / 读取失败」
+ * （read、write(null) 抛错）：清理路径（OrderPageRestorer.wipe）据此只在确认删除落盘、读回确实没有时才算完成；存储打不开时删除与读回
+ * 都抛错，清理报失败、保留待清理状态并禁止恢复——不能因为「打不开所以读回 null」误判为删除成功。普通持久化（非 null 写入）失败只吞掉，
+ * 不影响页面。
+ */
+export class OrderPageStateStore {
+  private readonly open: () => OrderPageStateKv | null;
+  private readonly key: string;
+
+  constructor(open: () => OrderPageStateKv | null, key: string) {
+    this.open = open;
+    this.key = key;
+  }
+
+  private kv(): OrderPageStateKv {
+    let kv: OrderPageStateKv | null = null;
+    try {
+      kv = this.open();
+    } catch (e) {
+      kv = null;
+    }
+    if (kv === null) {
+      throw new Error('page state storage unavailable');
+    }
+    return kv;
+  }
+
+  /** 读取：记录不存在为 null；存储打不开或读取失败抛错。 */
+  read(): string | null {
+    const value: string | null = this.kv().get(this.key);
+    return value !== null && value.length > 0 ? value : null;
+  }
+
+  /** 写入；value 为 null 时删除并落盘——存储打不开或删除失败抛错（清理据此报失败）。 */
+  write(value: string | null): void {
+    if (value === null) {
+      this.kv().remove(this.key);
+      return;
+    }
+    try {
+      this.kv().put(this.key, value);
+    } catch (e) {
+      // 写不进：不影响页面。
+    }
   }
 }

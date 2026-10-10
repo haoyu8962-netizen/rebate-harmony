@@ -5,7 +5,7 @@
 // - 成功：显示服务端返回的脱敏账号，清空表单与内存里的完整输入，然后出栈回发起页（onSaved）。
 // - 会话换代：清空已填内容（含姓名、卡号、登录号）。页面不进进程回收恢复（卡号、登录号、姓名不持久化）。
 import { ApiRequest, ApiResult } from '../network/ApiClient';
-import { PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
+import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
 import { StepUpController } from './StepUpController';
 import { WalletDeps } from './WalletController';
 import { WalletJson, WalletRecord } from './WalletJson';
@@ -70,6 +70,14 @@ export class PayoutSnapshot {
   inFlightElsewhere: boolean = false;
   storeUnavailable: boolean = false;
   stepUpAction: string | null = null;
+  /**
+   * 被拦下的自动引导留下的手动入口（R1-03，APP-09 共性第 51 条）：保存 / 确认的结果要求补办前置（实名、绑手机、劳务协议、登录），
+   * 但发起后本页被覆盖或发生过导航，不能自动跳——保留引导目标，页面在提示旁给可点的按钮（绑定本页与会话），输入保留、不自动重提。
+   * 没有被拦下（自动打开了）或新的保存开始时为 null。
+   */
+  guideRoute: string | null = null;
+  /** 手动入口按钮文案键（withdraw.guide.*）。 */
+  guideTextKey: string | null = null;
   saveBlocked: boolean = false;
   readBlocked: boolean = false;
   version: number = 0;
@@ -84,17 +92,31 @@ export class PayoutAccountController implements WalletSessionAware {
   readonly flow: SensitiveFlow;
   private boundScope: string;
   private left: boolean = false;
-  /** 页面可见：等待结果之后的前置引导只在可见时自动打开（共性第 31 条同类）。 */
-  private visible: boolean = true;
-  /** R3-04（共性第 37 条）：被覆盖期间到达的二次验证 / 44001 结果，浮层推迟到回到本页（onShown）再打开；状态照常结算。 */
-  private deferredStepUp: boolean = false;
+  private static instances: number = 0;
+  /** 本页实例（延后结果按页面复核，F-HM-21）。 */
+  private readonly pageId: string;
+  /**
+   * 页面可见性与导航世代：等待结果之后的前置引导只在「可见且发起后没有发生过导航」时自动打开（共性第 31、37 条；F-HM-21：可见性
+   * 布尔值不能替代导航世代——离页再返回后的迟到结果不再自动导航）。
+   */
+  private readonly nav: PageNavGate = new PageNavGate();
+  /**
+   * R3-04（共性第 37 条）：被覆盖期间到达的二次验证 / 44001 结果，浮层推迟到回到本页（onShown）再打开；状态照常结算。
+   * F-HM-21：登记原键、页面实例与会话世代，恢复前逐项复核。
+   */
+  private deferredStepUp: DeferredResult | null = null;
   private deferredRisk: WalletMessage | null = null;
+  private deferredRiskAt: DeferredResult | null = null;
   private loadSeq: number = 0;
   private owners: (() => boolean)[] = [];
   private stepUpPhase: string = SensitiveOutcome.SUBMIT;
   private stepUpKey: string | null = null;
   /** 最近一次【确认上一笔】点击时捕获的身份（二次验证后的续发沿用）。 */
   private pendingClick: PendingClick | null = null;
+  /** 最近一次【提交】/【保存】点击时固定的账号与会话世代（共性第 39 条；二次验证后的原键重放沿用）。 */
+  private submitClick: PendingClick | null = null;
+  /** 用户新保存的票据（每次新保存加 1；二次验证后的原键重放不变）：首次保存得到 10003 的延后面板按它复核（R1-01）。 */
+  private submitTicket: number = 0;
   /** 本页绑定的账号（构建时；点击时核对，共性第 14 条）。 */
   private readonly account: string | null;
   private lastBody: string = '';
@@ -109,6 +131,8 @@ export class PayoutAccountController implements WalletSessionAware {
 
   constructor(deps: WalletDeps) {
     this.d = deps;
+    PayoutAccountController.instances++;
+    this.pageId = 'P' + PayoutAccountController.instances;
     this.boundScope = deps.scope();
     this.account = deps.account();
     this.state.sessionEpoch = deps.session.epoch;
@@ -134,6 +158,12 @@ export class PayoutAccountController implements WalletSessionAware {
   /** 别处结算了未决记录：重新同步；待确认没了就回到当前账号显示（或表单）并重取服务端当前账号。 */
   private pendingSettledElsewhere(): void {
     const s: PayoutSnapshot = this.state;
+    if (this.confirmStepUpEnded()) {
+      // R1-01（共性第 49 条）：本页停在「确认上一笔」的二次验证（面板已开或已登记延后），别的页面已把这个键结算掉——同步清除旧验证
+      // 状态与延后登记，回到正常页面状态（下面按未决存储重新同步并重取账号）。
+      this.dropStepUp();
+      s.phase = PayoutPhase.PENDING;
+    }
     const wasBlocked: boolean = s.inFlightElsewhere || s.pending !== null;
     this.syncPending();
     if (wasBlocked && s.pending === null && !s.inFlightElsewhere && s.phase === PayoutPhase.PENDING) {
@@ -153,22 +183,26 @@ export class PayoutAccountController implements WalletSessionAware {
     return !this.left && this.d.scope() === this.boundScope;
   }
 
+  /**
+   * 页面（表单与渲染快照）仍属于当前会话（APP-09 共性第 52 条，S0）：本页构建时的会话归属（含登录序号与会话世代）、账号与钱包会话
+   * 世代都没变。保存、确认、放弃、二次验证在生成键、读取凭据之前都先核对它——不取点击执行时的当前会话，也不等稍后的会话清空通知。
+   */
+  private owns(): boolean {
+    return this.alive && this.d.account() === this.account && this.d.session.epoch === this.state.sessionEpoch;
+  }
+
+  /** 本页表单的点击身份（账号、会话世代、归属键）。 */
+  private click(key: string): PendingClick {
+    return new PendingClick(this.account, this.state.sessionEpoch, key, this.boundScope);
+  }
+
   /** 第一次显示与回到前台（从实名页返回保留已填内容，G05）。 */
   onShown(): void {
     if (this.left) {
       return;
     }
-    this.visible = true;
-    if (this.deferredStepUp) {
-      this.deferredStepUp = false;
-      if (this.state.phase === PayoutPhase.STEP_UP && this.stepUpKey !== null) {
-        this.state.stepUpAction = PayoutAccountController.STEP_UP_ACTION;
-      }
-    }
-    if (this.deferredRisk !== null) {
-      this.state.riskDialog = this.deferredRisk;
-      this.deferredRisk = null;
-    }
+    this.nav.back();
+    this.surfaceDeferred();
     this.syncPending();
     if (this.state.phase === PayoutPhase.IDLE || this.state.phase === PayoutPhase.ERROR
       || this.state.phase === PayoutPhase.VIEW || this.state.phase === PayoutPhase.PENDING) {
@@ -273,17 +307,119 @@ export class PayoutAccountController implements WalletSessionAware {
     return new FundPageLayout(pending, busy, body);
   }
 
-  /** 页面被覆盖（进入其他页面）：之后到达的结果不自动打开前置页。 */
+  /** 页面被覆盖（进入其他页面）：导航世代换代，之后到达的结果不自动打开前置页。 */
   onHidden(): void {
-    this.visible = false;
+    this.nav.away();
+  }
+
+  /** 手动引导按钮的文案键；不认识的目标返回 null（不给按钮）。 */
+  static guideText(route: string): string | null {
+    if (route === 'RealName') {
+      return 'withdraw.guide.realname';
+    }
+    if (route === 'LaborAgreement') {
+      return 'withdraw.guide.labor';
+    }
+    if (route === 'BindPhone') {
+      return 'withdraw.guide.bind_phone';
+    }
+    if (route === 'Login') {
+      return 'withdraw.guide.login';
+    }
+    return null;
+  }
+
+  /**
+   * 手动引导入口（R1-03，共性第 51 条）：用户点提示旁的按钮才打开被拦下的前置页。renderVersion / renderRoute 绑定按钮渲染时的快照
+   * 版本与目标；本页已出栈、会话换代或账号变了都不执行。不重提保存，已填内容保留（回来仍在表单）。
+   */
+  openGuide(renderVersion: number, renderRoute: string): boolean {
+    const s: PayoutSnapshot = this.state;
+    // R2-03：执行层同时核对页面此刻可见（本页已导航走、被覆盖时旧回调失效）；打开后换版本，同一渲染的重复点击不再执行。
+    if (!this.owns() || !this.nav.visible || s.guideRoute === null || s.guideRoute !== renderRoute
+      || renderVersion !== s.version) {
+      return false;
+    }
+    this.nav.away();
+    this.d.open(renderRoute, {});
+    s.version++;
+    this.emit();
+    return true;
   }
 
   /** 未实名时的引导（30304）。 */
   openRealName(): void {
     if (!this.left) {
-      // 本页发起导航：导航世代变了，之后到达的结果不立即弹浮层或导航（R3-04）。
-      this.visible = false;
+      // 本页发起导航：导航世代变了，之后到达的结果不立即弹浮层或导航（R3-04、F-HM-21）。
+      this.nav.away();
       this.d.open('RealName', {});
+    }
+  }
+
+  private deferral(key: string | null, ticket: number = -1): DeferredResult {
+    return new DeferredResult(key, this.pageId, this.d.session.epoch, this.d.scope(), ticket);
+  }
+
+  /** 本页停在来自确认流程的二次验证，但它的键已不是未决记录（别处已结算，R1-01）。 */
+  private confirmStepUpEnded(): boolean {
+    return this.state.phase === PayoutPhase.STEP_UP && this.stepUpPhase === SensitiveOutcome.CONFIRM
+      && this.stepUpKey !== null && !this.flow.keyOpen(this.stepUpKey);
+  }
+
+  /** 延后的二次验证此刻仍有效（R1-01，共性第 49 条；规则同提现页）。 */
+  private stepUpStillOpen(at: DeferredResult): boolean {
+    const key: string | null = this.stepUpKey;
+    if (key === null) {
+      return false;
+    }
+    if (this.stepUpPhase === SensitiveOutcome.CONFIRM) {
+      return this.flow.keyOpen(key);
+    }
+    return at.ticket === this.submitTicket && !this.flow.keySuperseded(key);
+  }
+
+  /** 清除旧的二次验证状态与延后登记（R1-01）；调用方随后按未决存储恢复页面状态。 */
+  private dropStepUp(): void {
+    const s: PayoutSnapshot = this.state;
+    s.stepUpAction = null;
+    s.pendingBusy = false;
+    this.stepUpKey = null;
+    this.deferredStepUp = null;
+    this.pendingClick = null;
+  }
+
+  /** 延后结果恢复前的复核：本页仍有效、可见，页面实例与会话没变，原键一致（F-HM-21）。 */
+  private stillValid(at: DeferredResult, key: string | null): boolean {
+    return this.alive && this.nav.visible && this.state.sessionEpoch === this.d.session.epoch
+      && at.matches(key, this.pageId, this.d.session.epoch, this.boundScope);
+  }
+
+  /** 回到本页（或结果到达时已回到本页）：复核后打开已登记的二次验证面板与风控弹窗；不过就丢弃登记（状态已结算）。 */
+  private surfaceDeferred(): void {
+    const s: PayoutSnapshot = this.state;
+    const stepUp: DeferredResult | null = this.deferredStepUp;
+    this.deferredStepUp = null;
+    if (stepUp !== null && s.phase === PayoutPhase.STEP_UP && this.stepUpKey !== null
+      && this.stillValid(stepUp, this.stepUpKey)) {
+      if (this.stepUpStillOpen(stepUp)) {
+        s.stepUpAction = PayoutAccountController.STEP_UP_ACTION;
+      } else {
+        // R1-01：键已在别处结束（或这次保存已被取代）——不重开面板（也就不会再发码），恢复正常页面状态（输入保留）。
+        const confirmFlow: boolean = this.stepUpPhase === SensitiveOutcome.CONFIRM;
+        this.dropStepUp();
+        this.syncPending();
+        const hasAccount: boolean = s.account !== null && Object.keys(s.account).length > 0;
+        s.phase = s.pending !== null ? PayoutPhase.PENDING
+          : (confirmFlow ? (hasAccount ? PayoutPhase.VIEW : PayoutPhase.FORM) : PayoutPhase.FORM);
+        s.version++;
+      }
+    }
+    const risk: WalletMessage | null = this.deferredRisk;
+    const riskAt: DeferredResult | null = this.deferredRiskAt;
+    this.deferredRisk = null;
+    this.deferredRiskAt = null;
+    if (risk !== null && riskAt !== null && this.stillValid(riskAt, riskAt.key)) {
+      s.riskDialog = risk;
     }
   }
 
@@ -354,7 +490,7 @@ export class PayoutAccountController implements WalletSessionAware {
 
   get canSave(): boolean {
     const s: PayoutSnapshot = this.state;
-    return !this.left && s.phase === PayoutPhase.FORM && s.pending === null && !s.inFlightElsewhere
+    return this.owns() && s.phase === PayoutPhase.FORM && s.pending === null && !s.inFlightElsewhere
       && !s.storeUnavailable && !this.d.session.payoutGate.active;
   }
 
@@ -381,6 +517,8 @@ export class PayoutAccountController implements WalletSessionAware {
     s.phase = PayoutPhase.SAVING;
     s.banner = null;
     s.notice = null;
+    s.guideRoute = null;
+    s.guideTextKey = null;
     s.fieldErrors = new Map<string, WalletMessage>();
     this.emit();
     this.send(JSON.stringify(built['body']), JSON.stringify(summary), null, null);
@@ -390,16 +528,27 @@ export class PayoutAccountController implements WalletSessionAware {
   private send(body: string, summary: string, replayKey: string | null, token: string | null): void {
     this.lastBody = body;
     this.lastSummary = summary;
-    this.flow.submit(body, summary, replayKey, token).then((step: SensitiveStep) => this.apply(step, null));
+    // F-HM-21：请求发起时捕获导航世代，结果到达时与可见性一起校验。
+    // 共性第 39 条（S0）：用户的新提交在此固定点击时的账号与会话世代（页面绑定的账号、本页会话世代）；二次验证后的原键重放沿用
+    // 同一份，不在重放时改取当前会话。
+    if (replayKey === null || this.submitClick === null) {
+      this.submitClick = this.click('');
+    }
+    if (replayKey === null) {
+      this.submitTicket++;
+    }
+    const click: PendingClick = this.submitClick;
+    const gen: number = this.nav.capture();
+    this.flow.submit(body, summary, replayKey, token, click)
+      .then((step: SensitiveStep) => this.apply(step, null, gen));
   }
 
   /** 【确认上一笔】：renderVersion / renderKey 绑定渲染时的待确认版本与未决键（共性第 4 条）。 */
   confirm(renderVersion: number, renderKey: string | null = null): boolean {
     const s: PayoutSnapshot = this.state;
     const p: PendingView | null = s.pending;
-    if (this.left || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
-      || (renderKey !== null && renderKey !== p.key) || this.d.session.payoutGate.active || p.inFlight
-      || this.d.account() !== this.account || this.d.session.epoch !== s.sessionEpoch) {
+    if (!this.owns() || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
+      || (renderKey !== null && renderKey !== p.key) || this.d.session.payoutGate.active || p.inFlight) {
       return false;
     }
     s.pendingBusy = true;
@@ -407,32 +556,34 @@ export class PayoutAccountController implements WalletSessionAware {
     this.emit();
     const version: number = this.flow.pendingVersion;
     // 点击时捕获账号、会话世代与原键（共性第 14 条）；二次验证后的续发沿用同一份。
-    const click: PendingClick = new PendingClick(this.account, s.sessionEpoch, p.key);
+    const click: PendingClick = this.click(p.key);
     this.pendingClick = click;
-    this.flow.confirm(p.key, null, click).then((step: SensitiveStep) => this.apply(step, version));
+    const gen: number = this.nav.capture();
+    this.flow.confirm(p.key, null, click).then((step: SensitiveStep) => this.apply(step, version, gen));
     return true;
   }
 
   abandon(renderVersion: number, renderKey: string | null = null): boolean {
     const s: PayoutSnapshot = this.state;
     const p: PendingView | null = s.pending;
-    if (this.left || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
-      || (renderKey !== null && renderKey !== p.key) || this.d.session.payoutGate.active || p.inFlight
-      || this.d.account() !== this.account || this.d.session.epoch !== s.sessionEpoch) {
+    if (!this.owns() || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
+      || (renderKey !== null && renderKey !== p.key) || this.d.session.payoutGate.active || p.inFlight) {
       return false;
     }
     s.pendingBusy = true;
     s.banner = null;
     this.emit();
     const version: number = this.flow.pendingVersion;
-    this.flow.abandon(p.key, new PendingClick(this.account, s.sessionEpoch, p.key))
-      .then((step: SensitiveStep) => this.apply(step, version));
+    const gen: number = this.nav.capture();
+    this.flow.abandon(p.key, this.click(p.key))
+      .then((step: SensitiveStep) => this.apply(step, version, gen));
     return true;
   }
 
   createStepUp(): StepUpController | null {
-    const account: string | null = this.d.account();
-    if (this.left || this.state.stepUpAction === null || account === null) {
+    const account: string | null = this.account;
+    // 共性第 52 条：面板绑定本页表单所属的账号与会话；会话已变（即使清空通知还没到）就不开面板、不发码。
+    if (!this.owns() || this.state.stepUpAction === null || account === null) {
       return null;
     }
     const c: StepUpController = new StepUpController(this.d, PayoutAccountController.STEP_UP_ACTION, account);
@@ -442,7 +593,7 @@ export class PayoutAccountController implements WalletSessionAware {
 
   private afterStepUp(token: string): void {
     const s: PayoutSnapshot = this.state;
-    if (!this.alive || s.stepUpAction === null) {
+    if (!this.owns() || s.stepUpAction === null) {
       return;
     }
     s.stepUpAction = null;
@@ -467,7 +618,8 @@ export class PayoutAccountController implements WalletSessionAware {
         this.emit();
         return;
       }
-      this.flow.confirm(key, token, click).then((step: SensitiveStep) => this.apply(step, version));
+      const gen: number = this.nav.capture();
+      this.flow.confirm(key, token, click).then((step: SensitiveStep) => this.apply(step, version, gen));
     }
   }
 
@@ -490,15 +642,21 @@ export class PayoutAccountController implements WalletSessionAware {
   appeal(): void {
     this.state.riskDialog = null;
     this.emit();
-    this.visible = false;
+    this.nav.away();
     this.d.customerService();
   }
 
-  private apply(step: SensitiveStep, version: number | null): void {
+  /**
+   * 一次结果落地。gen 是请求发起时的导航世代（F-HM-21）：current = 此刻可见且发起后没有发生过导航。不是 current 时：前置引导与重新同意
+   * 只结算状态（提示仍在，用户手动打开）；二次验证面板与风控弹窗登记为延后结果（原键、页面、会话），回到本页或此刻已回到本页时复核
+   * 后恢复。
+   */
+  private apply(step: SensitiveStep, version: number | null, gen: number): void {
     const s: PayoutSnapshot = this.state;
     if (!this.alive) {
       return;
     }
+    const current: boolean = this.nav.current(gen);
     if (version !== null && version !== this.flow.pendingVersion - (step.outcome['keyEnds'] === true ? 1 : 0)) {
       this.syncPending();
       this.emit();
@@ -525,11 +683,15 @@ export class PayoutAccountController implements WalletSessionAware {
         this.stepUpPhase = step.phase === SensitiveOutcome.SUBMIT ? SensitiveOutcome.SUBMIT : SensitiveOutcome.CONFIRM;
         this.stepUpKey = step.key;
         s.phase = PayoutPhase.STEP_UP;
-        if (this.visible) {
+        if (current) {
           s.stepUpAction = PayoutAccountController.STEP_UP_ACTION;
         } else {
-          // R3-04：被覆盖时只结算到 STEP_UP（原键保留在 stepUpKey），面板推迟到回到本页。
-          this.deferredStepUp = true;
+          // R3-04：被覆盖时只结算到 STEP_UP（原键保留在 stepUpKey），面板推迟到回到本页（F-HM-21：登记原键、页面、会话）。
+          this.deferredStepUp = this.deferral(step.key,
+            this.stepUpPhase === SensitiveOutcome.SUBMIT ? this.submitTicket : -1);
+          if (this.nav.visible) {
+            this.surfaceDeferred();
+          }
         }
         this.emit();
         return;
@@ -561,10 +723,15 @@ export class PayoutAccountController implements WalletSessionAware {
       case SensitiveOutcome.GUIDE: {
         s.banner = msg;
         const route: string | null = step.route;
-        if (!this.visible) {
-          // 等待期间本页被覆盖：不自动打开前置页（回来后提示仍在）。
+        if (!current) {
+          // 等待期间本页被覆盖或发生过导航（含离页后又返回，F-HM-21）：不自动打开前置页。R1-03（共性第 51 条）：保留引导目标，
+          // 页面在提示旁给手动入口（openGuide，绑定本页与会话），输入保留、不自动重提保存。
+          if (route !== null && route !== 'PayoutAccount' && PayoutAccountController.guideText(route) !== null) {
+            s.guideRoute = route;
+            s.guideTextKey = PayoutAccountController.guideText(route);
+          }
         } else if (route !== null && route !== 'PayoutAccount') {
-          this.visible = false;
+          this.nav.away();
           this.d.open(route, {});
         } else if (route === null && step.result.code === 10004) {
           const type: string | null = WalletJson.text(step.result.data as WalletRecord, 'consent_type');
@@ -575,11 +742,15 @@ export class PayoutAccountController implements WalletSessionAware {
         break;
       }
       case SensitiveOutcome.RISK_BLOCKED:
-        if (this.visible) {
+        if (current) {
           s.riskDialog = WalletMessages.of(step.textKey ?? 'error.44001');
         } else {
-          // R3-04：被覆盖时不弹窗，回到本页再弹；操作状态照常结算。
+          // R3-04：被覆盖时不弹窗，回到本页再弹；操作状态照常结算（F-HM-21：登记原键、页面、会话，恢复前复核）。
           this.deferredRisk = WalletMessages.of(step.textKey ?? 'error.44001');
+          this.deferredRiskAt = this.deferral(step.key);
+          if (this.nav.visible) {
+            this.surfaceDeferred();
+          }
         }
         break;
       case SensitiveOutcome.ABANDONED:
@@ -607,6 +778,14 @@ export class PayoutAccountController implements WalletSessionAware {
   /** 保存成功：显示服务端返回的脱敏账号，清空表单与内存里的完整输入；leave=true 时出栈回发起页。 */
   private saved(data: WalletRecord, leave: boolean = true): void {
     const s: PayoutSnapshot = this.state;
+    // 共性第 43 条：保存成功先推进读取世代并取消保存前发起的账号读取——迟到的旧读取（旧账号 X）不得把刚保存的新账号覆盖回去；
+    // 需要复查时下面另起保存后的新一轮读取。
+    this.loadSeq++;
+    const owners: (() => boolean)[] = this.owners;
+    this.owners = [];
+    for (const o of owners) {
+      this.d.api.cancelOwned(o);
+    }
     const account: WalletRecord | null = WalletJson.payoutAccount(data);
     if (account !== null && Object.keys(account).length > 0) {
       s.account = account;
@@ -614,6 +793,8 @@ export class PayoutAccountController implements WalletSessionAware {
     s.form = new PayoutFormInput();
     s.fieldErrors = new Map<string, WalletMessage>();
     s.pending = null;
+    s.guideRoute = null;
+    s.guideTextKey = null;
     this.lastBody = '';
     this.lastSummary = '';
     s.phase = PayoutPhase.VIEW;
@@ -665,8 +846,9 @@ export class PayoutAccountController implements WalletSessionAware {
   resetForSession(): void {
     const epoch: number = this.d.session.epoch;
     this.leave();
-    this.deferredStepUp = false;
+    this.deferredStepUp = null;
     this.deferredRisk = null;
+    this.deferredRiskAt = null;
     const s: PayoutSnapshot = new PayoutSnapshot();
     s.sessionEpoch = epoch;
     s.version = this.state.version + 1;

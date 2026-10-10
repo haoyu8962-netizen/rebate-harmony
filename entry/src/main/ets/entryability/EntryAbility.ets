@@ -3,7 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import {
   AmountMaskStore, ApiClient, ApiUpdateChecker, AppConfig, PreferencesAmountMaskBackend, EnvironmentGate, LaunchReport, PreferencesEnvironmentRecord, PreferencesNamespaceCleaner, PrivacyState,
-  PrivacyWithdrawalCleaners, SessionState
+  PrivacyWithdrawalCleaners, SessionState, ConfigStore
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
@@ -49,6 +49,18 @@ export default class EntryAbility extends UIAbility {
     AppBridge.attach(this.context);
     // APP-07：剪贴板识别（鸿蒙只有 PasteButton）：系统剪贴板、ApiClient、Router、隐私与配置在这里接上；App 写剪贴板只经它的写入口。
     AppClipboard.shared.compose(appContext);
+    // APP-07 共性第 32 条：剪贴板多卡弹层的商品卡用与搜索卡同一来源的平台购买状态（50301 覆盖优先，其次 platform_status）。
+    AppClipboard.shared.purchaseStatus = (platform: string): string => AppTrade.shared.platformStatus(platform);
+    AppClipboard.shared.subscribePurchase = (listener: () => void): () => void => {
+      const store: ConfigStore | null = AppClientCore.shared.config;
+      const offStore: () => void = store === null ? (): void => {
+      } : store.subscribe((): void => listener());
+      const offOverrides: () => void = AppTrade.shared.overrides.subscribe((): void => listener());
+      return (): void => {
+        offStore();
+        offOverrides();
+      };
+    };
     // APP-09 G24：金额隐藏开关的本机偏好（订单页、钱包页共用；couli_device_prefs / amount_mask.hidden 不变）。
     AmountMaskStore.shared.attach(new PreferencesAmountMaskBackend(appContext));
     // APP-08：订单列表、详情、待跟单卡与订单缓存（缓存登记为撤回同意与切换环境的清理第一步，在环境对账 AppConfig.start 之前）。
@@ -131,6 +143,8 @@ export default class EntryAbility extends UIAbility {
     AppSearch.shared.saveNow();
     // APP-06b：进入后台作废购买的续执行许可（在途响应之后只更新卡片、不外跳，03 §4.5）。
     AppTrade.shared.onAppBackground();
+    // APP-09 共性第 57 条：可见的钱包类页面进后台即作废等待中的导航许可（实名前置查询、提交结果之后的自动导航）。
+    AppWallet.shared.onAppBackground();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

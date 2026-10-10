@@ -130,9 +130,12 @@ export class WalletController implements WalletSessionAware {
   /** 本轮 getMe 失败、摘要成功后还没提示过（R2-05）。 */
   private realnamePendingNotice: boolean = false;
   private boundScope: string = '';
+  /** 本实例已消费的钱包失效版本（共性第 58 条，R3-02）：小于会话版本即本实例待刷新；别的钱包实例刷新不改它。 */
+  private seenDirty: number = 0;
   private left: boolean = false;
   private owners: (() => boolean)[] = [];
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeDirty: () => void;
   private state: WalletSnapshot = new WalletSnapshot();
   onChange: (snapshot: WalletSnapshot) => void = (_s: WalletSnapshot) => {
   };
@@ -140,6 +143,7 @@ export class WalletController implements WalletSessionAware {
   constructor(deps: WalletDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.seenDirty = deps.session.walletDirtyVersion;
     this.state.blocked = deps.session.readGate.active;
     this.state.sessionEpoch = deps.session.epoch;
     this.unsubscribe = deps.session.readGate.subscribe((): void => {
@@ -147,7 +151,39 @@ export class WalletController implements WalletSessionAware {
         this.emit();
       }
     });
+    // 共性第 53 条：提现成功（同一会话）后通知本页——作废成功前发出的旧摘要请求并刷新。
+    this.unsubscribeDirty = deps.session.subscribeWalletDirty((scope: string): void => this.walletDirty(scope));
     deps.session.add(this);
+  }
+
+  /**
+   * 提现已成功（APP-09 共性第 53 条，BR-WDR-04、G19）：只认同一会话归属。可见时立即重取（新一轮作废成功前发出的旧摘要请求；刷新
+   * 失败或被限流按 run 的规则标旧数据与错误条）；不可见时先作废在途的旧摘要请求，标记保留到回到可见（onShown）再取。
+   */
+  private walletDirty(scope: string): void {
+    if (this.left || scope !== this.boundScope || this.d.scope() !== this.boundScope) {
+      return;
+    }
+    if (this.visible) {
+      this.consumeDirty();
+      this.run(this.state.phase === WalletPhase.CONTENT);
+      return;
+    }
+    if (this.state.refreshing || this.state.phase === WalletPhase.LOADING) {
+      // 不可见且有在途的旧摘要：作废（它是成功前发出的），回到可见时本实例的待刷新（seenDirty 落后）触发重取。
+      this.begin();
+    }
+  }
+
+  /** 本实例有没消费的钱包失效版本（共性第 58 条）。 */
+  private hasDirty(): boolean {
+    return this.seenDirty < this.d.session.walletDirtyVersion;
+  }
+
+  /** 本实例为当前版本重取：只推进自己的记录（及会话的诊断读数），不清除其他钱包实例的待刷新。 */
+  private consumeDirty(): void {
+    this.seenDirty = this.d.session.walletDirtyVersion;
+    this.d.session.noteWalletRefreshed(this.seenDirty);
   }
 
   get snapshot(): WalletSnapshot {
@@ -158,7 +194,7 @@ export class WalletController implements WalletSessionAware {
     return !this.left;
   }
 
-  /** 第一次显示、回到前台、从提现成功返回（walletNeedsRefresh）时加载。 */
+  /** 第一次显示、回到前台、从提现成功返回（本实例待刷新）时加载。 */
   load(): void {
     this.run(false);
   }
@@ -174,11 +210,24 @@ export class WalletController implements WalletSessionAware {
     this.navSeq++;
   }
 
+  /**
+   * App 回到前台、本页仍在栈顶（AppWallet.onAppForeground）：恢复可见并重取一次（共性第 55 条：回流入口遇到共享限流也进入限流错误
+   * 状态——run 保留旧摘要、标「更新于」与限流错误条、【提现】置灰；不像 refresh() 那样被闸门短路成什么都不做）。
+   */
+  onForeground(): void {
+    if (this.left) {
+      return;
+    }
+    this.visible = true;
+    this.consumeDirty();
+    this.run(this.state.phase === WalletPhase.CONTENT);
+  }
+
   /** 页面重新可见：提交成功后标记过要刷新（G19）时重取。 */
   onShown(): void {
     this.visible = true;
-    if (this.d.session.walletNeedsRefresh || this.state.phase === WalletPhase.IDLE) {
-      this.d.session.walletNeedsRefresh = false;
+    if (this.hasDirty() || this.state.phase === WalletPhase.IDLE) {
+      this.consumeDirty();
       this.run(this.state.phase === WalletPhase.CONTENT);
     }
   }
@@ -203,7 +252,8 @@ export class WalletController implements WalletSessionAware {
   /** 【提现】可点：摘要允许（G11）且不在显示缓存（G22）且有内容。 */
   get withdrawAllowed(): boolean {
     const s: WalletSnapshot = this.state;
-    if (s.summary === null || s.stale || s.phase !== WalletPhase.CONTENT) {
+    if (s.summary === null || s.stale || s.phase !== WalletPhase.CONTENT || s.keptFetchedAt > 0) {
+      // 共性第 46 条：保留的旧摘要（断网 stale，或非断网失败 / 限流短路而标「更新于」）不是当前数据，【提现】置灰。
       return false;
     }
     // G11 更正：风控冻结不置灰（BR-WDR-05 细则、BR-TEXT-01），只看 withdraw_enabled 与负余额。
@@ -291,6 +341,7 @@ export class WalletController implements WalletSessionAware {
     this.navSeq++;
     this.begin();
     this.unsubscribe();
+    this.unsubscribeDirty();
     this.d.session.remove(this);
   }
 
@@ -329,8 +380,10 @@ export class WalletController implements WalletSessionAware {
         s.phase = WalletPhase.ERROR;
         s.error = WalletMessages.of('error.42901');
       } else {
-        // 限流中没发、保留旧摘要：同样标更新时间（R3-05）。
+        // 限流中没发、保留旧摘要：同样标更新时间（R3-05）；共性第 46 条：回流刷新被共享限流短路时摘要也转旧数据——常驻限流提示
+        // 与【重试】（禁用中按钮不可点），【提现】置灰（withdrawAllowed 看 keptFetchedAt）。
         this.markKept(s);
+        s.refreshError = WalletMessages.of('error.42901');
       }
       this.emit();
       return;

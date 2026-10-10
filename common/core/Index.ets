@@ -35,6 +35,7 @@ export { RoutePolicy, RouteTable, AppVersion } from './src/main/ets/router/Route
 export { RouteParamValidator, HttpsTarget, RouteTargetCheck } from './src/main/ets/router/RouteParamValidator';
 export { RouteLookup, EntryGuard } from './src/main/ets/router/EntryGuard';
 export { DeepLinkConfig, DeepLinkParser } from './src/main/ets/router/DeepLinkParser';
+export { OwnPageExit } from './src/main/ets/router/OwnPageExit';
 export {
   PendingActionBackend, MemoryPendingBackend, PreferencesPendingBackend, PendingAction, PendingActionStore
 } from './src/main/ets/router/PendingActionStore';
@@ -190,7 +191,7 @@ export {
 export {
   OrderPhase, OrderErrorView, OrderOutcome, guardedOrder, OrderRateGate, OrderListSnapshot, OrderListDeps,
   OrderListConditions, OrderListController, OrderScrollAnchor, OrderAnchorKeeper, OrderPageState,
-  OrderPageRestorer
+  OrderPageRestorer, OrderPageStateKv, OrderPageStateStore
 } from './src/main/ets/orders/OrderListController';
 export { OrderListEntries, OrderDetailEntries } from './src/main/ets/orders/OrderEntries';
 export { OrderDetailSnapshot, OrderDetailDeps, OrderDetailController } from './src/main/ets/orders/OrderDetailController';
@@ -223,7 +224,9 @@ export {
 } from './src/main/ets/wallet/WalletSession';
 export { WalletDeps, WalletPhase, WalletSnapshot, WalletController } from './src/main/ets/wallet/WalletController';
 export { StepUpSnapshot, StepUpController } from './src/main/ets/wallet/StepUpController';
-export { SensitiveStep, SensitiveFlow, PendingClick } from './src/main/ets/wallet/SensitiveFlow';
+export {
+  SensitiveStep, SensitiveFlow, PendingClick, PageNavGate, DeferredResult
+} from './src/main/ets/wallet/SensitiveFlow';
 export { WithdrawPhase, WithdrawSnapshot, WithdrawController } from './src/main/ets/wallet/WithdrawController';
 export {
   PayoutPhase, PayoutFormInput, PayoutSnapshot, PayoutAccountController

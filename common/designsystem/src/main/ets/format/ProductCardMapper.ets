@@ -54,6 +54,15 @@ function stringOrEmpty(value: Object | null | undefined): string {
  * - 已下架（availability=off_shelf，含 open 30141 写回的）：按钮「商品已下架」（error.30141）、禁用，优先于平台状态。
  */
 export class ProductCardMapper {
+  /**
+   * 按卡片自己的平台取购买状态再映射（APP-07 共性第 32 条：剪贴板多卡弹层与单卡复用搜索卡的同一映射）。statusOf(platform) 返回
+   * features.platform_status（含 50301 覆盖）的当前值；配置变化时调用方重新映射。
+   */
+  static fromCardWithStatus(card: Record<string, Object>, texts: ProductCardTexts, buyEnabled: boolean,
+    statusOf: (platform: string) => string, nowMillis: number = Date.now()): ProductCardData {
+    return ProductCardMapper.fromCard(card, texts, buyEnabled, nowMillis, statusOf(stringOrEmpty(card['platform'])));
+  }
+
   static fromCard(card: Record<string, Object>, texts: ProductCardTexts, buyEnabled: boolean = true,
     nowMillis: number = Date.now(), purchaseStatus: string = ProductCardMapper.PURCHASE_ON): ProductCardData {
     const d: ProductCardData = new ProductCardData();

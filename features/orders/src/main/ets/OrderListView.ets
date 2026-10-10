@@ -127,6 +127,8 @@ export struct OrderListView {
   private source: OrderCardSource = new OrderCardSource();
   private cards: OrderView[] = [];
   private scroller: Scroller = new Scroller();
+  /** 最近一次 onScrollIndex 给出的顶部订单（在顶部为空串；R1-04：onDidScroll 与延迟对齐复核用）。 */
+  private topOrderId: string = '';
   private shownFailure: number = 0;
   private shownRound: number = -1;
   private shownEpoch: number = 0;
@@ -250,8 +252,17 @@ export struct OrderListView {
     this.alignTimer = setTimeout(() => {
       this.alignTimer = -1;
       const now: OrderListSnapshot = this.config.controller.snapshot;
-      if (!this.alive || now.sessionEpoch !== epoch
-        || !keeper.commitAlign(ticket, now.round, this.config.controller.conditions().encode())) {
+      if (!this.alive || now.sessionEpoch !== epoch) {
+        return;
+      }
+      // R1-04（APP-08 共性第 39 条）：执行前再复核一次实际位置（顶部订单 + 滚动偏移）；等待期间用户已滚动则恢复已取消，
+      // 只按用户此刻的位置持久化，不滚动。
+      const before: string = keeper.anchor;
+      if (!keeper.commitAlign(ticket, now.round, this.config.controller.conditions().encode(), this.topOrderId,
+        this.scrollOffset())) {
+        if (keeper.anchor !== before) {
+          this.config.onPersist();
+        }
         return;
       }
       try {
@@ -261,6 +272,15 @@ export struct OrderListView {
       }
       this.config.onPersist();
     }, 0);
+  }
+
+  /** 列表此刻的实际滚动偏移（像素）；没有布局时 NaN（只按顶部订单判定）。 */
+  private scrollOffset(): number {
+    try {
+      return this.scroller.currentOffset().yOffset;
+    } catch (e) {
+      return NaN;
+    }
   }
 
   /** 翻页失败：底部错误文案 assertive 播报一次，焦点移到底部【重试】（整页失败由 ErrorState 负责）。 */
@@ -874,7 +894,17 @@ export struct OrderListView {
           return;
         }
         const view: OrderView | undefined = start >= 1 ? this.cards[start - 1] : undefined;
-        if (this.config.anchor.visible(view === undefined ? '' : view.orderId)) {
+        this.topOrderId = view === undefined ? '' : view.orderId;
+        if (this.config.anchor.observe(this.topOrderId, this.scrollOffset())) {
+          this.config.onPersist();
+        }
+      })
+      .onDidScroll((_offset: number, _state: ScrollState) => {
+        // R1-04：顶部条目不变的滚动（同一卡片内的小幅滚动、惯性、无障碍滚动）同样交给锚点判定——恢复进行中偏移变化即取消恢复。
+        if (this.model.phase !== OrderPhase.CONTENT || !this.config.anchor.frozen) {
+          return;
+        }
+        if (this.config.anchor.observe(this.topOrderId, this.scrollOffset())) {
           this.config.onPersist();
         }
       })

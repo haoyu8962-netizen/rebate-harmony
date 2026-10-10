@@ -130,7 +130,17 @@ export class WithdrawRecordsController implements WalletSessionAware {
   }
 
   refresh(): boolean {
-    if (this.left || this.d.session.readGate.active) {
+    if (this.left) {
+      return false;
+    }
+    if (this.d.session.readGate.active) {
+      // 共性第 55 条：被共享限流挡下的刷新也给限流错误状态（保留旧列表、错误条、禁用中的重试），不只是不响应。
+      const s: RecordsSnapshot = this.state;
+      if (s.phase === RecordsPhase.CONTENT && !this.inFlight()) {
+        s.refreshError = WalletMessages.of('error.42901');
+        s.version++;
+        this.emit();
+      }
       return false;
     }
     if (this.inFlight()) {
@@ -203,8 +213,11 @@ export class WithdrawRecordsController implements WalletSessionAware {
     if (this.d.session.readGate.active) {
       s.refreshing = false;
       if (keep && s.phase === RecordsPhase.CONTENT) {
-        // 限流中没发：旧列表与它的翻页状态原样保留。
-        restorePaging(WalletMessages.of('error.42901'));
+        // 限流中没发：旧列表与它的翻页状态原样保留。共性第 55 条：回流入口（onShown、回到前台）同样进入限流错误状态——列表顶部常驻
+        // 限流提示与【重试】（禁用期内不可点），不静默沿用旧列表。
+        const rate: WalletMessage = WalletMessages.of('error.42901');
+        restorePaging(rate);
+        s.refreshError = rate;
       } else {
         s.phase = RecordsPhase.ERROR;
         s.error = WalletMessages.of('error.42901');
@@ -299,8 +312,12 @@ export class WithdrawRecordsController implements WalletSessionAware {
       const known: Set<string> = new Set<string>(s.items.map((i: WalletRecord): string =>
       WalletJson.text(i, 'withdrawal_id') ?? ''));
       for (const item of page.items) {
-        if (!known.has(WalletJson.text(item, 'withdrawal_id') ?? '')) {
-          s.items.push(item);
+        const id: string = WalletJson.text(item, 'withdrawal_id') ?? '';
+        if (!known.has(id)) {
+          // F-HM-19（RC-01，共性第 34 条）：翻页插入时同样优先采用本轮已接受的详情（详情可能先于翻页回来），整卡的状态、副文案、
+          // 金额与交易流水号来自同一份数据；旧轮次的详情不代替本页摘要。
+          const detail: RecordsDetail | undefined = s.details.get(id);
+          s.items.push(detail !== undefined && detail.round === seq ? detail.data : item);
         }
       }
       this.cursor = page.nextCursor;

@@ -125,7 +125,8 @@ export class StepUpController {
     const clock: SmsResendClock = this.d.session.sms;
     const key: string = SmsResendClock.key(this.account, phone, this.action);
     const now: number = this.d.clock();
-    if (!clock.tryBegin(key, now)) {
+    const ticket: number = clock.begin(key, now);
+    if (ticket === 0) {
       // 截止时间没过（别的面板实例刚发过）或发送在途：不发，显示同一倒计时。
       const left: number = clock.remainingMs(key, now);
       if (left > 0) {
@@ -155,12 +156,12 @@ export class StepUpController {
       // 共享部分先做，不看面板是否还开着（R2-02）：只按发出时的账号与会话归属写截止时间与 42901 限流。
       const sameSession: boolean = d.scope() === scope && d.account() === account;
       if (!sameSession) {
-        clock.finish(key, null, new SmsSendOutcome(false, null));
+        clock.finish(key, null, new SmsSendOutcome(false, null), ticket);
         return;
       }
       if (result.ok) {
         const sec: number = WalletJson.resendAfterSec(result.data);
-        clock.finish(key, d.clock() + sec * 1000, new SmsSendOutcome(true, null));
+        clock.finish(key, d.clock() + sec * 1000, new SmsSendOutcome(true, null), ticket);
         return;
       }
       const failure: WalletLoadFailure = WalletLoadFailure.of(result);
@@ -172,7 +173,7 @@ export class StepUpController {
       }
       const message: WalletMessage = result.code === 20001
         ? WalletMessages.of(ErrorActionMapper.textKey(20001, null) ?? 'error.20001') : failure.message;
-      clock.finish(key, null, new SmsSendOutcome(false, message));
+      clock.finish(key, null, new SmsSendOutcome(false, message), ticket);
     });
     return true;
   }

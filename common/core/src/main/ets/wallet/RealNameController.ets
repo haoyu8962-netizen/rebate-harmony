@@ -95,7 +95,9 @@ export class RealNameController implements WalletSessionAware {
     const input: WalletRecord = {};
     input['name'] = s.name;
     input['idNo'] = s.idNo;
-    return !this.left && !s.unavailable && !s.lockedToday && !s.submitting && !this.d.session.realnameGate.active
+    // 共性第 52 条（S0）：表单属于本页构建时的会话（归属键含登录序号与会话世代）；会话已变（即使清空通知还没到）就不提交姓名与证件号。
+    return this.alive && s.sessionEpoch === this.d.session.epoch && !s.unavailable && !s.lockedToday && !s.submitting
+      && !this.d.session.realnameGate.active
       && RealNameForm.normalize(input)['submitEnabled'] === true;
   }
 
@@ -345,7 +347,9 @@ export class LaborAgreementController implements WalletSessionAware {
 
   get canSign(): boolean {
     const s: LaborSnapshot = this.state;
-    return !this.left && !s.unavailable && s.checked && !s.signing && s.version !== null && s.sha256 !== null
+    // 共性第 52 条（S0）：签署属于本页构建时的会话；会话已变（即使清空通知还没到）就不签。
+    return this.alive && s.sessionEpoch === this.d.session.epoch && !s.unavailable && s.checked && !s.signing
+      && s.version !== null && s.sha256 !== null
       && !this.d.session.laborGate.active;
   }
 
