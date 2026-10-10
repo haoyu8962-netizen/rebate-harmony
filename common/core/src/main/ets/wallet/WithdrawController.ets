@@ -153,9 +153,13 @@ export class WithdrawController implements WalletSessionAware {
   replaceOwn: ((route: string, params: Record<string, Object>) => void) | null = null;
   onChange: (snapshot: WithdrawSnapshot) => void = (_s: WithdrawSnapshot) => {
   };
-  /** 已输入金额变了（App 持久化：进程回收后按账号归属恢复，不恢复估算）。 */
-  onInputChanged: (text: string) => void = (_t: string) => {
-  };
+  /**
+   * 已输入金额变了（App 持久化：进程回收后按账号归属恢复，不恢复估算）。APP-09 共性第 59 条（S0）：同时给出本页表单固定的账号与
+   * 归属键（页面构建时记下），App 按它们写入并在写前核对当前会话——不按执行时的当前账号保存。text 为空表示清除（任何归属都可清）。
+   */
+  onInputChanged: (text: string, account: string | null, scope: string) => void =
+    (_t: string, _a: string | null, _s: string) => {
+    };
 
   constructor(deps: WalletDeps) {
     this.d = deps;
@@ -265,9 +269,12 @@ export class WithdrawController implements WalletSessionAware {
 
   // ---------------------------------------------------------------- 金额输入与估算
 
-  /** 金额框编辑（键入与粘贴）：不合法整段不接受（返回 false，保持原值）。 */
+  /**
+   * 金额框编辑（键入、粘贴与自动填充）：不合法整段不接受（返回 false，保持原值）。APP-09 共性第 59 条（S0）：输入回调属于本页表单
+   * （构建时固定的账号、登录世代 / 归属键与钱包会话世代）；会话已变（即使清空通知还没到）或已换代，旧回调的内容不写进快照、不持久化。
+   */
   setInput(text: string): boolean {
-    if (this.left || !this.editable) {
+    if (this.left || !this.owns() || !this.editable) {
       return false;
     }
     const accepted: string | null = WithdrawAmountInput.accept(text);
@@ -317,7 +324,7 @@ export class WithdrawController implements WalletSessionAware {
         }, WithdrawController.ESTIMATE_DELAY_MS);
       }
     }
-    this.onInputChanged(text);
+    this.onInputChanged(text, this.account, this.boundScope);
     this.emit();
   }
 
@@ -327,7 +334,7 @@ export class WithdrawController implements WalletSessionAware {
    */
   fillAll(renderVersion: number, renderFen: number | null = null): boolean {
     const rules: WalletRecord | null = this.state.rules;
-    if (this.left || renderVersion !== this.state.version || rules === null || !this.editable) {
+    if (this.left || !this.owns() || renderVersion !== this.state.version || rules === null || !this.editable) {
       return false;
     }
     const all: WalletRecord = WithdrawRulesView.of(rules, null, null)['allButton'] as WalletRecord;
@@ -344,7 +351,7 @@ export class WithdrawController implements WalletSessionAware {
   /** 快捷档位：只认当前 rules 下发的档位。 */
   fillQuick(fen: number, renderVersion: number): boolean {
     const rules: WalletRecord | null = this.state.rules;
-    if (this.left || renderVersion !== this.state.version || rules === null || !this.editable) {
+    if (this.left || !this.owns() || renderVersion !== this.state.version || rules === null || !this.editable) {
       return false;
     }
     const quick: JSONValue = WithdrawRulesView.of(rules, null, null)['quick'];
@@ -787,7 +794,9 @@ export class WithdrawController implements WalletSessionAware {
     if (!this.owns() || this.state.stepUpAction === null || account === null) {
       return null;
     }
-    const c: StepUpController = new StepUpController(this.d, WithdrawController.STEP_UP_ACTION, account);
+    // 共性第 60 条：面板沿用本页表单（提交 / 确认）的身份——账号、归属键、钱包会话世代原样交给面板，不在面板里重读执行时会话。
+    const c: StepUpController = new StepUpController(this.d, WithdrawController.STEP_UP_ACTION, account,
+      this.boundScope, this.state.sessionEpoch);
     c.onToken = (token: string): void => this.afterStepUp(token);
     return c;
   }
@@ -1024,7 +1033,7 @@ export class WithdrawController implements WalletSessionAware {
     if (id !== null && id.length > 0) {
       params['withdrawal_id'] = id;
     }
-    this.onInputChanged('');
+    this.onInputChanged('', this.account, this.boundScope);
     this.emit();
     if (!current) {
       // F-HM-21：发起后被覆盖或发生过导航——登记延后替换（页面、会话），回到本页（或此刻已回到本页）复核后执行。
@@ -1106,7 +1115,7 @@ export class WithdrawController implements WalletSessionAware {
     s.sessionEpoch = epoch;
     s.version = this.state.version + 1;
     this.state = s;
-    this.onInputChanged('');
+    this.onInputChanged('', this.account, this.boundScope);
     try {
       this.onChange(this.state);
     } catch (e) {

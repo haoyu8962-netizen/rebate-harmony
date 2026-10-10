@@ -40,6 +40,8 @@ export class StepUpController {
   private readonly d: WalletDeps;
   private readonly account: string;
   private readonly scope: string;
+  /** 打开面板的提交 / 确认所属的钱包会话世代（共性第 60 条）；null 只给不经页面的直接构造（单测），不核对世代。 */
+  private readonly epoch: number | null;
   private closed: boolean = false;
   private timer: number = -1;
   private countdownUntil: number = 0;
@@ -52,11 +54,18 @@ export class StepUpController {
   onToken: (token: string) => void = (_t: string) => {
   };
 
-  constructor(deps: WalletDeps, action: string, account: string) {
+  /**
+   * APP-09 共性第 60 条：面板沿用打开它的提交 / 确认身份——account、scope（页面构建时的归属键，含登录序号与会话世代）、epoch（钱包
+   * 会话世代）由发起页原样传入；发码、重新获取、验证、读手机号、占用发码槽位、发包前都核对它，不重新绑定执行时的会话。scope 为 null
+   * 时（不经页面的直接构造）取构造时的归属。
+   */
+  constructor(deps: WalletDeps, action: string, account: string, scope: string | null = null,
+    epoch: number | null = null) {
     this.d = deps;
     this.action = action;
     this.account = account;
-    this.scope = deps.scope();
+    this.scope = scope ?? deps.scope();
+    this.epoch = epoch;
     const gates: () => void = (): void => {
       if (!this.closed) {
         this.emit();
@@ -100,8 +109,15 @@ export class StepUpController {
     return !this.closed;
   }
 
+  /** 面板仍属于打开它的提交 / 确认身份（会话归属、账号、钱包会话世代都没变）。 */
   private valid(): boolean {
-    return !this.closed && this.d.scope() === this.scope && this.d.account() === this.account;
+    return !this.closed && this.sameSession();
+  }
+
+  /** 发起身份对应的会话仍是当前会话（不看面板开关；共享结算用）。 */
+  private sameSession(): boolean {
+    return this.d.scope() === this.scope && this.d.account() === this.account
+      && (this.epoch === null || this.d.session.epoch === this.epoch);
   }
 
   /** 打开即发码（也是【重新获取验证码】）。 */
@@ -112,6 +128,10 @@ export class StepUpController {
       this.tick();
     }
     if (this.closed || s.sending || s.countdown > 0 || this.d.session.smsGate.active) {
+      return false;
+    }
+    if (!this.valid()) {
+      // 共性第 60 条：会话已变（即使清空通知还没到）——不读手机号、不占发码槽位、不发包。
       return false;
     }
     const phone: string | null = this.d.stepUpPhone(this.account);
@@ -146,15 +166,13 @@ export class StepUpController {
     body['purpose'] = 'step_up';
     body['action'] = this.action;
     const request: ApiRequest = new ApiRequest(StepUpController.SEND_OPERATION, {}, '', JSON.stringify(body));
-    // 只按会话与账号归属（面板关闭不取消已发出的发码：结果要记进共享截止时间）。
-    const scope: string = this.scope;
-    const account: string = this.account;
-    request.owner = (): boolean => this.d.scope() === scope && this.d.account() === account;
+    // 只按打开面板的发起身份（会话归属、账号、世代；面板关闭不取消已发出的发码：结果要记进共享截止时间）。
+    request.owner = (): boolean => this.sameSession();
     request.sendAllowed = (): boolean => this.d.session.smsGate.sendAllowed();
     const d: WalletDeps = this.d;
     this.d.api.request(request).then((result: ApiResult) => {
       // 共享部分先做，不看面板是否还开着（R2-02）：只按发出时的账号与会话归属写截止时间与 42901 限流。
-      const sameSession: boolean = d.scope() === scope && d.account() === account;
+      const sameSession: boolean = this.sameSession();
       if (!sameSession) {
         clock.finish(key, null, new SmsSendOutcome(false, null), ticket);
         return;
@@ -199,6 +217,10 @@ export class StepUpController {
 
   /** 输入（只留数字，最多 6 位）。 */
   setCode(text: string): void {
+    if (!this.valid()) {
+      // 共性第 59、60 条：会话已变的旧输入回调不写进面板。
+      return;
+    }
     const digits: string = text.replace(/[^0-9]/g, '').substring(0, 6);
     this.state.code = digits;
     if (digits.length > 0) {
@@ -209,7 +231,7 @@ export class StepUpController {
 
   get canVerify(): boolean {
     const s: StepUpSnapshot = this.state;
-    return !this.closed && s.code.length === 6 && !s.verifying && !this.d.session.verifyGate.active;
+    return this.valid() && s.code.length === 6 && !s.verifying && !this.d.session.verifyGate.active;
   }
 
   /** 【验证并提交】。 */
@@ -227,13 +249,11 @@ export class StepUpController {
     body['code'] = s.code;
     const request: ApiRequest = new ApiRequest(StepUpController.VERIFY_OPERATION, {}, '', JSON.stringify(body));
     // 归属只按会话与账号（同发码，共性第 27 条）：面板关闭后到达的 42901 仍写进共享验证限流；结果本身（含 token）面板关了就丢弃。
-    const scope: string = this.scope;
-    const account: string = this.account;
     const d: WalletDeps = this.d;
-    request.owner = (): boolean => d.scope() === scope && d.account() === account;
+    request.owner = (): boolean => this.sameSession();
     request.sendAllowed = this.d.session.verifyGate.sendAllowed;
     this.d.api.request(request).then((result: ApiResult) => {
-      if (d.scope() !== scope || d.account() !== account) {
+      if (!this.sameSession()) {
         return;
       }
       if (!result.ok) {

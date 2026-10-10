@@ -339,7 +339,9 @@ export class AppWallet {
     if (saved !== null) {
       c.restoreInput(saved);
     }
-    c.onInputChanged = (text: string): void => this.writeWithdrawInput(text);
+    // APP-09 共性第 59 条（S0）：按提现页表单固定的账号与归属键保存，写前核对当前会话；不按执行时的当前账号保存。
+    c.onInputChanged = (text: string, account: string | null, scope: string): void =>
+      this.saveWithdrawInput(text, account, scope);
     return c;
   }
 
@@ -411,9 +413,23 @@ export class AppWallet {
     }
   }
 
-  private writeWithdrawInput(text: string): void {
+  /**
+   * 提现页表单的金额保存（共性第 59 条）：清除（空文字）任何归属都执行；写入只用表单固定的账号打标签，且当前会话的归属键与账号都还是
+   * 这张表单的——会话已变（即使清空通知还没到）的旧回调不写，避免把旧表单的金额记到新账号名下。
+   */
+  private saveWithdrawInput(text: string, account: string | null, scope: string): void {
+    if (text.length === 0) {
+      this.clearWithdrawInput();
+      return;
+    }
+    if (account === null || AppWallet.scopeKey() !== scope || AppWallet.account() !== account) {
+      return;
+    }
+    this.writeWithdrawInputFor(account, text);
+  }
+
+  private writeWithdrawInputFor(account: string | null, text: string): void {
     const p: preferences.Preferences | null = this.prefs();
-    const account: string | null = AppWallet.account();
     if (p === null) {
       return;
     }
@@ -434,7 +450,7 @@ export class AppWallet {
   }
 
   private clearWithdrawInput(): void {
-    this.writeWithdrawInput('');
+    this.writeWithdrawInputFor(null, '');
   }
 
   /** 路由参数里的字符串（Router 已按 routes.json 校验）。 */

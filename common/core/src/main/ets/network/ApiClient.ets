@@ -1493,9 +1493,18 @@ export class ApiClient {
       if (prepared.installSecret !== null) {
         this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
       }
+      // APP-09 共性第 62 条：传输层最终核对（admit）被发送闸门拒绝时，当场记下这个明确原因；响应回来后按它结算为 SEND_BLOCKED，
+      // 不用回调时刻的闸门状态反推（拒绝之后、结果交回之前禁用期可能已经到期）。
+      const admitBlocked: boolean[] = [];
       response = await this.send(new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery, headers,
-        request.body, plan.timeoutMillis, (): boolean => ApiClient.observeAdmit(request,
-          this.ownershipLost(ctx) === null && ApiClient.sendPermitted(ctx))),
+        request.body, plan.timeoutMillis, (): boolean => {
+          const owned: boolean = this.ownershipLost(ctx) === null;
+          const permitted: boolean = owned && ApiClient.sendPermitted(ctx);
+          if (owned && !permitted) {
+            admitBlocked.push(true);
+          }
+          return ApiClient.observeAdmit(request, permitted);
+        }),
         ctx.owner);
       const afterSend: string | null = this.ownershipLost(ctx);
       if (afterSend !== null) {
@@ -1504,8 +1513,8 @@ export class ApiClient {
         this.settle(ctx, ApiClient.responseKind(response));
         return this.lostResult(afterSend);
       }
-      if (response.failure === TransportFailure.CANCELLED && !ApiClient.sendPermitted(ctx)) {
-        // 传输层交出前的最后核对（admit）被发送闸门拦下：没有发出（R2-01）。
+      if (response.failure === TransportFailure.CANCELLED && admitBlocked.length > 0) {
+        // 传输层交出前的最后核对（admit）被发送闸门拦下：没有发出（R2-01）。按拒绝当时记下的原因结算（共性第 62 条）。
         this.settle(ctx, lastKind);
         return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
       }

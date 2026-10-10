@@ -426,7 +426,7 @@ export class PayoutAccountController implements WalletSessionAware {
   /** 【更换收款账号】（已绑定、没有待确认）。 */
   startChange(renderVersion: number): boolean {
     const s: PayoutSnapshot = this.state;
-    if (this.left || renderVersion !== s.version || s.phase !== PayoutPhase.VIEW || s.pending !== null) {
+    if (this.left || !this.owns() || renderVersion !== s.version || s.phase !== PayoutPhase.VIEW || s.pending !== null) {
       return false;
     }
     s.form = new PayoutFormInput();
@@ -439,7 +439,7 @@ export class PayoutAccountController implements WalletSessionAware {
 
   /** 单选收款方式（G14：只有支付宝与本人借记卡）。 */
   setMethod(method: string): void {
-    if (this.left || (method !== 'alipay' && method !== 'bank_card') || this.state.phase !== PayoutPhase.FORM) {
+    if (this.left || !this.owns() || (method !== 'alipay' && method !== 'bank_card') || this.state.phase !== PayoutPhase.FORM) {
       return;
     }
     this.state.form.method = method;
@@ -447,10 +447,14 @@ export class PayoutAccountController implements WalletSessionAware {
     this.emit();
   }
 
-  /** 字段输入：卡号只允许数字、空格、连字符，最多 32；登录号最多 128；姓名、开户行最多 64（G13）。不合法整段不接受。 */
+  /**
+   * 字段输入（键入、粘贴与自动填充）：卡号只允许数字、空格、连字符，最多 32；登录号最多 128；姓名、开户行最多 64（G13）。不合法整段
+   * 不接受。APP-09 共性第 59 条（S0）：输入回调属于本页表单（构建时固定的账号、归属键与钱包会话世代）；会话已变（即使清空通知还没到）
+   * 或已换代，旧回调的收款账号内容不写进快照。
+   */
   setField(field: string, text: string): boolean {
     const s: PayoutSnapshot = this.state;
-    if (this.left || s.phase !== PayoutPhase.FORM) {
+    if (this.left || !this.owns() || s.phase !== PayoutPhase.FORM) {
       return false;
     }
     switch (field) {
@@ -586,7 +590,9 @@ export class PayoutAccountController implements WalletSessionAware {
     if (!this.owns() || this.state.stepUpAction === null || account === null) {
       return null;
     }
-    const c: StepUpController = new StepUpController(this.d, PayoutAccountController.STEP_UP_ACTION, account);
+    // 共性第 60 条：面板沿用本页表单（保存 / 确认）的身份——账号、归属键、钱包会话世代原样交给面板，不在面板里重读执行时会话。
+    const c: StepUpController = new StepUpController(this.d, PayoutAccountController.STEP_UP_ACTION, account,
+      this.boundScope, this.state.sessionEpoch);
     c.onToken = (token: string): void => this.afterStepUp(token);
     return c;
   }

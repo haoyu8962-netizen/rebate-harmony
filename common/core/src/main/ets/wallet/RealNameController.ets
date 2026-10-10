@@ -65,9 +65,17 @@ export class RealNameController implements WalletSessionAware {
     return !this.left && this.d.scope() === this.boundScope;
   }
 
+  /**
+   * 本页表单仍属于构建时的会话（APP-09 共性第 59 条，S0）：归属键（含登录序号与会话世代）与钱包会话世代都没变。输入、自动填充回调
+   * 写入快照前核对——会话已变（即使清空通知还没到）或已换代，旧回调里的姓名 / 身份证号不写进表单。
+   */
+  private owns(): boolean {
+    return this.alive && this.state.sessionEpoch === this.d.session.epoch;
+  }
+
   /** 姓名（只去首尾空白在提交时做；输入原样保留）。 */
   setName(text: string): void {
-    if (this.left || text.length > 64) {
+    if (this.left || !this.owns() || text.length > 64) {
       return;
     }
     this.state.name = text;
@@ -77,7 +85,7 @@ export class RealNameController implements WalletSessionAware {
 
   /** 身份证号：只收数字与 X（小写 x 转大写），最多 18 位；不合法整段不接受。 */
   setIdNo(text: string): boolean {
-    if (this.left) {
+    if (this.left || !this.owns()) {
       return false;
     }
     const accepted: string | null = RealNameForm.acceptIdNo(text);
@@ -113,7 +121,7 @@ export class RealNameController implements WalletSessionAware {
   }
 
   setConsentChecked(checked: boolean): void {
-    if (!this.state.consentOpen) {
+    if (!this.state.consentOpen || !this.owns()) {
       return;
     }
     this.state.consentChecked = checked;
@@ -341,6 +349,10 @@ export class LaborAgreementController implements WalletSessionAware {
   }
 
   setChecked(checked: boolean): void {
+    // 共性第 59 条：勾选同样属于本页表单的会话；会话已变或已换代的旧回调不改快照。
+    if (!this.alive || this.state.sessionEpoch !== this.d.session.epoch) {
+      return;
+    }
     this.state.checked = checked;
     this.emit();
   }
