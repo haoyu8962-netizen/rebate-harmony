@@ -56,9 +56,12 @@ export class EntryGuard {
     return EntryGuard.openDecision(request, state);
   }
 
-  /** 守卫校验与打开时实际使用的参数：资金与实名页面先丢弃全部参数（03 §4.4「资金与实名页面」）。 */
+  /**
+   * 守卫校验与打开时实际使用的参数：资金与实名页面先丢弃全部参数（03 §4.4「资金与实名页面」）；注销页同样丢弃（APP-13a §0 第 3 条，
+   * 不记 route_params_dropped，G21）。
+   */
   static effectiveParams(request: RouteRequest): Record<string, Object> {
-    return RoutePolicy.PARAMS_DROPPED_ROUTES.indexOf(request.route) >= 0 ? emptyParams() : request.params;
+    return RoutePolicy.dropsAllParams(request.route) ? emptyParams() : request.params;
   }
 
   /**

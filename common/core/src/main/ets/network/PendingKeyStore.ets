@@ -14,7 +14,10 @@ import { SecureEntry, SecureStore } from '../storage/SecureStore';
  *   记录删除（升级后、补办后由用户用新键重新提交）。
  * - 结果未知期间同账号同操作不得用新键提交（beforeSend 拒绝）；确认（原键原体重发）与放弃（调作废接口）都由用户点击，
  *   在途时两个都不可用。按账号隔离：别的账号不读不发；不按时间过期。
- * - stateRaw：none / in_flight / unknown / done（done 只是本实例的终结观察值，持久记录已删除）。
+ * - APP-13a 的两个操作（requestDeletion、bindPhone）口径更严（brief §0 第 1 条，harmony-review-r1 R1-02）：从未结果未知的键只在 42901、
+ *   明确的 40901、20001 / 20002 / 20003、44001 与前置补办（10001、10004、10005）后不再使用；其余非终结响应（10007、5xxxx、10405、10003 等）
+ *   保留原记录为 held，下一次用户提交沿用原键原体（beforeSend 只放行同一个键）。
+ * - stateRaw：none / in_flight / unknown / held / done（done 只是本实例的终结观察值，持久记录已删除）。
  * 单线程（UI 线程）使用。
  */
 
@@ -23,6 +26,11 @@ export class PendingKeyStateRaw {
   static readonly IN_FLIGHT: string = 'in_flight';
   static readonly UNKNOWN: string = 'unknown';
   static readonly DONE: string = 'done';
+  /**
+   * APP-13a harmony-review-r1 R1-02：requestDeletion / bindPhone 从未结果未知的键拿到「不结束键」的明确响应（10007、带统一外壳的 5xxxx、
+   * 10405、10003 等，brief §0 第 1 条）：原记录保留、不进待确认，下一次用户提交沿用这个键与原请求体（禁止重新生成键）。
+   */
+  static readonly HELD: string = 'held';
 }
 
 /** onResponse 的 kind（原始字符串）。envelope_<code> 为带统一外壳的业务码。 */
@@ -233,7 +241,7 @@ export class SecurePendingKeyBackend implements PendingKeyBackend {
         return null;
       }
       const state: string = wire.state === PendingKeyStateRaw.UNKNOWN ? PendingKeyStateRaw.UNKNOWN :
-      PendingKeyStateRaw.IN_FLIGHT;
+        wire.state === PendingKeyStateRaw.HELD ? PendingKeyStateRaw.HELD : PendingKeyStateRaw.IN_FLIGHT;
       return new PendingKeyRecord(wire.key, wire.operation_id, wire.body,
         typeof wire.summary === 'string' ? wire.summary : '', wire.account,
         typeof wire.created_at_millis === 'number' ? wire.created_at_millis : 0, state, wire.ever_unknown === true);
@@ -281,6 +289,8 @@ export class PendingKeyStore {
   private readonly activeHere: Map<string, number> = new Map<string, number>();
   /** resetAfterClear 的次数（全部持久记录被清掉的世代；FU-HM-0711b R2-02 判断「已绑定的会话归属」是否已随清理作废）。 */
   private resets: number = 0;
+  /** 本进程里由 held 转为在途的键（R1-02）：这次发送没有业务结果（no_result）时回到 held，不删除。 */
+  private readonly heldKeys: Set<string> = new Set<string>();
 
   constructor(backend: PendingKeyBackend, clock: () => number) {
     this.backend = backend;
@@ -423,6 +433,15 @@ export class PendingKeyStore {
       } else if (this.activeHere.has(key) && this.activeHere.get(key) !== callId) {
         // 在途、但占用者是别的逻辑调用（lessons 26）。
         blocked = true;
+      } else if (record.stateRaw === PendingKeyStateRaw.HELD) {
+        // R1-02：保留的键由用户再次提交（沿用原键）：先持久化为在途，写成功才放行。
+        const next: PendingKeyRecord = record.copy();
+        next.stateRaw = PendingKeyStateRaw.IN_FLIGHT;
+        this.backend.write(next);
+        this.records.set(key, next);
+        this.heldKeys.add(key);
+        this.activeHere.set(key, callId);
+        return true;
       } else {
         sameKeyInFlight = true;
       }
@@ -534,6 +553,7 @@ export class PendingKeyStore {
     }
     if (PendingKeyStore.isTerminal(kind)) {
       this.activeHere.delete(key);
+      this.heldKeys.delete(key);
       if (current) {
         this.records.delete(key);
         this.finished.add(key);
@@ -549,6 +569,12 @@ export class PendingKeyStore {
       this.markUnknown(record);
       return;
     }
+    if (PendingKeyStore.holdsKey(record.operationId, kind, this.heldKeys.has(key))) {
+      // R1-02：APP-13a 两个操作的非终结响应保留原记录，下一次用户提交沿用原键原体。
+      this.markHeld(record, current);
+      return;
+    }
+    this.heldKeys.delete(key);
     // 从未结果未知的键拿到明确的非终结响应：这次请求没有被受理，键不再使用（升级或补办后用户用新键重新提交）。
     if (current) {
       this.records.delete(key);
@@ -635,6 +661,45 @@ export class PendingKeyStore {
     this.records.set(key, next);
     this.activeHere.set(key, callId);
     return true;
+  }
+
+  /** R1-02：保留为 held（不是结果未知、不进待确认）。持久化失败时持久记录仍是在途，下次进程恢复按结果未知（更保守）。 */
+  private markHeld(record: PendingKeyRecord, current: boolean): void {
+    record.stateRaw = PendingKeyStateRaw.HELD;
+    this.heldKeys.delete(record.key);
+    if (current) {
+      this.records.set(record.key, record);
+    }
+    try {
+      this.backend.write(record);
+    } catch (e) {
+      // 同上。
+    }
+  }
+
+  /** APP-13a 口径更严的操作（requestDeletion、bindPhone，brief §0 第 1 条）。 */
+  static strictOperation(operationId: string): boolean {
+    return operationId === 'requestDeletion' || operationId === 'bindPhone';
+  }
+
+  /**
+   * 从未结果未知的键收到 kind 后是否保留为 held（R1-02）。只对 strictOperation；no_result（这次没有发出或没有业务结果）只在键原本就是
+   * held 时保持；42901、40901、20001–20003、44001 与前置补办码之后键不再使用。
+   */
+  static holdsKey(operationId: string, kind: string, wasHeld: boolean): boolean {
+    if (!PendingKeyStore.strictOperation(operationId)) {
+      return false;
+    }
+    if (kind === PendingResponseKind.NO_RESULT) {
+      return wasHeld;
+    }
+    const m: RegExpMatchArray | null = kind.match(/^envelope_([0-9]+)$/);
+    if (m === null) {
+      return false;
+    }
+    const code: number = Number(m[1]);
+    const ends: number[] = [42901, 40901, 20001, 20002, 20003, 44001, 10001, 10004, 10005];
+    return ends.indexOf(code) < 0;
   }
 
   /** 记为结果未知：内存一定改（这次确实没有结果）；持久化失败时持久记录仍是在途，下次进程恢复同样按结果未知。 */

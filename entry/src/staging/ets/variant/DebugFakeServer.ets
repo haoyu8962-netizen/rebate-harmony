@@ -13,6 +13,7 @@ import { DebugFakeOrders } from './DebugFakeOrders';
 import { DebugFakeWallet } from './DebugFakeWallet';
 import { DebugFakeMe } from './DebugFakeMe';
 import { DebugFakeHome } from './DebugFakeHome';
+import { DebugFakeAccount } from './DebugFakeAccount';
 
 /** 传输入口闸门放行时的本机回答一侧（只由 DebugMockTransport 调用）。 */
 class FakeSide implements HttpTransport {
@@ -90,6 +91,7 @@ export class DebugFakeServer implements HttpTransport {
   static readonly walletMarker: string = DebugFakeWallet.marker;
   static readonly meMarker: string = DebugFakeMe.marker;
   static readonly homeMarker: string = DebugFakeHome.marker;
+  static readonly accountMarker: string = DebugFakeAccount.marker;
   private serial: number = 0;
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
   private readonly waiting: Map<TransportRequest, Waiting> = new Map<TransportRequest, Waiting>();
@@ -111,7 +113,10 @@ export class DebugFakeServer implements HttpTransport {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
     }
     // APP-12：「我的」类接口最先答（/v1/me 的 13 个字段；实名状态沿用钱包假服务的值）；APP-09：钱包类接口其次。
-    const search: FakeAnswer | null = DebugFakeMe.answer(request.url, request.method, request.body)
+    // APP-13a：注销与换手机号的接口最先答（负余额摘要、未绑手机的 getMe 只在对应场景接管）。
+    const search: FakeAnswer | null = DebugFakeAccount.answer(request.url, request.method, request.body,
+      request.headers[NetworkHeaders.AUTHORIZATION], request.headers[NetworkHeaders.STEP_UP_TOKEN])
+      ?? DebugFakeMe.answer(request.url, request.method, request.body)
       ?? DebugFakeWallet.answer(request.url, request.method, request.body,
       request.headers[NetworkHeaders.STEP_UP_TOKEN]) ?? DebugFakeOrders.answer(request.url, request.method, request.body)
       ?? DebugFakeTrade.answer(request.url, request.method,
@@ -273,7 +278,7 @@ export class DebugFakeServer implements HttpTransport {
         return DebugFakeServer.envelope(0, '{"user_id":"debug-stub-user-' + this.serial + '","is_new_user":' + isNew
           + ',"tokens":{"access_token":"stub-access-' + this.serial + '","access_expires_at":"2026-10-08T11:30:00+08:00",'
           + '"refresh_token":"stub-refresh-' + this.serial + '","refresh_expires_at":"2026-11-07T09:30:00+08:00",'
-          + '"session_scope":"full"}' + bind + '}');
+          + '"session_scope":"' + DebugFakeAccount.sessionScope() + '"}' + bind + '}');
       }
       case '200030':
         return DebugFakeServer.envelope(20003, '{}');

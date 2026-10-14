@@ -21,6 +21,7 @@ import { AppWallet } from '../wallet/AppWallet';
 import { AppMe } from '../me/AppMe';
 import { AppHome } from '../home/AppHome';
 import { AppAgent } from '../agent/AppAgent';
+import { AppAccount } from '../account/AppAccount';
 import { AgentVariant } from 'entry/ets/agent/AgentVariant';
 
 const DOMAIN: number = 0x0000;
@@ -73,6 +74,7 @@ export default class EntryAbility extends UIAbility {
     AppWallet.shared.compose(appContext);
     // APP-12：「我的」、设置、隐私中心、关于、封禁说明与申诉、推送令牌上报、统一客服出口（本机偏好登记为撤回清理第一步，在环境对账之前）。
     AppMe.shared.compose(this.context);
+    AppAccount.shared.compose();
     // APP-11：首页 SDUI（LKG、公告关闭与弹窗计数登记为撤回同意与切换环境的清理第一步，在环境对账之前）。
     AppHome.shared.compose(appContext);
     // APP-10：Agent 页（对话只在内存；撤回同意与切换环境的清理开始时同步作废，登记在环境对账之前）。

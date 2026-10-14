@@ -1,6 +1,6 @@
 import {
   MeLevel, MeMessage, MeRecord, NicknameController, NicknameSnapshot, NotifySettingsController, NotifySnapshot,
-  SettingsItems
+  PhoneChangeController, SettingsItems
 } from 'core';
 import {
   CouliAnnounce, CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus,
@@ -11,6 +11,7 @@ import {
   Bound, DraftMeTexts, fmt1, MeCard, MeSheetPanel, MeGroupTitle, MeNoticeBar, MePageFrame, MeRow, MeSwitchRow, MeTexts,
   switchSpoken
 } from './MeKit';
+import { PhoneChangeView } from './PhoneChangeView';
 
 type JSONValue = Object | null;
 
@@ -65,6 +66,19 @@ export class SettingsPageConfig {
    */
   nicknameController: (identity: string) => NicknameController | null = (_i: string) => null;
   notifyController: (identity: string) => NotifySettingsController | null = (_i: string) => null;
+  /**
+   * 换手机号子页的执行器（APP-13a G22：Settings 的页内子页，不注册路由）。identity 是手机号行渲染时捕获的归属：工厂只比较，不是已登录、
+   * 归属已变或受限会话返回 null。
+   */
+  phoneChangeController: (identity: string) => PhoneChangeController | null = (_i: string) => null;
+  /** 注销账号行（APP-13a G01：只在路由可用时出现）：经 entry 带「来源 settings」打开 DeleteAccount。 */
+  openDeleteAccount: (identity: string) => void = (_i: string) => {
+  };
+  /** 二次验证半屏的调试视口覆盖（截图用，Release 为 0）。 */
+  stepUpViewport: number = 0;
+  /** 设置页可见性变化（onShown / onHidden）：页内子页的导航世代跟着变（之后到达的结果不自动导航、不弹浮层）。由视图设置。 */
+  subVisibility: (shown: boolean) => void = (_s: boolean) => {
+  };
   /** 通知设置【去设置】：跳系统里本 App 的通知设置（用户主动，不受 48 小时限制）。 */
   openSystemNotificationSettings: () => void = () => {
   };
@@ -145,6 +159,7 @@ class NotifyBinding {
 const SUB_MAIN: string = 'main';
 const SUB_NICKNAME: string = 'nickname';
 const SUB_NOTIFY: string = 'notify';
+const SUB_PHONE: string = 'phone_change';
 
 @ObservedV2
 class SettingsModel {
@@ -182,6 +197,8 @@ export struct SettingsView {
   @Local model: SettingsModel = new SettingsModel();
   private nickController: NicknameController | null = null;
   private notifyCtl: NotifySettingsController | null = null;
+  /** 换手机号子页的执行器（每次进入新建；关闭即作废，下次从第 1 步开始，G23）。 */
+  @Local phoneCtl: PhoneChangeController | null = null;
   /** 子页表单实例编号：每次打开加 1。 */
   private formSeq: number = 0;
   private lastNickSeq: number = 0;
@@ -201,6 +218,16 @@ export struct SettingsView {
     this.config.backHandler = (): boolean => this.systemBack();
     this.config.refresh = (): void => this.onForeground();
     this.config.dispose = (): void => this.dispose();
+    this.config.subVisibility = (shown: boolean): void => {
+      const c: PhoneChangeController | null = this.phoneCtl;
+      if (c !== null) {
+        if (shown) {
+          c.onShown();
+        } else {
+          c.onHidden();
+        }
+      }
+    };
     this.tipUnsubscribe = this.config.subscribeTip((): void => {
       if (!this.disposed) {
         this.model.tipBlocked = this.config.tipBlocked();
@@ -214,6 +241,9 @@ export struct SettingsView {
       setTimeout(() => this.openNickname(this.currentBound()), 1500);
     } else if (sub === SUB_NOTIFY) {
       this.openNotify(this.currentBound());
+    } else if (sub === SUB_PHONE) {
+      // Debug 截图直达：等 Me 快照到了再打开（手机号行按 phone_bound 才可点）。
+      setTimeout(() => this.openPhoneChange(this.currentBound()), 1500);
     } else if (sub === 'agreement') {
       this.openAgreementSheet();
     } else if (sub === 'clear_cache') {
@@ -276,11 +306,28 @@ export struct SettingsView {
       this.model.agreementSheet = false;
       return true;
     }
+    if (this.model.sub === SUB_PHONE) {
+      // R3-05：换号子页的系统返回与页面返回走同一处理。
+      this.phoneBack();
+      return true;
+    }
     if (this.model.sub !== SUB_MAIN) {
       this.closeSub();
       return true;
     }
     return false;
+  }
+
+  /**
+   * 换号子页的统一返回（harmony-review-r3 R3-05，flow-map 11.2.2）：第 2 步 → 回第 1 步（不提交、不销毁控制器）；第 1 步及其他状态 →
+   * 关掉子页回设置主页。页面返回（PhoneChangeView.onBack）与系统返回（systemBack）都调这里。
+   */
+  private phoneBack(): void {
+    const c: PhoneChangeController | null = this.phoneCtl;
+    if (c !== null && c.back()) {
+      return;
+    }
+    this.closeSub();
   }
 
   /** 协议选择半屏（页内子页）：打开前同步作废已固定的导航许可（F-HM-27）。 */
@@ -301,12 +348,19 @@ export struct SettingsView {
       notify.leave();
       this.notifyCtl = null;
     }
+    const phone: PhoneChangeController | null = this.phoneCtl;
+    if (phone !== null) {
+      // 同步出口：清空两步输入、作废回调、丢弃第 1 步的 token（写请求不取消，由未决记录兜底）。
+      phone.leave();
+      this.phoneCtl = null;
+    }
     const was: string = this.model.sub;
     this.model.sub = SUB_MAIN;
     this.model.nick = null;
     this.model.notify = null;
     if (was !== SUB_MAIN) {
-      CouliFocusReturn.to(this.getUIContext(), was === SUB_NICKNAME ? 'settings_nickname' : 'settings_notify');
+      CouliFocusReturn.to(this.getUIContext(), was === SUB_NICKNAME ? 'settings_nickname'
+        : was === SUB_PHONE ? 'settings_phone' : 'settings_notify');
     }
   }
 
@@ -382,6 +436,30 @@ export struct SettingsView {
       this.lastNickSeq = s.message.seq;
       CouliAnnounce.say(ui, s.message.text);
     }
+  }
+
+  /** 换手机号子页（APP-13a G22）：进入前同步作废设置页已固定的导航许可（F-HM-27）。 */
+  private openPhoneChange(bound: Bound): void {
+    if (!this.boundLive(bound)) {
+      return;
+    }
+    const c: PhoneChangeController | null = this.config.phoneChangeController(bound.identity);
+    if (c === null) {
+      return;
+    }
+    this.config.subPageEntered();
+    this.closeSub();
+    this.formSeq++;
+    c.onFinished = (): void => {
+      // 结果页【完成】：只关掉发起的这一个子页，回设置主页（APP-09 第 50 条），按新快照重画手机号行。
+      if (this.phoneCtl === c) {
+        this.closeSub();
+        this.reload();
+      }
+    };
+    this.phoneCtl = c;
+    this.model.sub = SUB_PHONE;
+    c.onShown();
   }
 
   private openNotify(bound: Bound): void {
@@ -555,6 +633,16 @@ export struct SettingsView {
       case SettingsItems.ID_NOTIFY:
         this.openNotify(bound);
         return;
+      case SettingsItems.ID_PHONE:
+        if (route === null) {
+          this.openPhoneChange(bound);
+          return;
+        }
+        this.config.open(route, {}, bound.identity);
+        return;
+      case SettingsItems.ID_DELETE:
+        this.config.openDeleteAccount(bound.identity);
+        return;
       case SettingsItems.ID_AGREEMENT:
         this.openAgreementSheet();
         return;
@@ -610,6 +698,8 @@ export struct SettingsView {
         return this.t('settings.notify');
       case SettingsItems.ID_RESET_TIP:
         return this.t('settings.reset_tip');
+      case SettingsItems.ID_DELETE:
+        return this.t('settings.delete_account');
       default:
         return '';
     }
@@ -652,6 +742,8 @@ export struct SettingsView {
         return 'settings_notify';
       case SettingsItems.ID_RESET_TIP:
         return 'settings_reset_tip';
+      case SettingsItems.ID_DELETE:
+        return 'settings_delete_account';
       default:
         return 'settings_row';
     }
@@ -1087,7 +1179,14 @@ export struct SettingsView {
 
   build() {
     Stack() {
-      if (this.model.sub === SUB_NICKNAME) {
+      if (this.model.sub === SUB_PHONE && this.phoneCtl !== null) {
+        PhoneChangeView({
+          controller: this.phoneCtl as PhoneChangeController,
+          texts: this.config.texts,
+          stepUpViewport: this.config.stepUpViewport,
+          onBack: () => this.phoneBack()
+        })
+      } else if (this.model.sub === SUB_NICKNAME) {
         MePageFrame({
           title: this.t('nickname.title'),
           backLabel: this.t('me.back'),

@@ -38,6 +38,9 @@
 #     启动参数键 couli_debug_agent_fixture（common/core/src/staging/ets/agent/、entry/src/staging/ets/agent/）；
 #     启动参数自动发送（harmony-review-r1 R1-11）：标记 COULI_AGENT_LAUNCH_SEND_APP10_2f9c4d、启动参数键 couli_debug_agent_send
 #     （entry/src/staging/ets/agent/AgentVariant.ets；Release 的同名文件是空实现）
+#   - 注销与换手机号的本机假服务（APP-13a）：标记 COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90、启动参数键 couli_debug_account_scene；
+#     路由可用性覆盖开关：标记 COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e、启动参数键 couli_debug_route_available
+#     （entry/src/staging/ets/variant/DebugFakeAccount.ets、BuildVariant.ets）
 #   - 首页 SDUI 的本机假服务与草稿预览（APP-11）：标记 COULI_FAKE_HOME_SERVER_APP11_5e8c21、启动参数键 couli_debug_home_scene
 #     （entry/src/staging/ets/variant/DebugFakeHome.ets）、预览页标记 COULI_HOME_PREVIEW_APP11_9b4d27（entry/src/staging/ets/home/HomePreviewPage.ets）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
@@ -144,6 +147,10 @@ markers = [
     "COULI_AGENT_FAKE_APP10_7d3e15", "AgentFakeService", "couli_debug_agent_fixture",
     # APP-10 R1-11：启动参数自动发送与重试计时的实现（只在 staging 源码集）。
     "COULI_AGENT_LAUNCH_SEND_APP10_2f9c4d", "couli_debug_agent_send",
+    # APP-13a：注销与换手机号的本机假服务（entry/src/staging/ets/variant/DebugFakeAccount.ets）与场景启动参数键；路由可用性覆盖开关
+    # （编排者补充 G01：DeleteAccount since=null 时只在 Debug / Staging 用于冒烟、截图，entry/src/staging/ets/variant/BuildVariant.ets）。
+    "COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90", "couli_debug_account_scene",
+    "COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e", "couli_debug_route_available",
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:

@@ -36,12 +36,57 @@ export class RoutePolicy {
   static readonly PARAMS_DROPPED_ROUTES: string[] = ['Withdraw', 'PayoutAccount', 'LaborAgreement', 'RealName'];
 
   /**
+   * 不接受外部参数、也不记 route_params_dropped 的路由（APP-13a §0 第 3 条、G21）：DeleteAccount 的 params 是空对象（additionalProperties
+   * false），Router 丢弃全部参数后照常打开；events.json 的 route_params_dropped.route 枚举里没有它，所以不记事件。
+   */
+  static readonly SILENT_PARAMS_DROPPED_ROUTES: string[] = ['DeleteAccount'];
+
+  /** 打开前丢弃全部参数的路由（资金与实名四页 + 注销页）。 */
+  static dropsAllParams(route: string): boolean {
+    return RoutePolicy.PARAMS_DROPPED_ROUTES.indexOf(route) >= 0
+      || RoutePolicy.SILENT_PARAMS_DROPPED_ROUTES.indexOf(route) >= 0;
+  }
+
+  /**
    * 不登记 pending_action 的路由（BR-ID-10 细则「不适用的动作」：提现申请、收款账号变更、实名 / 劳务协议、申请注销）：
    * 缺前置时只去前置页，完成后回到发起页，由用户重新点击。
    */
   static readonly NO_PENDING_ACTION_ROUTES: string[] = [
     'Withdraw', 'PayoutAccount', 'LaborAgreement', 'RealName', 'DeleteAccount'
   ];
+}
+
+/**
+ * 路由可用性的覆盖（APP-13a 编排者补充 G01）：DeleteAccount 的 since 三端都是 null（未发布）——入口统一由 Router 的路由可用性判定，不写死；
+ * Debug / Staging 的「路由可用性覆盖」开关（只在 entry 的 src/staging 编译，Release 没有开关本身）用这里的纯函数把 since 换成一个
+ * 已发布的版本，其余字段原样，守卫照常判定（入口、参数、登录前置）。契约填上 since 后不需要开关，代码不改自动生效。
+ */
+export class RouteAvailability {
+  /** 同一路由、since.harmony 改为 since（其余字段原样）。 */
+  static withSince(spec: RouteSpec, since: string): RouteSpec {
+    return new RouteSpec(spec.name, spec.kind, spec.auth, since, spec.entries, spec.h5Path, spec.debugOnly,
+      spec.agentGuide, spec.agentGuideAccount, spec.params, spec.requiredParams, spec.additionalParams);
+  }
+
+  /** 在 lookup 之上把 names 里的路由视为已发布（Debug 覆盖开关、集成测试用）。 */
+  static overriding(lookup: (name: string) => RouteSpec | undefined, names: string[],
+    since: string = '0.0.0'): (name: string) => RouteSpec | undefined {
+    return (name: string): RouteSpec | undefined => {
+      const spec: RouteSpec | undefined = lookup(name);
+      if (spec === undefined || names.indexOf(name) < 0) {
+        return spec;
+      }
+      return RouteAvailability.withSince(spec, since);
+    };
+  }
+
+  /** 路由在本端可用：路由表里有、since 不为 null 且不高于本端版本（与 EntryGuard.availability 同一口径）。 */
+  static available(spec: RouteSpec | undefined, appVersion: string): boolean {
+    if (spec === undefined || spec.sinceHarmony === null) {
+      return false;
+    }
+    return AppVersion.isAtLeast(appVersion, spec.sinceHarmony);
+  }
 }
 
 /**

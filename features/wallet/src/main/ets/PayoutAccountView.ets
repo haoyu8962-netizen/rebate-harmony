@@ -9,7 +9,7 @@ import {
   CouliFocusReturn, CouliFontWeight, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliToast, CouliTypography, ErrorState, NavBar, PriceTerms
 } from 'designsystem';
-import { StepUpPanel, stepUpWillDismiss } from './StepUpSheet';
+import { WalletStepUpPanel, stepUpWillDismiss } from './StepUpSheet';
 import {
   DraftWalletTexts, fmt1, maskedSpoken, PendingAlertCard, RenderBound, scrollToComponent,
   WalletKeyValueRow, WalletNoticeBar, WalletTexts
@@ -290,7 +290,7 @@ export struct PayoutAccountPage {
   @Builder
   stepUpSheet() {
     if (this.stepUpController !== null) {
-      StepUpPanel({
+      WalletStepUpPanel({
         controller: this.stepUpController as StepUpController,
         texts: this.config.texts,
         viewportOverride: this.config.stepUpViewport,

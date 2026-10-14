@@ -13,10 +13,11 @@ import { trace6Of, withTrace6 } from '../search/SearchController';
 import { WalletDraftTexts } from './WalletDraftTexts';
 import { WalletJson, WalletRecord } from './WalletJson';
 import { StepUpTokenCache } from './WalletPresentation';
+import { StepUpApiPort, StepUpSessionPort, StepUpShared } from '../stepup/StepUpPorts';
 import { WalletStaleCache } from './WalletStaleCache';
 
 /** 钱包类请求的网络端口（生产：ApiClient；测试：同一个 ApiClient + 本地假服务）。 */
-export interface WalletApiPort {
+export interface WalletApiPort extends StepUpApiPort {
   request(request: ApiRequest): Promise<ApiResult>;
 
   cancelOwned(owner: () => boolean): number;
@@ -202,6 +203,11 @@ export class SmsSendOutcome {
  */
 export class SmsResendClock {
   private readonly deadlines: Map<string, number> = new Map<string, number>();
+  /**
+   * 发码 42901 的截止时刻，与倒计时同一把键（账号 + 规范化号码 + action；APP-13a brief §0 Retry-After、harmony-review-r1 R1-10）：
+   * 一个 action 被限流不影响同账号其他 action 的面板。
+   */
+  private readonly rates: Map<string, number> = new Map<string, number>();
   /** 发送在途：键 → 本次请求的票号（共性第 40 条：槽位释放绑定本次请求身份）。 */
   private readonly inFlight: Map<string, number> = new Map<string, number>();
   private ticketSeq: number = 0;
@@ -227,6 +233,17 @@ export class SmsResendClock {
     return this.inFlight.has(key);
   }
 
+  /** 这把键的 42901 还要等多少毫秒（0 = 没被限流）。 */
+  rateRemainingMs(key: string, now: number): number {
+    const until: number | undefined = this.rates.get(key);
+    return until === undefined ? 0 : Math.max(0, until - now);
+  }
+
+  /** 收到 42901：按 Retry-After 记下这把键的截止时刻（只延长不缩短）。 */
+  rateLimit(key: string, untilMs: number): void {
+    this.rates.set(key, Math.max(this.rates.get(key) ?? 0, untilMs));
+  }
+
   /** 实际发送前的核对：截止时间没过或已有发送在途 → 不发。通过时登记「发送在途」。 */
   tryBegin(key: string, now: number): boolean {
     return this.begin(key, now) > 0;
@@ -234,7 +251,7 @@ export class SmsResendClock {
 
   /** 同 tryBegin，通过时返回本次请求的票号（> 0），不通过返回 0；结算时把票号交回 finish。 */
   begin(key: string, now: number): number {
-    if (this.inFlight.has(key) || this.remainingMs(key, now) > 0) {
+    if (this.inFlight.has(key) || this.remainingMs(key, now) > 0 || this.rateRemainingMs(key, now) > 0) {
       return 0;
     }
     const ticket: number = ++this.ticketSeq;
@@ -291,6 +308,7 @@ export class SmsResendClock {
   clear(): void {
     this.deadlines.clear();
     this.inFlight.clear();
+    this.rates.clear();
   }
 }
 
@@ -301,7 +319,7 @@ export class SmsResendClock {
  * - withdraw：提现的提交、确认、放弃；payout：收款账号的保存、确认、放弃；
  * - sms：二次验证发码；verify：【验证并提交】；realname：【提交认证】；labor：【同意并签署】。
  */
-export class WalletSession {
+export class WalletSession implements StepUpSessionPort {
   static readonly FUND_ROUTES: string[] = ['Withdraw', 'PayoutAccount', 'RealName', 'LaborAgreement',
     'WithdrawRecords', 'Wallet'];
   readonly readGate: RetryAfterGate;
@@ -314,6 +332,11 @@ export class WalletSession {
   readonly tokens: StepUpTokenCache = new StepUpTokenCache();
   readonly realname: RealnameState = new RealnameState();
   readonly sms: SmsResendClock = new SmsResendClock();
+  /**
+   * 二次验证的会话级共享服务（APP-13a §3 鸿蒙：面板挪到共用位置）：发码截止时间、发码 / 验证限流与 token 缓存只有这一份，账号页
+   * （换手机号、申请注销）的 AccountSession 引用同一份——换号成功「丢弃全部 action 的 token」一次清干净（G04）。
+   */
+  readonly stepUp: StepUpShared;
   /**
    * 钱包刷新的失效版本（共性第 58 条，鸿蒙 R3-02）：提现成功（或确认 / 放弃得知原提现已成功）每次加 1。每个钱包实例各自记录已消费
    * 的版本（WalletController.seenDirty），一个实例刷新只推进它自己的记录，不清除其他实例（如被覆盖在下层的钱包）的刷新需求。
@@ -341,6 +364,7 @@ export class WalletSession {
     this.verifyGate = new RetryAfterGate(clock, scope);
     this.realnameGate = new RetryAfterGate(clock, scope);
     this.laborGate = new RetryAfterGate(clock, scope);
+    this.stepUp = new StepUpShared(this.smsGate, this.verifyGate, this.sms, this.tokens);
   }
 
   add(member: WalletSessionAware): void {

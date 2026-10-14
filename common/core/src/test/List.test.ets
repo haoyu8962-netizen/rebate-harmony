@@ -87,6 +87,13 @@ import homeFixR2Test from './HomeFixR2.test';
 import homeFixR3Test from './HomeFixR3.test';
 import agentVectorTest from './AgentVector.test';
 import agentIntegrationTest from './AgentIntegration.test';
+import accountVectorTest from './AccountVector.test';
+import accountIntegrationTest from './AccountIntegration.test';
+import accountPendingTest from './AccountPending.test';
+import accountFlowsTest from './AccountFlows.test';
+import accountReviewR1Test from './AccountReviewR1.test';
+import accountReviewR2Test from './AccountReviewR2.test';
+import accountReviewR3Test from './AccountReviewR3.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -183,4 +190,11 @@ export default function testsuite() {
   homeFixR3Test();
   agentVectorTest();
   agentIntegrationTest();
+  accountVectorTest();
+  accountIntegrationTest();
+  accountPendingTest();
+  accountFlowsTest();
+  accountReviewR1Test();
+  accountReviewR2Test();
+  accountReviewR3Test();
 }

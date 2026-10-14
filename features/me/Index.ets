@@ -10,3 +10,9 @@ export { AboutConfig, AboutView } from './src/main/ets/AboutView';
 export { RiskNoticeConfig, RiskNoticeView } from './src/main/ets/RiskNoticeView';
 export { AppealConfig, AppealView } from './src/main/ets/AppealView';
 export { CsSheetActions, CsSheetView } from './src/main/ets/CsSheetView';
+// APP-13a：注销页、换手机号子页与二次验证面板接线。
+export { DeleteAccountPageConfig, DeleteAccountView } from './src/main/ets/DeleteAccountView';
+export { PhoneChangeView } from './src/main/ets/PhoneChangeView';
+export {
+  AccountStepUpPanel, accountStepUpDriver, accountStepUpTexts, AccountBound, AccountAnnouncer, AccountCheckRow
+} from './src/main/ets/AccountKit';

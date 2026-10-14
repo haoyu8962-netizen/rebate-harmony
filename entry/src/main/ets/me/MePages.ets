@@ -17,6 +17,7 @@ import { AppRouting } from '../routing/AppRouting';
 import { AppMe } from './AppMe';
 import { AppAgent } from '../agent/AppAgent';
 import { AppMeTexts } from './AppMeTexts';
+import { AppAccount } from '../account/AppAccount';
 
 /**
  * 「我的」类页面（APP-12）。出栈（onWillDisappear，早于退场动画）是同步出口：作废读请求、取消传输；写请求不取消（响应不改已出栈的页面）。
@@ -145,6 +146,10 @@ export struct AppSettingsPage {
     // R2-02：工厂只按设置行渲染时捕获的身份建子页控制器（不是已登录或归属已变返回 null）。
     c.nicknameController = (identity: string) => AppMe.shared.nickname(identity);
     c.notifyController = (identity: string) => AppMe.shared.notify(identity);
+    // APP-13a G22：换手机号是本页的页内子页（工厂只比较渲染时的身份）；注销行经 AppAccount 带来源 settings 打开。
+    c.phoneChangeController = (identity: string) => AppAccount.shared.phoneChange(identity);
+    c.openDeleteAccount = (identity: string): void => AppAccount.shared.openFromSettings(identity);
+    c.stepUpViewport = BuildVariant.stepUpViewportOverride();
     c.openSystemNotificationSettings = (): void => AppMe.shared.openSystemNotificationSettings();
     c.initialSub = BuildVariant.settingsInitialSub();
     // APP-10 G18：【撤回 AI 服务同意】只在 Agent 可用的构建与环境里显示（Release 不显示，G01）。
@@ -190,12 +195,14 @@ export struct AppSettingsPage {
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack || this.config.backHandler())
     .onShown(() => {
       this.life.shown();
+      this.config.subVisibility(true);
       // 回到可见（从登录、协议、子路由返回）：按新身份重画。
       this.config.refresh();
       AppMe.shared.setVisible((): void => this.config.refresh());
     })
     .onHidden(() => {
       this.life.hidden();
+      this.config.subVisibility(false);
       AppMe.shared.setVisible(null);
     })
     .onWillDisappear(() => this.leave())
@@ -349,6 +356,9 @@ export struct AppRiskNoticePage {
     AppMe.shared.attachUi(this.getUIContext());
     const controller: RiskNoticeController = AppMe.shared.riskNotice();
     const c: RiskNoticeConfig = new RiskNoticeConfig(controller);
+    // APP-13a G01：封禁态底部「注销账号」只在路由可用时显示。
+    c.deleteAccountAvailable = (): boolean => AppAccount.deletionAvailable();
+    c.deleteAccount = (identity: string): void => AppAccount.shared.openFromRiskNotice(identity);
     c.texts = new AppMeTexts();
     c.open = (route: string, params: Record<string, Object>): void => {
       AppRouting.shared.openInApp(route, params);
@@ -430,6 +440,9 @@ export struct AppAppealPage {
     AppMe.shared.attachUi(this.getUIContext());
     const controller: AppealController = AppMe.shared.appeal();
     const c: AppealConfig = new AppealConfig(controller);
+    // APP-13a G01：申诉维持结果页的「注销账号」同 RiskNotice。
+    c.deleteAccountAvailable = (): boolean => AppAccount.deletionAvailable();
+    c.deleteAccount = (identity: string): void => AppAccount.shared.openFromRiskNotice(identity);
     c.texts = new AppMeTexts();
     c.open = (route: string, params: Record<string, Object>): void => {
       AppRouting.shared.openInApp(route, params);

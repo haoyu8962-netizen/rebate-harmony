@@ -304,6 +304,11 @@ export class ApiResult {
   pendingResolution: string | null = null;
   /** 成功与 304 时响应头 ETag 的原值（不透明字符串；没有为 null，APP-03b）。 */
   etag: string | null = null;
+  /**
+   * 外壳的 data 原文是 JSON null（APP-13a G47：getDeletion 的 `Deletion | null`，null = 从未申请）。外壳解析时 null 与缺省都折成 {}，
+   * 只有这个标记能区分「服务端明确给了 null」与「给了空对象 / 坏数据」；其余调用不看它。
+   */
+  dataNull: boolean = false;
 
   constructor(outcome: string, code: number, msg: string, data: Record<string, Object>, traceId: string,
     httpStatus: number, failure: string, localRejectReason: string | null, effect: ErrorEffect | null,
@@ -340,6 +345,8 @@ class Envelope {
   readonly msg: string;
   readonly data: Record<string, Object>;
   readonly traceId: string;
+  /** data 原文是 JSON null（APP-13a G47）。 */
+  dataNull: boolean = false;
 
   constructor(code: number, msg: string, data: Record<string, Object>, traceId: string) {
     this.code = code;
@@ -365,8 +372,10 @@ class Envelope {
       const dataRecord: Record<string, Object> =
         data !== undefined && data !== null && typeof data === 'object' && !Array.isArray(data) ?
           data as Record<string, Object> : {};
-      return new Envelope(code as number, typeof msg === 'string' ? msg as string : '', dataRecord,
+      const envelope: Envelope = new Envelope(code as number, typeof msg === 'string' ? msg as string : '', dataRecord,
         typeof trace === 'string' ? trace as string : '');
+      envelope.dataNull = data === null;
+      return envelope;
     } catch (e) {
       return null;
     }
@@ -1755,6 +1764,7 @@ export class ApiClient {
       const success: ApiResult = new ApiResult(ApiOutcome.SUCCESS, 0, envelope.msg, envelope.data, responseTrace,
         response.status, TransportFailure.NONE, null, null, key);
       success.etag = ApiClient.headerValue(response.headers, 'etag');
+      success.dataNull = envelope.dataNull;
       return success;
     }
     const effect: ErrorEffect = ApiClient.unknownKeyEffect(ctx, envelope.code,

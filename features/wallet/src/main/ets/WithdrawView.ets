@@ -8,7 +8,7 @@ import {
   CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliToast, CouliTypography, ErrorState, NavBar, PriceTerms
 } from 'designsystem';
-import { StepUpPanel, stepUpWillDismiss } from './StepUpSheet';
+import { WalletStepUpPanel, stepUpWillDismiss } from './StepUpSheet';
 import {
   DraftWalletTexts, fmt1, maskedSpoken, money, moneySpoken, PendingAlertCard, RenderBound, WalletLink,
   WalletNoticeBar, WalletTexts
@@ -651,7 +651,7 @@ export struct WithdrawView {
   @Builder
   stepUpSheet() {
     if (this.stepUpController !== null) {
-      StepUpPanel({
+      WalletStepUpPanel({
         controller: this.stepUpController as StepUpController,
         texts: this.config.texts,
         viewportOverride: this.config.stepUpViewport,

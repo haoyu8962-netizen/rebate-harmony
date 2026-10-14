@@ -257,8 +257,12 @@ export class SettingsItems {
     return g;
   }
 
+  /**
+   * phoneChangeAvailable（APP-13a G02、G22、编排者补充 G02）：已绑定且本机取得到绑定账号归属的号码时，「手机号」行可点、进设置页内的换号子页
+   * （route 为 null，params.phoneChange=true）；取不到时保持 APP-12 G07 的不可点。缺省 false，与 APP-12 的口径相同。
+   */
   static of(levelRaw: string, platformRaw: string, phoneBound: boolean | null, nicknameEditable: boolean,
-    serviceSwitchAvailable: boolean, deleteAccountAvailable: boolean): MeRecord {
+    serviceSwitchAvailable: boolean, deleteAccountAvailable: boolean, phoneChangeAvailable: boolean = false): MeRecord {
     const out: MeRecord = obj();
     const android: boolean = platformRaw === MePlatform.ANDROID;
     if (levelRaw === MeLevel.BASIC) {
@@ -291,7 +295,13 @@ export class SettingsItems {
     nickname['clickable'] = nicknameEditable;
     // G07：只按 phone_bound；未绑定可点 → BindPhone，已绑定不可点（换手机号不在本任务）。
     const phone: MeRecord = SettingsItems.item(SettingsItems.ID_PHONE, phoneBound === false ? 'BindPhone' : null);
-    phone['clickable'] = phoneBound === false;
+    const change: boolean = phoneBound === true && phoneChangeAvailable;
+    phone['clickable'] = phoneBound === false || change;
+    if (change) {
+      const pp: MeRecord = obj();
+      pp['phoneChange'] = true;
+      phone['params'] = pp;
+    }
     const account: MeRecord[] = [nickname, phone, SettingsItems.item(SettingsItems.ID_AUTH, 'AuthManage')];
     if (deleteAccountAvailable) {
       account.push(SettingsItems.item(SettingsItems.ID_DELETE, 'DeleteAccount'));

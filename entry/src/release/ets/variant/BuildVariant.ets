@@ -4,9 +4,10 @@
 import { common, Want } from '@kit.AbilityKit';
 import {
   AppEnvironment, CouliPreferences, DeepLinkConfig, HomeContractPort, HttpTransport, JumpPorts, MeContractPort, NoPushTokenSource,
-  PendingKeyBackend, PushTokenSource, RcpTransport, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
+  PendingKeyBackend, PushTokenSource, RcpTransport, RouteTable, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
   UnavailableWechatAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
+import { RouteSpec } from 'generated';
 
 export class BuildVariant {
   static readonly CONFIG_NAME: string = 'Release';
@@ -108,6 +109,11 @@ export class BuildVariant {
 
   /** Release 没有 debug_only 路由。 */
   static registerDebugOnlyTable(): void {
+  }
+
+  /** 本构建的路由表（APP-13a G01：Release 原样取 RouteTable，没有路由可用性覆盖开关；DeleteAccount since=null 即不可用）。 */
+  static routeSpec(name: string): RouteSpec | undefined {
+    return RouteTable.spec(name);
   }
 
   /**

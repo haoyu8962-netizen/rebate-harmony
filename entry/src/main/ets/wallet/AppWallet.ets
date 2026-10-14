@@ -289,6 +289,11 @@ export class AppWallet {
     this.hidden = onForeground === null ? null : onBackground;
   }
 
+  /** 钱包类请求的网络端口（每次请求现取网络组合）：APP-13a 账号页（注销、换手机号）复用同一个端口。 */
+  apiPort(): WalletApiPort {
+    return this.api;
+  }
+
   deps(): WalletDeps {
     const d: WalletDeps = new WalletDeps(this.api, this.session);
     d.scope = (): string => AppWallet.scopeKey();

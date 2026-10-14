@@ -5,7 +5,7 @@ export {
 } from './src/main/ets/WalletViewKit';
 export { WalletPageConfig, WalletView } from './src/main/ets/WalletView';
 export { WithdrawPageConfig, WithdrawView, withdrawInputRestorable } from './src/main/ets/WithdrawView';
-export { StepUpPanel, stepUpWillDismiss } from './src/main/ets/StepUpSheet';
+export { WalletStepUpPanel, walletStepUpDriver, walletStepUpTexts, stepUpWillDismiss } from './src/main/ets/StepUpSheet';
 export { PayoutPageConfig, PayoutAccountPage } from './src/main/ets/PayoutAccountView';
 export { RealNamePageConfig, RealNamePage, LaborPageConfig, LaborAgreementPage } from './src/main/ets/RealNameView';
 export { RecordsPageConfig, WithdrawRecordsView } from './src/main/ets/WithdrawRecordsView';

@@ -1,4 +1,5 @@
 import { DefaultTexts } from 'generated';
+import { AccountDraftTexts } from 'core';
 
 /**
  * 登录页与退出登录里契约 texts.default.json 还没有的文案键（APP-05a rule-gaps TEXT-01，对应 N-26）。照设计稿 Login、
@@ -101,11 +102,13 @@ export class LoginDraftTexts {
 
   /** 先取契约字典，再取草稿；带 {变量} 的契约文案没有对应值时用它的 fallback。缺键返回空串。 */
   static text(key: string): string {
-    return DefaultTexts.text(key) ?? LoginDraftTexts.DRAFTS.get(key) ?? DefaultTexts.fallback(key) ?? '';
+    // APP-13a：BindPhone 待确认用到的摘要标签与放弃补充句在 AccountDraftTexts（TODO(N-37)），这里兜底，不重复建键。
+    return DefaultTexts.text(key) ?? LoginDraftTexts.DRAFTS.get(key) ?? AccountDraftTexts.DRAFTS.get(key)
+      ?? DefaultTexts.fallback(key) ?? '';
   }
 
   static format(key: string, vars: Map<string, string>): string {
-    let text: string = DefaultTexts.text(key) ?? LoginDraftTexts.DRAFTS.get(key) ?? '';
+    let text: string = DefaultTexts.text(key) ?? LoginDraftTexts.DRAFTS.get(key) ?? AccountDraftTexts.DRAFTS.get(key) ?? '';
     vars.forEach((value: string, name: string) => {
       if (value.length > 0) {
         text = text.split('{' + name + '}').join(value);

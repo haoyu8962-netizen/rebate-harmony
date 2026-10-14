@@ -1,4 +1,4 @@
-import { RouteDestination } from 'core';
+import { OwnPageExit, RouteDestination } from 'core';
 import { CouliColors } from 'designsystem';
 import { BindPhonePageConfig, BindPhoneView, LoginPageConfig, LoginView } from 'auth';
 import { AppPrivacy } from '../privacy/AppPrivacy';
@@ -46,9 +46,37 @@ export struct AppLoginPage {
 @ComponentV2
 export struct AppBindPhonePage {
   private config: BindPhonePageConfig | null = null;
+  /** 本页实例的导航身份（onReady 时记下系统生成的唯一 navDestinationId 与所在的栈；R3-03）。 */
+  private ownId: string | null = null;
+  private ownStack: NavPathStack | null = null;
 
   aboutToAppear(): void {
-    this.config = AppLogin.shared.bindPageConfig();
+    const config: BindPhonePageConfig | null = AppLogin.shared.bindPageConfig();
+    if (config !== null) {
+      // harmony-review-r3 R3-03（APP-09 第 50 条）：绑定成功只退出本页这一个导航实例，再按「完成前置」恢复待办；页面许可由
+      // BindPhoneForm 核对（离页后迟到的成功不会走到这里），不按路由名移除，后来打开的同名页不受影响。
+      config.onBound = (): void => {
+        this.exitOwnInstance();
+        AppLogin.shared.bindPageCompleted();
+      };
+    }
+    this.config = config;
+  }
+
+  /** 栈顶就是本实例才 pop；被盖住时只按 navDestinationId 移除本实例；拿不到 id 时什么都不做（不猜）。 */
+  private exitOwnInstance(): void {
+    const stack: NavPathStack | null = this.ownStack;
+    if (stack === null) {
+      return;
+    }
+    const infos: NavPathInfo[] = stack.getPathStack();
+    const top: NavPathInfo | undefined = infos.length > 0 ? infos[infos.length - 1] : undefined;
+    const plan: string = OwnPageExit.plan(this.ownId, top !== undefined ? (top.navDestinationId ?? null) : null);
+    if (plan === OwnPageExit.POP) {
+      stack.pop();
+    } else if (plan === OwnPageExit.REMOVE && this.ownId !== null) {
+      stack.removeByNavDestinationId(this.ownId);
+    }
   }
 
   build() {
@@ -60,7 +88,15 @@ export struct AppBindPhonePage {
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
+    // APP-13a G07：回到可见（从客服、协议返回）时按未决记录恢复待确认。
+    .onShown(() => this.config?.pageShown())
+    .onReady((ctx: NavDestinationContext) => {
+      this.ownId = ctx.navDestinationId ?? null;
+      this.ownStack = ctx.pathStack;
+    })
     .onWillDisappear(() => {
+      // R3-01：同步作废本页实例的页面许可（在途结果不再导航、弹窗、提示、出栈）。
+      this.config?.pageLeft();
       this.config?.service.invalidate();
       AppLogin.shared.bindPageLeft();
     })

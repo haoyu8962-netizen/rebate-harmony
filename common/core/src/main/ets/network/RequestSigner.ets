@@ -11,7 +11,11 @@ export interface DigestPort {
 export class CryptoKitDigest implements DigestPort {
   sha256(data: Uint8Array): Uint8Array {
     const md: cryptoFramework.Md = cryptoFramework.createMd('SHA256');
-    md.updateSync({ data: data });
+    // APP-13a【鸿蒙实现发现】G49：零字节（无请求体的签名写请求，如 requestDeletion）传给 updateSync 会抛参数错误，整个调用被当作
+    // 取消；零字节时不调 update，直接取摘要（= SHA-256 空串）。
+    if (data.length > 0) {
+      md.updateSync({ data: data });
+    }
     return md.digestSync().data;
   }
 

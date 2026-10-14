@@ -38,6 +38,7 @@ import { CsSheetView } from 'me';
 import { AppMe } from '../me/AppMe';
 import { AppHome } from '../home/AppHome';
 import { AppCsSheet } from '../me/AppCsSheet';
+import { AppDeleteAccountPage } from '../account/AccountPages';
 import {
   AppAboutPage, AppAppealPage, AppPrivacyCenterPage, AppRiskNoticePage, AppSettingsPage, appMeTabBuilder
 } from '../me/MePages';
@@ -215,6 +216,9 @@ struct RootPage {
       // 隐私中心（APP-12）：基本模式只读并显示【开启完整功能】。强更状态下守卫只放行从强更页进入的隐私中心（03 §4.1 次要入口）：
       // 带受限上下文，只显示协议、清单与撤回入口，协议跳转走强更次要入口（R2-05）。
       AppPrivacyCenterPage({ fromForceUpdate: AppUpdate.shared.belowMin })
+    } else if (name === 'DeleteAccount') {
+      // 注销页（APP-13a）：params 为空对象（Router 已丢弃）；强更状态下守卫只放行从强更页进入的 DeleteAccount（受限会话可用）。
+      AppDeleteAccountPage({ fromForceUpdate: AppUpdate.shared.belowMin })
     } else if (name === 'About') {
       AppAboutPage()
     } else if (name === 'RiskNotice') {

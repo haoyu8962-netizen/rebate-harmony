@@ -14,7 +14,7 @@ import { BuildVariant } from 'entry/ets/variant/BuildVariant';
  * 只被盖住（进前置页、帮助页）不触发，回到可见（onShown）时按页面规则重取。资金与实名四页不读任何路由参数（Router 已丢弃）。
  */
 /** 页面实例的导航身份：onReady 时记下系统生成的唯一 navDestinationId 与所在的栈（R1-02）。 */
-class OwnNavInstance {
+export class OwnNavInstance {
   id: string | null = null;
   stack: NavPathStack | null = null;
 
@@ -28,7 +28,7 @@ class OwnNavInstance {
  * 等待结果之后的「出栈回发起页」只针对发起页面的唯一导航实例（R1-02，APP-09 共性第 50 条）：确认栈顶就是本实例才 pop；被盖住
  * （帮助、协议 H5、或经允许入口推入的同名新实例）时只按 navDestinationId 移除本实例，不弹上层页、不按路由名批量移除。
  */
-function exitOwnInstance(own: OwnNavInstance): void {
+export function exitOwnInstance(own: OwnNavInstance): void {
   const stack: NavPathStack | null = own.stack;
   if (stack === null) {
     return;

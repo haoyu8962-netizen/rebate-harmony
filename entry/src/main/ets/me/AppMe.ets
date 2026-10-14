@@ -29,6 +29,7 @@ import { HARMONY_CHANNEL } from '../update/HarmonyStoreAccess';
 import { AppCsSheet } from './AppCsSheet';
 import { AppHome } from '../home/AppHome';
 import { AppMeTexts } from './AppMeTexts';
+import { AppAccount } from '../account/AppAccount';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliMe';
@@ -426,8 +427,10 @@ export class AppMe {
       me['phone_bound'] as boolean : (level === MeLevel.MEMBER ? AppLogin.shared.phoneBinding.get(AppMe.account()) :
         null);
     const contract: boolean = BuildVariant.meContract() !== null;
+    // APP-13a：注销行只在路由可用时（G01）；手机号行在已绑定且本机取得到号码时进换号子页（编排者补充 G02），强更中不可达。
     return SettingsItems.of(level, MePlatform.HARMONY, phoneBound, contract, contract,
-      AppMe.routeAvailable('DeleteAccount'));
+      AppMe.routeAvailable('DeleteAccount') && AppMe.sessionFull(),
+      AppAccount.ownedPhoneKnown() && !AppUpdate.shared.belowMin && AppMe.sessionFull());
   }
 
   settingsNickname(): string {
@@ -444,8 +447,14 @@ export class AppMe {
   }
 
   /** 路由在本端可用（路由表里有、since 满足；G31、G30）。 */
+  /** 当前会话是完整作用域（deletion_only 不显示设置页的账号入口，APP-13a G34）。 */
+  static sessionFull(): boolean {
+    return AppAccount.sessionScope() !== 'deletion_only';
+  }
+
   static routeAvailable(name: string): boolean {
-    const spec: RouteSpec | undefined = RouteTable.spec(name);
+    // APP-13a：路由可用性与 Router 同一来源（BuildVariant.routeSpec；Debug 覆盖开关只在 src/staging）。
+    const spec: RouteSpec | undefined = BuildVariant.routeSpec(name);
     if (spec === undefined || spec.sinceHarmony === null) {
       return false;
     }

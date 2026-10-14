@@ -6,7 +6,7 @@
 // - 会话换代：清空已填内容（含姓名、卡号、登录号）。页面不进进程回收恢复（卡号、登录号、姓名不持久化）。
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
-import { StepUpController } from './StepUpController';
+import { StepUpController } from '../stepup/StepUpController';
 import { WalletDeps } from './WalletController';
 import { WalletJson, WalletRecord } from './WalletJson';
 import { PayoutAccountForm, PayoutPendingSummary, SensitiveOutcome } from './WalletPresentation';

@@ -31,7 +31,7 @@ export {
   RouteTargetAllowlist, GuardState
 } from './src/main/ets/router/GuardState';
 export { GuardDecisionKind, GuardReason, GuardDecision } from './src/main/ets/router/GuardDecision';
-export { RoutePolicy, RouteTable, AppVersion } from './src/main/ets/router/RoutePolicy';
+export { RoutePolicy, RouteTable, AppVersion, RouteAvailability } from './src/main/ets/router/RoutePolicy';
 export { RouteParamValidator, HttpsTarget, RouteTargetCheck } from './src/main/ets/router/RouteParamValidator';
 export { RouteLookup, EntryGuard } from './src/main/ets/router/EntryGuard';
 export { DeepLinkConfig, DeepLinkParser } from './src/main/ets/router/DeepLinkParser';
@@ -116,7 +116,10 @@ export {
   ThirdPartyAuthKind, ThirdPartyAuthResult, ThirdPartyAuthAdapter, UnavailableWechatAdapter, PhoneBindingState,
   OAuthLoginOutcome, OAuthLoginService
 } from './src/main/ets/login/OAuthLoginService';
-export { BindOutcome, BindPhoneHost, BindPhoneService } from './src/main/ets/login/BindPhoneService';
+export {
+  BindOutcome, BindPhoneFields, BindPhoneForm, BindPhoneFormBinding, BindPhoneHost, BindPhoneIdentity, BindPhonePagePermit,
+  BindPhoneService
+} from './src/main/ets/login/BindPhoneService';
 export { AuthFeedback } from './src/main/ets/login/AuthFeedback';
 export { AuthAnnouncement, BindPhoneAnnouncer } from './src/main/ets/login/BindPhoneAnnouncer';
 export { BridgeLoginWait } from './src/main/ets/login/BridgeLoginWait';
@@ -236,7 +239,8 @@ export {
   PendingView
 } from './src/main/ets/wallet/WalletSession';
 export { WalletDeps, WalletPhase, WalletSnapshot, WalletController } from './src/main/ets/wallet/WalletController';
-export { StepUpSnapshot, StepUpController } from './src/main/ets/wallet/StepUpController';
+export { StepUpSnapshot, StepUpController } from './src/main/ets/stepup/StepUpController';
+export { StepUpApiPort, StepUpSessionPort, StepUpDeps, StepUpActions, StepUpShared } from './src/main/ets/stepup/StepUpPorts';
 export {
   SensitiveStep, SensitiveFlow, PendingClick, PageNavGate, DeferredResult
 } from './src/main/ets/wallet/SensitiveFlow';
@@ -271,6 +275,27 @@ export {
   RiskNoticeController, AppealSnapshot, AppealController, ResetTipRunner, PrivacyWithdrawOutcomes, memberSubPageAllowed
 } from './src/main/ets/me/MeControllers';
 export { CustomerServicePorts, CustomerServiceEntry } from './src/main/ets/me/CustomerService';
+// APP-13a：注销账号、换手机号、BindPhone 待确认与入口裁剪（纯规则向量 specs/account-vectors.json；页面在 features/me 与 features/auth，
+// 组合在 entry）。二次验证面板的执行器挪到 stepup/（钱包与账号共用）。
+export { AccountRecord, AccountJson, DeletionRecord, DeletionParse } from './src/main/ets/me/account/AccountJson';
+export { AccountDraftTexts } from './src/main/ets/me/account/AccountDraftTexts';
+export {
+  AccountResultInput, AccountPhase, KeyEnd, AccountOutcome, AccountCodes, DeletionOutcomePolicy, DeletionSource,
+  DeletionCancelPolicy, CancelOutcome, DeletionFunds, DeletionPresentation, PhoneChangeStep1Policy, PhoneChangeOutcomePolicy,
+  PhoneMask, DeletionSummary, StepUpTokenPolicy, AccountEntryPolicy, BindPhonePendingPolicy
+} from './src/main/ets/me/account/AccountPolicies';
+export {
+  AccountIdentity, AccountClick, AccountMessage, AccountMessages, KeyedDeadlines, AccountSessionAware, AccountSession,
+  AccountDeps, AccountSettle, BindPhoneAccountPort, PendingSettlement
+} from './src/main/ets/me/account/AccountSession';
+export {
+  AccountPendingView, AccountStep, AccountSensitiveFlow, bindPhoneBody
+} from './src/main/ets/me/account/AccountSensitiveFlow';
+export { DeletionSnapshot, DeleteAccountController } from './src/main/ets/me/account/DeleteAccountController';
+export {
+  PhoneChangeStep, PhoneBlockedDialog, PhoneChangeSnapshot, PhoneChangeController, PhoneChangeStep1Buttons
+} from './src/main/ets/me/account/PhoneChangeController';
+export { ForceUpdateDeletionEntry, DeletionSourceHandoff, Deletion10007 } from './src/main/ets/me/account/AccountEntries';
 export {
   PushEvent, PushAction, PushReportPolicy, PushTokenSource, NoPushTokenSource, PushReportState, PushTokenReporter,
   PushSessionTracker

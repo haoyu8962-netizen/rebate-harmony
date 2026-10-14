@@ -11,6 +11,7 @@ import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
 import { AppUpdate } from '../update/AppUpdate';
 import { AppClipboard } from '../clipboard/AppClipboard';
+import { AppAccount, DELETE_ACCOUNT_ROUTE } from '../account/AppAccount';
 import { LoginDraftTexts } from './LoginDraftTexts';
 
 const DOMAIN: number = 0x0000;
@@ -134,7 +135,13 @@ export class AppLogin {
     if (login === null || client === null) {
       return null;
     }
-    this.bindService = new BindPhoneService(client, login.deadlines, this.phoneBinding, new AppBindPhoneHost());
+    const service: BindPhoneService = new BindPhoneService(client, login.deadlines, this.phoneBinding,
+      new AppBindPhoneHost());
+    // APP-13a harmony-review-r1 R1-03、R1-04、R1-08：与换号共用 phoneGate、getMe 读取闸门与内存 token（AccountSession 一份）。
+    service.accountPort = AppAccount.shared.session;
+    service.forceUpdate = (): void => AppUpdate.shared.onServerForced();
+    service.syncSession();
+    this.bindService = service;
     return this.bindService;
   }
 
@@ -297,13 +304,20 @@ export class AppLogin {
     this.loginService()?.resumeHeldPending();
   }
 
-  /** 绑手机成功（BindPhoneService 已刷新 getMe）：守卫重算会话状态，按「完成前置」恢复待办。 */
+  /**
+   * 绑手机成功（BindPhoneService 已刷新 getMe）的共享结算：释放暂缓、守卫重算会话状态。harmony-review-r3 R3-03：这里不出栈、不恢复
+   * 待办——迟到的成功（原页面已离开、又打开了新的 BindPhone）不得按路由名移除后来的同名页；出栈与「完成前置」恢复由持有原页面许可的
+   * 页面经 bindPageCompleted 做，只操作原来那一个导航实例。
+   */
   phoneBound(): void {
     this.guideHolding = false;
-    // R2-02：绑定完成——明确释放暂缓，随后按「完成前置」恢复。
+    // R2-02：绑定完成——明确释放暂缓。
     this.loginService()?.endHold();
-    AppRouting.shared.navigator.remove(RoutePolicy.BIND_PHONE);
     AppRouting.shared.stateChanged(false);
+  }
+
+  /** 原页面许可仍有效时的绑定成功（页面已只退出自己那一个导航实例）：按「完成前置」恢复待办（R3-03）。 */
+  bindPageCompleted(): void {
     AppRouting.shared.router.prerequisiteCompleted();
   }
 
@@ -348,6 +362,11 @@ export class AppLogin {
     });
   }
 
+  /** 状态同步的同步区（AppAccount.sync）：BindPhone 页的会话换代检测（R1-01：作废旧页面实例与弹窗、清空输入后重建）。 */
+  syncBindPage(): void {
+    this.bindService?.syncSession();
+  }
+
   /** 绑手机页配置（BindPhone 路由）。 */
   bindPageConfig(): BindPhonePageConfig | null {
     const service: BindPhoneService | null = this.bindPhoneService();
@@ -360,12 +379,17 @@ export class AppLogin {
       AppRouting.shared.navigator.remove(RoutePolicy.BIND_PHONE);
       this.releaseHeldPending();
     };
-    config.onBound = (): void => {
-      // phoneBound 已移除本页；这里不再重复。
-    };
+    // R3-03：onBound（出栈本实例 + 恢复待办）由 AppBindPhonePage 按本页导航实例接上。
     config.onCustomerService = (): void => AppLogin.openCustomerService();
     // R2-03：10007 stage=cooling → 经 Router 打开 DeleteAccount（守卫照常判定）。
     config.onNavigate = (route: string): void => {
+      if (route === DELETE_ACCOUNT_ROUTE) {
+        // APP-13a §2 第 9 项：10007 cooling 的统一落点（注销页可用才导航，否则只提示 error.10007，G01）。
+        const cooling: Record<string, Object> = {};
+        cooling['stage'] = 'cooling';
+        AppAccount.shared.on10007(cooling);
+        return;
+      }
       AppRouting.shared.openInApp(route);
     };
     this.recheckPhoneBinding();

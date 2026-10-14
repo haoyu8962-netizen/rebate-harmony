@@ -9,9 +9,10 @@ import {
   WalletSession, WalletSessionAware, EmptyWalletConfig
 } from './WalletSession';
 import { EarningsEntry } from './WalletPresentation';
+import { StepUpDeps } from '../stepup/StepUpPorts';
 
 /** 钱包类执行器的依赖（App 注入；测试用同一套接线）。 */
-export class WalletDeps {
+export class WalletDeps implements StepUpDeps {
   readonly api: WalletApiPort;
   readonly session: WalletSession;
   clock: () => number = Date.now;
@@ -40,6 +41,8 @@ export class WalletDeps {
   };
   /** 二次验证发码用的手机号（G31：本机有当前账号且绑定了账号归属的规范化号码才给，否则 null）。 */
   stepUpPhone: (account: string) => string | null = (_a: string) => null;
+  /** 受限会话（deletion_only）：钱包页在受限会话里不可达（Router 只放行强更四个次要入口），恒为 false。 */
+  stepUpRestricted: () => boolean = () => false;
   /** 本端版本号（收益看板入口，G20）。 */
   appVersion: () => string = () => '';
   /** Earnings 路由在本端的 since（routes.json；null = 未发布）。 */

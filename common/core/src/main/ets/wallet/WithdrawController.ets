@@ -7,7 +7,7 @@
 // - 被前置页盖住不算出栈：保留金额与页面实例；出栈（同步出口）作废读请求，提交 / 确认 / 放弃不取消。
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
-import { StepUpController } from './StepUpController';
+import { StepUpController } from '../stepup/StepUpController';
 import { WalletDeps } from './WalletController';
 import { WalletJson, WalletRecord } from './WalletJson';
 import {

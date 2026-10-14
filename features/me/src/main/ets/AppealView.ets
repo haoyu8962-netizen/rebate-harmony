@@ -25,6 +25,11 @@ export class AppealConfig {
   customerService: () => void = () => {
   };
   /** 退出登录（先出确认框由 entry 做；identity 是页面绑定的归属，确认时只比较）。 */
+  /** APP-13a G01：「注销账号」只在 DeleteAccount 路由可用时显示（Release since=null 时不显示，同 APP-12 G30）。 */
+  deleteAccountAvailable: () => boolean = () => false;
+  /** 「注销账号」：identity 是页面绑定的归属（打开前只比较）；entry 带来源 risk_notice 经 Router 打开 DeleteAccount。 */
+  deleteAccount: (identity: string) => void = (_i: string) => {
+  };
   logout: (identity: string) => void = (_i: string) => {
   };
 
@@ -430,7 +435,7 @@ export struct AppealView {
       Text(this.t('appeal.next.cs'))
         .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
       if (!this.model.frozen) {
-        Text(this.t('appeal.next.logout'))
+        Text(this.t(this.config.deleteAccountAvailable() ? 'appeal.next.delete_logout' : 'appeal.next.logout'))
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
       }
     }
@@ -541,6 +546,13 @@ export struct AppealView {
               Text('|')
                 .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.borderSubtle))
                 .accessibilityLevel('no')
+              if (this.config.deleteAccountAvailable()) {
+                MeLink({ text: this.t('settings.delete_account'), linkId: 'appeal_delete_account',
+                  onTap: () => this.config.deleteAccount(this.config.controller.identity) })
+                Text('|')
+                  .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.borderSubtle))
+                  .accessibilityLevel('no')
+              }
               MeLink({ text: this.t('risk.logout'), linkId: 'appeal_logout',
                 onTap: () => this.config.logout(this.config.controller.identity) })
             }

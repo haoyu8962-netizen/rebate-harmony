@@ -126,7 +126,9 @@ export class AppRouting {
   get router(): Router {
     if (this.routerInstance === null) {
       this.routerInstance = new Router(new PendingActionStore(this.backend), (): GuardState => this.guardState(),
-        this.navigator, (name: string): RouteSpec | undefined => RouteTable.spec(name),
+        // APP-13a 编排者补充 G01：路由可用性统一经 BuildVariant.routeSpec（Release 原样取 RouteTable；Debug / Staging 的覆盖开关只在
+        // src/staging 编译）。
+        this.navigator, (name: string): RouteSpec | undefined => BuildVariant.routeSpec(name),
         (): LaunchReadiness => this.readiness());
       // 03 §4.4「Tab 就绪」交给 Router 统一判定（R1-02 / R1-03）：同意回调与前置完成的恢复、冷启动推送的回查、
       // 外部请求与启动队列的放行，都要等导航栈已交给 Router 且 Tab 外壳已显示。
@@ -302,6 +304,9 @@ export class AppRouting {
   /** 每次状态同步之后调用（APP-10 Agent：会话、隐私、环境、AI 同意变化时在同步出口作废 Agent 控制器并按新身份重建）；缺省什么都不做。 */
   syncAgent: () => void = () => {
   };
+  /** 每次状态同步之后调用（APP-13a 账号页：会话、作用域、隐私、环境变化时作废注销页与换号子页并按新身份重建）；缺省什么都不做。 */
+  syncAccount: () => void = () => {
+  };
 
   stateChanged(resumePending: boolean = true): void {
     if (this.retryTimer >= 0) {
@@ -323,6 +328,7 @@ export class AppRouting {
     this.syncMe();
     this.syncHome();
     this.syncAgent();
+    this.syncAccount();
     const deadline: number | null = this.router.updateWaitDeadline(readiness, now);
     if (deadline === null) {
       return;

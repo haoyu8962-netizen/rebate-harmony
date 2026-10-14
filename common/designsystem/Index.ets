@@ -44,3 +44,8 @@ export {
 } from './src/main/ets/components/Clipboard';
 export { PriceConfirmLabel, PriceConfirmLine, PriceConfirmText } from './src/main/ets/format/PriceConfirmLabel';
 export { DisclaimerNote } from './src/main/ets/components/DisclaimerNote';
+// APP-13a：二次验证面板（从 features/wallet 挪来，钱包与「我的」共用）与待确认警告卡（注销、换手机号、绑手机）。
+export {
+  StepUpPanel, stepUpWillDismiss, StepUpPanelState, StepUpPanelTexts, StepUpPanelDriver, StepUpPanelFit
+} from './src/main/ets/components/StepUpPanel';
+export { PendingConfirmCard, PendingSummaryRow } from './src/main/ets/components/PendingConfirm';

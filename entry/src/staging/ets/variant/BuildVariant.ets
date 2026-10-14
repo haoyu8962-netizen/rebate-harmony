@@ -8,11 +8,12 @@ import {
   AmountMaskStore, AppConfig, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugLaunchDeferral,
   DebugMockGate, DebugSubstitutes, DeepLinkConfig, EnvironmentSwitchGate, GatedAuthAdapter, GatedMeContractPort,
   GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer, HomeContractPort,
-  HomeDebugSources, HttpTransport, JumpPorts, MeContractPort, PendingKeyBackend, PushTokenSource, RouteTable,
+  HomeDebugSources, HttpTransport, JumpPorts, MeContractPort, PendingKeyBackend, PushTokenSource, RouteAvailability,
+  RouteTable,
   ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
-import { DebugRoutes, DesignTokens } from 'generated';
+import { DebugRoutes, DesignTokens, RouteSpec } from 'generated';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
 import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget } from './DebugBridge';
 import { DebugUpdateChecker } from './DebugUpdate';
@@ -24,6 +25,7 @@ import { DebugFakeOrders } from './DebugFakeOrders';
 import { DEBUG_STEP_UP_PHONE, DEBUG_WALLET_SCENE_KEY, DebugFakeWallet } from './DebugFakeWallet';
 import { DEBUG_ME_SCENE_KEY, DebugFakeMe, DebugPushTokenSource } from './DebugFakeMe';
 import { DEBUG_HOME_SCENE_KEY, DebugFakeHome } from './DebugFakeHome';
+import { DEBUG_ACCOUNT_SCENE_KEY, DebugFakeAccount } from './DebugFakeAccount';
 import { HOME_PREVIEW_ROUTE, HomePreviewPage } from '../home/HomePreviewPage';
 import { AppRouting } from '../../../main/ets/routing/AppRouting';
 import { AppLogin } from '../../../main/ets/login/AppLogin';
@@ -46,6 +48,7 @@ export class BuildVariant {
   private static readonly launchDeferral: DebugLaunchDeferral = new DebugLaunchDeferral(
     (): boolean => AppConfig.endpoints() !== undefined, DebugFakeServer.mockGate);
   private static reopenHooked: boolean = false;
+  private static accountCleanerHooked: boolean = false;
 
   /** 环境闸门有结论且为 SETTLED（冷启动对账通过、阻断页重试通过）时由 EntryAbility / RootPage 调用；Release 为空实现。 */
   static environmentSettled(): void {
@@ -243,6 +246,22 @@ export class BuildVariant {
     return name === HOME_PREVIEW_ROUTE;
   }
 
+  /**
+   * 路由可用性覆盖（APP-13a 编排者补充 G01）：`--ps couli_debug_route_available DeleteAccount`（逗号分隔多个；空串关闭）把这些路由按已发布处理
+   * （since 换成 0.0.0，其余守卫照常），用于冒烟、截图与集成测试。只在 src/staging 编译，Release 的同名函数原样取 RouteTable
+   * （tools/ci/release-scan.sh 查 COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e 与启动参数键）。prod 环境不生效（同替身闸门口径）。
+   */
+  static readonly routeAvailabilityMarker: string = 'COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e';
+  private static availableOverride: string[] = [];
+
+  static routeSpec(name: string): RouteSpec | undefined {
+    const spec: RouteSpec | undefined = RouteTable.spec(name);
+    if (spec === undefined || BuildVariant.availableOverride.indexOf(name) < 0 || !DebugMockGate.allowedNow(true)) {
+      return spec;
+    }
+    return RouteAvailability.withSince(spec, '0.0.0');
+  }
+
   /** 把 debug_only 路由并入本构建的路由表（Release 的同名函数什么都不做）。 */
   static registerDebugOnlyTable(): void {
     RouteTable.registerDebugOnlyTable(DebugRoutes.all);
@@ -336,6 +355,19 @@ export class BuildVariant {
       hilog.info(0x0000, 'Couli', 'me scene %{public}s %{public}s %{public}s', meScene, DebugFakeMe.marker,
         DebugPushTokenSource.marker);
     }
+    // APP-13a：路由可用性覆盖与账号假服务场景（见 routeSpec、DebugFakeAccount）。
+    const routeAvailable: Object | undefined = want.parameters?.['couli_debug_route_available'];
+    if (typeof routeAvailable === 'string') {
+      BuildVariant.availableOverride = (routeAvailable as string).split(',').map((x: string): string => x.trim())
+        .filter((x: string): boolean => x.length > 0);
+      hilog.info(0x0000, 'Couli', 'route availability override %{public}s %{public}s',
+        BuildVariant.availableOverride.join(','), BuildVariant.routeAvailabilityMarker);
+    }
+    const accountScene: Object | undefined = want.parameters?.[DEBUG_ACCOUNT_SCENE_KEY];
+    if (typeof accountScene === 'string') {
+      DebugFakeAccount.reset(accountScene as string);
+      hilog.info(0x0000, 'Couli', 'account scene %{public}s %{public}s', accountScene, DebugFakeAccount.marker);
+    }
     const wechat: Object | undefined = want.parameters?.['couli_debug_wechat_installed'];
     if (typeof wechat === 'string') {
       BuildVariant.wechatInstalled = wechat.length > 0 ? wechat : null;
@@ -403,6 +435,11 @@ export class BuildVariant {
       const params: Record<string, Object> = {};
       params['order_id'] = openOrder;
       AppRouting.shared.openInApp('OrderDetail', params);
+    }
+    if (!BuildVariant.accountCleanerHooked) {
+      // APP-13a（APP-10 第 11 条）：账号假服务按账号保存的状态在撤回同意、切换环境的清理前第一步同步清掉。
+      BuildVariant.accountCleanerHooked = true;
+      AppConfig.cleaners.setBeforeClear('debug_fake_account', (): void => DebugFakeAccount.clearState());
     }
     if (!BuildVariant.reopenHooked) {
       // 运行中切换环境：闸门重新打开后再判定暂存的样例（切到 prod 即丢弃）。

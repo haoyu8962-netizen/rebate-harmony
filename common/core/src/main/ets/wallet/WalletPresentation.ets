@@ -5,7 +5,11 @@ import { DefaultTexts, RouteSpec } from 'generated';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { CreditPeriodText } from '../orders/OrderPresentation';
 import { RouteParamValidator } from '../router/RouteParamValidator';
-import { AppVersion, RoutePolicy } from '../router/RoutePolicy';
+import { AppVersion, RouteAvailability, RoutePolicy, RouteTable } from '../router/RoutePolicy';
+import { EntryGuard } from '../router/EntryGuard';
+import { GuardDecision, GuardReason } from '../router/GuardDecision';
+import { GuardState } from '../router/GuardState';
+import { RouteRequest, RouteSource } from '../router/RouteRequest';
 import { WalletDraftTexts } from './WalletDraftTexts';
 import { WalletJson, WalletRecord } from './WalletJson';
 
@@ -557,21 +561,33 @@ export class SensitiveOutcome {
   }
 }
 
-/** 二次验证 token 的复用条件（G17）：只放内存，按账号与 action 隔离；本机时钟早于 expire_at 才带上。 */
+/**
+ * 二次验证 token 的复用条件（APP-09 G17；APP-13a G23）：只放内存，按账号与 action 隔离；本机时钟早于 expire_at 才带上。
+ * binding（APP-13a）：放入时绑定打开面板的会话归属（含登录序号、会话世代；账号页另含会话作用域 full / deletion_only）。取用时给了
+ * binding 就要求一致（作用域从 deletion_only 变 full、会话换代后不复用）；钱包的旧调用不给 binding，口径与原来相同。
+ */
 export class StepUpTokenCache {
   private readonly tokens: Map<string, StepUpEntry> = new Map<string, StepUpEntry>();
 
-  put(action: string, account: string, token: string, expireAtMs: number): void {
-    this.tokens.set(action, new StepUpEntry(account, token, expireAtMs));
+  put(action: string, account: string, token: string, expireAtMs: number, binding: string = ''): void {
+    this.tokens.set(action, new StepUpEntry(account, token, expireAtMs, binding));
   }
 
   /** 不核销服务端 token；不满足条件为 null。 */
-  take(action: string, account: string, nowMs: number): string | null {
+  take(action: string, account: string, nowMs: number, binding: string | null = null): string | null {
     const e: StepUpEntry | undefined = this.tokens.get(action);
     if (e === undefined || e.account !== account || nowMs >= e.expireAtMs) {
       return null;
     }
+    if (binding !== null && e.binding !== binding) {
+      return null;
+    }
     return e.token;
+  }
+
+  /** 这个 action 有没有记着 token（不看有效期；测试与诊断用，不交出 token）。 */
+  has(action: string): boolean {
+    return this.tokens.has(action);
   }
 
   /** 提交成功（token 已被服务端核销）：丢弃这个 action 的 token。 */
@@ -579,7 +595,7 @@ export class StepUpTokenCache {
     this.tokens.delete(action);
   }
 
-  /** 会话换代、登出、换账号、撤回同意：全部清空。 */
+  /** 会话换代、登出、换账号、撤回同意、换手机号成功（APP-13a G04）：全部清空。 */
   onSessionChanged(): void {
     this.tokens.clear();
   }
@@ -598,11 +614,13 @@ class StepUpEntry {
   readonly account: string;
   readonly token: string;
   readonly expireAtMs: number;
+  readonly binding: string;
 
-  constructor(account: string, token: string, expireAtMs: number) {
+  constructor(account: string, token: string, expireAtMs: number, binding: string) {
     this.account = account;
     this.token = token;
     this.expireAtMs = expireAtMs;
+    this.binding = binding;
   }
 }
 
@@ -920,7 +938,12 @@ export class EarningsEntry {
   }
 }
 
-/** 资金与实名四页丢弃全部路由参数（BR-WDR-01 细则，AC-S1-81 ⑫）；事件只带路由名与个数。 */
+/**
+ * 资金与实名四页丢弃全部路由参数（BR-WDR-01 细则，AC-S1-81 ⑫）；事件只带路由名与个数。
+ * APP-13a（G21、G43）：DeleteAccount 同样丢弃全部参数、照常打开，但不记 route_params_dropped（枚举里没有它）。它的 opened / openedParams /
+ * dropped / event 来自真实守卫（EntryGuard.decide，与 Router 打开时同一函数）：以路由可用性覆盖（DeleteAccount 的 since 现为 null，
+ * 参数阶段的测试以 Debug 覆盖为前提）与其余守卫满足（已同意、已登录、环境就绪）为前提，不在这里写死。
+ */
 export class FundRouteParams {
   static readonly EVENT: string = 'route_params_dropped';
 
@@ -931,6 +954,9 @@ export class FundRouteParams {
   static filter(route: string, params: WalletRecord): WalletRecord {
     const out: WalletRecord = obj();
     const count: number = Object.keys(params).length;
+    if (RoutePolicy.SILENT_PARAMS_DROPPED_ROUTES.indexOf(route) >= 0) {
+      return FundRouteParams.throughGuard(route, params);
+    }
     if (FundRouteParams.isFundRoute(route)) {
       out['openedParams'] = obj();
       out['dropped'] = count;
@@ -940,6 +966,32 @@ export class FundRouteParams {
     out['openedParams'] = params;
     out['dropped'] = 0;
     out['event'] = null;
+    return out;
+  }
+
+  /** 经真实守卫判定：opened = 守卫放行；openedParams = 打开时实际带的参数；event = 守卫给出 params_dropped 才记。 */
+  private static throughGuard(route: string, params: WalletRecord): WalletRecord {
+    const out: WalletRecord = obj();
+    const input: Record<string, Object> = {};
+    for (const key of Object.keys(params)) {
+      const v: JSONValue | undefined = params[key];
+      input[key] = v === null || v === undefined ? '' : v as Object;
+    }
+    const request: RouteRequest = RouteRequest.of(route, RouteSource.IN_APP, input);
+    const state: GuardState = new GuardState('consented', 'ok', 'phone_bound', true, '1.0.0', false, false, true);
+    const lookup: (name: string) => RouteSpec | undefined =
+      RouteAvailability.overriding((name: string): RouteSpec | undefined => RouteTable.spec(name), [route]);
+    const decision: GuardDecision = EntryGuard.decide(request, state, lookup);
+    const opened: boolean = decision.opensPage && decision.route === route;
+    const effective: Record<string, Object> = opened ? EntryGuard.effectiveParams(request) : {};
+    const openedParams: WalletRecord = obj();
+    for (const key of Object.keys(effective)) {
+      openedParams[key] = effective[key];
+    }
+    out['opened'] = opened;
+    out['openedParams'] = openedParams;
+    out['dropped'] = opened ? Object.keys(params).length - Object.keys(openedParams).length : 0;
+    out['event'] = decision.reason === GuardReason.PARAMS_DROPPED ? FundRouteParams.EVENT : null;
     return out;
   }
 }
