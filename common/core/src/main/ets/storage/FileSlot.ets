@@ -86,6 +86,15 @@ export class FileSlot {
     return this.ops.readText(this.path);
   }
 
+  /** 临时文件的内容（已写入并 fsync、但改名没完成的那次写入；不存在为 null，读取失败抛出）。F-HM-34 撤销标记核对用。 */
+  readTemp(): string | null {
+    const temp: string = FileSlot.tempOf(this.path);
+    if (!this.ops.exists(temp)) {
+      return null;
+    }
+    return this.ops.readText(temp);
+  }
+
   write(value: string | null): void {
     const temp: string = FileSlot.tempOf(this.path);
     if (value === null) {

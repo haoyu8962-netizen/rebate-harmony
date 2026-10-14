@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { notificationManager } from '@kit.NotificationKit';
 import {
-  AgentContextSource, AgentContextTicket, AgentDraftTexts, AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig,
+  AgentAskEntry, AgentContextSource, AgentContextTicket, AgentDraftTexts, AgentEntryVisibility, AmountMaskStore, ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig,
   ClipboardController, ConfigStore,
   CouliPreferences, FileSlot, OrderAnchorKeeper, OrderCacheCleaner, OrderCacheStore, OrderCopy, OrderDetailController,
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
@@ -185,8 +185,9 @@ export class AppOrders {
     this.context = context;
     const store: FileOrderCacheStore = new FileOrderCacheStore(context.filesDir);
     // 缓存的获取时刻与展示的「现在」同一基准（服务端校准时钟，BR-TEXT-11）。
+    // F-HM-34：按账号 + 持久化登录世代分区（同账号重新登录读不回旧登录的缓存；世代未知不读不写）。
     const cache: OrderStaleCache = new OrderStaleCache(store, (): string | null => AppOrders.account(),
-      (): number => AppOrders.serverNow());
+      (): number => AppOrders.serverNow(), (): string | null => AppNetwork.loginEpoch());
     this.cacheInstance = cache;
     // F-HM-18（APP-08 共性第 28 条）：启动时先核验落盘的「待清理」标记（在缓存目录之外），上次没删完就在任何读取之前补删。
     if (!cache.retryPendingClear()) {
@@ -384,20 +385,17 @@ export class AppOrders {
       AppRouting.shared.openInApp(route, params);
     }, (): void => AppLogin.openCustomerService(), (): boolean => controller.alive());
     config.onCopy = (item: OrderRecord): void => this.copy(item);
-    // APP-10 G27：订单详情【问问 AI】带 {order_id}（只在 Agent 可用的构建与环境里显示）。
-    if (AppAgent.shared.withdrawAvailable()) {
-      config.askAiText = AgentDraftTexts.text('agent.draft.ask_ai');
-      // R1-04：详情页构造时固定归属键与页面票据，订单标识固定为本页的 order_id；点击时只比较，不读当前身份重新绑定。
-      const agentSource: AgentContextSource = AppAgent.shared.contextSource((): boolean => controller.alive());
-      const askContext: Record<string, Object | null> = {};
-      askContext['order_id'] = orderId;
-      config.onAskAi = (id: string): void => {
-        if (id !== orderId) {
-          return;
-        }
+    // APP-10 G27：订单详情【问问 AI】带 {order_id}（只在 Agent 可用时显示）。
+    // R1-04：详情页构造时固定归属键与页面票据，订单标识固定为本页的 order_id；点击时只比较，不读当前身份重新绑定。
+    // FU-HM-0715 R1-05：文字、票据与回调在构造时一次性固定（不再只在此刻可用时才设置）；显示与否动态——Config 入口开关（订阅）
+    // 加此刻 Agent 可用（agent.enabled、隐私同意），关着时建页、之后打开，原页即显示入口。
+    const agentSource: AgentContextSource = AppAgent.shared.contextSource((): boolean => controller.alive());
+    const askContext: Record<string, Object | null> = {};
+    askContext['order_id'] = orderId;
+    config.askAi = new AgentAskEntry(AgentEntryVisibility.shared, AgentDraftTexts.text('agent.draft.ask_ai'),
+      (): boolean => AppAgent.shared.withdrawAvailable(), (): void => {
         AppAgent.shared.openWithContext(new AgentContextTicket(agentSource, askContext));
-      };
-    }
+      });
     // G17：本次详情请求成功时，返回列表只替换同 order_id 的那一行。
     controller.onLoaded = (detail: OrderRecord): void => {
       // FU-HM-0712：带详情页固定的会话归属，列表只在同一会话时替换。

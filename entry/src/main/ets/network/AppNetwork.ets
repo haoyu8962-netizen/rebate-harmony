@@ -1,7 +1,7 @@
 import { bundleManager, common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner,
+  ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner, FileSlot,
   DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, HttpTransport, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
   PendingKeyBackend, PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
   SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionTokens, SessionTokensCleaner,
@@ -18,6 +18,8 @@ const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliNetwork';
 /** TODO(N-19)：X-App-Id 的取值契约里没有登记，与 Android 一样先用占位 couli。 */
 const APP_ID: string = 'couli';
+/** 会话撤销标记的沙盒文件（F-HM-34；不含凭据，只记被撤销会话的登录世代或短摘要）。 */
+const SESSION_REVOKED_FILE: string = 'couli_session.revoked';
 
 /**
  * 网络层要读的 App 状态：基址取当前环境（环境闸门 SETTLED 之前为 undefined，不发任何请求；Release 的环境目录只有
@@ -89,11 +91,12 @@ export class AppNetwork {
   }
 
   /**
-   * 令牌存储里的持久化登录世代（F-HM-25：订单恢复记录绑定它）。compose 之前、没有会话、隔离中、读不出都为 null（按未知处理）。
+   * 令牌存储里的持久化登录世代（F-HM-25：订单恢复记录绑定它；F-HM-34：订单 / 钱包断网缓存也按它分区）。经 ApiClient.sessionLoginEpoch
+   * 与会话归属同一口径（F-HM-34 ①）：compose 之前、凭据不可读、没有可信会话、隔离中、已撤销、读不出都为 null（按未知处理）。
    */
   static loginEpoch(): string | null {
-    const tokens: SecureSessionTokens | null = AppNetwork.secureTokens;
-    return tokens === null ? null : tokens.loginEpoch();
+    const client: ApiClient | null = AppNetwork.instance;
+    return client === null ? null : client.sessionLoginEpoch(AppNetwork.secureTokens);
   }
 
   /** X-App-Version 同一个版本号（埋点 app_version 用）。 */
@@ -119,7 +122,9 @@ export class AppNetwork {
     if (existing !== null) {
       return existing;
     }
-    const tokens: SecureSessionTokens = new SecureSessionTokens(new AssetSecureStore('couli_session'));
+    // F-HM-34：撤销标记另在沙盒文件里记一份（Asset 整体不可写时跨进程撤销，F-AND-32）。
+    const tokens: SecureSessionTokens = new SecureSessionTokens(new AssetSecureStore('couli_session'),
+      FileSlot.at(context.filesDir, SESSION_REVOKED_FILE));
     AppNetwork.sessionTokens = tokens;
     AppNetwork.secureTokens = tokens;
     // APP-05b：Debug / Staging 打开本机假服务时，未决记录放内存（模拟器的 Asset 不支持批量查询，step-up 操作发不出）；

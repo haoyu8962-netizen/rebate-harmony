@@ -193,8 +193,9 @@ export class AppWallet {
   /** EntryAbility.onCreate（网络组合与 AppClientCore 之后、环境对账之前）。 */
   compose(context: common.Context): void {
     this.context = context;
+    // F-HM-34：按账号 + 持久化登录世代分区（同 AppOrders）。
     const cache: WalletStaleCache = new WalletStaleCache(new FileWalletCacheStore(context.filesDir),
-      (): string | null => AppWallet.account(), Date.now);
+      (): string | null => AppWallet.account(), Date.now, (): string | null => AppNetwork.loginEpoch());
     this.cacheInstance = cache;
     // 启动时先核验落盘的「待清理」标记（在缓存目录之外），上次没删完就在任何读取之前补删（APP-08 第 28 条）。
     if (!cache.retryPendingClear()) {

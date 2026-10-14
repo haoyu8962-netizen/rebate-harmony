@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  AgentBuyTap, AgentChipTap, AgentConsentTicket, AgentContextHandoff, AgentContextSource, AgentContextTicket, AgentDraftTexts,
+  AgentBuyTap, AgentEntryVisibility, AgentChipTap, AgentConsentTicket, AgentContextHandoff, AgentContextSource, AgentContextTicket, AgentDraftTexts,
   RouteDestination, AgentController, AgentDeps, AgentHttpResult, AgentIdentity, AgentJson, AgentJsonObject, AgentPageTicket,
   AgentProductRef, AgentRetryTap, AgentRunTicket, AgentSnapshot, AgentTap, AgentWithdrawFlow, AgentWithdrawOutcome,
   AmountMaskStore, ApiClient, ApiOutcome, ApiRequest, ApiResult,
@@ -315,6 +315,8 @@ export class AppAgent {
     this.model.port = new AgentControllerPort(this);
     this.model.unavailableBuild = !this.available();
     ShellState.shared.agentEntryVisible = AppAgent.entryVisible();
+    // G56（FU-HM-0715）：首页【问 AI】、商品 / 订单详情【问问 AI】随入口开关一起隐藏（页面订阅它，它订阅 Config 变化）。
+    AgentEntryVisibility.shared.bind(AppClientCore.shared.config, (): boolean => AppAgent.entryVisible());
     AppRouting.shared.syncAgent = (): void => this.sync();
     // 撤回隐私同意、切换环境：清理开始时同步作废（对话、卡片、金额、还没交出的情境都只在内存，作废即清空）。隐私撤回已在确认入口先经
     // 归属协调器停流并尽力 cancel（AppPrivacyPorts.haltPush）；这里是兜底与切环境（只停流、不发 cancel，G01）。
@@ -351,6 +353,7 @@ export class AppAgent {
     if (store === null) {
       return;
     }
+    AgentEntryVisibility.shared.bind(store, (): boolean => AppAgent.entryVisible());
     this.unsubscribeConfig = (store as ConfigStore).subscribe((): void => {
       ShellState.shared.agentEntryVisible = AppAgent.entryVisible();
       this.model.unavailableBuild = !this.available();
@@ -367,20 +370,7 @@ export class AppAgent {
       return forced as boolean;
     }
     const store: ConfigStore | null = AppClientCore.shared.config;
-    const text: string | null = store === null ? null : store.value('features');
-    if (text === null) {
-      return true;
-    }
-    try {
-      const features: Record<string, Object> = JSON.parse(text) as Record<string, Object>;
-      const flags: Object | undefined = features['flags'];
-      if (flags === undefined || flags === null || typeof flags !== 'object') {
-        return true;
-      }
-      return (flags as Record<string, Object>)['agent.entry.visible'] !== false;
-    } catch (e) {
-      return true;
-    }
+    return AgentEntryVisibility.fromFeatures(store === null ? null : store.value('features'));
   }
 
   /** config.agent.enabled（缺省可用；只认 false 为关）。 */
@@ -795,6 +785,11 @@ export class AppAgent {
    * 消息上（不清空当前对话）；还没有控制器时记下，按来源归属键交给建出的控制器。push / 桥带来的 AgentChat.context 一律不读（03 §4.4）。
    */
   openWithContext(ticket: AgentContextTicket): void {
+    // G56（FU-HM-0715）：入口开关已关（隐藏后残留的旧按钮）不交出情境、不打开。
+    if (!AgentEntryVisibility.shared.refresh()) {
+      hilog.info(DOMAIN, TAG, 'agent entry hidden; in-app open ignored');
+      return;
+    }
     if (!this.handoff.offer(ticket, this.identityNow().ownerKey, this.current)) {
       hilog.info(DOMAIN, TAG, 'agent context handoff rejected');
       return;

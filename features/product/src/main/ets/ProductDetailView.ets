@@ -1,4 +1,4 @@
-import { CreditNote, DetailNotes, ProductDetailController, ProductPhase, ProductSnapshot, trace6Of, withTrace6 } from 'core';
+import { AgentEntryVisibility, CreditNote, DetailNotes, ProductDetailController, ProductPhase, ProductSnapshot, trace6Of, withTrace6 } from 'core';
 import {
   BuyButton, BuyButtonState, CouliColors, CouliFontWeight, CouliLayout, CouliFocus, CouliIcon, CouliInteraction, CouliRadius,
   CouliSpacing, CouliTextModifier, CouliTypography, DisclaimerFooter, DisclaimerMode, EmptyState,
@@ -123,9 +123,16 @@ export struct ProductDetailView {
   /** 待跟单卡（APP-08 G07 ②：从本页外跳购买、回到前台后显示同平台那一张；entry 给）。放在说明区下方（设计稿 ProductPendingTrack）。 */
   @BuilderParam pendingSlot: () => void = emptyPendingSlot;
   @Local model: ProductModel = new ProductModel();
+  /** G56（FU-HM-0715）：【问问 AI】随 Config agent.entry.visible 显示 / 隐藏。 */
+  @Local askAiVisible: boolean = AgentEntryVisibility.shared.visible;
+  private unsubscribeAskAi: (() => void) | null = null;
   private product: Record<string, Object> | null = null;
 
   aboutToAppear(): void {
+    this.unsubscribeAskAi = AgentEntryVisibility.shared.subscribe((visible: boolean): void => {
+      this.askAiVisible = visible;
+    });
+    this.askAiVisible = AgentEntryVisibility.shared.refresh();
     this.config.controller.onChange = (s: ProductSnapshot): void => {
       this.apply(s);
     };
@@ -134,6 +141,11 @@ export struct ProductDetailView {
   }
 
   aboutToDisappear(): void {
+    const off: (() => void) | null = this.unsubscribeAskAi;
+    this.unsubscribeAskAi = null;
+    if (off !== null) {
+      off();
+    }
     this.config.controller.leave();
   }
 
@@ -347,22 +359,25 @@ export struct ProductDetailView {
   @Builder
   bottomBar() {
     Row({ space: CouliSpacing.space3 }) {
-      Column({ space: 2 }) {
-        CouliIcon({ name: 'chat', iconSize: 24, color: CouliColors.textPrimary })
-        Text(this.t(ProductKeys.ASK_AI))
-          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-          .maxLines(1)
+      // G56（FU-HM-0715）：agent.entry.visible=false 时隐藏（购买按钮占满底栏）。
+      if (this.askAiVisible) {
+        Column({ space: 2 }) {
+          CouliIcon({ name: 'chat', iconSize: 24, color: CouliColors.textPrimary })
+          Text(this.t(ProductKeys.ASK_AI))
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+            .maxLines(1)
+        }
+        .justifyContent(FlexAlign.Center)
+        .constraintSize({ minWidth: CouliInteraction.minTouchTarget + CouliSpacing.space4,
+          minHeight: CouliInteraction.minTouchTarget })
+        .id(ID_ASK_AI)
+        .accessibilityGroup(true)
+        .accessibilityText(this.t(ProductKeys.ASK_AI))
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .onClick(() => this.config.onAskAi())
       }
-      .justifyContent(FlexAlign.Center)
-      .constraintSize({ minWidth: CouliInteraction.minTouchTarget + CouliSpacing.space4,
-        minHeight: CouliInteraction.minTouchTarget })
-      .id(ID_ASK_AI)
-      .accessibilityGroup(true)
-      .accessibilityText(this.t(ProductKeys.ASK_AI))
-      .accessibilityRole(AccessibilityRoleType.BUTTON)
-      .focusable(true)
-      .focusBox(CouliFocus.box)
-      .onClick(() => this.config.onAskAi())
 
       Column() {
         BuyButton({

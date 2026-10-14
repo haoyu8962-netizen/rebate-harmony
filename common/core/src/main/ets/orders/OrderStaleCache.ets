@@ -129,10 +129,40 @@ export class OrderStaleCache {
   /** 本进程内的「待清理」（落盘的标记写不进时仍按它阻断读取）。 */
   private pendingInMemory: boolean = false;
 
-  constructor(store: OrderCacheStore, account: () => string | null, clock: () => number = Date.now) {
+  /**
+   * 持久化登录世代（F-HM-34；App 传 AppNetwork.loginEpoch → ApiClient.sessionLoginEpoch，为 null 时不分世代，旧用法）：接了之后缓存
+   * 按「账号 + 登录世代」分区——同账号退出后重新登录换了登录世代，令牌删除与缓存清理都失败、进程重建后也读不回旧登录下的缓存；
+   * 世代读不出（null、空串、抛错）不读不写。
+   */
+  private readonly loginEpoch: (() => string | null) | null;
+
+  constructor(store: OrderCacheStore, account: () => string | null, clock: () => number = Date.now,
+    loginEpoch: (() => string | null) | null = null) {
     this.store = store;
     this.account = account;
     this.clock = clock;
+    this.loginEpoch = loginEpoch;
+  }
+
+  /** 按账号 + 登录世代的分区标识（目录名；不出现 user_id 与登录世代原文）。 */
+  static partitionTag(account: string, epoch: string): string {
+    return OrderStaleCache.accountTag(account) + 'g' + OrderStaleCache.accountTag(epoch).substring(1);
+  }
+
+  /**
+   * 账号标识 → 分区标识（订单与钱包缓存共用）：没接登录世代为 accountTag；接了时世代读不出为 null（不读不写）。
+   */
+  static partitionOf(account: string, loginEpoch: (() => string | null) | null): string | null {
+    if (loginEpoch === null) {
+      return OrderStaleCache.accountTag(account);
+    }
+    let epoch: string | null = null;
+    try {
+      epoch = loginEpoch();
+    } catch (e) {
+      epoch = null;
+    }
+    return epoch === null || epoch.length === 0 ? null : OrderStaleCache.partitionTag(account, epoch);
   }
 
   /** 是否可缓存（G10）：详情可以；列表只缓存默认视图的第一页（status_group 不传或 all，没有平台、月份、搜索词与 cursor）。 */
@@ -173,7 +203,7 @@ export class OrderStaleCache {
 
   private tag(): string | null {
     const account: string | null = this.account();
-    return account === null || account.length === 0 ? null : OrderStaleCache.accountTag(account);
+    return account === null || account.length === 0 ? null : OrderStaleCache.partitionOf(account, this.loginEpoch);
   }
 
   /** 清理没确认完成（标记在、或标记读不出）：不读不写。 */

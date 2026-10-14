@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
+  AgentEntryVisibility, ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
   HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeIdentity, HomeLevel,
   HomeLkgBackend, HomeLkgStore, HomeLocalStore, HomeNoticeCloseTicket, HomePendingLedger, HomePopupImageTicket,
   HomePopupTicket, HomePrefsBackend, HomeRenderTicket, HomeSectionTicket, HomeShowing, HomeSignalHub, HomeSnapshot,
@@ -255,7 +255,10 @@ export class HomeControllerPort implements HomeScreenPort {
   }
 
   askAi(): void {
-    AppRouting.shared.openInApp('AgentChat');
+    // G56（FU-HM-0715）：入口开关已关时不打开（按钮随之隐藏；这里防隐藏前残留的点击）。
+    AgentEntryVisibility.shared.guard((): void => {
+      AppRouting.shared.openInApp('AgentChat');
+    });
   }
 
   image(url: string): string {

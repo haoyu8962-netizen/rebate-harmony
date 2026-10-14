@@ -33,10 +33,15 @@ export class WalletStaleCache {
   /** 本进程内的「待清理」（落盘的标记写不进时仍按它阻断读取）。 */
   private pendingInMemory: boolean = false;
 
-  constructor(store: OrderCacheStore, account: () => string | null, clock: () => number = Date.now) {
+  /** 持久化登录世代（F-HM-34，同 OrderStaleCache.loginEpoch；null 为不分世代，旧用法）。 */
+  private readonly loginEpoch: (() => string | null) | null;
+
+  constructor(store: OrderCacheStore, account: () => string | null, clock: () => number = Date.now,
+    loginEpoch: (() => string | null) | null = null) {
     this.store = store;
     this.account = account;
     this.clock = clock;
+    this.loginEpoch = loginEpoch;
   }
 
   /** 只有钱包摘要可缓存；rules、提现记录、收款账号一律不缓存（G22）。 */
@@ -59,7 +64,7 @@ export class WalletStaleCache {
       return null;
     }
     const account: string | null = owner !== undefined ? owner : current;
-    return account === null || account.length === 0 ? null : OrderStaleCache.accountTag(account);
+    return account === null || account.length === 0 ? null : OrderStaleCache.partitionOf(account, this.loginEpoch);
   }
 
   /** 清理没确认完成（标记在、或标记读不出）：不读不写。 */

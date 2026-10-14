@@ -531,6 +531,8 @@ export struct AgentFeedbackBar {
   @Param report: AgentReportEntryView | undefined = undefined;
   @Param port: AgentScreenPort | undefined = undefined;
   @Param disabled: boolean = false;
+  /** 读屏等价入口拿到键盘焦点（此时才画出来，免得焦点框落在看不见的地方）。 */
+  @Local reportFocused: boolean = false;
 
   private t(key: string): string {
     return this.port?.text(key) ?? '';
@@ -573,15 +575,29 @@ export struct AgentFeedbackBar {
         this.thumb('down', 'thumb-down', this.t('agent.draft.feedback.down'), this.t('agent.draft.feedback.down_selected'))
       }
       if (this.report !== undefined && !this.report.reported) {
-        // 读屏等价入口（G29：长按不可达时）：「更多操作 → 举报」。视觉上不占位（只给读屏与键盘焦点）。
+        // 读屏等价入口（G29：长按不可达时）：「更多操作，举报」。G54（FU-HM-0715，设计确认前的保守处理）：不占视觉空间、只给读屏与
+        // 键盘——绝对定位（不参与行布局，【赞】【踩】位置与稿一致）、透明、不接触摸（点在它下面的【赞】照常生效）；读屏的点击动作与
+        // 键盘回车不经触摸命中，仍可打开举报。拿到键盘焦点时才画出来（焦点框可见）。视觉用户的入口是长按回复气泡。
         Button({ type: ButtonType.Normal, stateEffect: false }) {
           Text(this.t('agent.draft.report.entry'))
             .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
         }
         .height(CouliInteraction.minTouchTarget)
-        .backgroundColor(Color.Transparent)
+        .position({ x: 0, y: 0 })
+        .opacity(this.reportFocused ? 1 : 0)
+        .hitTestBehavior(HitTestMode.None)
+        .backgroundColor(this.reportFocused ? CouliColors.backgroundSurface : Color.Transparent)
+        .id('agent_report_a11y_entry')
+        .accessibilityLevel('yes')
         .accessibilityText(this.t('agent.draft.report.more_entry'))
+        .focusable(true)
         .focusBox(CouliFocus.box)
+        .onFocus(() => {
+          this.reportFocused = true;
+        })
+        .onBlur(() => {
+          this.reportFocused = false;
+        })
         .onClick(() => {
           const r = this.report;
           if (r !== undefined) {

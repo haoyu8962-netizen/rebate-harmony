@@ -2,7 +2,7 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
 import { ApiOperation, ApiOperations } from 'generated';
 import { EnvironmentEndpoints } from '../config/AppEnvironment';
-import { LoginEpochIds, SessionReadStatus, SessionTokens, SessionTokenSet } from '../session/SessionTokens';
+import { LoginEpochIds, SessionLoginEpochs, SessionReadStatus, SessionTokens, SessionTokenSet } from '../session/SessionTokens';
 import {
   EffectKind, ErrorActionInput, ErrorActionMapper, ErrorActionState, ErrorEffect, ErrorUpdateState, ReplayKind
 } from './ErrorActionMapper';
@@ -1351,6 +1351,23 @@ export class ApiClient {
     }
     const failed: string | null = this.failedAccessToken;
     return failed !== null && this.deps.tokens.accessToken() === failed ? null : account;
+  }
+
+  /**
+   * 按世代分区的本机缓存（订单 / 钱包断网缓存、订单页面恢复记录）读持久化登录世代的唯一入口（F-HM-34 ①）：与 sessionAccount 同一口径——
+   * 凭据不可读（撤回待清理、环境未就绪）、没有可信会话、刷新写入失败留下的旧令牌、令牌存储读不出 / 隔离 / 已撤销，一律为 null（未知，
+   * 不读不写）；读出抛错同样为 null。
+   */
+  sessionLoginEpoch(epochs: SessionLoginEpochs | null): string | null {
+    if (epochs === null || this.sessionAccount() === null) {
+      return null;
+    }
+    try {
+      const epoch: string | null = epochs.loginEpoch();
+      return epoch !== null && epoch.length > 0 ? epoch : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   /**

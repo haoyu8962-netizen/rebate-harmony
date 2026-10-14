@@ -1,6 +1,7 @@
 import { LocalDataCleaner, LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { PrivacyWithdrawalCleaners } from '../privacy/PrivacyWithdrawal';
 import { SecureStore } from '../storage/SecureStore';
+import { FileSlot } from '../storage/FileSlot';
 
 /** 会话作用域取值（04 §2.5 session_scope）。 */
 const SCOPE_FULL: string = 'full';
@@ -151,6 +152,89 @@ interface WireTokens {
 }
 
 /**
+ * 会话撤销标记的取值（F-HM-34，对应 Android FU-AND-0714 R2-03 的 session_revoked）：标记记的是「被撤销的是哪一份会话」，不是一个开关——
+ * 有登录世代时为 `e:<登录世代>`；存量会话（还没有登录世代）为 `r:<refresh_token 的 32 位短摘要>`；清除时不能确认存储里是哪一份
+ * （读不出、还没装载且凭据禁读，FU-HM-0715 R1-04）为 `*`（任何会话，待核验）。
+ * 落盘内容带完整性校验（FU-HM-0715 R1-03）：`couli-rv1|<目标>|<目标长度>|<目标的 32 位摘要>|end`。存在但为空、截断、摘要对不上、
+ * 无法确认完整性的标记（正式文件、临时文件、Asset 项）一律按 `*` 阻断——只有完整的标记才按目标比较，完整的旧标记不误伤新登录。
+ * 鸿蒙的令牌与标记是 Asset 里的两项，做不到 Android「登录成功同一次提交删标记」：新登录总是换新登录世代，残留的精确标记对不上新会话，
+ * 所以登录成功后标记删不掉也不会误伤；只有 `*` 或不完整的标记残留时会把下一次冷启动读到的会话一并当作已撤销（偏保守，见 handback 疑点）。
+ */
+export class SessionRevocation {
+  static readonly ANY: string = '*';
+  private static readonly PREFIX: string = 'couli-rv1|';
+  private static readonly END: string = '|end';
+
+  static fingerprint(tokens: SessionTokenSet): string {
+    if (tokens.loginEpoch !== null) {
+      return 'e:' + tokens.loginEpoch;
+    }
+    return 'r:' + SessionRevocation.digest(tokens.refreshToken);
+  }
+
+  /** 32 位 FNV-1a 摘要（十六进制）。 */
+  private static digest(text: string): string {
+    let hash: number = 0x811c9dc5;
+    for (let i: number = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return (hash >>> 0).toString(16);
+  }
+
+  /** 落盘的标记内容（目标 + 长度 + 摘要 + 结束符）。 */
+  static encode(target: string): string {
+    return SessionRevocation.PREFIX + target + '|' + target.length.toString(10) + '|' + SessionRevocation.digest(target)
+      + SessionRevocation.END;
+  }
+
+  /** 解析落盘的标记：完整的返回目标；空、截断、损坏、无法确认完整性为 null。 */
+  static decodeMark(mark: string): string | null {
+    const prefix: string = SessionRevocation.PREFIX;
+    const end: string = SessionRevocation.END;
+    if (mark.length < prefix.length + end.length || !mark.startsWith(prefix) || !mark.endsWith(end)) {
+      return null;
+    }
+    const body: string = mark.substring(prefix.length, mark.length - end.length);
+    const digestAt: number = body.lastIndexOf('|');
+    if (digestAt <= 0) {
+      return null;
+    }
+    const lengthAt: number = body.lastIndexOf('|', digestAt - 1);
+    if (lengthAt <= 0) {
+      return null;
+    }
+    const target: string = body.substring(0, lengthAt);
+    const lengthText: string = body.substring(lengthAt + 1, digestAt);
+    const digestText: string = body.substring(digestAt + 1);
+    if (lengthText !== target.length.toString(10) || digestText !== SessionRevocation.digest(target)) {
+      return null;
+    }
+    return target;
+  }
+
+  /** 这个撤销目标（已解析的）是否撤销这份会话（空目标不算）。 */
+  static revokes(mark: string | null, tokens: SessionTokenSet): boolean {
+    if (mark === null || mark.length === 0) {
+      return false;
+    }
+    return mark === SessionRevocation.ANY || mark === SessionRevocation.fingerprint(tokens);
+  }
+
+  /**
+   * 一份落盘的标记内容是否阻断这份会话（R1-03）：不存在（null）不阻断；存在但不完整（空、截断、损坏）按「任何会话」阻断；
+   * 完整的按目标比较。
+   */
+  static blocks(stored: string | null, tokens: SessionTokenSet): boolean {
+    if (stored === null) {
+      return false;
+    }
+    const target: string | null = SessionRevocation.decodeMark(stored);
+    return target === null || SessionRevocation.revokes(target, tokens);
+  }
+}
+
+/**
  * 安全存储实现：整组令牌存为一项（读到后缓存在内存，写时同步落盘）。
  * 清除时先在内存里作废（旧令牌立即不可读）；持久删除失败抛出（清理器据此报告失败），并记下「删除待重试」（隔离）：
  * 之后每次读写都先重试删除，内存里继续不给出旧令牌。隔离只在两种情况下解除（F-AND-10，lessons 38、41）：
@@ -161,19 +245,46 @@ interface WireTokens {
  * - 不存在：absent，缓存结论；
  * - 读取失败（安全存储此刻不可用）：unreadable，不缓存、不删除，下次读取再试；需要会话的接口本地拒绝（ApiClient）；
  * - 内容损坏（解析不了或缺字段）：按没有会话（absent），进入隔离并尽力删除，删不掉的下次读写再删。
+ *
+ * 跨进程撤销（F-HM-34，FU-AND-0714 R2-03 / F-AND-32）：上面的隔离只在内存里，删除失败后进程被回收，旧会话（连同旧登录世代）会在
+ * 冷启动时原样读回。现在清除时：
+ * ① 删除令牌之前先完成可落盘的撤销标记（FU-HM-0715 R1-02）：先写同一 Asset 命名空间的 `session_revoked` 项；它写不进时，先提交
+ *    App 沙盒文件（revokedMark，与 Asset 不同的存储介质）里的标记，再尝试删令牌项——两处标记的提交与令牌删除之间任何一处中断，
+ *    冷启动都按标记不读回旧会话；Asset 标记写进了但令牌删不掉时，沙盒文件再记一份兜底；两处都写不进时只剩本进程内的隔离（记 gaps）；
+ * ② 撤销目标不重新读取凭据（FU-HM-0715 R1-04）：只用已经知道的「存储里是哪一份」（装载、保存、确认删除时记下的指纹）；还没装载
+ *    （撤回待清理、环境未就绪、冷启动清理）或读不出时写「任何会话」（待核验），不为清除去读旧令牌；
+ * ③ 冷启动第一次读取：读到令牌后核对两处标记（含 FileSlot 临时文件），任一撤销这份会话、或存在但不完整（空、截断、损坏，R1-03）
+ *    → 按没有会话（世代 null），进入隔离并重试删除；任一标记此刻读不出 → 按读不出（unreadable，世代 null，不缓存，下次再读）。
+ *    确认删除成功、或新会话整组写入成功后尽力删掉两处标记。
+ * 登录世代与整份会话同口径（F-HM-34 ①）：loginEpoch() 与 accessToken() 走同一个 load——令牌项或任一标记读不出、内容损坏（含令牌为空、
+ * 作用域不在合法取值内、字段类型不对，R1-01）、隔离中、损坏清理失败、已撤销，一律为 null。
  */
 export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
   private static readonly ALIAS: string = 'session_tokens';
+  /** 撤销标记（与令牌同一 Asset 命名空间，F-HM-34）。 */
+  private static readonly REVOKED_ALIAS: string = 'session_revoked';
   private readonly store: SecureStore;
+  /** 另一存储介质上的撤销标记（App 沙盒文件；null = 不接，旧用法与单测）。 */
+  private readonly revokedMark: FileSlot | null;
   private loaded: boolean = false;
   private current: SessionTokenSet | null = null;
   /** 清除时持久删除失败（或内容损坏待删除），等待重试：隔离中，不给出任何会话。 */
   private removalPending: boolean = false;
   /** 最近一次从存储读取失败（不缓存，下次读取再试）。 */
   private readFailed: boolean = false;
+  /** 两处撤销标记可能还在（冷启动未核对、写过、删除没确认）：save 成功后尽力删。 */
+  private marksMaybePresent: boolean = true;
+  /**
+   * 是否知道令牌项里此刻是哪一份会话（R1-04：清除时用它定撤销目标，不重新读凭据）。装载读到（或确认没有）、保存成功、确认删除时为 true；
+   * 还没装载、读不出、保存抛出（存储状态不确定）时为 false。
+   */
+  private storedKnown: boolean = false;
+  /** storedKnown 时令牌项里那份会话的撤销指纹（没有、或内容损坏冷启动照样按没有时为 null）。 */
+  private storedFingerprint: string | null = null;
 
-  constructor(store: SecureStore) {
+  constructor(store: SecureStore, revokedMark: FileSlot | null = null) {
     this.store = store;
+    this.revokedMark = revokedMark;
   }
 
   accessToken(): string | null {
@@ -204,7 +315,10 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
     return this.readFailed ? SessionReadStatus.UNREADABLE : SessionReadStatus.ABSENT;
   }
 
-  /** 持久化登录世代（与令牌同一项；没有会话、隔离中、读不出为 null）。 */
+  /**
+   * 持久化登录世代（与令牌同一项）。与整份会话同一个读取口径（F-HM-34 ①）：没有会话、隔离中、令牌项或撤销标记读不出、已撤销都为
+   * null。按世代分区的缓存不直接调它，经 ApiClient.sessionLoginEpoch（再过凭据可读判定与刷新写入失败的旧令牌判定）。
+   */
   loginEpoch(): string | null {
     const tokens: SessionTokenSet | null = this.load();
     return tokens === null ? null : tokens.loginEpoch;
@@ -223,27 +337,122 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
       account: next.account,
       login_epoch: next.loginEpoch
     };
+    // 写入抛出时存储里是哪一份不再确定（R1-04：之后的清除按「任何会话」写标记）。
+    this.storedKnown = false;
     this.store.set(SecureSessionTokens.ALIAS, JSON.stringify(wire));
+    this.storedKnown = true;
+    this.storedFingerprint = SessionRevocation.fingerprint(next);
     this.current = next;
     this.loaded = true;
     this.readFailed = false;
     // 新会话整组写入成功、覆盖了旧值：隔离解除（F-AND-10 ②）。写入抛出时走不到这里，隔离保持。
     this.removalPending = false;
+    // 旧会话的撤销标记尽力删掉（删不掉也不误伤：标记记的是旧会话，新登录换了登录世代）。
+    if (this.marksMaybePresent) {
+      this.dropMarks();
+    }
   }
 
   clear(): void {
+    const target: string | null = this.revocationTarget();
     this.current = null;
     this.loaded = true;
     this.readFailed = false;
     this.removalPending = true;
-    this.store.remove(SecureSessionTokens.ALIAS);
-    // 确认删除成功：隔离解除（F-AND-10 ①）。remove 抛出时隔离保持，之后每次读写重试删除。
+    let fileMarked: boolean = false;
+    if (target !== null) {
+      // ① 删除令牌之前先完成可落盘的撤销标记（R1-02）：之后删除失败、或删除前后进程被回收，冷启动按它不读回旧会话。
+      this.marksMaybePresent = true;
+      let assetMarked: boolean = false;
+      try {
+        this.store.set(SecureSessionTokens.REVOKED_ALIAS, SessionRevocation.encode(target));
+        assetMarked = true;
+      } catch (e) {
+        assetMarked = false;
+      }
+      if (!assetMarked) {
+        // Asset 标记写不进：先提交另一介质（沙盒文件）的标记，再去删令牌（不在删除失败之后才补，免得中间留下无标记的窗口）。
+        fileMarked = this.writeIndependentMark(target);
+      }
+    }
+    try {
+      this.store.remove(SecureSessionTokens.ALIAS);
+    } catch (e) {
+      // ② 删不掉：沙盒文件还没记的再记一份（Asset 标记写进了也兜底）。
+      if (target !== null && !fileMarked) {
+        this.writeIndependentMark(target);
+      }
+      throw e as Error;
+    }
+    // 确认删除成功：隔离解除（F-AND-10 ①），撤销标记尽力删掉。remove 抛出时隔离保持，之后每次读写重试删除。
     this.removalPending = false;
+    this.storedKnown = true;
+    this.storedFingerprint = null;
+    this.dropMarks();
   }
 
   /** 清除时删除失败、还在等待重试（测试与诊断用）。 */
   get removalRetryPending(): boolean {
     return this.removalPending;
+  }
+
+  /**
+   * 这次清除要撤销的会话（R1-04）：只用已经知道的令牌项内容（装载、保存、确认删除时记下），不为清除去读存储——撤回待清理、环境未就绪、
+   * 冷启动清理时凭据禁读，清除路径本身也不得读旧令牌。知道没有会话（或内容损坏、冷启动照样按没有）不写标记；不知道为「任何会话」（待核验）。
+   */
+  private revocationTarget(): string | null {
+    return this.storedKnown ? this.storedFingerprint : SessionRevocation.ANY;
+  }
+
+  /** 沙盒文件里写一份标记；写进（含只落下临时文件）返回 true。 */
+  private writeIndependentMark(target: string): boolean {
+    const mark: FileSlot | null = this.revokedMark;
+    if (mark === null) {
+      return false;
+    }
+    try {
+      mark.write(SessionRevocation.encode(target));
+      return true;
+    } catch (e) {
+      // 写不进：Asset 也没有时只剩本进程内的隔离（F-AND-32 的残余，记 gaps）。临时文件可能已完整落下，冷启动照样核对。
+      return false;
+    }
+  }
+
+  /** 两处撤销标记尽力删掉；都确认删掉才记为「不在了」。 */
+  private dropMarks(): void {
+    let ok: boolean = true;
+    try {
+      this.store.remove(SecureSessionTokens.REVOKED_ALIAS);
+    } catch (e) {
+      ok = false;
+    }
+    const mark: FileSlot | null = this.revokedMark;
+    if (mark !== null) {
+      try {
+        mark.write(null);
+      } catch (e) {
+        ok = false;
+      }
+    }
+    this.marksMaybePresent = !ok;
+  }
+
+  /** 两处撤销标记是否阻断这份会话（不完整的标记按撤销，R1-03）；任一标记此刻读不出抛出（调用方按读不出处理）。 */
+  private revokedByMarks(tokens: SessionTokenSet): boolean {
+    const assetMark: string | null = this.store.get(SecureSessionTokens.REVOKED_ALIAS);
+    let revoked: boolean = SessionRevocation.blocks(assetMark, tokens);
+    let present: boolean = assetMark !== null;
+    const mark: FileSlot | null = this.revokedMark;
+    if (mark !== null) {
+      // 正式文件与 FileSlot 临时文件（已写入、改名前失败或写到一半）都算（与订单缓存待清理标记同口径，FU-HM-0709 R1-01）。
+      const formal: string | null = mark.read();
+      const temp: string | null = mark.readTemp();
+      revoked = revoked || SessionRevocation.blocks(formal, tokens) || SessionRevocation.blocks(temp, tokens);
+      present = present || formal !== null || temp !== null;
+    }
+    this.marksMaybePresent = present;
+    return revoked;
   }
 
   private load(): SessionTokenSet | null {
@@ -254,6 +463,9 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
         this.removalPending = false;
         this.current = null;
         this.loaded = true;
+        this.storedKnown = true;
+        this.storedFingerprint = null;
+        this.dropMarks();
       } catch (e) {
         // 仍删不掉：内存里继续没有会话（旧令牌不再给出），下次读写再试。
       }
@@ -270,9 +482,39 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
       this.readFailed = true;
       return null;
     }
+    const decoded: SessionTokenSet | null = text === null ? null : SecureSessionTokens.decode(text);
+    // 令牌项里是哪一份已经知道了（损坏内容冷启动照样按没有，撤销目标为 null）。
+    this.storedKnown = true;
+    this.storedFingerprint = decoded === null ? null : SessionRevocation.fingerprint(decoded);
+    if (decoded !== null) {
+      // F-HM-34 ②：冷启动确认会话可用之前先核对撤销标记。标记读不出与令牌读不出同口径（unreadable，不缓存，世代 null）。
+      let revoked: boolean = false;
+      try {
+        revoked = this.revokedByMarks(decoded);
+      } catch (e) {
+        this.readFailed = true;
+        return null;
+      }
+      if (revoked) {
+        // 已撤销（上次清除没删掉、进程被回收）：按没有会话，进入隔离并重试删除。
+        this.readFailed = false;
+        this.loaded = true;
+        this.current = null;
+        this.removalPending = true;
+        try {
+          this.store.remove(SecureSessionTokens.ALIAS);
+          this.removalPending = false;
+          this.storedFingerprint = null;
+          this.dropMarks();
+        } catch (e) {
+          // 留在隔离里重试。
+        }
+        return null;
+      }
+    }
     this.readFailed = false;
     this.loaded = true;
-    this.current = text === null ? null : SecureSessionTokens.decode(text);
+    this.current = decoded;
     if (text !== null && this.current === null) {
       // 内容损坏：按没有会话，进入隔离并尽力删除（删不掉的下次读写再删）。
       this.removalPending = true;
@@ -286,18 +528,37 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
     return this.current;
   }
 
-  /** 解析存储的整组令牌；内容损坏（不是 JSON、缺 access / refresh）为 null。 */
+  /**
+   * 解析存储的整组令牌（R1-01：完整校验）。内容损坏一律为 null（整组按没有会话、世代 null）：不是 JSON 对象；access_token /
+   * refresh_token 不是非空字符串；session_scope 不是 full / deletion_only（不把非法作用域转成 full）；account 不是字符串或 null；
+   * login_epoch 不是非空字符串或 null。
+   */
   private static decode(text: string): SessionTokenSet | null {
     try {
       const wire: WireTokens = JSON.parse(text) as WireTokens;
-      if (wire === null || typeof wire !== 'object' || typeof wire.access_token !== 'string'
-        || typeof wire.refresh_token !== 'string') {
+      if (wire === null || typeof wire !== 'object' || Array.isArray(wire)) {
         return null;
       }
-      return new SessionTokenSet(wire.access_token, wire.refresh_token,
-        typeof wire.session_scope === 'string' ? wire.session_scope : SCOPE_FULL,
-        typeof wire.account === 'string' ? wire.account : null,
-        typeof wire.login_epoch === 'string' ? wire.login_epoch : null);
+      const access: Object | null | undefined = wire.access_token;
+      const refresh: Object | null | undefined = wire.refresh_token;
+      const scope: Object | null | undefined = wire.session_scope;
+      const account: Object | null | undefined = wire.account;
+      const epoch: Object | null | undefined = wire.login_epoch;
+      if (typeof access !== 'string' || (access as string).length === 0 || typeof refresh !== 'string'
+        || (refresh as string).length === 0) {
+        return null;
+      }
+      if (typeof scope !== 'string' || (scope !== SCOPE_FULL && scope !== SCOPE_DELETION_ONLY)) {
+        return null;
+      }
+      if (account !== undefined && account !== null && typeof account !== 'string') {
+        return null;
+      }
+      if (epoch !== undefined && epoch !== null && (typeof epoch !== 'string' || (epoch as string).length === 0)) {
+        return null;
+      }
+      return new SessionTokenSet(access as string, refresh as string, scope as string,
+        typeof account === 'string' ? account as string : null, typeof epoch === 'string' ? epoch as string : null);
     } catch (e) {
       return null;
     }

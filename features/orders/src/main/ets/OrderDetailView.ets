@@ -1,5 +1,5 @@
 import {
-  OrderDetailActions, OrderDetailController, OrderDetailEntries, OrderDetailSnapshot, OrderJson, OrderPhase, OrderRecord,
+  AgentAskEntry, OrderDetailActions, OrderDetailController, OrderDetailEntries, OrderDetailSnapshot, OrderJson, OrderPhase, OrderRecord,
   OrderTimelineView, PriceCompareEntry, ViewProductEntry, WhyNoRebate
 } from 'core';
 import {
@@ -33,10 +33,11 @@ export class OrderDetailPageConfig {
   entries: OrderDetailEntries;
   onCopy: (item: OrderRecord) => void = (_i: OrderRecord) => {
   };
-  /** APP-10 G27：【问问 AI】的文字（空串不显示：Release / Agent 不可用的环境）与动作（entry 交 AppAgent，带 {order_id}）。 */
-  askAiText: string = '';
-  onAskAi: (orderId: string) => void = (_id: string) => {
-  };
+  /**
+   * APP-10 G27：【问问 AI】（entry 交 AppAgent，带 {order_id}；null 不显示）。FU-HM-0715 R1-05：构造详情时固定文字、来源票据与回调，
+   * 显示与否随 Config 入口开关动态变化（关着时建页、之后打开，原页即显示）。
+   */
+  askAi: AgentAskEntry | null = null;
 
   constructor(controller: OrderDetailController, mask: OrderMaskUi, orderId: string) {
     this.controller = controller;
@@ -118,10 +119,33 @@ class OrderDetailModel {
 export struct OrderDetailView {
   @Param @Require config: OrderDetailPageConfig;
   @Local model: OrderDetailModel = new OrderDetailModel();
+  /** G56（FU-HM-0715）：【问问 AI】随 Config agent.entry.visible 显示 / 隐藏（R1-05：可见性动态，文字与回调构造时固定）。 */
+  @Local askAiVisible: boolean = false;
+  private unsubscribeAskAi: (() => void) | null = null;
 
   aboutToAppear(): void {
+    const askAi: AgentAskEntry | null = this.config.askAi;
+    if (askAi !== null) {
+      this.unsubscribeAskAi = askAi.subscribe((shown: boolean): void => {
+        this.askAiVisible = shown;
+      });
+      this.askAiVisible = askAi.refresh();
+    }
     this.config.controller.onChange = (s: OrderDetailSnapshot): void => this.apply(s);
     this.apply(this.config.controller.snapshot);
+  }
+
+  aboutToDisappear(): void {
+    const off: (() => void) | null = this.unsubscribeAskAi;
+    this.unsubscribeAskAi = null;
+    if (off !== null) {
+      off();
+    }
+  }
+
+  private askAiText(): string {
+    const askAi: AgentAskEntry | null = this.config.askAi;
+    return askAi === null ? '' : askAi.text;
   }
 
   private t(key: string): string {
@@ -431,21 +455,24 @@ export struct OrderDetailView {
       .alignItems(VerticalAlign.Top)
       .width('100%')
       // APP-10 G27：【问问 AI】带 {order_id}（只在 Agent 可用的构建与环境里显示；不自动发送，附在用户发的第一条消息上）。
-      if (this.config.askAiText.length > 0) {
+      // G56（FU-HM-0715）：入口开关关时一起隐藏。
+      if (this.askAiVisible && this.askAiText().length > 0) {
         Row({ space: CouliSpacing.space1 }) {
           CouliIcon({ name: 'chat', iconSize: 16, color: CouliColors.textLink })
             .accessibilityLevel('no')
-          Text(this.config.askAiText)
+          Text(this.askAiText())
             .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textLink, CouliFontWeight.medium))
         }
         .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
         .id('order_detail_ask_ai')
         .accessibilityGroup(true)
-        .accessibilityText(this.config.askAiText)
+        .accessibilityText(this.askAiText())
         .accessibilityRole(AccessibilityRoleType.BUTTON)
         .focusable(true)
         .focusBox(CouliFocus.box)
-        .onClick(() => this.config.onAskAi(this.config.orderId))
+        .onClick(() => {
+          this.config.askAi?.tap();
+        })
       }
     }
     .width('100%')

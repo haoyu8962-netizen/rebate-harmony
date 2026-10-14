@@ -1,6 +1,6 @@
 import { ComponentContent } from '@kit.ArkUI';
 import {
-  HomeCardType, HomeCardView, HomeDraftTexts, HomeFixedArea, HomeNoticeItem, HomePopupDialogHost, HomePopupImageTicket,
+  AgentEntryVisibility, HomeCardType, HomeCardView, HomeDraftTexts, HomeFixedArea, HomeNoticeItem, HomePopupDialogHost, HomePopupImageTicket,
   HomePopupPresenter, HomePopupTicket, HomeRenderTicket, HomeShowing, HomeSnapshot
 } from 'core';
 import {
@@ -169,6 +169,9 @@ export struct HomeTabRoot {
   @Param preview: boolean = false;
   @Param tail: WrappedBuilder<[HomeScreenModel]> | null = null;
   @Local refreshing: boolean = false;
+  /** G56（FU-HM-0715）：【问 AI】随 Config agent.entry.visible 显示 / 隐藏（订阅 AgentEntryVisibility，它订阅 Config 变化）。 */
+  @Local askAiVisible: boolean = AgentEntryVisibility.shared.visible;
+  private unsubscribeAskAi: (() => void) | null = null;
   private refreshSeq: number = 0;
   private scroller: Scroller = new Scroller();
 
@@ -264,21 +267,24 @@ export struct HomeTabRoot {
       .focusable(true)
       .focusBox(CouliFocus.box)
       .onClick(() => HomeActions.openSearch())
-      Row({ space: CouliSpacing.space1 }) {
-        CouliIcon({ name: 'chat', iconSize: 18, color: CouliColors.brandEmphasis })
-        Text(HomeDraftTexts.text('home.ask_ai'))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis))
+      // G56（FU-HM-0715）：agent.entry.visible=false 时与底部 AI 助手 Tab 一起隐藏（搜索框占满一行）。
+      if (this.askAiVisible) {
+        Row({ space: CouliSpacing.space1 }) {
+          CouliIcon({ name: 'chat', iconSize: 18, color: CouliColors.brandEmphasis })
+          Text(HomeDraftTexts.text('home.ask_ai'))
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis))
+        }
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+        .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
+        .borderRadius(CouliRadius.button)
+        .backgroundColor(CouliColors.brandSubtle)
+        .id('home_ask_ai')
+        .accessibilityGroup(true)
+        .accessibilityText(HomeDraftTexts.text('home.ask_ai'))
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .focusBox(CouliFocus.box)
+        .onClick(() => this.model.port.askAi())
       }
-      .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-      .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
-      .borderRadius(CouliRadius.button)
-      .backgroundColor(CouliColors.brandSubtle)
-      .id('home_ask_ai')
-      .accessibilityGroup(true)
-      .accessibilityText(HomeDraftTexts.text('home.ask_ai'))
-      .accessibilityRole(AccessibilityRoleType.BUTTON)
-      .focusBox(CouliFocus.box)
-      .onClick(() => this.model.port.askAi())
     }
     .width('100%')
   }
@@ -383,9 +389,18 @@ export struct HomeTabRoot {
 
   aboutToAppear(): void {
     this.syncPopupDialog();
+    this.unsubscribeAskAi = AgentEntryVisibility.shared.subscribe((visible: boolean): void => {
+      this.askAiVisible = visible;
+    });
+    this.askAiVisible = AgentEntryVisibility.shared.refresh();
   }
 
   aboutToDisappear(): void {
+    const off: (() => void) | null = this.unsubscribeAskAi;
+    this.unsubscribeAskAi = null;
+    if (off !== null) {
+      off();
+    }
     const host: HomePopupDialogHost | null = this.dialogs;
     this.dialogs = null;
     host?.dispose();

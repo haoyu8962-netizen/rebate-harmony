@@ -89,7 +89,7 @@ export {
 export { UpdateNetworkPort, NetworkComposition } from './src/main/ets/network/NetworkComposition';
 export {
   SessionTokenSet, SessionTokens, SessionReadStatus, MemorySessionTokens, SecureSessionTokens, SessionTokensCleaner,
-  SessionLoginEpochs, LoginEpochIds
+  SessionLoginEpochs, LoginEpochIds, SessionRevocation
 } from './src/main/ets/session/SessionTokens';
 export { SecureEntry, SecureStore, MemorySecureStore, AssetSecureStore } from './src/main/ets/storage/SecureStore';
 // 纯 ArkTS 的 SHA-256（FU-CLIP：剪贴板加盐指纹的测试核对「不等于未加盐 SHA-256」用）。
@@ -389,6 +389,7 @@ export {
   AgentSyncAction, AgentSyncPolicy, AgentIdentityChange
 } from './src/main/ets/agent/AgentAvailability';
 export { AgentResults, ApiAgentContractPort } from './src/main/ets/agent/ApiAgentContractPort';
+export { AgentAskEntry, AgentEntryListener, AgentEntryVisibility } from './src/main/ets/agent/AgentEntryVisibility';
 export {
   AgentContextSource, AgentContextTicket, AgentContextHandoff
 } from './src/main/ets/agent/AgentContextHandoff';
