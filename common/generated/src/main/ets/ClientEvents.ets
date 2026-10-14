@@ -1,6 +1,6 @@
 // 生成物，禁止手改；来源 contract.lock（tools/codegen/gen.py 生成）
 
-// 埋点事件（APP-03b）：specs/events.yaml（version 1）的事件构造函数与枚举字段类型。03 §4.7、拍板第二批 TECH-21：
+// 埋点事件（APP-03b）：specs/events.yaml（version 2）的事件构造函数与枚举字段类型。03 §4.7、拍板第二批 TECH-21：
 // 业务代码只能调用 ClientEvents 的生成函数；事件族（families）随各自任务补。字段名禁用规则见 gen.py FORBIDDEN_EVENT_FIELD。
 
 /** 事件字段的取值类型（events.yaml 的 string / integer / boolean / enum）。 */
@@ -71,6 +71,12 @@ export enum EventLinkJumpResult {
   FAILED = 'failed',
   SDK_INIT_FAILED = 'sdk_init_failed',
   COPIED = 'copied'
+}
+
+/** events.yaml link_jump.sdk_open_by：step=sdk 且为淘宝百川打开指令时必带，取 open 响应 JumpStep.sdk.open_by 的原值（url 走我方推广链接，code 走商品 ID 由 SDK 转链）；其他步骤不带 */
+export enum EventLinkJumpSdkOpenBy {
+  URL = 'url',
+  CODE = 'code'
 }
 
 /** events.yaml link_jump.installed：请求体里 installed 的同一取值（contracts/enums/trade.yaml installed_state） */
@@ -165,7 +171,7 @@ export class ClientEvents {
   static readonly names: string[] = ['link_jump', 'external_page_union_host', 'external_page_nav_host', 'external_page_blocked_nav', 'route_entry_blocked', 'route_params_dropped', 'bridge_call', 'sdui_card_error', 'app_launch', 'page_view', 'exposure', 'click', 'search', 'convert', 'h5_white_screen'];
 
   /** link_jump：外跳的每一步结果（BR-ATTR-27 ③；BR-ATTR-21 细则「待跟单卡按实际外跳选」）；另记百川初始化失败（BR-ATTR-27 淘宝行）（规划/03 §4.5、§4.7；08 BR-ATTR-21、BR-ATTR-27） */
-  static linkJump(page: string, phase: EventLinkJumpPhase, unionPlatform: EventLinkJumpUnionPlatform, step: EventLinkJumpStep, result: EventLinkJumpResult, attemptId: string | null = null, linkId: string | null = null, durationMs: number | null = null, installed: EventLinkJumpInstalled | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+  static linkJump(page: string, phase: EventLinkJumpPhase, unionPlatform: EventLinkJumpUnionPlatform, step: EventLinkJumpStep, result: EventLinkJumpResult, attemptId: string | null = null, linkId: string | null = null, sdkOpenBy: EventLinkJumpSdkOpenBy | null = null, sdkErrorCode: string | null = null, durationMs: number | null = null, installed: EventLinkJumpInstalled | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
     if (phase === EventLinkJumpPhase.PURCHASE && attemptId === null) {
       throw new Error('link_jump.attempt_id 在 phase=purchase 时必填');
     }
@@ -192,6 +198,12 @@ export class ClientEvents {
     fields.set('union_platform', unionPlatform);
     fields.set('step', step);
     fields.set('result', result);
+    if (sdkOpenBy !== null) {
+      fields.set('sdk_open_by', sdkOpenBy);
+    }
+    if (sdkErrorCode !== null) {
+      fields.set('sdk_error_code', sdkErrorCode);
+    }
     if (durationMs !== null) {
       fields.set('duration_ms', durationMs);
     }

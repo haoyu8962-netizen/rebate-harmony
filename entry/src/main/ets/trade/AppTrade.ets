@@ -65,9 +65,11 @@ class TrackerLinkJumpSink implements LinkJumpSink {
     }
     const installed: EventLinkJumpInstalled | null = TrackerLinkJumpSink.installed(TradeJson.text(fields, 'installed'));
     try {
+      // CT-LOCK-01：events.yaml version 2 在 link_id 之后新增 sdk_open_by、sdk_error_code（百川打开指令，JumpStep.sdk），
+      // 执行器还不按 JumpStep.sdk 执行、不产出这两项，这里显式传 null（不上报），其余字段与升版前相同。
       const event: ClientEvent = ClientEvents.linkJump(LINK_JUMP_PAGE, phase, platform, step, result,
-        TradeJson.text(fields, 'attempt_id'), TradeJson.text(fields, 'link_id'), TradeJson.fen(fields, 'duration_ms'),
-        installed);
+        TradeJson.text(fields, 'attempt_id'), TradeJson.text(fields, 'link_id'), null, null,
+        TradeJson.fen(fields, 'duration_ms'), installed);
       AppClientCore.shared.track(event);
     } catch (e) {
       hilog.warn(DOMAIN, TAG, '%{public}s', 'link_jump rejected by generator');

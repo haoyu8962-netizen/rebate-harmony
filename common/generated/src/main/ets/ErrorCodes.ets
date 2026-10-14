@@ -53,6 +53,8 @@ export class ErrorCodes {
     all.set(10005, new ErrorCodeInfo(10005, 403, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(10006, new ErrorCodeInfo(10006, 403, RetryKind.NEVER, reasons([], []), false, false));
     all.set(10007, new ErrorCodeInfo(10007, 403, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(10008, new ErrorCodeInfo(10008, 401, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(10009, new ErrorCodeInfo(10009, 403, RetryKind.LATER, reasons([], []), false, false));
     all.set(10401, new ErrorCodeInfo(10401, 401, RetryKind.NEVER, reasons([], []), false, false));
     all.set(10402, new ErrorCodeInfo(10402, 401, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(10403, new ErrorCodeInfo(10403, 403, RetryKind.NEVER, reasons([], []), false, false));
@@ -66,10 +68,10 @@ export class ErrorCodes {
     all.set(20902, new ErrorCodeInfo(20902, 409, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(20903, new ErrorCodeInfo(20903, 409, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30101, new ErrorCodeInfo(30101, 422, RetryKind.AFTER_ACTION, reasons(['auth_unavailable'], [RetryKind.LATER]), false, false));
-    all.set(30102, new ErrorCodeInfo(30102, 422, RetryKind.AFTER_ACTION, reasons(['auth_unavailable'], [RetryKind.LATER]), false, false));
+    all.set(30102, new ErrorCodeInfo(30102, 422, RetryKind.AFTER_ACTION, reasons(['auth_unavailable', 'sharer_auth_invalid'], [RetryKind.LATER, RetryKind.NEVER]), false, false));
     all.set(30103, new ErrorCodeInfo(30103, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30104, new ErrorCodeInfo(30104, 422, RetryKind.AFTER_ACTION, reasons([], []), false, false));
-    all.set(30111, new ErrorCodeInfo(30111, 422, RetryKind.AFTER_ACTION, reasons([], []), false, false));
+    all.set(30111, new ErrorCodeInfo(30111, 422, RetryKind.AFTER_ACTION, reasons(['sharer_auth_invalid'], [RetryKind.NEVER]), false, false));
     all.set(30121, new ErrorCodeInfo(30121, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30131, new ErrorCodeInfo(30131, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30132, new ErrorCodeInfo(30132, 422, RetryKind.NEVER, reasons([], []), false, false));

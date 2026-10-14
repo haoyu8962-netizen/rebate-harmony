@@ -2,6 +2,12 @@
 # 按 contract.lock 锁定的两个提交重建 contracts/snapshot/，并刷新 lock 里的 files 哈希。
 #
 # 用法：tools/contracts/sync.sh
+#       tools/contracts/sync.sh --check   只核对（CT-LOCK-01）：按 lock 的提交在临时目录重建快照，与 contracts/snapshot/
+#                                        逐字节比较，并核对 lock 的 files 哈希与快照一致；不写任何文件。
+#                                        一致退出 0，不一致退出 1（列出差异），取不到仓库 / 提交退出 1。
+#       tools/contracts/sync.sh --check-hashes-only   只核对 lock 的 files 哈希与快照一致（不需要上游仓库，
+#                                        不核对锁定提交号；改了提交号而没重建快照查不出来）。不是完整一致性检查，
+#                                        verify.sh 不用它（CT-LOCK-01 R1-02）。
 #   仓库路径取 lock 里的相对路径（相对本仓库根）；在 worktree 等路径不成立的地方，
 #   用环境变量 REBATE_PLATFORM_DIR、COULI_DIR 覆盖：
 #   REBATE_PLATFORM_DIR=/path/to/rebate-platform COULI_DIR=/path/to/couli tools/contracts/sync.sh
@@ -14,6 +20,17 @@
 # 兼容 macOS 自带 bash 3.2；路径一律加引号（含中文）。
 set -euo pipefail
 
+CHECK=0
+HASHES_ONLY=0
+if [ "${1:-}" = "--check" ]; then
+    CHECK=1
+elif [ "${1:-}" = "--check-hashes-only" ]; then
+    HASHES_ONLY=1
+elif [ -n "${1:-}" ]; then
+    echo "用法：sync.sh [--check | --check-hashes-only]" >&2
+    exit 2
+fi
+
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 LOCK="$ROOT/contract.lock"
 SNAPSHOT="$ROOT/contracts/snapshot"
@@ -25,6 +42,27 @@ die() {
 }
 
 [ -f "$LOCK" ] || die "找不到 $LOCK"
+
+if [ "$HASHES_ONLY" -eq 1 ]; then
+    python3 - "$LOCK" "$SNAPSHOT" <<'PY'
+import hashlib, json, os, sys
+lock = json.load(open(sys.argv[1], encoding="utf-8")).get("files", {})
+have = {}
+for dirpath, _, names in os.walk(sys.argv[2]):
+    for name in names:
+        full = os.path.join(dirpath, name)
+        with open(full, "rb") as fh:
+            have[os.path.relpath(full, sys.argv[2]).replace(os.sep, "/")] = hashlib.sha256(fh.read()).hexdigest()
+bad = sorted(k for k in set(lock) | set(have) if lock.get(k) != have.get(k))
+if bad:
+    sys.stderr.write("sync.sh --check-hashes-only：contract.lock files 哈希与快照不一致：\n")
+    for k in bad:
+        sys.stderr.write("  " + k + "\n")
+    sys.exit(1)
+print("sync.sh --check-hashes-only：%d 个快照文件与 lock files 哈希一致（未核对锁定提交，不是完整一致性检查）" % len(have))
+PY
+    exit $?
+fi
 
 lock_get() {
     python3 - "$LOCK" "$1" <<'PY'
@@ -167,6 +205,45 @@ IFS="$OLDIFS"
 
 echo "design tokens $DT_COMMIT"
 take "$DT_REPO" "$DT_COMMIT" "$DT_PATH" "design/design-tokens.json"
+
+if [ "$CHECK" -eq 1 ]; then
+    python3 - "$LOCK" "$OUT" "$SNAPSHOT" <<'PY'
+import hashlib, json, os, sys
+lock_path, rebuilt, snap = sys.argv[1], sys.argv[2], sys.argv[3]
+def digests(base):
+    out = {}
+    if not os.path.isdir(base):
+        return out
+    for dirpath, _, names in os.walk(base):
+        for name in names:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, base).replace(os.sep, "/")
+            with open(full, "rb") as fh:
+                out[rel] = hashlib.sha256(fh.read()).hexdigest()
+    return out
+with open(lock_path, encoding="utf-8") as f:
+    locked = json.load(f).get("files", {})
+want, have = digests(rebuilt), digests(snap)
+problems = []
+for rel in sorted(set(want) | set(have)):
+    if rel not in have:
+        problems.append("快照缺文件（锁定提交里有）：%s" % rel)
+    elif rel not in want:
+        problems.append("快照多出文件（锁定提交里没有）：%s" % rel)
+    elif want[rel] != have[rel]:
+        problems.append("快照与锁定提交重建结果不同：%s" % rel)
+for rel in sorted(set(locked) | set(have)):
+    if locked.get(rel) != have.get(rel):
+        problems.append("contract.lock files 哈希与快照不一致：%s" % rel)
+if problems:
+    sys.stderr.write("sync.sh --check：契约快照与 contract.lock 不一致（运行 tools/contracts/sync.sh 重建）：\n")
+    for p in problems:
+        sys.stderr.write("  " + p + "\n")
+    sys.exit(1)
+print("sync.sh --check：%d 个快照文件与锁定提交、lock 哈希一致" % len(have))
+PY
+    exit $?
+fi
 
 rm -rf "$SNAPSHOT"
 mkdir -p "$(dirname "$SNAPSHOT")"

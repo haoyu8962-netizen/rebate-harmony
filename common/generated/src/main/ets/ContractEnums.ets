@@ -19,11 +19,13 @@ export enum AdminPermission {
   CONTENT_POSTER = 'content.poster',
   CONTENT_APP_VERSION = 'content.app_version',
   CONTENT_FUND_TERMS = 'content.fund_terms',
+  CONTENT_PLATFORM_ICON = 'content.platform_icon',
   CONFIG_GENERAL = 'config.general',
   CONFIG_RISK = 'config.risk',
   CONFIG_BUSINESS = 'config.business',
   SWITCH_ALL = 'switch.all',
   SWITCH_PAYOUT = 'switch.payout',
+  SWITCH_PAY = 'switch.pay',
   RISK_FREEZE = 'risk.freeze',
   RISK_BAN = 'risk.ban',
   RISK_BLOCKLIST = 'risk.blocklist',
@@ -44,6 +46,9 @@ export enum AdminPermission {
   ORDER_RESTORE = 'order.restore',
   WITHDRAW_REVIEW = 'withdraw.review',
   PAYOUT_EXECUTE = 'payout.execute',
+  PAY_VIEW = 'pay.view',
+  PAY_REFUND = 'pay.refund',
+  PAY_RESOLVE = 'pay.resolve',
   PAYOUT_MANUAL_ENTRY = 'payout.manual_entry',
   SETTLE_BILL = 'settle.bill',
   SETTLE_STATEMENT_UPLOAD = 'settle.statement_upload',
@@ -86,6 +91,8 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.CONTENT_APP_VERSION;
     case 'content.fund_terms':
       return AdminPermission.CONTENT_FUND_TERMS;
+    case 'content.platform_icon':
+      return AdminPermission.CONTENT_PLATFORM_ICON;
     case 'config.general':
       return AdminPermission.CONFIG_GENERAL;
     case 'config.risk':
@@ -96,6 +103,8 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.SWITCH_ALL;
     case 'switch.payout':
       return AdminPermission.SWITCH_PAYOUT;
+    case 'switch.pay':
+      return AdminPermission.SWITCH_PAY;
     case 'risk.freeze':
       return AdminPermission.RISK_FREEZE;
     case 'risk.ban':
@@ -136,6 +145,12 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.WITHDRAW_REVIEW;
     case 'payout.execute':
       return AdminPermission.PAYOUT_EXECUTE;
+    case 'pay.view':
+      return AdminPermission.PAY_VIEW;
+    case 'pay.refund':
+      return AdminPermission.PAY_REFUND;
+    case 'pay.resolve':
+      return AdminPermission.PAY_RESOLVE;
     case 'payout.manual_entry':
       return AdminPermission.PAYOUT_MANUAL_ENTRY;
     case 'settle.bill':
@@ -156,6 +171,80 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.AGENT_TRACE;
     case 'agent.report':
       return AdminPermission.AGENT_REPORT;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_step_up_tier */
+export enum AdminStepUpTier {
+  TOTP = 'totp',
+  SMS = 'sms'
+}
+
+export function parseAdminStepUpTier(raw: string): AdminStepUpTier | undefined {
+  switch (raw) {
+    case 'totp':
+      return AdminStepUpTier.TOTP;
+    case 'sms':
+      return AdminStepUpTier.SMS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_login_step */
+export enum AdminLoginStep {
+  TOTP = 'totp',
+  CHANGE_PASSWORD = 'change_password',
+  BIND_TOTP = 'bind_totp'
+}
+
+export function parseAdminLoginStep(raw: string): AdminLoginStep | undefined {
+  switch (raw) {
+    case 'totp':
+      return AdminLoginStep.TOTP;
+    case 'change_password':
+      return AdminLoginStep.CHANGE_PASSWORD;
+    case 'bind_totp':
+      return AdminLoginStep.BIND_TOTP;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_account_status */
+export enum AdminAccountStatus {
+  ACTIVE = 'active',
+  DISABLED = 'disabled'
+}
+
+export function parseAdminAccountStatus(raw: string): AdminAccountStatus | undefined {
+  switch (raw) {
+    case 'active':
+      return AdminAccountStatus.ACTIVE;
+    case 'disabled':
+      return AdminAccountStatus.DISABLED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_auth_level */
+export enum AdminAuthLevel {
+  NONE = 'none',
+  ADMIN = 'admin',
+  SUPER = 'super'
+}
+
+export function parseAdminAuthLevel(raw: string): AdminAuthLevel | undefined {
+  switch (raw) {
+    case 'none':
+      return AdminAuthLevel.NONE;
+    case 'admin':
+      return AdminAuthLevel.ADMIN;
+    case 'super':
+      return AdminAuthLevel.SUPER;
     default:
       return undefined;
   }
@@ -2299,6 +2388,41 @@ export function parseAuthLevel(raw: string): AuthLevel | undefined {
   }
 }
 
+/** 契约枚举 platform_icon_key */
+export enum PlatformIconKey {
+  TAOBAO = 'taobao',
+  TMALL = 'tmall',
+  JD = 'jd',
+  PDD = 'pdd',
+  WECHAT = 'wechat',
+  WECHAT_PAY = 'wechat_pay',
+  ALIPAY = 'alipay',
+  WECOM = 'wecom'
+}
+
+export function parsePlatformIconKey(raw: string): PlatformIconKey | undefined {
+  switch (raw) {
+    case 'taobao':
+      return PlatformIconKey.TAOBAO;
+    case 'tmall':
+      return PlatformIconKey.TMALL;
+    case 'jd':
+      return PlatformIconKey.JD;
+    case 'pdd':
+      return PlatformIconKey.PDD;
+    case 'wechat':
+      return PlatformIconKey.WECHAT;
+    case 'wechat_pay':
+      return PlatformIconKey.WECHAT_PAY;
+    case 'alipay':
+      return PlatformIconKey.ALIPAY;
+    case 'wecom':
+      return PlatformIconKey.WECOM;
+    default:
+      return undefined;
+  }
+}
+
 /** 契约枚举 scene */
 export enum Scene {
   SEARCH = 'search',
@@ -2754,7 +2878,11 @@ export class ContractEnums {
 
   private static build(): Map<string, string[]> {
     const all: Map<string, string[]> = new Map<string, string[]>();
-    all.set('admin_permission', ['user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'agent.trace', 'agent.report']);
+    all.set('admin_permission', ['user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'agent.trace', 'agent.report']);
+    all.set('admin_step_up_tier', ['totp', 'sms']);
+    all.set('admin_login_step', ['totp', 'change_password', 'bind_totp']);
+    all.set('admin_account_status', ['active', 'disabled']);
+    all.set('admin_auth_level', ['none', 'admin', 'super']);
     all.set('ledger_type', ['REBATE_CREDIT', 'SHARE_CREDIT', 'REFERRAL_CREDIT', 'CLAWBACK', 'SETTLE_ADJUST', 'WITHDRAW_FREEZE', 'WITHDRAW_PAID', 'WITHDRAW_RETURN', 'WITHDRAW_FEE', 'TAX_WITHHOLD', 'REWARD', 'ADMIN_ADJUST', 'BAD_DEBT_WRITEOFF']);
     all.set('referral_credit_sub_type', ['DIRECT', 'INDIRECT']);
     all.set('clawback_sub_type', ['FULL', 'PART_REFUND', 'RIGHTS', 'PUNISH']);
@@ -2840,6 +2968,7 @@ export class ContractEnums {
     all.set('platform_search_status', ['on', 'off']);
     all.set('install_channel', ['appstore', 'official', 'huawei', 'agc']);
     all.set('auth_level', ['none', 'optional', 'login', 'phone', 'realname']);
+    all.set('platform_icon_key', ['taobao', 'tmall', 'jd', 'pdd', 'wechat', 'wechat_pay', 'alipay', 'wecom']);
     all.set('scene', ['search', 'detail', 'home_card', 'feed', 'clipboard', 'agent', 'share', 'h5', 'push', 'taolijin', 'watch_alert', 'share_ext', 'wechat_bot', 'mcp']);
     all.set('pid_scene', ['self_buy', 'agent', 'share', 'taolijin', 'fallback', 'query']);
     all.set('buy_type', ['self', 'share']);

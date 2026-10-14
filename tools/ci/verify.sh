@@ -171,6 +171,53 @@ step "gen.py --check"
 python3 "$ROOT/tools/codegen/gen.py" --check || fail_fast "gen.py --check" "生成物与快照不一致"
 record "gen.py --check" PASS
 
+# CT-LOCK-01：contract.lock 与快照一致（锁定提交重建逐字节相同 + lock files 哈希相同）。
+# 必须按锁定提交重建核对（R1-02）：取不到上游仓库或其中没有锁定提交就失败，不退化成只比哈希（只比哈希用
+# sync.sh --check-hashes-only 单独跑，不算本步 PASS）。上游仓库按顺序推导：
+#   1. 环境变量 REBATE_PLATFORM_DIR / COULI_DIR（设了就只用它，不对则失败）；
+#   2. lock 里的相对路径，相对本仓库根；
+#   3. 同一相对路径，相对主检出（git worktree 的公共 .git 所在目录；worktree 下 1 不成立时用它）；
+#   4. 本机固定位置 /Users/zhixing/我的项目/rebate-platform、/Users/zhixing/我的项目/couli。
+step "contract.lock 一致性"
+lock_field() {
+    python3 -c 'import json,sys; n=json.load(open(sys.argv[1],encoding="utf-8"))
+for p in sys.argv[2].split("."): n=n[p]
+print(n)' "$ROOT/contract.lock" "$1"
+}
+is_git_repo() {
+    [ -n "$1" ] && [ -d "$1" ] && git -C "$1" rev-parse --git-dir >/dev/null 2>&1
+}
+# $1 环境变量值 $2 lock 相对路径 $3 本机固定位置；输出仓库绝对路径，取不到输出空串
+resolve_upstream() {
+    local override="$1" rel="$2" fixed="$3" main_root="" cand=""
+    if [ -n "$override" ]; then
+        if is_git_repo "$override"; then (cd "$override" && pwd); fi
+        return 0
+    fi
+    main_root="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    main_root="${main_root%/.git}"
+    for cand in "$ROOT/$rel" "${main_root:+$main_root/$rel}" "$fixed"; do
+        if is_git_repo "$cand"; then
+            (cd "$cand" && pwd)
+            return 0
+        fi
+    done
+}
+RP_DIR="$(resolve_upstream "${REBATE_PLATFORM_DIR:-}" "$(lock_field rebate_platform.repo)" "/Users/zhixing/我的项目/rebate-platform")"
+DT_DIR="$(resolve_upstream "${COULI_DIR:-}" "$(lock_field design_tokens.repo)" "/Users/zhixing/我的项目/couli")"
+if [ -z "$RP_DIR" ] || [ -z "$DT_DIR" ]; then
+    echo "取不到上游仓库（rebate-platform：${RP_DIR:-未找到}；couli：${DT_DIR:-未找到}），无法按锁定提交核对快照。" >&2
+    echo "请设置 REBATE_PLATFORM_DIR=/path/to/rebate-platform COULI_DIR=/path/to/couli 后重跑；" >&2
+    echo "只想核对 lock files 哈希可单独运行 tools/contracts/sync.sh --check-hashes-only（不算完整一致性检查）。" >&2
+    fail_fast "contract.lock 一致性" "取不到 rebate-platform / couli，未能核对锁定提交（设 REBATE_PLATFORM_DIR、COULI_DIR）"
+fi
+echo "rebate-platform：$RP_DIR"
+echo "couli：$DT_DIR"
+REBATE_PLATFORM_DIR="$RP_DIR" COULI_DIR="$DT_DIR" "$ROOT/tools/contracts/sync.sh" --check >"$LOG_DIR/contract-lock-check.log" 2>&1 \
+    || { cat "$LOG_DIR/contract-lock-check.log" >&2; fail_fast "contract.lock 一致性" "快照与锁定提交或 lock 哈希不一致（或上游仓库里没有锁定提交）"; }
+tail -1 "$LOG_DIR/contract-lock-check.log"
+record "contract.lock 一致性" PASS "锁定提交 $(lock_field rebate_platform.commit | cut -c1-12) 重建逐字节相同、files 哈希相同"
+
 # ---------------------------------------------------------------- 2. 项目 lint
 step "lint.py（项目规则）"
 python3 "$ROOT/tools/ci/lint.py" || fail_fast "lint.py" "见上方输出"

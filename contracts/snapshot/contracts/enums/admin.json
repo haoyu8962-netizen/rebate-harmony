@@ -18,11 +18,13 @@
         "content.poster": "海报背景图上传、审核",
         "content.app_version": "版本管理（按端与渠道）：最新版本、推荐版本、更新文案、商店登记与默认商店、最低支持版本；只有提高最低支持版本时要二次验证（step-up）",
         "content.fund_terms": "修改资金术语键与资金类消息模板（清单见 BR-TEXT-12 细则「资金术语键」与 specs/fund-term-keys.yaml）（step-up）",
+        "content.platform_icon": "平台标识上传、发布、回滚、恢复内置（BR-TEXT-24）",
         "config.general": "普通配置（不含 BR-TEXT-14 表 D 的隐私与权限文案键与 BR-TEXT-12 细则所列的资金术语键）",
         "config.risk": "风控规则与阈值（step-up）",
         "config.business": "返利规则版本、费率、提现规则与限额、自动到账设置（step-up）",
         "switch.all": "全部紧急开关（step-up）",
         "switch.payout": "仅打款类开关：withdraw.enabled、payout.enabled、payout.queue_paused、payout.channel_enabled.<channel>、payout.channel_paused.<channel>（step-up）",
+        "switch.pay": "仅收款类开关：pay.enabled、pay.channel_enabled.<pay_channel>；与 switch.payout 互不包含（step-up）",
         "risk.freeze": "冻结 / 解冻（step-up）",
         "risk.ban": "封禁 / 解封（step-up）",
         "risk.blocklist": "黑名单增删（step-up）",
@@ -43,6 +45,9 @@
         "order.restore": "订单平台恢复、申诉恢复差错单（step-up）",
         "withdraw.review": "提现审核、驳回（step-up）",
         "payout.execute": "执行打款、needs_manual 处置、W11 凭通道成功证据核销原单（可为本单审核人）（step-up）",
+        "pay.view": "支付单、退款单、收款对账明细",
+        "pay.refund": "发起原路退款（不设二次验证）",
+        "pay.resolve": "needs_manual 支付单的处置（step-up）",
         "payout.manual_entry": "线下打款补录（W8，含银行卡线下转账）与批量手动打款（step-up）",
         "settle.bill": "月结账单确认、撤销定时、驳回、继续执行、补充批次（step-up）",
         "settle.statement_upload": "联盟结算明细上传",
@@ -53,6 +58,40 @@
         "fund.cash_entry": "平台资金台账录入：联盟回款、企业支付宝余额 W（step-up）",
         "agent.trace": "Agent trace 查询（含 AI 举报列表的查看）",
         "agent.report": "AI 举报处理：标记已处理、填写处理说明"
+      }
+    },
+    "admin_step_up_tier": {
+      "source": "规划/08 BR-ID-34（二次验证分两档）；规划/04 §6.6 auth、§11 step-up 列（CT-02f）",
+      "description": "后台 step-up 的档位；step_up_token 记档位，动态码档的 token 不能用于短信档操作；10003 的 data.tier 取本枚举",
+      "values": {
+        "totp": "动态码档（身份验证器 TOTP）",
+        "sms": "短信档（向账号登记的验证手机号发验证码）"
+      }
+    },
+    "admin_login_step": {
+      "source": "规划/08 BR-ID-34 细则「首次绑定身份验证器」「首次登录强制改密码」；规划/04 §6.6 auth（CT-02f）",
+      "description": "后台登录第一步通过后的下一步，凭中间凭证 login_ticket 完成；两步都完成才签发 admin_token",
+      "values": {
+        "totp": "已绑定身份验证器，输入动态码",
+        "change_password": "仍在用初始密码，先改密码",
+        "bind_totp": "未绑定身份验证器，先绑定"
+      }
+    },
+    "admin_account_status": {
+      "source": "规划/04 §3.2 admin_users.status；规划/08 BR-ID-34 细则「停用后台账号」（CT-02f）",
+      "description": "后台账号状态；停用的账号名仍占用，不再分配给新账号",
+      "values": {
+        "active": "正常",
+        "disabled": "已停用"
+      }
+    },
+    "admin_auth_level": {
+      "source": "规划/04 §6.6 auth、§11（CT-02f；/admin/v1 接口的 x-auth）",
+      "description": "/admin/v1 接口的鉴权级别；中间凭证 login_ticket 放请求体，不是鉴权级别",
+      "values": {
+        "none": "不需要 admin_token（登录各步，来源 IP 仍须在白名单内）",
+        "admin": "需要 admin_token（Authorization Bearer）",
+        "super": "需要超级管理员的 admin_token（后台账号与权限，只限超管、不可授予）"
       }
     }
   }

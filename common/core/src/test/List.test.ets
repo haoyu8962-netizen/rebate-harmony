@@ -94,6 +94,7 @@ import accountFlowsTest from './AccountFlows.test';
 import accountReviewR1Test from './AccountReviewR1.test';
 import accountReviewR2Test from './AccountReviewR2.test';
 import accountReviewR3Test from './AccountReviewR3.test';
+import ctLock01Test from './CtLock01.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -197,4 +198,5 @@ export default function testsuite() {
   accountReviewR1Test();
   accountReviewR2Test();
   accountReviewR3Test();
+  ctLock01Test();
 }

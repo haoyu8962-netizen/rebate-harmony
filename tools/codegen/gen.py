@@ -1286,6 +1286,8 @@ def gen_update_gate_vectors_data():
 # ---------------------------------------------------------------- 操作登记表（APP-03a）
 
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+# CT-LOCK-01：后台接口（/admin/v1/*，x-auth admin / super）不给 App 生成，登记表只收客户端路径。
+EXCLUDED_PATH_PREFIXES = ("/admin/",)
 X_AUTH_VALUES = ("none", "optional", "login", "phone", "realname")
 SESSION_SCOPES = ("full", "deletion_only")
 
@@ -1303,6 +1305,8 @@ def gen_api_operations():
     for path, item in paths.items():
         if not isinstance(item, dict):
             raise GenError("openapi.json paths[%s] 不是对象" % path)
+        if path.startswith(EXCLUDED_PATH_PREFIXES):
+            continue
         for method in HTTP_METHODS:
             op = item.get(method)
             if op is None:
@@ -1694,7 +1698,9 @@ def gen_device_hash_seeds():
 
 CONFIG_PATH = "/v1/config"
 # 示例里的地址类字段（示例域名不是生产地址，不进包）。
-BUNDLED_CONFIG_DROPPED_KEYS = ["h5_base_url", "share_domains", "kf", "external_hosts"]
+# CT-LOCK-01：platform_icons（CT-17f，替换图地址与摘要）同样不进包——包内默认配置没有替换图，客户端显示包内平台标识；
+# 下发接入归 F-X-05。
+BUNDLED_CONFIG_DROPPED_KEYS = ["h5_base_url", "share_domains", "kf", "external_hosts", "platform_icons"]
 NON_PROD_ADDRESS = re.compile(r"(?i)https?://|\.test\b|\.invalid\b|\.example\b|\.local\b|example\.(com|net|org)\b")
 
 
