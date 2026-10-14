@@ -42,7 +42,10 @@ const PREFS_PENDING_FILE: string = 'couli_home_prefs.pending';
 const LKG_LEDGER_NAMESPACE: string = 'couli_home_lkg_pending';
 const LKG_LEDGER_KEY: string = 'pending';
 
-/** LKG 的文件实现：filesDir/couli_home_lkg/<作用域标签>/page.json，FileSlot 原子写（临时文件 + fsync + 改名）。 */
+/**
+ * LKG 的文件实现：filesDir/couli_home_lkg/<存储标签>/page.json，FileSlot 原子写（临时文件 + fsync + 改名）。会员作用域的存储标签是
+ * `<作用域标签>/e<登录世代摘要>`（F-HM-35，子目录，mkdir 递归建）；clearScope 删整个作用域目录（含各世代子目录）。
+ */
 class FileHomeLkgBackend implements HomeLkgBackend {
   private readonly root: string;
   private readonly pending: FileSlot;
@@ -319,6 +322,8 @@ export class AppHome {
     }
     const lkg: HomeLkgStore = new HomeLkgStore(new FileHomeLkgBackend(context.filesDir),
       new PreferencesPendingLedger(context));
+    // F-HM-35：会员作用域按「账号 + 持久化登录世代」再分一层，世代与订单 / 钱包断网缓存同一入口（ApiClient.sessionLoginEpoch）。
+    lkg.bindLoginEpoch((): string | null => AppNetwork.loginEpoch());
     this.lkgStore = lkg;
     this.local.attach(new PreferencesHomeBackend(context), new FileHomeClearMark(context.filesDir));
     // 启动时先核验「待清理」标记（目录外），上次没删完就在任何读取之前补删。

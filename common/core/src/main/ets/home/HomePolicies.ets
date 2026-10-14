@@ -46,6 +46,14 @@ export class HomeLkgScope {
     }
     return env + ':' + (level === HomeLevel.BASIC ? 'basic' : 'guest');
   }
+
+  /**
+   * 这个作用域是不是会员作用域（F-HM-35：存储层按「账号 + 持久化登录世代」再分一层，只识别、不改上面 of 的向量取值）。
+   * 会员作用域是 of 里的 `<env>:user:<userId>`（账号未知时 userId 为空串，同样按会员处理）；游客、基本模式不分世代。
+   */
+  static isMember(scope: string): boolean {
+    return scope.indexOf(':user:') >= 0;
+  }
 }
 
 /** 本机三类数据在哪些事件下清（G16 ②、G11）。 */

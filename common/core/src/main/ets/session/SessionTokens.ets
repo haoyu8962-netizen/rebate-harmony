@@ -162,6 +162,12 @@ interface WireTokens {
  */
 export class SessionRevocation {
   static readonly ANY: string = '*';
+  /**
+   * 「除这一次登录之外全部撤销」的目标前缀（FU-HM-0717 核对项 3）：新登录整组写入成功、但旧标记（尤其 `*`）删不掉时，把残留标记改写成
+   * `s:<新登录世代>`——令牌项此刻已是新登录那份，旧会话已被覆盖；改写后仍阻断除新登录以外的任何会话，只是不再误伤新登录。
+   * 与指纹（`e:` / `r:`）和 `*` 不会相同。
+   */
+  private static readonly SUPERSEDED: string = 's:';
   private static readonly PREFIX: string = 'couli-rv1|';
   private static readonly END: string = '|end';
 
@@ -170,6 +176,11 @@ export class SessionRevocation {
       return 'e:' + tokens.loginEpoch;
     }
     return 'r:' + SessionRevocation.digest(tokens.refreshToken);
+  }
+
+  /** 「除登录世代 epoch 之外全部撤销」的目标（见 SUPERSEDED）。 */
+  static supersededBy(epoch: string): string {
+    return SessionRevocation.SUPERSEDED + epoch;
   }
 
   /** 32 位 FNV-1a 摘要（十六进制）。 */
@@ -217,6 +228,10 @@ export class SessionRevocation {
   static revokes(mark: string | null, tokens: SessionTokenSet): boolean {
     if (mark === null || mark.length === 0) {
       return false;
+    }
+    if (mark.startsWith(SessionRevocation.SUPERSEDED)) {
+      // 只放过那一次登录（同一登录世代，含其后的刷新）；没有登录世代的存量会话与别的登录一律撤销。
+      return tokens.loginEpoch === null || tokens.loginEpoch !== mark.substring(SessionRevocation.SUPERSEDED.length);
     }
     return mark === SessionRevocation.ANY || mark === SessionRevocation.fingerprint(tokens);
   }
@@ -281,10 +296,35 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
   private storedKnown: boolean = false;
   /** storedKnown 时令牌项里那份会话的撤销指纹（没有、或内容损坏冷启动照样按没有时为 null）。 */
   private storedFingerprint: string | null = null;
+  /** 最近一次 dropMarks 没删掉的介质（核对项 3：新登录写入成功后只改写删不掉的那一处）。 */
+  private assetMarkLeft: boolean = false;
+  private fileMarkLeft: boolean = false;
+  /**
+   * 自己发现会话不可用并丢弃（读取发现内容损坏、被撤销标记阻断）时同步通知（F-AND-33 的鸿蒙对应）。NetworkComposition 接
+   * ApiClient.onSessionTokensCleared(true)：已绑定的会话归属改为游客并推进会话世代，与 F-HM-28 的清除通知同一入口。
+   */
+  private discardListener: (() => void) | null = null;
 
   constructor(store: SecureStore, revokedMark: FileSlot | null = null) {
     this.store = store;
     this.revokedMark = revokedMark;
+  }
+
+  /** 登记「自己发现会话不可用并丢弃」的同步通知（null 取消）；通知出错不影响读取结论。 */
+  onSelfDiscarded(listener: (() => void) | null): void {
+    this.discardListener = listener;
+  }
+
+  private notifyDiscarded(): void {
+    const listener: (() => void) | null = this.discardListener;
+    if (listener === null) {
+      return;
+    }
+    try {
+      listener();
+    } catch (e) {
+      // 通知出错不影响读取结论（会话照样按没有）。
+    }
   }
 
   accessToken(): string | null {
@@ -350,6 +390,56 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
     // 旧会话的撤销标记尽力删掉（删不掉也不误伤：标记记的是旧会话，新登录换了登录世代）。
     if (this.marksMaybePresent) {
       this.dropMarks();
+      // 核对项 3：新登录（带新登录世代）整组写入成功而标记删不掉时，残留的 `*` / 不完整标记会在下次冷启动误伤新登录——把删不掉、
+      // 且会阻断新登录的那一处改写成「除新登录之外全部撤销」。只在新登录时做：令牌项此刻已是新登录那份，旧会话已被覆盖，不会放过任何
+      // 旧会话；对不上新登录的精确旧标记不动（本来就不误伤）。
+      if (this.marksMaybePresent && tokens.loginEpoch !== null && next.loginEpoch !== null) {
+        this.supersedeMarks(next);
+      }
+    }
+  }
+
+  /**
+   * 把删不掉、且会阻断这次新登录的标记（`*`、不完整、读不出）改写成「除这次登录世代之外全部撤销」（尽力；改写不了的保持原样，偏保守：
+   * 下次冷启动可能把新登录也当作已撤销，需要重新登录）。
+   */
+  private supersedeMarks(session: SessionTokenSet): void {
+    const epoch: string | null = session.loginEpoch;
+    if (epoch === null) {
+      return;
+    }
+    const encoded: string = SessionRevocation.encode(SessionRevocation.supersededBy(epoch));
+    if (this.assetMarkLeft) {
+      let blocking: boolean = true;
+      try {
+        blocking = SessionRevocation.blocks(this.store.get(SecureSessionTokens.REVOKED_ALIAS), session);
+      } catch (e) {
+        blocking = true;
+      }
+      if (blocking) {
+        try {
+          this.store.set(SecureSessionTokens.REVOKED_ALIAS, encoded);
+        } catch (e) {
+          // 改写不了：原标记保留。
+        }
+      }
+    }
+    const mark: FileSlot | null = this.revokedMark;
+    if (this.fileMarkLeft && mark !== null) {
+      let blocking: boolean = true;
+      try {
+        blocking = SessionRevocation.blocks(mark.read(), session) || SessionRevocation.blocks(mark.readTemp(), session);
+      } catch (e) {
+        blocking = true;
+      }
+      if (blocking) {
+        try {
+          // 写临时文件再改名：正式文件与改名前留下的临时文件一起换掉。
+          mark.write(encoded);
+        } catch (e) {
+          // 同上。
+        }
+      }
     }
   }
 
@@ -421,21 +511,22 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
 
   /** 两处撤销标记尽力删掉；都确认删掉才记为「不在了」。 */
   private dropMarks(): void {
-    let ok: boolean = true;
+    this.assetMarkLeft = false;
+    this.fileMarkLeft = false;
     try {
       this.store.remove(SecureSessionTokens.REVOKED_ALIAS);
     } catch (e) {
-      ok = false;
+      this.assetMarkLeft = true;
     }
     const mark: FileSlot | null = this.revokedMark;
     if (mark !== null) {
       try {
         mark.write(null);
       } catch (e) {
-        ok = false;
+        this.fileMarkLeft = true;
       }
     }
-    this.marksMaybePresent = !ok;
+    this.marksMaybePresent = this.assetMarkLeft || this.fileMarkLeft;
   }
 
   /** 两处撤销标记是否阻断这份会话（不完整的标记按撤销，R1-03）；任一标记此刻读不出抛出（调用方按读不出处理）。 */
@@ -509,6 +600,8 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
         } catch (e) {
           // 留在隔离里重试。
         }
+        // F-AND-33 鸿蒙对应：自己丢弃了会话，同步作废 ApiClient 已绑定的会话归属并推进会话世代。
+        this.notifyDiscarded();
         return null;
       }
     }
@@ -524,6 +617,8 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
       } catch (e) {
         // 留在隔离里重试。
       }
+      // F-AND-33 鸿蒙对应：删除成功或进入隔离都通知（与 F-HM-28 清除通知同口径）。
+      this.notifyDiscarded();
     }
     return this.current;
   }

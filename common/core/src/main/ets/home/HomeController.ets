@@ -365,6 +365,11 @@ export class HomeController {
   private sectionSerial: Map<string, number> = new Map<string, number>();
   private fetchSeq: number = 0;
   private lastWrittenSeq: number = 0;
+  /**
+   * 冷启动读 LKG 时的登录世代票据（F-HM-35，HomeLkgStore.epochTicket）：之后的 LKG 写入核对它，世代变了（同账号重新登录、会话被清）
+   * 不写。start 之前为 undefined（不核对）。
+   */
+  private lkgEpoch: string | null | undefined = undefined;
   private waitTimer: number = -1;
   private noticeTimer: number = -1;
   private refreshing: boolean = false;
@@ -441,6 +446,7 @@ export class HomeController {
     }
     this.started = true;
     const scope: string = this.identity.scope;
+    this.lkgEpoch = this.deps.lkg.epochTicket();
     const lkgText: string | null = this.deps.lkg.load(scope);
     this.apply(this.policy.step('cold_start', HomeController.arg('hasLkg', lkgText !== null)), null, lkgText);
     if (this.deps.contract === null) {
@@ -667,7 +673,7 @@ export class HomeController {
     if (this.deps.preview) {
       return;
     }
-    const ok: boolean = this.deps.lkg.save(this.identity.scope, text);
+    const ok: boolean = this.deps.lkg.save(this.identity.scope, text, this.deps.lkg.clearGeneration, this.lkgEpoch);
     if (ok) {
       this.lastWrittenSeq = Math.max(this.lastWrittenSeq, seq);
     } else {

@@ -103,6 +103,7 @@ import accountReviewR3Test from './AccountReviewR3.test';
 import ctLock01Test from './CtLock01.test';
 import followupHM0714Test from './FollowupHM0714.test';
 import followupHM0715Test from './FollowupHM0715.test';
+import followupHM0717Test from './FollowupHM0717.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -216,4 +217,5 @@ export default function testsuite() {
   ctLock01Test();
   followupHM0714Test();
   followupHM0715Test();
+  followupHM0717Test();
 }

@@ -1,7 +1,7 @@
 import { EnvironmentSwitchGate } from '../config/EnvironmentSwitchGate';
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { UpdateState } from '../router/GuardState';
-import { SessionTokens, SessionTokensCleaner } from '../session/SessionTokens';
+import { SecureSessionTokens, SessionTokens, SessionTokensCleaner } from '../session/SessionTokens';
 import { ApiClient, UpdatePort } from './ApiClient';
 import { ErrorUpdateState } from './ErrorActionMapper';
 
@@ -50,7 +50,8 @@ export class UpdateNetworkPort implements UpdatePort {
  *   不等到 cleanAll 的「清理前第一步」。实际的数据清理仍在切换标记持久化之后。
  * - 令牌清理器（F-HM-28）：传入 tokens 时，用同名替换（保持原注册位置）登记带「清除后同步把已绑定归属改为游客」的
  *   SessionTokensCleaner（ApiClient.onSessionTokensCleared），删除成功或失败进入隔离都通知；切换环境时令牌已清、
- *   未决存储清理还没运行的窗口里，确认 / 放弃上一笔按 account_unknown 结束。
+ *   未决存储清理还没运行的窗口里，确认 / 放弃上一笔按 account_unknown 结束。令牌存储是 SecureSessionTokens 时，它自己发现内容损坏
+ *   或被撤销标记阻断而丢弃会话也走同一入口（onSessionTokensCleared(true)，另推进会话世代；F-AND-33 鸿蒙对应）。
  * - 返回强更状态变更的处理函数：App 把它设为 AppUpdate.onChanged。每次强更结论变化先通知网络层
  *   （ApiClient.onUpdateStateChanged：由低于 / 未知恢复为不低于且本机会话是 deletion_only 时立即发起受限会话刷新屏障，
  *   R3-04、R2-02），再交给 next（AppRouting.stateChanged）。网络层通知出错不影响路由协调。
@@ -64,6 +65,10 @@ export class NetworkComposition {
     if (tokens !== null) {
       cleaners.register(new SessionTokensCleaner(tokens, (): void => {
       }, (): void => client.onSessionTokensCleared()));
+      // F-AND-33 的鸿蒙对应（FU-HM-0717）：令牌存储自己发现内容损坏 / 被撤销而丢弃会话时，同步走同一入口并推进会话世代。
+      if (tokens instanceof SecureSessionTokens) {
+        (tokens as SecureSessionTokens).onSelfDiscarded((): void => client.onSessionTokensCleared(true));
+      }
     }
     gate.onClosed((): void => client.invalidate());
     return (): void => {

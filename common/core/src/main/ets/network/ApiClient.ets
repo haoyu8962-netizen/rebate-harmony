@@ -1681,8 +1681,14 @@ export class ApiClient {
    * 令牌已被清除或进入隔离（F-HM-28，FU-HM-0711b R3-01）：切换环境 / 撤回同意的令牌清理器、本机清会话删令牌之后同步调用。
    * 已绑定的会话归属立即改为游客，不再靠未决存储的 resetGeneration 推断会话是否还在——令牌已清、未决清理还没运行的窗口里，
    * 确认 / 放弃上一笔与凭据可读时一样按 account_unknown 结束。不读凭据、不发送。删除失败（隔离）同样按已清除处理。
+   * discarded=true（F-AND-33 的鸿蒙对应，FU-HM-0717）：令牌存储自己读取时发现内容损坏或被撤销标记阻断而丢弃会话
+   * （SecureSessionTokens.onSelfDiscarded，NetworkComposition 接线）——同一入口，另外推进会话世代（旧世代的请求、重放与刷新脱钩）。
+   * 这条通知发生在令牌存储的读取之内：这里不得再读令牌（不调 syncPendingAccount），未决记录的账号由下一次可读读取同步。
    */
-  onSessionTokensCleared(): void {
+  onSessionTokensCleared(discarded: boolean = false): void {
+    if (discarded) {
+      this.endSessionGeneration();
+    }
     this.observeOwner(null);
   }
 

@@ -4,17 +4,22 @@
 // - 公告关闭记录、弹窗每日计数：设备级（不按账号），只存组合键与日期 / 次数，撤回同意与切换环境清。
 // 「待清理」标记放在缓存目录之外（独立文件，确认写入；APP-08 第 20、28 条）：启动与读 LKG 前先核验并补清，清理确认完成才清标记；
 // 未清完不读回（区分「目录不存在」与「枚举失败」由文件端口负责：不存在算已清，核对出错抛出）。
+// F-HM-35（三端一致，Android FU-AND-0714 R1-07）：会员作用域在存储层再按「账号 + 持久化登录世代」分一层子目录（作用域目录名与
+// HomeLkgScope 向量不变）；世代未知不读不写；清作用域删整个作用域目录（含所有世代子目录与升级前写在作用域根下的旧页面）。
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { OrderStaleCache } from '../orders/OrderStaleCache';
-import { HomeShanghai } from './HomePolicies';
+import { HomeLkgScope, HomeShanghai } from './HomePolicies';
 
-/** LKG 的落盘端口（生产：filesDir/couli_home_lkg/<作用域标签>/page.json，FileSlot 原子写；单测：内存）。失败一律抛出。 */
+/**
+ * LKG 的落盘端口（生产：filesDir/couli_home_lkg/<存储标签>/page.json，FileSlot 原子写；单测：内存）。失败一律抛出。
+ * 存储标签：游客 / 基本模式为作用域标签；会员作用域接了登录世代后为 `<作用域标签>/e<世代摘要>`（F-HM-35，子目录）。
+ */
 export interface HomeLkgBackend {
   read(tag: string): string | null;
 
   write(tag: string, text: string): void;
 
-  /** 删除一个作用域（含临时文件）；删完核对不存在，否则抛出。 */
+  /** 删除一个作用域（作用域目录整个删掉：含各登录世代子目录与临时文件）；删完核对不存在，否则抛出。 */
   clearScope(tag: string): void;
 
   /** 删除整个 LKG 目录（含临时文件）；删完核对不存在，否则抛出。 */
@@ -56,7 +61,12 @@ export class MemoryHomeLkgBackend implements HomeLkgBackend {
     if (this.failClear) {
       throw new Error('clear failed');
     }
-    this.files.delete(tag);
+    // 与文件端口删整个作用域目录同口径（F-HM-35）：作用域标签本身与它下面的登录世代子目录一起删。
+    for (const key of Array.from(this.files.keys())) {
+      if (key === tag || key.startsWith(tag + '/')) {
+        this.files.delete(key);
+      }
+    }
   }
 
   clearAll(): void {
@@ -133,6 +143,13 @@ export class HomeLkgStore {
   private volatileTags: Set<string> = new Set<string>();
   /** 每次清理推进（在途的旧写入按它作废：清理之后到达的旧作用域写入不落盘）。 */
   private generation: number = 0;
+  /**
+   * 持久化登录世代（F-HM-35；App 传 AppNetwork.loginEpoch → ApiClient.sessionLoginEpoch，与订单 / 钱包断网缓存同一入口）。
+   * null = 没接（旧用法与既有单测：不分世代）。接了之后会员作用域按世代分子目录；世代未知（null、空串、读取抛错）不读不写。
+   */
+  private loginEpoch: (() => string | null) | null = null;
+  /** 本进程读写过的会员世代子目录（按作用域标签）：清不掉又没有落盘记录时，墓碑也要盖到这些位置。 */
+  private partitions: Map<string, Set<string>> = new Map<string, Set<string>>();
 
   constructor(backend: HomeLkgBackend, ledger: HomePendingLedger | null = null) {
     this.backend = backend;
@@ -141,6 +158,57 @@ export class HomeLkgStore {
 
   static tagOf(scope: string): string {
     return OrderStaleCache.accountTag(scope);
+  }
+
+  /** 会员作用域某个登录世代的存储标签（作用域目录下的子目录；目录名不含账号与世代原文）。 */
+  static partitionTag(scope: string, epoch: string): string {
+    return HomeLkgStore.tagOf(scope) + '/e' + OrderStaleCache.accountTag(epoch).substring(1);
+  }
+
+  /** 接上持久化登录世代来源（AppHome.compose；与订单 / 钱包缓存同一入口 AppNetwork.loginEpoch）。 */
+  bindLoginEpoch(source: () => string | null): void {
+    this.loginEpoch = source;
+  }
+
+  /** 此刻的登录世代（没接、未知、读取抛错、空串都为 null）。 */
+  private epochNow(): string | null {
+    const source: (() => string | null) | null = this.loginEpoch;
+    if (source === null) {
+      return null;
+    }
+    try {
+      const epoch: string | null = source();
+      return epoch !== null && epoch.length > 0 ? epoch : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * 写入票据里的登录世代（HomeController 在冷启动读 LKG 时取一次）：之后写入时世代变了（同账号重新登录、会话被清）就不写，旧登录的
+   * 网络结果不落到新登录的分区里。没接世代来源为 null（save 不核对）。
+   */
+  epochTicket(): string | null {
+    return this.epochNow();
+  }
+
+  /** 作用域此刻的存储标签：不分世代的为作用域标签；会员作用域接了世代时为世代子目录，世代未知为 null（不读不写）。 */
+  private storageTag(scope: string): string | null {
+    if (this.loginEpoch === null || !HomeLkgScope.isMember(scope)) {
+      return HomeLkgStore.tagOf(scope);
+    }
+    const epoch: string | null = this.epochNow();
+    return epoch === null ? null : HomeLkgStore.partitionTag(scope, epoch);
+  }
+
+  private remember(scope: string, tag: string): void {
+    const scopeTag: string = HomeLkgStore.tagOf(scope);
+    if (tag === scopeTag) {
+      return;
+    }
+    const known: Set<string> = this.partitions.get(scopeTag) ?? new Set<string>();
+    known.add(tag);
+    this.partitions.set(scopeTag, known);
   }
 
   get clearGeneration(): number {
@@ -232,6 +300,13 @@ export class HomeLkgStore {
       this.ensureDurable(tags);
       return false;
     }
+    if (tags.indexOf(HomeLkgStore.ALL) >= 0) {
+      this.partitions.clear();
+    } else {
+      for (const t of tags) {
+        this.partitions.delete(t);
+      }
+    }
     this.pendingInMemory.clear();
     this.volatileTags.clear();
     return true;
@@ -252,6 +327,10 @@ export class HomeLkgStore {
       }
       try {
         this.backend.write(t, HomeLkgStore.TOMBSTONE);
+        // 会员作用域本进程读写过的登录世代子目录也盖上（F-HM-35：页面在子目录里，只盖作用域根下不够）。
+        for (const sub of Array.from((this.partitions.get(t) ?? new Set<string>()).values())) {
+          this.backend.write(sub, HomeLkgStore.TOMBSTONE);
+        }
         this.volatileTags.delete(t);
       } catch (e) {
         // 墓碑也写不进：只能本进程阻断（协调器按 VOLATILE 处理）。
@@ -272,21 +351,39 @@ export class HomeLkgStore {
     if (!this.settled()) {
       return null;
     }
+    // 会员作用域只读此刻登录世代的子目录（F-HM-35）：世代未知不读；升级前写在作用域根下的旧页面不再读取（随作用域清理删除）。
+    const tag: string | null = this.storageTag(scope);
+    if (tag === null) {
+      return null;
+    }
+    this.remember(scope, tag);
     try {
-      const text: string | null = this.backend.read(HomeLkgStore.tagOf(scope));
+      const text: string | null = this.backend.read(tag);
       return text === HomeLkgStore.TOMBSTONE ? null : text;
     } catch (e) {
       return null;
     }
   }
 
-  /** 写 LKG。generation：发起时的清理世代（之后清理过就不写）。返回是否写入。 */
-  save(scope: string, text: string, generation: number = this.generation): boolean {
+  /**
+   * 写 LKG。generation：发起时的清理世代（之后清理过就不写）。epochTicket：发起时的登录世代（epochTicket()；不传不核对）——会员作用域
+   * 接了世代时，此刻世代未知、或与票据不同（同账号重新登录、会话被清）都不写（F-HM-35）。返回是否写入。
+   */
+  save(scope: string, text: string, generation: number = this.generation, epochTicket?: string | null): boolean {
     if (generation !== this.generation || !this.settled()) {
       return false;
     }
+    let tag: string = HomeLkgStore.tagOf(scope);
+    if (this.loginEpoch !== null && HomeLkgScope.isMember(scope)) {
+      const epoch: string | null = this.epochNow();
+      if (epoch === null || (epochTicket !== undefined && epochTicket !== epoch)) {
+        return false;
+      }
+      tag = HomeLkgStore.partitionTag(scope, epoch);
+    }
+    this.remember(scope, tag);
     try {
-      this.backend.write(HomeLkgStore.tagOf(scope), text);
+      this.backend.write(tag, text);
       return true;
     } catch (e) {
       return false;
