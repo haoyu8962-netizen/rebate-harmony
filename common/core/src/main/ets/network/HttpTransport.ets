@@ -67,6 +67,41 @@ export interface HttpTransport {
   cancel(request: TransportRequest): void;
 }
 
+/**
+ * 流式响应的接收端（APP-10b §2 第 1 条，F-X-04）：响应头到达后 onHeaders（状态码 + 小写键的头），之后原始字节块按到达顺序 onBytes，
+ * 正常结束 onEnd；没有完整响应（断连、超时、发出前核对不通过、被取消）onFailure(TransportFailure 值)。四个回调合计至多一个终结
+ * （onEnd / onFailure），之后不再回调。传输层不解码、不切行、不缓冲整包（字节解码只在 Core 的 StreamUtf8Decoder 做一次）。
+ */
+export interface TransportStreamSink {
+  onHeaders(status: number, headers: Record<string, string>): void;
+
+  onBytes(chunk: ArrayBuffer): void;
+
+  onEnd(): void;
+
+  onFailure(failure: string): void;
+}
+
+/**
+ * 可注入的流式传输接口（APP-10b，鸿蒙 §3）：与 HttpTransport 分开，免得既有的整包替身全部要实现它。生产由 RcpTransport 实现
+ * （同一个 RCP 会话，Request 的 tracing.httpEventsHandler 增量取字节，G37）；单测用替身逐块喂 ArrayBuffer。
+ * - stream 在真正交给底层发出前调用 request.admit()（与 send 同一道最后核对），不通过按 onFailure(cancelled) 结束、不发出。
+ * - 不自行重发、不跟随重定向；整体调用不设超时（空闲与总时长由 StreamClient 计时，G16），连接建立超时用 request.timeoutMillis。
+ * - cancelStream 同步取消（之后到达的字节一律不交付）。不得抛出。
+ */
+export interface HttpStreamTransport {
+  stream(request: TransportRequest, sink: TransportStreamSink): void;
+
+  cancelStream(request: TransportRequest): void;
+}
+
+/** RCP 流式发送层（可注入；SystemRcpSender 实现）。 */
+export interface RcpStreamSender {
+  stream(spec: RcpRequestSpec, sink: TransportStreamSink): void;
+
+  cancel(spec: RcpRequestSpec): void;
+}
+
 /** 交给 RCP 的一次请求（可注入层：单测核对配置项，生产由 SystemRcpSender 转成 rcp.Request）。 */
 export class RcpRequestSpec {
   readonly url: string;
@@ -115,7 +150,7 @@ export interface RcpSender {
  * 用到的接口（createSession、Session.fetch、Request、Response.toString、TransferConfiguration.autoRedirect、
  * Timeout.connectMs / transferMs）都是 API 11 / 12 起就有，最低兼容 API 20 可用。
  */
-export class SystemRcpSender implements RcpSender {
+export class SystemRcpSender implements RcpSender, RcpStreamSender {
   private session: rcp.Session | null = null;
   /** 已交给 Session.fetch、还没有结果的请求（撤回同意 / 切换环境时 cancel，lessons 22）。 */
   private readonly live: Map<RcpRequestSpec, rcp.Request> = new Map<RcpRequestSpec, rcp.Request>();
@@ -139,6 +174,119 @@ export class SystemRcpSender implements RcpSender {
     } catch (e) {
       // createSession / Request 构造同步抛出（参数错误、会话数达上限）：按失败返回，由 RcpTransport 记为断连。
       return Promise.reject(e);
+    }
+  }
+
+  /**
+   * 流式发送（APP-10b，G37）：同一个 RCP 会话；请求级配置挂 tracing.httpEventsHandler——onHeaderReceive 记响应头，onStatusCodeReceive
+   * （API 20）记状态码，onDataReceive 逐块交原始字节（注册了它，Response.body 不再有整包），fetch 结束交 onEnd。
+   * 模拟器实测（rule-gaps 鸿蒙追加 H 号）：字节按服务端每次写出逐块到达；但 onHeaderReceive 先于 onStatusCodeReceive——响应头先记下，
+   * 状态码到了才一起交给 onHeaders（Content-Type 分流要两者都有）；状态码之前到达的字节按序暂存、交头之后补交。
+   * 交给 Session.fetch 前最后核对 admit。
+   */
+  stream(spec: RcpRequestSpec, sink: TransportStreamSink): void {
+    let ended: boolean = false;
+    let status: number = 0;
+    let headersSent: boolean = false;
+    let pendingHeaders: rcp.ResponseHeaders | undefined = undefined;
+    let held: ArrayBuffer[] = [];
+    const finish = (failure: string | null): void => {
+      if (ended) {
+        return;
+      }
+      ended = true;
+      this.live.delete(spec);
+      if (failure === null) {
+        sink.onEnd();
+      } else {
+        sink.onFailure(failure);
+      }
+    };
+    const headersOnce = (raw: rcp.ResponseHeaders | undefined): void => {
+      if (headersSent || ended) {
+        return;
+      }
+      headersSent = true;
+      sink.onHeaders(status, SystemRcpSender.headers(raw === undefined ? {} : raw));
+      const queued: ArrayBuffer[] = held;
+      held = [];
+      for (const chunk of queued) {
+        if (!ended) {
+          sink.onBytes(chunk);
+        }
+      }
+    };
+    try {
+      if (this.session === null) {
+        const sessionConfig: rcp.SessionConfiguration = {
+          requestConfiguration: spec.configuration
+        };
+        this.session = rcp.createSession(sessionConfig);
+      }
+      const session: rcp.Session = this.session;
+      const headers: rcp.RequestHeaders = {};
+      for (const name of Object.keys(spec.headers)) {
+        headers[name] = spec.headers[name];
+      }
+      const request: rcp.Request = new rcp.Request(spec.url, spec.method, headers,
+        spec.body === null ? undefined : spec.body);
+      const handler: rcp.HttpEventsHandler = {
+        onStatusCodeReceive: (code: number): void => {
+          status = code;
+          if (pendingHeaders !== undefined) {
+            headersOnce(pendingHeaders);
+          }
+        },
+        onHeaderReceive: (raw: rcp.ResponseHeaders): void => {
+          pendingHeaders = raw;
+          if (status > 0) {
+            headersOnce(raw);
+          }
+        },
+        onDataReceive: (incoming: ArrayBuffer): void => {
+          if (ended || incoming.byteLength === 0) {
+            return;
+          }
+          if (!headersSent) {
+            // 状态码还没到：按序暂存（不交付、不解析），交头之后补交。
+            held.push(incoming.slice(0));
+            return;
+          }
+          sink.onBytes(incoming);
+        }
+      };
+      const tracing: rcp.TracingConfiguration = {
+        httpEventsHandler: handler
+      };
+      const configuration: rcp.Configuration = {
+        transfer: spec.configuration.transfer,
+        tracing: tracing
+      };
+      request.configuration = configuration;
+      if (!spec.admit()) {
+        finish(TransportFailure.CANCELLED);
+        return;
+      }
+      this.live.set(spec, request);
+      session.fetch(request).then((response: rcp.Response): void => {
+        if (ended) {
+          return;
+        }
+        if (!headersSent) {
+          status = response.statusCode;
+          headersOnce(pendingHeaders ?? response.headers);
+        }
+        const body: ArrayBuffer | undefined = response.body;
+        if (body !== undefined && body !== null && body.byteLength > 0 && !ended) {
+          // 没有走增量回调的实现（整包）：原样作为一块交付（G37 退路，不重复交付：增量回调注册后 body 为 undefined）。
+          sink.onBytes(body);
+        }
+        finish(null);
+      }, (e: BusinessError): void => {
+        finish(RcpTransport.failureOf(e));
+      });
+    } catch (e) {
+      finish(TransportFailure.DISCONNECT);
     }
   }
 
@@ -200,14 +348,70 @@ export class SystemRcpSender implements RcpSender {
  * - 取消（lessons 22）：交给 RCP 之前与交给 Session.fetch 之前各核对一次 TransportRequest.admit，不通过不发出；
  *   cancel 经 Session.cancel 取消还在等连接 / TLS / 响应的请求。
  */
-export class RcpTransport implements HttpTransport {
+export class RcpTransport implements HttpTransport, HttpStreamTransport {
   static readonly TIMEOUT_CODE: number = 1007900028;
   static readonly CANCELLED_CODE: number = 1007900992;
   private readonly sender: RcpSender;
   private readonly specs: Map<TransportRequest, RcpRequestSpec> = new Map<TransportRequest, RcpRequestSpec>();
+  private readonly streamSender: RcpStreamSender;
+  private readonly streams: Map<TransportRequest, RcpRequestSpec> = new Map<TransportRequest, RcpRequestSpec>();
+  /** 流式请求的总传输上限（毫秒）：大于 StreamClient 的单轮 90 秒（G16），整体时长由 StreamClient 计时负责。 */
+  static readonly STREAM_TRANSFER_MS: number = 120000;
 
-  constructor(sender: RcpSender = new SystemRcpSender()) {
+  constructor(sender: RcpSender = new SystemRcpSender(), streamSender: RcpStreamSender | null = null) {
     this.sender = sender;
+    // 流式与整包共用同一个 RCP 会话（G37：与 ApiClient 同一会话与配置）；注入了别的整包发送层时另建系统发送层。
+    this.streamSender = streamSender ?? (sender instanceof SystemRcpSender ? sender as SystemRcpSender :
+      new SystemRcpSender());
+  }
+
+  /** 流式请求的 RCP 配置：关闭自动重定向；连接超时用给定毫秒数，传输上限放宽到 STREAM_TRANSFER_MS（不设空闲超时）。 */
+  static streamConfiguration(connectMillis: number): rcp.Configuration {
+    const timeout: rcp.Timeout = {
+      connectMs: connectMillis,
+      transferMs: RcpTransport.STREAM_TRANSFER_MS
+    };
+    const transfer: rcp.TransferConfiguration = {
+      autoRedirect: false,
+      timeout: timeout
+    };
+    const configuration: rcp.Configuration = {
+      transfer: transfer
+    };
+    return configuration;
+  }
+
+  stream(request: TransportRequest, sink: TransportStreamSink): void {
+    if (!request.admit()) {
+      sink.onFailure(TransportFailure.CANCELLED);
+      return;
+    }
+    const spec: RcpRequestSpec = new RcpRequestSpec(request.url, request.method, request.headers, request.body,
+      RcpTransport.streamConfiguration(request.timeoutMillis), request.admit);
+    this.streams.set(request, spec);
+    const forget = (): void => {
+      this.streams.delete(request);
+    };
+    const inner: TransportStreamSink = new ForgetfulSink(sink, forget);
+    try {
+      this.streamSender.stream(spec, inner);
+    } catch (e) {
+      forget();
+      sink.onFailure(TransportFailure.DISCONNECT);
+    }
+  }
+
+  cancelStream(request: TransportRequest): void {
+    const spec: RcpRequestSpec | undefined = this.streams.get(request);
+    this.streams.delete(request);
+    if (spec === undefined) {
+      return;
+    }
+    try {
+      this.streamSender.cancel(spec);
+    } catch (e) {
+      // 发送层不得抛出。
+    }
   }
 
   /** 每个请求的 RCP 配置：关闭自动重定向，连接与传输超时都用给定毫秒数。 */
@@ -260,7 +464,7 @@ export class RcpTransport implements HttpTransport {
     }
   }
 
-  private static failureOf(e: BusinessError | null | undefined): string {
+  static failureOf(e: BusinessError | null | undefined): string {
     if (e === null || e === undefined) {
       return TransportFailure.DISCONNECT;
     }
@@ -268,5 +472,34 @@ export class RcpTransport implements HttpTransport {
       return TransportFailure.TIMEOUT;
     }
     return e.code === RcpTransport.CANCELLED_CODE ? TransportFailure.CANCELLED : TransportFailure.DISCONNECT;
+  }
+}
+
+/** 终结时先撤销登记再转交的接收端（RcpTransport.stream 用）。 */
+class ForgetfulSink implements TransportStreamSink {
+  private readonly sink: TransportStreamSink;
+  private readonly forget: () => void;
+
+  constructor(sink: TransportStreamSink, forget: () => void) {
+    this.sink = sink;
+    this.forget = forget;
+  }
+
+  onHeaders(status: number, headers: Record<string, string>): void {
+    this.sink.onHeaders(status, headers);
+  }
+
+  onBytes(chunk: ArrayBuffer): void {
+    this.sink.onBytes(chunk);
+  }
+
+  onEnd(): void {
+    this.forget();
+    this.sink.onEnd();
+  }
+
+  onFailure(failure: string): void {
+    this.forget();
+    this.sink.onFailure(failure);
   }
 }

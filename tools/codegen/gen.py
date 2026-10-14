@@ -59,6 +59,8 @@
     common/generated/src/main/ets/DefaultHomePage.ets         包内 default_home.json 的同一份文本（APP-11 G17：取自向量 goldenPages.default_home，
     common/generated/src/main/resources/rawfile/default_home.json   三端同一来源；--check 保证与向量一致）
     common/core/src/test/AgentVectorsData.ets                 specs/agent-vectors.json 全文（AGENT_VECTORS_JSON，APP-10，Codex 写的三端共用 Agent 向量）
+    common/core/src/test/AgentTransportVectorsData.ets        specs/agent-transport-vectors.json 全文（AGENT_TRANSPORT_VECTORS_JSON，APP-10b，
+                                                              Codex 写的三端共用 Agent 真实流式传输向量）
     common/core/src/test/AccountVectorsData.ets               specs/account-vectors.json 全文（ACCOUNT_VECTORS_JSON，APP-13a，Codex 写的三端共用注销与换手机号向量）
     common/core/src/test/AgentStreamFixturesData.ets          契约快照 contracts/fixtures/agent-streams/*.ndjson 全文（AGENT_STREAM_FIXTURES，
                                                               APP-10，键为文件名，值为原文）
@@ -804,6 +806,16 @@ def gen_agent_vectors_data():
     return gen_vectors_data(AGENT_VECTORS, "AGENT_VECTORS_JSON",
                             "Agent 向量（APP-10）：specs/agent-vectors.json 全文，供 AgentVector.test.ets 解析。"
                             "只在 src/test，不进产物。")
+
+
+AGENT_TRANSPORT_VECTORS = os.path.join("specs", "agent-transport-vectors.json")
+
+
+def gen_agent_transport_vectors_data():
+    """specs/agent-transport-vectors.json（APP-10b，Codex 先写的三端共用 Agent 真实流式传输、历史、反馈、举报向量）。"""
+    return gen_vectors_data(AGENT_TRANSPORT_VECTORS, "AGENT_TRANSPORT_VECTORS_JSON",
+                            "Agent 传输向量（APP-10b）：specs/agent-transport-vectors.json 全文，供 AgentTransportVector.test.ets "
+                            "解析。只在 src/test，不进产物。")
 
 
 ACCOUNT_VECTORS = os.path.join("specs", "account-vectors.json")
@@ -1833,6 +1845,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "HomeVectorsData.ets"): gen_home_vectors_data(),
         os.path.join("entry", "src", "staging", "ets", "variant", "HomeGoldenPages.ets"): gen_home_golden_pages(),
         os.path.join(CORE_MODULE, "src", "test", "AgentVectorsData.ets"): gen_agent_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "AgentTransportVectorsData.ets"): gen_agent_transport_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "AccountVectorsData.ets"): gen_account_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "AgentStreamFixturesData.ets"): gen_agent_stream_fixtures_data(),
         os.path.join("entry", "src", "staging", "ets", "variant", "AgentFixtures.ets"): gen_agent_debug_fixtures(),

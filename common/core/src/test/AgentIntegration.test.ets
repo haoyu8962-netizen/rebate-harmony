@@ -1262,8 +1262,10 @@ export default function agentIntegrationTest(): void {
       same('done', rig.turn(c).status, 'done');
     });
 
-    // ---------------------------------------------------------------- R1-02 离开页面同步撤销
-    it('r1_02_hide_revokes_stream_and_late_frames_do_not_update', 0, async () => {
+    // ---------------------------------------------------------------- R1-02 离开页面（APP-10b G02 更正：切 Tab / 被覆盖时流保活）
+    // 编排者补充第 2 条（规划 03 §7.2 2026-10-14）：切 Tab 不断流、不重拉历史，只撤销导航与弹层许可；隐藏期间不更新界面、回来一次性应用。
+    // 原 R1-02 的「离页即关连接」断言随之改为保活断言（APP-10 共性第 2 条同步更正）。
+    it('r1_02_hide_keeps_stream_alive_and_applies_once_on_return', 0, async () => {
       const rig: AgentRig = new AgentRig();
       rig.fixture = 'normal';
       const c: AgentController = await rig.ready();
@@ -1272,53 +1274,44 @@ export default function agentIntegrationTest(): void {
       rig.timer.advance(320);
       await settle();
       same('card received', c.streamStates[0].cards.length, 1);
-      const before: number = c.streamStates[0].lastSeq;
       c.setVisible(false);
-      same('sending stopped', c.snapshot().sending, false);
-      same('status', rig.turn(c).status, 'disconnected');
-      same('retry same', rig.turn(c).error !== null && (rig.turn(c).error as AgentErrorView).retry !== null, true);
-      const revision: number = c.snapshot().revision;
+      same('sending kept', c.snapshot().sending, true);
+      const published: number = rig.snapshots.length;
       rig.timer.advance(5000);
       await settle();
-      same('no late frames', c.streamStates[0].lastSeq, before);
-      same('no quota', c.snapshot().quotaLeft, null);
-      same('no publish', c.snapshot().revision, revision);
+      same('stream continued to done', c.streamStates[0].status, 'done');
+      same('quota applied in memory', c.snapshot().quotaLeft, 29);
+      same('no ui update while hidden', rig.snapshots.length, published);
       same('hidden send', c.send(c.snapshot().page, 'x'), false);
-      // 回来：可以【重试】（同一 client_msg_id）。
+      same('no navigation while hidden', rig.opens.length, 0);
       c.setVisible(true);
-      const id: string = rig.bodyClientMsgId();
-      c.retry((rig.turn(c).error as AgentErrorView).retry as AgentRetryTap);
-      await settle();
-      rig.timer.advance(5000);
-      await settle();
-      same('retry same id', rig.bodyClientMsgId(), id);
+      same('applied once on return', rig.snapshots.length, published + 1);
     });
 
-    it('r1_02_hide_during_create_session_and_load_drops_results', 0, async () => {
+    it('r1_02_hide_during_create_session_and_load_keeps_requests', 0, async () => {
       const rig: AgentRig = new AgentRig();
       const c: AgentController = rig.controller();
       c.start();
-      // 取当前会话在途时离开：结果到达不改界面，回来重取。
+      // 取当前会话在途时切走：请求保留、结果照常落到内存（不重取）。
       c.setVisible(false);
       await settle();
-      same('idle after hide', c.currentPhase, AgentPhase.IDLE);
+      same('ready while hidden', c.currentPhase, AgentPhase.READY);
       c.setVisible(true);
       c.start();
       await settle();
-      same('reloaded', c.currentPhase, AgentPhase.READY);
-      // 建会话在途时离开：不发消息。
+      same('no second load', rig.fake.sent, 1);
+      // 建会话在途时切走：消息照常发出（流保活）。
       const sent: number = rig.fake.sent;
       c.send(c.snapshot().page, '纯牛奶');
       c.setVisible(false);
       await settle();
       rig.timer.advance(5000);
       await settle();
-      same('only create session', rig.fake.sent, sent + 1);
-      same('no body', rig.port.bodies.length, 0);
-      same('disconnected', rig.turn(c).status, 'disconnected');
+      same('create and stream', rig.fake.sent, sent + 2);
+      same('body sent', rig.port.bodies.length, 1);
+      same('done', rig.turn(c).status, 'done');
     });
 
-    // ---------------------------------------------------------------- R1-03 停止作废卡片回调与购买
     it('r1_03_stop_revokes_rendered_card_and_buy_callbacks', 0, async () => {
       const rig: AgentRig = new AgentRig();
       rig.fixture = 'normal';
@@ -1486,7 +1479,8 @@ export default function agentIntegrationTest(): void {
         } else if (code === 10405) {
           same('stop 10405', rig.forced, 1);
         } else {
-          same('stop 10001 login', rig.opens.map((o: OpenRecord): string => o.route), ['Login']);
+          // APP-10b brief §0 第 2 条：cancel 的结果一律不导航、不弹框（应用级持有），10001 只记本机日志。
+          same('stop 10001 no navigation', rig.opens.length, 0);
         }
       }
     });
@@ -1735,9 +1729,10 @@ export default function agentIntegrationTest(): void {
       c.start();
       const load: AgentCall = rig.port.calls[rig.port.calls.length - 1];
       same('load permit', load.sendAllowed(), true);
+      // APP-10b G02：切 Tab 不撤销发送许可（只撤销导航与弹层许可）。
       c.setVisible(false);
       c.setVisible(true);
-      same('load permit not revived', load.sendAllowed(), false);
+      same('load permit kept across tab switch', load.sendAllowed(), true);
       c.start();
       await settle();
       same('ready', c.currentPhase, AgentPhase.READY);
@@ -1747,9 +1742,9 @@ export default function agentIntegrationTest(): void {
       const create: AgentCall = rig.port.calls[rig.port.calls.length - 1];
       same('create permit', create.sendAllowed(), true);
       c.setVisible(false);
-      same('hidden', create.sendAllowed(), false);
+      same('hidden keeps permit', create.sendAllowed(), true);
       c.setVisible(true);
-      same('create permit not revived', create.sendAllowed(), false);
+      same('create permit kept', create.sendAllowed(), true);
       // 新对话的建会话许可：再点一次新对话后永久失效。
       c.newChat(c.snapshot().page);
       await settle();
@@ -1843,7 +1838,8 @@ export default function agentIntegrationTest(): void {
           same(tag + ' no dialog', c.snapshot().consent, null);
           same(tag + ' no open', rig.opens.length, 0);
           same(tag + ' no toast', rig.toasts.length, toasts);
-          same(tag + ' new run untouched', c.snapshot().sending, true);
+          // G60 裁定（APP-10b harmony-review-r2 R2-01）：同身份 cancel 的 AI 10004 走同步作废——新回复立即停下；其余码仍不碰新消息。
+          same(tag + ' new run untouched', c.snapshot().sending, code !== 10004);
           if (code === 42901) {
             same(tag + ' shared gate', rig.gate.active, true);
           } else if (code === 10405) {

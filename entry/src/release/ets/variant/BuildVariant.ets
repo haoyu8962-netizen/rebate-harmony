@@ -3,7 +3,8 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HomeContractPort, HttpTransport, JumpPorts, MeContractPort, NoPushTokenSource,
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HomeContractPort, HttpStreamTransport, HttpTransport, JumpPorts,
+  MeContractPort, NoPushTokenSource,
   PendingKeyBackend, PushTokenSource, RcpTransport, RouteTable, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
   UnavailableWechatAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
@@ -26,6 +27,11 @@ export class BuildVariant {
   /** 网络传输层：真实 RCP（没有本机假服务）。 */
   static networkTransport(): HttpTransport {
     return new RcpTransport();
+  }
+
+  /** 流式传输（APP-10b，ApiClient.stream）：与整包请求同一个 RCP 传输（同一会话）。 */
+  static networkStreamTransport(transport: HttpTransport): HttpStreamTransport | null {
+    return transport instanceof RcpTransport ? transport as RcpTransport : null;
   }
 
   /**

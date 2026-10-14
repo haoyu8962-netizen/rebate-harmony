@@ -1,6 +1,6 @@
 import {
-  AgentBuyTap, AgentChipTap, AgentConsentTicket, AgentPageTicket, AgentRetryTap, AgentRunTicket, AgentSnapshot, AgentTap,
-  AgentTurnView
+  AgentBuyTap, AgentChipTap, AgentConsentTicket, AgentPageTicket, AgentReplyTicket, AgentRetryTap, AgentRunTicket,
+  AgentSnapshot, AgentTap, AgentTurnView
 } from 'core';
 import { ProductCardData } from 'designsystem';
 
@@ -41,6 +41,24 @@ export interface AgentScreenPort {
 
   /** 真正打开同意弹窗之前的复核：票据仍是此刻的那一个、页面可见、没有其他弹层。 */
   consentBeforeOpen(t: AgentConsentTicket): boolean;
+
+  /** 【赞】【踩】（APP-10b G28）：value 取 up / down。 */
+  feedback(t: AgentReplyTicket, value: string): void;
+
+  /** 长按回复 / 读屏「更多操作 → 举报」（G29）。 */
+  reportOpen(t: AgentReplyTicket): void;
+
+  /** 举报半屏里选原因、改补充说明（只在内存）。 */
+  reportEdit(t: AgentReplyTicket, reason: string | null, supplement: string): void;
+
+  /** 【提交举报】。 */
+  reportSubmit(t: AgentReplyTicket): void;
+
+  /** 半屏关闭（系统返回、点遮罩、关闭按钮；只关本实例）。 */
+  reportClose(t: AgentReplyTicket): void;
+
+  /** 滚到顶部：取更早一页历史（G08）。 */
+  loadEarlier(t: AgentPageTicket): void;
 
   /** 粘贴胶囊（PasteButton 临时授权成功后读剪贴板）：读到的文字只写进发起时那一个控制器与对话世代的输入框（APP-09 第 59 条）。 */
   paste(t: AgentPageTicket): Promise<string | null>;
@@ -99,6 +117,24 @@ class NoopPort implements AgentScreenPort {
 
   consentBeforeOpen(_t: AgentConsentTicket): boolean {
     return false;
+  }
+
+  feedback(_t: AgentReplyTicket, _value: string): void {
+  }
+
+  reportOpen(_t: AgentReplyTicket): void {
+  }
+
+  reportEdit(_t: AgentReplyTicket, _reason: string | null, _supplement: string): void {
+  }
+
+  reportSubmit(_t: AgentReplyTicket): void {
+  }
+
+  reportClose(_t: AgentReplyTicket): void {
+  }
+
+  loadEarlier(_t: AgentPageTicket): void {
   }
 
   paste(_t: AgentPageTicket): Promise<string | null> {
@@ -171,6 +207,12 @@ export class AgentScreenModel {
   draftConversation: number = 0;
   /** Release 构建或当前环境不提供 Agent（G01）。 */
   @Trace unavailableBuild: boolean = false;
+  /**
+   * 阅读跟随状态（APP-10 共性第 32 条）：用户上滑后不再自动跟随；随页面票据（控制器编号 + 对话世代）保存在内存，Tab 根页重建（只读标记变化、
+   * 外壳重建）后恢复，不默认重新开启跟随把用户拉到底。新对话 / 新控制器从跟随开始。
+   */
+  followTicket: string = '';
+  following: boolean = true;
   port: AgentScreenPort = new NoopPort();
   readonly source: AgentTurnSource = new AgentTurnSource();
 }

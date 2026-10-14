@@ -74,8 +74,13 @@ export {
 export { DigestPort, CryptoKitDigest, SigningInput, RequestSigner } from './src/main/ets/network/RequestSigner';
 export {
   TransportRequest, TransportResponse, TransportFailure, HttpTransport, RcpRequestSpec, RcpRawResponse, RcpSender,
-  SystemRcpSender, RcpTransport
+  SystemRcpSender, RcpTransport, TransportStreamSink, HttpStreamTransport, RcpStreamSender
 } from './src/main/ets/network/HttpTransport';
+export { StreamUtf8Decoder } from './src/main/ets/network/StreamUtf8Decoder';
+export {
+  ApiStreamOperations, ApiStreamRequest, ApiStreamSink, ApiStreamHandle, ApiStreamRoute, ApiStreamRoutingPolicy,
+  ApiStreamRecovery, ApiStreamRequestPolicy
+} from './src/main/ets/network/ApiStream';
 export {
   ApiAppIdentity, CredentialSource, NoDeviceCredentials, NetworkContext, UpdatePort, DeviceRegistrar, NoDeviceRegistrar,
   NetworkTimer, SystemNetworkTimer, NetworkRandom, SystemNetworkRandom, ApiClientDeps, ApiRequest, ApiOutcome, ApiResult,
@@ -346,14 +351,44 @@ export {
 } from './src/main/ets/agent/AgentPolicies';
 export { AgentDraftTexts } from './src/main/ets/agent/AgentDraftTexts';
 export {
-  AgentHttpResult, AgentCall, AgentStreamSink, AgentStreamHandle, AgentContractPort, AgentTimer, SystemAgentTimer,
-  AgentStreamEventKind, AgentStreamEvent, StreamClient
+  AgentHttpResult, AgentCall, AgentStreamSink, AgentStreamHandle, AgentContractPort, AgentConversationPort, AgentTimer,
+  SystemAgentTimer, AgentStreamEventKind, AgentStreamEvent, StreamClient
 } from './src/main/ets/agent/StreamClient';
 export {
   AgentIdentity, AgentRunTicket, AgentPageTicket, AgentTapKind, AgentTap, AgentBuyTap, AgentChipTap, AgentRetryMode,
   AgentRetryTap, AgentConsentTicket, AgentProductRef, AgentProductView, AgentCardView, AgentTurnPhase, AgentErrorView,
-  AgentTurnView, AgentPhase, AgentSnapshot, AgentDeps, AgentController, AgentConsentGate, AgentSharedError
+  AgentTurnView, AgentPhase, AgentSnapshot, AgentDeps, AgentController, AgentConsentGate, AgentSharedError,
+  AgentFeedbackView, AgentReportEntryView, AgentReportSheetView
 } from './src/main/ets/agent/AgentController';
+// APP-10b（F-X-04）：真实流式传输、历史、反馈、举报、停止与归属 cancel、错误表与闸门、可用性（向量接线 of(input, nowMs) 只转换类型）。
+export {
+  AgentSeqDecision, AgentSeqGuard, AgentStreamLimits, AgentStreamLimitPolicy, AgentPublishGate
+} from './src/main/ets/agent/AgentTransport';
+export {
+  AgentRole, AgentHistoryItem, AgentHistoryPage, AgentHistoryGroup, AgentHistory, AgentTurnKey, AgentMatchBy, AgentTurnMatch,
+  AgentLocalMessage, AgentHistoryMerge, AgentHistoryPager, AgentEntryPlan
+} from './src/main/ets/agent/AgentHistory';
+export {
+  AgentReloadTrigger, AgentReloadAction, AgentReloadOutcome, AgentReloadStep, AgentReconnect
+} from './src/main/ets/agent/AgentReconnect';
+export {
+  AgentCancelLedger, AgentStopPhase, AgentStopEffect, AgentStopFlow, AgentCancelResult, AgentCancelPolicy,
+  AgentOwnershipEvent, AgentOwnedRun, AgentOwnershipTarget, AgentOwnershipHandlers, AgentOwnershipDecision,
+  AgentOwnershipStop, AgentConsentLapseTarget, AgentConsentLapse
+} from './src/main/ets/agent/AgentStop';
+export { AgentTimeoutPolicy } from './src/main/ets/agent/AgentTimeouts';
+export {
+  AgentFeedbackValue, AgentReplyTicket, AgentActionFailure, AgentFeedback, AgentFeedbackState, AgentReportCheck,
+  AgentReport, AgentReportOutcome, AgentReportState
+} from './src/main/ets/agent/AgentFeedback';
+export {
+  AgentOperation, AgentGateGroup, AgentGates, AgentOpDecision, AgentTransportErrorPolicy
+} from './src/main/ets/agent/AgentErrors';
+export {
+  AgentQuotaNext, AgentQuotaPolicy, AgentPageState, AgentAvailabilityInput, AgentAvailabilityResult, AgentAvailability,
+  AgentSyncAction, AgentSyncPolicy, AgentIdentityChange
+} from './src/main/ets/agent/AgentAvailability';
+export { AgentResults, ApiAgentContractPort } from './src/main/ets/agent/ApiAgentContractPort';
 export {
   AgentContextSource, AgentContextTicket, AgentContextHandoff
 } from './src/main/ets/agent/AgentContextHandoff';

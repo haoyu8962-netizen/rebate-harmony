@@ -3,6 +3,7 @@
 // 环境闸门（APP-11 第 10、16 条）：每一次实际「发包」（建会话、取当前会话、发消息、停止）都在这里统一核对「假服务打开 + 当前环境允许调试假数据」
 // （DebugMockGate，prod 不允许）与调用方的 sendAllowed；不通过就不发（notSent / 传输失败），测试包连 prod 时不注入假流。
 // fixture 的 ndjson 逐行转成 SSE 文本（event / id / data 三行 + 空行，ping → `: ping`），可配置每帧间隔、在某行后断开、在某行后挂起不发（测 30 秒）。
+import { util } from '@kit.ArkTS';
 import { AppEnvironment } from '../../../main/ets/config/AppEnvironment';
 import { AgentJson, AgentJsonObject } from '../../../main/ets/agent/AgentJson';
 import { AgentSse } from '../../../main/ets/agent/AgentSse';
@@ -177,7 +178,8 @@ export class AgentFakeService implements AgentContractPort {
       at += s.intervalMs;
       const text: string = AgentSse.sseTextOfNdjsonLine(lines[i]);
       const n: number = i + 1;
-      stream.later(at, (): void => sink.onData(text));
+      // 字节块下发（APP-10b：sink 只有字节入口，解码在 Core 的 StreamUtf8Decoder 里做一次）。
+      stream.later(at, (): void => sink.onBytes(AgentFakeService.utf8(text)));
       if (s.hangAfterLine !== null && n >= (s.hangAfterLine as number)) {
         return stream;
       }
@@ -204,7 +206,7 @@ export class AgentFakeService implements AgentContractPort {
     env['trace_id'] = traceId;
     stream.later(0, (): void => {
       sink.onHeaders(status, headers);
-      sink.onData(JSON.stringify(env));
+      sink.onBytes(AgentFakeService.utf8(JSON.stringify(env)));
       sink.onEnd();
     });
   }
@@ -225,6 +227,14 @@ export class AgentFakeService implements AgentContractPort {
       }
     }
     this.streams = this.streams.filter((s: FakeStream): boolean => !s.isClosed);
+  }
+
+  /** 文本 → UTF-8 字节（util.TextEncoder；只编码，解码仍只在 StreamUtf8Decoder）。 */
+  static utf8(text: string): ArrayBuffer {
+    const bytes: Uint8Array = new util.TextEncoder().encodeInto(text);
+    const copy: Uint8Array = new Uint8Array(bytes.length);
+    copy.set(bytes);
+    return copy.buffer as ArrayBuffer;
   }
 
   /** 由请求体取 client_msg_id（同 ID 重发时回 duplicate 两帧，BR-AI-23 ⑥）。 */

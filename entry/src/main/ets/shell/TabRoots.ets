@@ -26,9 +26,15 @@ export const SHELL_TABS: ShellTab[] = [
   new ShellTab('Me', ShellDraftTexts.TAB_ME, 'user')
 ];
 
-export function shellTabItems(): TabBarItem[] {
-  return SHELL_TABS.map((tab: ShellTab, index: number) =>
-    new TabBarItem(tab.label, tab.icon, ShellDraftTexts.tabPosition(index, SHELL_TABS.length)));
+/** 搜索 Tab（APP-10b G32：agent.entry.visible=false 时代替 AI 助手；点它经 Router 打开 Search 页，不切 Tab 根）。 */
+export const SEARCH_TAB: ShellTab = new ShellTab('Search', ShellDraftTexts.TAB_SEARCH, 'search');
+
+/** 底部 Tab 项（agentVisible=false 时第 2 个换成「搜索」）。 */
+export function shellTabItems(agentVisible: boolean = true): TabBarItem[] {
+  return SHELL_TABS.map((tab: ShellTab, index: number) => {
+    const shown: ShellTab = !agentVisible && tab.route === 'AgentChat' ? SEARCH_TAB : tab;
+    return new TabBarItem(shown.label, shown.icon, ShellDraftTexts.tabPosition(index, SHELL_TABS.length));
+  });
 }
 
 /**

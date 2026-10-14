@@ -8,7 +8,7 @@ import {
   AmountMaskStore, AppConfig, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugLaunchDeferral,
   DebugMockGate, DebugSubstitutes, DeepLinkConfig, EnvironmentSwitchGate, GatedAuthAdapter, GatedMeContractPort,
   GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer, HomeContractPort,
-  HomeDebugSources, HttpTransport, JumpPorts, MeContractPort, PendingKeyBackend, PushTokenSource, RouteAvailability,
+  HomeDebugSources, HttpStreamTransport, HttpTransport, JumpPorts, MeContractPort, PendingKeyBackend, PushTokenSource, RouteAvailability,
   RouteTable,
   ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
@@ -102,6 +102,11 @@ export class BuildVariant {
   /** 网络传输层：Debug / Staging 外面包一层本机假服务（只有启动参数打开时接管，APP-05a）；Release 是 RcpTransport。 */
   static networkTransport(): HttpTransport {
     return new DebugFakeServer();
+  }
+
+  /** 流式传输（APP-10b，ApiClient.stream）：同一个实际传输入口（DebugFakeServer → DebugMockTransport 同一道闸门）。 */
+  static networkStreamTransport(transport: HttpTransport): HttpStreamTransport | null {
+    return transport instanceof DebugFakeServer ? transport as DebugFakeServer : null;
   }
 
   /**

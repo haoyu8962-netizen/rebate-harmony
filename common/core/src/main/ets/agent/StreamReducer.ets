@@ -19,6 +19,10 @@ export class AgentStatus {
   static readonly DISCONNECTED: string = 'disconnected';
   /** 只由 historyCard 导入的快照（规范化约定，不是新的业务状态，向量 gaps G04）。 */
   static readonly HISTORY: string = 'history';
+  /** 本地超限结束（单帧 64 KiB、单轮 20000 码点 / 12 卡 / 400 帧；APP-10 共性第 33 条，APP-10b）。只由 Reducer 外层写入。 */
+  static readonly LIMITED: string = 'limited';
+  /** 缺号（APP-10b G11、G36）：本地结束、等终止帧或断线后用历史替换。只由 Reducer 外层写入。 */
+  static readonly INCOMPLETE: string = 'incomplete';
 }
 
 export class AgentInputKind {
@@ -118,7 +122,8 @@ export class AgentStreamState {
   /** 已结束（远端终止帧、本地停止、断线）：之后的一切输入丢弃。 */
   get ended(): boolean {
     return this.status === AgentStatus.DONE || this.status === AgentStatus.CANCELLED || this.status === AgentStatus.ERROR
-      || this.status === AgentStatus.DISCONNECTED;
+      || this.status === AgentStatus.DISCONNECTED || this.status === AgentStatus.LIMITED
+      || this.status === AgentStatus.INCOMPLETE;
   }
 
   get mergeIntoMessage(): boolean {

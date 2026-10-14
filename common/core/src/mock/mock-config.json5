@@ -1,0 +1,8 @@
+// 本机单测（Local Test）专用的系统模块替身配置（APP-10b，rule-gaps 鸿蒙追加 H 号）：Local Test 运行时的 @ohos.util 是空桩
+// （TextEncoder.encodeInto 恒返回空数组），Codex 的 AgentTransportVector.test.ets 用它把测试资产编码成 UTF-8 字节。这里换成按标准实现
+// 的替身；只被 hvigor 的 Local Test / 预览器读取，不参与 HAP 构建（Release / Debug / Staging 制品里没有本目录）。
+{
+  "@ohos.util": {
+    "source": "src/mock/Util.mock.ets"
+  }
+}

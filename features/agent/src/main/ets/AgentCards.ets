@@ -1,7 +1,8 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
-  AgentCardKind, AgentCardType, AgentCardView, AgentDraftTexts, AgentChipTap, AgentErrorView, AgentProductView, AgentTap, AgentTextBlock,
-  AgentTextBlockKind, AgentTextSpan, AgentTool, AgentTurnView, EarningsShape, EarningsView
+  AgentCardKind, AgentCardType, AgentCardView, AgentDraftTexts, AgentChipTap, AgentErrorView, AgentFeedbackView,
+  AgentProductView, AgentReportEntryView, AgentRetryMode, AgentTap, AgentTextBlock, AgentTextBlockKind, AgentTextSpan,
+  AgentTool, AgentTurnView, EarningsShape, EarningsView
 } from 'core';
 import {
   AiLabel, BuyButtonState, CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip, CouliChipTone, CouliColors, CouliFocus,
@@ -370,7 +371,8 @@ export struct AgentCardItem {
   build() {
     if (this.view !== undefined) {
       if (this.view.card.kind !== AgentCardKind.KNOWN) {
-        Text(this.view.card.fallbackText)
+        // 受限渲染后的纯文字（共性第 30 条：剥离 URL / scheme / 口令，不可点、无按钮）。
+        Text(this.view.fallbackPlain)
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
           .copyOption(CopyOptions.None)
           .width('100%')
@@ -464,7 +466,9 @@ export struct AgentErrorBlock {
         Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space2), cross: LengthMetrics.vp(CouliSpacing.space2) } }) {
           if (this.error.retry !== null) {
             AgentActionButton({
-              label: this.t('agent.draft.retry'), variant: CouliButtonVariant.PRIMARY, disabled: this.retryDisabled,
+              // 「回复中」/ duplicate 30506 的【刷新】（G40）；其余【重试】。
+              label: this.t(this.error.retry.mode === AgentRetryMode.REFRESH ? 'agent.draft.refresh' : 'agent.draft.retry'),
+              variant: CouliButtonVariant.PRIMARY, disabled: this.retryDisabled,
               onTap: () => {
                 const r = this.error?.retry;
                 if (r !== null && r !== undefined) {
@@ -517,6 +521,79 @@ export struct AgentErrorBlock {
   }
 }
 
+/**
+ * 【赞】【踩】（AgentResult 稿，与 AiLabel 同一行；APP-10b G28）：点后图标实心（品牌色）并读屏「已赞 / 已踩」；在途两个都不可点；
+ * 举报（AgentReported 稿）：已举报的回复显示「已举报」。回调只交回渲染时的回复票据。
+ */
+@ComponentV2
+export struct AgentFeedbackBar {
+  @Param feedback: AgentFeedbackView | undefined = undefined;
+  @Param report: AgentReportEntryView | undefined = undefined;
+  @Param port: AgentScreenPort | undefined = undefined;
+  @Param disabled: boolean = false;
+
+  private t(key: string): string {
+    return this.port?.text(key) ?? '';
+  }
+
+  @Builder
+  thumb(value: string, icon: string, label: string, selectedLabel: string) {
+    Button({ type: ButtonType.Normal, stateEffect: true }) {
+      CouliIcon({
+        name: icon, iconSize: 20,
+        color: this.feedback !== undefined && this.feedback.selected === value ? CouliColors.brandPrimary : CouliColors.textSecondary
+      })
+    }
+    .width(CouliInteraction.minTouchTarget)
+    .height(CouliInteraction.minTouchTarget)
+    .backgroundColor(Color.Transparent)
+    .enabled(this.feedback !== undefined && this.feedback.enabled && !this.disabled)
+    .accessibilityText(this.feedback !== undefined && this.feedback.selected === value ? selectedLabel : label)
+    .accessibilitySelected(this.feedback !== undefined && this.feedback.selected === value)
+    .focusBox(CouliFocus.box)
+    .onClick(() => {
+      const f = this.feedback;
+      if (f !== undefined) {
+        this.port?.feedback(f.ticket, value);
+      }
+    })
+  }
+
+  build() {
+    Row({ space: CouliSpacing.space1 }) {
+      if (this.report !== undefined && this.report.reported) {
+        Text(this.t('agent.draft.report.reported'))
+          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+          .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2, top: 2, bottom: 2 })
+          .backgroundColor(CouliColors.backgroundMuted)
+          .borderRadius(CouliRadius.pill)
+      }
+      if (this.feedback !== undefined) {
+        this.thumb('up', 'thumb-up', this.t('agent.draft.feedback.up'), this.t('agent.draft.feedback.up_selected'))
+        this.thumb('down', 'thumb-down', this.t('agent.draft.feedback.down'), this.t('agent.draft.feedback.down_selected'))
+      }
+      if (this.report !== undefined && !this.report.reported) {
+        // 读屏等价入口（G29：长按不可达时）：「更多操作 → 举报」。视觉上不占位（只给读屏与键盘焦点）。
+        Button({ type: ButtonType.Normal, stateEffect: false }) {
+          Text(this.t('agent.draft.report.entry'))
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+        }
+        .height(CouliInteraction.minTouchTarget)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText(this.t('agent.draft.report.more_entry'))
+        .focusBox(CouliFocus.box)
+        .onClick(() => {
+          const r = this.report;
+          if (r !== undefined) {
+            this.port?.reportOpen(r.ticket);
+          }
+        })
+      }
+    }
+    .alignItems(VerticalAlign.Center)
+  }
+}
+
 /** 一轮对话：用户消息（右）+ assistant（工具状态、受限文本、卡片、错误、追问胶囊、AiLabel）。读屏顺序即时间顺序。 */
 @ComponentV2
 export struct AgentTurnItemView {
@@ -524,22 +601,28 @@ export struct AgentTurnItemView {
   @Param port: AgentScreenPort | undefined = undefined;
   @Param busy: boolean = false;
   @Param limited: boolean = false;
+  /** 消息内【重试】/【刷新】的禁用（R2-06：重连查询与刷新用读取闸门，同键重发与新消息用发送闸门；由页面按快照给）。 */
+  @Param retryLimited: boolean = false;
+  @Param actionLimited: boolean = false;
 
   build() {
     if (this.turn !== undefined) {
       Column({ space: CouliSpacing.space3 }) {
-        Row() {
-          Blank()
-          Text(this.turn.userText)
-            .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.buttonPrimaryDefaultText))
-            .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3, top: CouliSpacing.space2,
-              bottom: CouliSpacing.space2 })
-            .backgroundColor(CouliColors.brandPrimary)
-            .borderRadius(CouliRadius.card)
-            .constraintSize({ maxWidth: '80%' })
-            .copyOption(CopyOptions.None)
+        if (!this.turn.hideUser && this.turn.userText.length > 0) {
+          // 用户原文原样纯文本显示（G41：不剥离、不识别链接、不可点）。
+          Row() {
+            Blank()
+            Text(this.turn.userText)
+              .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.buttonPrimaryDefaultText))
+              .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3, top: CouliSpacing.space2,
+                bottom: CouliSpacing.space2 })
+              .backgroundColor(CouliColors.brandPrimary)
+              .borderRadius(CouliRadius.card)
+              .constraintSize({ maxWidth: '80%' })
+              .copyOption(CopyOptions.None)
+          }
+          .width('100%')
         }
-        .width('100%')
         Column({ space: CouliSpacing.space3 }) {
           ForEach(this.turn.tools, (tool: AgentTool, i: number) => {
             AgentToolRow({ tool: tool })
@@ -550,7 +633,7 @@ export struct AgentTurnItemView {
           ForEach(this.turn.cards, (c: AgentCardView, i: number) => {
             AgentCardItem({ view: c, port: this.port, disabled: this.busy || this.limited })
           }, (c: AgentCardView, i: number) => c.card.cardId + ':' + String(i))
-          if (this.turn.streaming) {
+          if (this.turn.streaming && this.turn.statusText.length === 0) {
             Row({ space: CouliSpacing.space2 }) {
               LoadingProgress()
                 .width(16)
@@ -560,28 +643,61 @@ export struct AgentTurnItemView {
                 .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
             }
           }
-          if (this.turn.status === 'cancelled' && this.turn.error === null) {
+          if (this.turn.statusText.length > 0) {
+            // 「正在停止」（G26）/「已停止」/ 超限说明（limited）。
+            Row({ space: CouliSpacing.space2 }) {
+              if (this.turn.streaming) {
+                LoadingProgress()
+                  .width(16)
+                  .height(16)
+                  .color(CouliColors.textSecondary)
+              }
+              Text(this.turn.statusText)
+                .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+            }
+          } else if (this.turn.status === 'cancelled' && this.turn.error === null) {
             Text(this.port?.text('agent.draft.cancelled') ?? '')
               .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
           }
+          if (this.turn.genericError.length > 0) {
+            Text(this.turn.genericError)
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          }
           if (this.turn.error !== null) {
-            AgentErrorBlock({ error: this.turn.error, port: this.port, retryDisabled: this.busy || this.limited })
+            AgentErrorBlock({ error: this.turn.error, port: this.port, retryDisabled: this.busy || this.retryLimited })
           }
           if (this.turn.chips.length > 0) {
             AgentChipRow({ chips: this.turn.chips, disabled: this.busy || this.limited, port: this.port })
           }
-          if (this.turn.aiLabel !== null) {
-            // 每条已结束的回复（含以 error 结束的）都有 AiLabel，读屏能读到（R1-08）。
-            Row() {
-              AiLabel({ text: this.turn.aiLabel as string })
+          if (this.turn.aiLabel !== null || this.turn.feedback !== null || this.turn.report !== null) {
+            // 大字号 / 窄屏时换行（AiLabel 一行、【赞】【踩】与举报另起一行），不截断。
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween, alignItems: ItemAlign.Center }) {
+              if (this.turn.aiLabel !== null) {
+                // 每条已结束的回复（含以 error 结束的）都有 AiLabel，读屏能读到（R1-08）。
+                Row() {
+                  AiLabel({ text: this.turn.aiLabel as string })
+                }
+                .accessibilityGroup(true)
+                .accessibilityLevel('yes')
+                .accessibilityText(this.turn.aiLabel as string)
+              }
+              AgentFeedbackBar({
+                feedback: this.turn.feedback ?? undefined, report: this.turn.report ?? undefined, port: this.port,
+                disabled: this.actionLimited
+              })
             }
-            .accessibilityGroup(true)
-            .accessibilityLevel('yes')
-            .accessibilityText(this.turn.aiLabel as string)
+            .width('100%')
           }
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
+        .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+          // 长按回复气泡 → 举报（G29；与反馈同一显示条件，已举报的不再提供）。
+          const r = this.turn?.report;
+          if (r !== null && r !== undefined && !r.reported) {
+            this.port?.reportOpen(r.ticket);
+          }
+        }))
       }
       .width('100%')
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2,

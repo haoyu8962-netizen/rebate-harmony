@@ -2,7 +2,7 @@ import { bundleManager, common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner,
-  DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
+  DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, HttpTransport, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
   PendingKeyBackend, PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
   SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionTokens, SessionTokensCleaner,
   UpdateNetworkPort, UpdateState
@@ -133,8 +133,11 @@ export class AppNetwork {
       (): UpdateState => AppUpdate.shared.inAppUpdate(),
       (minSupported: string | null): void => AppUpdate.shared.on10405(minSupported));
     // 传输层：Release 为 RcpTransport；Debug / Staging 外包一层只在启动参数打开时接管的本机假服务（APP-05a 冒烟与截图）。
-    const deps: ApiClientDeps = new ApiClientDeps(BuildVariant.networkTransport(), new AppNetworkContext(), AppNetwork.identity(),
+    const transport: HttpTransport = BuildVariant.networkTransport();
+    const deps: ApiClientDeps = new ApiClientDeps(transport, new AppNetworkContext(), AppNetwork.identity(),
       tokens, update);
+    // APP-10b：流式请求（sendAgentMessage）经同一个传输入口（Release：同一个 RCP 会话；Debug / Staging：同一道假服务闸门）。
+    deps.streamTransport = BuildVariant.networkStreamTransport(transport);
     deps.pendingKeys = pendingKeys;
     const registry: DeviceRegistry = new DeviceRegistry(ClientPlatformRaw.HARMONY, new OdidReader(),
       new SecureDeviceCredentialStore(

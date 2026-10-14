@@ -693,12 +693,47 @@ export class AppMe {
    * 现在是游客、发起页面许可仍有效（同一实例、没离开过；RiskNotice / 申诉页被这次会话清理带走的也算）时，经 Router 回「我的」游客态。
    * 返回是否已导航回「我的」。
    */
+  /**
+   * APP-10b G01：Agent 的归属协调器入口（AppAgent.compose 登记；不直接 import AppAgent，免得 AppMe ↔ AppAgent 模块循环）。
+   * 事件名同 AgentOwnershipEvent（logout / privacy_withdrawn）。出错不影响原流程。
+   */
+  static agentStop: (event: string) => void = (_e: string) => {
+  };
+
+  static agentOwnershipStop(event: string): void {
+    try {
+      AppMe.agentStop(event);
+    } catch (e) {
+      // Agent 作废出错不拖慢退出 / 撤回。
+    }
+  }
+
+  /** 身份变更流程结束（harmony-review-r1 R1-03：退出登录 / 撤回隐私的请求与本地结果落定后解除「身份变更在途」）。 */
+  static agentStopEnd: (event: string) => void = (_e: string) => {
+  };
+
+  static agentOwnershipEnd(event: string): void {
+    try {
+      AppMe.agentStopEnd(event);
+    } catch (e) {
+      // 出错不影响原流程。
+    }
+  }
+
   async logout(identity: string, permit: () => boolean): Promise<boolean> {
     if (identity !== AppMe.scopeKey() || !AppMe.allowed(permit)) {
       return false;
     }
     this.reporterInstance?.halt();
-    const done: boolean = await AppLogin.shared.logout();
+    // APP-10b G01：退出登录确认后的同步入口、logout 请求发出之前：Agent 先同步停流，再以原身份尽力发一次 cancel。
+    AppMe.agentOwnershipStop('logout');
+    let done: boolean = false;
+    try {
+      done = await AppLogin.shared.logout();
+    } finally {
+      // R1-03：logout 请求与本地清理落定后才解除「身份变更在途」（之后的状态同步按新身份重建 Agent）。
+      AppMe.agentOwnershipEnd('logout');
+    }
     AppRouting.shared.stateChanged();
     if (!Route10006.logoutLanding(done, AppMe.level(), permit)) {
       // 迟到的退出（期间已登录新会话）、发起页面已离开或用户又导航过：不覆盖新会话与后续导航。
@@ -833,10 +868,17 @@ class AppPrivacyPorts implements PrivacyCenterPorts {
   }
 
   localWithdraw(): boolean {
-    return AppPrivacy.shared.withdraw();
+    try {
+      return AppPrivacy.shared.withdraw();
+    } finally {
+      // R1-03：撤回记录请求结束、本地撤回落定后解除 Agent 的「身份变更在途」（haltPush 时锁住）。
+      AppMe.agentOwnershipEnd('privacy_withdrawn');
+    }
   }
 
   haltPush(): void {
+    // APP-10b G01：撤回隐私同意确认后的同步入口、撤回记录发出之前（此刻仍是完整模式）：Agent 先同步停流，再以原身份尽力发一次 cancel。
+    AppMe.agentOwnershipStop('privacy_withdrawn');
     AppMe.shared.reporter?.halt();
   }
 

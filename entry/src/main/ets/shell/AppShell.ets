@@ -76,6 +76,11 @@ export struct AppShell {
    * （保留只读标记）；基本模式下需同意 → 登记待办并弹首启弹窗，同意后恢复切过去；需要登录 → 登记待办并去登录页。
    */
   private select(index: number): void {
+    if (SHELL_TABS[index].route === 'AgentChat' && !this.shell.agentEntryVisible) {
+      // G32：入口关闭时这个位置是「搜索」：经 Router 打开 Search（auth=none），不切到 Agent 页。
+      AppRouting.shared.openInApp('Search');
+      return;
+    }
     AppRouting.shared.openInApp(SHELL_TABS[index].route);
   }
 
@@ -183,7 +188,7 @@ export struct AppShell {
 
       Column() {
         TabBar({
-          items: shellTabItems(),
+          items: shellTabItems(this.shell.agentEntryVisible),
           selectedIndex: this.shell.selected,
           onSelect: (index: number) => {
             this.select(index);

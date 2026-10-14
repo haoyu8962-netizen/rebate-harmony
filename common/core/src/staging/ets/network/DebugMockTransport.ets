@@ -5,7 +5,9 @@
 // previewPage、公告 listArticles、以后的任何接口）自动受同一道检查。
 import { AppConfig } from '../../../main/ets/config/AppConfig';
 import { AppEnvironment, EnvironmentSource } from '../../../main/ets/config/AppEnvironment';
-import { HttpTransport, TransportRequest, TransportResponse } from '../../../main/ets/network/HttpTransport';
+import {
+  HttpStreamTransport, HttpTransport, TransportFailure, TransportRequest, TransportResponse, TransportStreamSink
+} from '../../../main/ets/network/HttpTransport';
 import { DebugCapabilities, DebugCapability } from '../config/DebugCapabilities';
 
 /** 调试假数据的统一判断（传输入口、首页数据源、截图替身共用）。 */
@@ -32,20 +34,54 @@ export class DebugMockGate {
  * 实际传输入口：fake 是本机假服务（只回答、不连网），real 是真实传输层。send 时按此刻的开关与环境选一边；
  * cancel 交给当初接下这个请求的那一边（发出后切了环境也能取消掉本机假服务的等待）。
  */
-export class DebugMockTransport implements HttpTransport {
+export class DebugMockTransport implements HttpTransport, HttpStreamTransport {
   private readonly fake: HttpTransport;
   private readonly real: HttpTransport;
   private readonly enabled: () => boolean;
   private readonly environment: () => AppEnvironment | undefined;
   /** 由本机假服务接下、还没结束的请求。 */
   private readonly faked: Set<TransportRequest> = new Set<TransportRequest>();
+  /** APP-10b：流式请求的两边（同一道闸门；没有流式能力的一边为 null）。 */
+  private readonly fakeStream: HttpStreamTransport | null;
+  private readonly realStream: HttpStreamTransport | null;
+  private readonly fakedStreams: Set<TransportRequest> = new Set<TransportRequest>();
 
   constructor(fake: HttpTransport, real: HttpTransport, enabled: () => boolean,
-    environment: () => AppEnvironment | undefined = (): AppEnvironment | undefined => DebugMockGate.currentEnvironment()) {
+    environment: () => AppEnvironment | undefined = (): AppEnvironment | undefined => DebugMockGate.currentEnvironment(),
+    fakeStream: HttpStreamTransport | null = null, realStream: HttpStreamTransport | null = null) {
     this.fake = fake;
     this.real = real;
     this.enabled = enabled;
     this.environment = environment;
+    this.fakeStream = fakeStream;
+    this.realStream = realStream;
+  }
+
+  /** 流式请求（APP-10b）：与 send 同一个实际传输入口、同一道闸门（不另开旁路）。 */
+  stream(request: TransportRequest, sink: TransportStreamSink): void {
+    if (!this.mockAllowed()) {
+      if (this.realStream === null) {
+        sink.onFailure(TransportFailure.DISCONNECT);
+        return;
+      }
+      (this.realStream as HttpStreamTransport).stream(request, sink);
+      return;
+    }
+    if (this.fakeStream === null) {
+      sink.onFailure(TransportFailure.DISCONNECT);
+      return;
+    }
+    this.fakedStreams.add(request);
+    (this.fakeStream as HttpStreamTransport).stream(request, sink);
+  }
+
+  cancelStream(request: TransportRequest): void {
+    if (this.fakedStreams.has(request)) {
+      this.fakedStreams.delete(request);
+      this.fakeStream?.cancelStream(request);
+      return;
+    }
+    this.realStream?.cancelStream(request);
   }
 
   /** 此刻是否由本机假服务回答。 */

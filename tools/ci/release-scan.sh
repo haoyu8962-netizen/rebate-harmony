@@ -38,6 +38,11 @@
 #     启动参数键 couli_debug_agent_fixture（common/core/src/staging/ets/agent/、entry/src/staging/ets/agent/）；
 #     启动参数自动发送（harmony-review-r1 R1-11）：标记 COULI_AGENT_LAUNCH_SEND_APP10_2f9c4d、启动参数键 couli_debug_agent_send
 #     （entry/src/staging/ets/agent/AgentVariant.ets；Release 的同名文件是空实现）
+#   - Agent 真实流式传输（APP-10b）：传输入口的本机假服务类名 AgentFakeTransport（common/core/src/staging/ets/agent/）、
+#     历史场景启动参数键 couli_debug_agent_history（entry/src/staging/ets/agent/AgentVariant.ets）
+# 另有「只许在测试源码集」的标记（APP-10b harmony-review-r1 R1-04）：向量接线的脚本端口 / 虚拟流类名（TimeoutProbePort、TimeoutProbeHandle、
+# AgentProbePort、AgentProbeHandle、AgentProbeTimer、AgentVectorProbe、虚拟计时器 AgentVirtualTimer）与硬编码的 meta / done 帧片段（common/core/src/test/AgentVectorWiring.ets）。
+# 它们不该出现在任何制品里：Release 扫描命中即阻断；--self-test（Staging / Debug）同样不得命中（命中退出 1，与「有标记没命中」区分见下）。
 #   - 注销与换手机号的本机假服务（APP-13a）：标记 COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90、启动参数键 couli_debug_account_scene；
 #     路由可用性覆盖开关：标记 COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e、启动参数键 couli_debug_route_available
 #     （entry/src/staging/ets/variant/DebugFakeAccount.ets、BuildVariant.ets）
@@ -145,12 +150,20 @@ markers = [
     # APP-10：Agent 四个待定 operation 的本机假服务（common/core/src/staging/ets/agent/AgentFakeService.ets）、fixture 原文表
     # （entry/src/staging/ets/variant/AgentFixtures.ets，gen.py 生成）与启动参数键（entry/src/staging/ets/agent/AgentVariant.ets）。
     "COULI_AGENT_FAKE_APP10_7d3e15", "AgentFakeService", "couli_debug_agent_fixture",
+    # APP-10b：7 个 /v1/agent operation 的本机假服务（接在 ApiClient 下面的实际传输入口；历史 / 反馈 / 举报的假实现同一标记）与其启动参数键。
+    "AgentFakeTransport", "couli_debug_agent_history",
     # APP-10 R1-11：启动参数自动发送与重试计时的实现（只在 staging 源码集）。
     "COULI_AGENT_LAUNCH_SEND_APP10_2f9c4d", "couli_debug_agent_send",
     # APP-13a：注销与换手机号的本机假服务（entry/src/staging/ets/variant/DebugFakeAccount.ets）与场景启动参数键；路由可用性覆盖开关
     # （编排者补充 G01：DeleteAccount since=null 时只在 Debug / Staging 用于冒烟、截图，entry/src/staging/ets/variant/BuildVariant.ets）。
     "COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90", "couli_debug_account_scene",
     "COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e", "couli_debug_route_available",
+]
+# APP-10b R1-04：只许在测试源码集的标记（任何制品都不得命中；不参与 --self-test 的「必须命中」）。
+test_only_markers = [
+    "TimeoutProbePort", "TimeoutProbeHandle", "AgentProbePort", "AgentProbeHandle", "AgentProbeTimer", "AgentVectorProbe",
+    "AgentVirtualTimer",
+    '"model_label":"m","ai_label":"a"', '"finish_reason":"stop","quota_left":1}',
 ]
 debug_routes = sorted(name for name, r in routes.items() if r.get("debug_only") is True)
 if not debug_routes:
@@ -173,6 +186,11 @@ for dirpath, _, names in os.walk(root, onerror=lambda e: fail("遍历失败：%r
         except Exception as e:  # noqa: BLE001
             fail("读 %s 失败：%r" % (rel, e))
         files += 1
+        for p in test_only_markers:
+            for enc in ("utf-8", "utf-16-le"):
+                if p.encode(enc) in data:
+                    found.setdefault(p, []).append("%s（%s）" % (rel, enc))
+                    break
         for p in markers:
             for enc in ("utf-8", "utf-16-le"):
                 if p.encode(enc) in data:
@@ -206,9 +224,10 @@ for ability in module_obj.get("abilities", []) or []:
 if DEBUG_SCHEME in declared_schemes:
     flags.append("module.json: skills 声明了测试深链 scheme %s" % DEBUG_SCHEME)
 
-for p in markers:
+for p in markers + test_only_markers:
     if p in found:
         print("  命中 %r：%s" % (p, "、".join(found[p][:3])))
+test_only_found = [p for p in test_only_markers if p in found]
 for fl in flags:
     print("  命中 " + fl)
 
@@ -218,8 +237,10 @@ if mode == "self-test":
         missing.append("module.json skills scheme " + DEBUG_SCHEME)
     for p in missing:
         print("  未命中 %r" % p)
+    for p in test_only_found:
+        print("  测试源码集标记进了制品 %r" % p)
     print("RELEASE-SCAN-COMPLETE files=%d markers=%d found=%d" % (files, len(markers), len(markers) - len(missing)))
-    sys.exit(11 if missing else 0)
+    sys.exit(12 if test_only_found else (11 if missing else 0))
 print("RELEASE-SCAN-COMPLETE files=%d markers=%d found=%d" % (files, len(markers), len(found)))
 sys.exit(10 if (found or flags) else 0)
 PY
@@ -237,6 +258,7 @@ if [ "$MODE" = "self-test" ]; then
     case "$STATUS" in
         0)  echo "release-scan --self-test：${NAME} 命中全部内容标记（扫描有效）"; exit 0 ;;
         11) echo "release-scan --self-test：${NAME} 有内容标记没命中——扫描没有牙齿或标记被裁掉" >&2; exit 1 ;;
+        12) echo "release-scan --self-test：${NAME} 含只许在测试源码集的向量探针或帧数据（R1-04）" >&2; exit 1 ;;
         *)  die "python3 exit ${STATUS}" ;;
     esac
 fi

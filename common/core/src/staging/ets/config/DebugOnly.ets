@@ -15,6 +15,8 @@ export {
 export {
   AGENT_FAKE_MARKER, AgentFakeScript, AgentFakeService, AgentDebugSources
 } from '../agent/AgentFakeService';
+// APP-10b：7 个 /v1/agent operation 的本机假服务（接在 ApiClient 下面的实际传输入口，同一道 DebugMockGate；同一标记）。
+export { AgentFakeHistoryScenario, AgentFakeTransport } from '../agent/AgentFakeTransport';
 // R2-01：本机假服务的传输入口闸门（prod 一律走真实传输）。
 export { DebugMockGate, DebugMockTransport } from '../network/DebugMockTransport';
 // F-X-02：传输入口以外的调试替身统一过同一道环境闸门（每次使用时重新判断）。

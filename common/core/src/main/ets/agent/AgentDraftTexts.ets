@@ -122,6 +122,43 @@ export class AgentDraftTexts {
     // ---- 读屏（代拟）
     m.set('agent.draft.a11y.user_said', '我说：{text}');
     m.set('agent.draft.a11y.button', '{action}，{target}');
+    // ---- APP-10b（TODO(N-38)，G30）：契约 texts.default.json 没有这些键。照 AgentResult / AgentReport / AgentReported 稿与 flow-map 23.2.22
+    // 逐字；标「代拟」的规划与设计稿都没有原文。error.30505 不显示（G25 静默），不进本表。
+    m.set('agent.draft.feedback.up', '赞');
+    m.set('agent.draft.feedback.down', '踩');
+    m.set('agent.draft.feedback.up_selected', '已赞');
+    m.set('agent.draft.feedback.down_selected', '已踩');
+    m.set('agent.draft.report.entry', '举报');
+    m.set('agent.draft.report.more', '更多操作');
+    m.set('agent.draft.report.more_entry', '更多操作，举报');
+    m.set('agent.draft.report.title', '举报这条回复');
+    m.set('agent.draft.report.subtitle', '选择原因后提交，我们会核实处理');
+    m.set('agent.draft.report.reason.misleading', '内容不实或有误导');
+    m.set('agent.draft.report.reason.illegal', '含违法违规内容');
+    m.set('agent.draft.report.reason.vulgar', '含低俗、冒犯内容');
+    m.set('agent.draft.report.reason.infringe', '侵犯他人权益');
+    m.set('agent.draft.report.reason.other', '其他问题');
+    m.set('agent.draft.report.supplement', '补充说明（选填）');
+    m.set('agent.draft.report.submit', '提交举报');
+    m.set('agent.draft.report.reported', '已举报');
+    m.set('agent.draft.report.toast', '举报已提交，我们会核实处理');
+    m.set('agent.draft.report.joiner', '：');
+    m.set('agent.draft.report.too_long', '补充说明太长了，请删减后再提交');
+    m.set('agent.draft.report.reason_error', '请重新选择举报原因');
+    m.set('agent.draft.report.close', '关闭');
+    m.set('agent.draft.action_failed', '操作没有成功，请稍后再试');
+    m.set('agent.draft.stopping', '正在停止');
+    m.set('agent.draft.stopped', '已停止');
+    m.set('agent.draft.limited', '回复内容过长，后面的内容不再显示');
+    m.set('agent.draft.replying', '回复中');
+    m.set('agent.draft.refresh', '刷新');
+    m.set('agent.draft.history.earlier', '加载更早的消息');
+    m.set('agent.draft.history.none', '没有更早的消息');
+    m.set('agent.draft.history.failed', '加载失败，点此重试');
+    m.set('agent.draft.history.load_failed', '对话记录加载失败');
+    m.set('agent.draft.readonly', '这个对话已结束，只能查看');
+    m.set('agent.draft.consent.not_saved', '同意没有保存成功');
+    m.set('agent.draft.quota.tomorrow', '今天的提问次数用完了，明天再来吧');
     return m;
   }
 

@@ -1,0 +1,5881 @@
+{
+  "version": 1,
+  "sources": [
+    "couli-runs/NATIVE/APP-10b/brief.md §0、§2–4、编排者补充1–6；补充优先",
+    "couli-runs/NATIVE/APP-10b/rule-gaps.md G01–G44，TODO(N-38)",
+    "rebate-platform@40cfc268f2e9dc5a21aab023af3d0a95456d1d0b:contracts/openapi.yaml",
+    "rebate-platform@40cfc268:contracts/error-codes.yaml",
+    "rebate-platform@40cfc268:contracts/agent-stream.schema.json",
+    "rebate-platform@40cfc268:contracts/README.md 书写规则16–17",
+    "rebate-platform@40cfc268:contracts/fixtures/agent-streams/*.ndjson",
+    "rebate-platform@40cfc268:contracts/texts.default.json",
+    "rebate-platform@40cfc268:specs/events.yaml",
+    "couli@origin/main:规划/03_前端架构.md §7.2",
+    "couli@origin/main:规划/04_数据模型与契约.md §6.5、§8",
+    "couli@origin/main:规划/08_业务规则/08_AI_权限与数据来源.md BR-AI-01/06/11–15/23/24",
+    "couli@origin/main:规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-10/14",
+    "couli@origin/main:规划/10_首个完整流程验收用例.md AC-S1-142–156、174、179"
+  ],
+  "conventions": {
+    "nowIso": "2026-10-14T10:00:00+08:00",
+    "construction": "除明确标注契约原文的资产外，全部为构造。短身份名、轮号、运行票据仅是客户端模型，不是新增线上字段。",
+    "time": "绝对时间均为ISO-8601 +08:00；atMs、requestAtMs、deadlineMs、requestTimesMs为相对nowIso的毫秒坐标，delayMs为时长。测试把nowIso转换为nowMs注入；不读取真实时钟、不sleep。",
+    "rawEnums": "新增规范化字符串枚举用Raw后缀。线上JSON保留契约字段名；卡片投影沿用旧向量的cardId/type/kind/fallbackText/blockedRoute。",
+    "expansion": "仅测试数据展开：{$ref:name}引用assets；可带with对对象浅覆盖；{$repeat:text,count:n}重复字符串；{$concat:[...]}拼接字符串。不得据输入计算期望。",
+    "axes": "每行先取input/expect，再按axes从左到右做笛卡尔积。轴成员的input/expect分别浅覆盖，name拼入测试名。没有axes时执行一次。空轴、未知组、重复测试名必须失败。",
+    "comparison": "expect对象按列出的字段比较；数组有序且等长；显式null必须存在且为null；requests、bodies、buttons、gateWrites、headers、params整棵子树精确比较。业务结果不得接收expect、name或axes。",
+    "bytes": "chunks每项为{encodingRaw:utf8|base64,value:string}。base64解码后是原始字节，不可先解为字符串。splitSizes存在时先拼所有字节，再循环按指定字节数切块。",
+    "sseProjection": "AgentSse输出投影为items[{kindRaw,eventRaw?,id?,dataText?,dataUtf8Bytes?}]；id仍为原始十进制字符串。dataText逐字比较。bufferedBytes是finish后的实际解析缓冲字节数。",
+    "history": "history输入response为原始外壳；输入items时测试仅组装code=0、msg=''、data={items,next_cursor,expired}外壳。历史decode结果不得保留金额字段或原始金额副本。",
+    "terminal": "历史finish_reason=null且没有契约run_id时按编排者补充渲染done，保留finishReasonRaw=null，不伪造stop，不提供停止。",
+    "replay": "resend_same_id仅发生于用户已点重试、历史确认未匹配且发送闸门允许之后。断线、缺号、duplicate自身不自动重发或重连流。",
+    "ownership": "控制器仍不发送身份cancel。应用级协调器先同步停流和撤销票据，再以原身份准入一次cancel；cancel不挂页面归属。",
+    "legacyRefs": [
+      "agent-vectors.json:sse/G07_多行data",
+      "agent-vectors.json:streams/G08_构造_id5后id4乱序",
+      "agent-vectors.json:streams/G08_构造_G06_local_cancel后迟到delta_card_done",
+      "agent-vectors.json:cards/G13_构造_历史来源误带全部金额",
+      "agent-vectors.json:cards/G09_构造_已知卡高版本",
+      "agent-vectors.json:ticket/G06_logout",
+      "agent-vectors.json:ticket/G06_privacy_withdrawn",
+      "agent-vectors.json:ticket/G06_ai_consent_withdrawn",
+      "agent-vectors.json:ticket/G06_env_switch",
+      "agent-vectors.json:sendErrors/G24_50401同键重试_trace6",
+      "agent-vectors.json:sendErrors/G24_50001新对话_trace6",
+      "agent-vectors.json:clientMsgId/retry_disconnected"
+    ]
+  },
+  "assets": {
+    "operations": [
+      {
+        "name": "create",
+        "input": {
+          "operationRaw": "createAgentSession"
+        },
+        "expect": {
+          "gateGroupRaw": "send",
+          "minVersionGate": true
+        }
+      },
+      {
+        "name": "current",
+        "input": {
+          "operationRaw": "getCurrentAgentSession"
+        },
+        "expect": {
+          "gateGroupRaw": "read",
+          "minVersionGate": false
+        }
+      },
+      {
+        "name": "history",
+        "input": {
+          "operationRaw": "listAgentSessionMessages"
+        },
+        "expect": {
+          "gateGroupRaw": "read",
+          "minVersionGate": false
+        }
+      },
+      {
+        "name": "send",
+        "input": {
+          "operationRaw": "sendAgentMessage"
+        },
+        "expect": {
+          "gateGroupRaw": "send",
+          "minVersionGate": true
+        }
+      },
+      {
+        "name": "cancel",
+        "input": {
+          "operationRaw": "cancelAgentRun"
+        },
+        "expect": {
+          "gateGroupRaw": "action",
+          "minVersionGate": true
+        }
+      },
+      {
+        "name": "feedback",
+        "input": {
+          "operationRaw": "setAgentMessageFeedback"
+        },
+        "expect": {
+          "gateGroupRaw": "action",
+          "minVersionGate": true
+        }
+      },
+      {
+        "name": "report",
+        "input": {
+          "operationRaw": "reportAgentMessage"
+        },
+        "expect": {
+          "gateGroupRaw": "action",
+          "minVersionGate": true
+        }
+      }
+    ],
+    "accepted": "event: meta\nid: 1\ndata: {\"session_id\":\"019a0000-0000-7000-8000-000000000021\",\"run_id\":\"019a0000-0000-7000-8000-000000000121\",\"message_id\":\"019a0000-0000-7000-8000-000000000221\",\"prompt_version\":\"demo-prompt-v1\",\"model_label\":\"演示模型\",\"ai_label\":\"内容由 AI 生成，仅供参考\",\"duplicate\":false}\n\n: ping\n\nevent: card\nid: 2\ndata: {\"seq\":2,\"card_id\":\"c1\",\"type\":\"page_guide\",\"schema_version\":1,\"data\":{\"route\":\"WithdrawRecords\",\"text_key\":\"agent.guide.WithdrawRecords\"},\"fallback_text\":\"提现进度在提现记录里查看。\"}\n\nevent: done\nid: 3\ndata: {\"finish_reason\":\"stop\",\"quota_left\":24}\n\n",
+    "duplicateEnded": "event: meta\nid: 1\ndata: {\"session_id\":\"019a0000-0000-7000-8000-000000000021\",\"run_id\":\"019a0000-0000-7000-8000-000000000121\",\"message_id\":\"019a0000-0000-7000-8000-000000000221\",\"prompt_version\":\"demo-prompt-v1\",\"model_label\":\"演示模型\",\"ai_label\":\"内容由 AI 生成，仅供参考\",\"duplicate\":true}\n\nevent: done\nid: 2\ndata: {\"finish_reason\":\"stop\",\"quota_left\":24}\n\n",
+    "duplicateInProgress": "event: meta\nid: 1\ndata: {\"session_id\":\"019a0000-0000-7000-8000-000000000021\",\"run_id\":\"019a0000-0000-7000-8000-000000000123\",\"message_id\":\"019a0000-0000-7000-8000-000000000223\",\"prompt_version\":\"demo-prompt-v1\",\"model_label\":\"演示模型\",\"ai_label\":\"内容由 AI 生成，仅供参考\",\"duplicate\":true}\n\nevent: error\nid: 2\ndata: {\"code\":30506,\"msg\":\"上一条还在回复中\",\"retryable\":true,\"fallback\":null,\"fallback_q\":null}\n\n",
+    "guide": {
+      "card_id": "c1",
+      "type": "page_guide",
+      "schema_version": 1,
+      "data": {
+        "route": "WithdrawRecords",
+        "text_key": "agent.guide.WithdrawRecords"
+      },
+      "fallback_text": "提现进度在提现记录里查看。"
+    },
+    "earnings": {
+      "card_id": "c2",
+      "type": "earnings_summary",
+      "schema_version": 1,
+      "data": {
+        "as_of": "2026-10-14T10:01:03+08:00",
+        "actions": [
+          {
+            "route": "Wallet",
+            "text_key": "agent.earnings.open_wallet"
+          },
+          {
+            "route": "WithdrawRecords",
+            "text_key": "agent.earnings.open_records"
+          }
+        ]
+      },
+      "fallback_text": "收益以钱包页显示为准。"
+    },
+    "u1": {
+      "message_id": "019a0000-0000-7000-8000-000000000221",
+      "role": "user",
+      "created_at": "2026-10-14T10:00:00+08:00",
+      "text": "提现记录在哪看",
+      "cards": [],
+      "finish_reason": null
+    },
+    "a1": {
+      "message_id": "019a0000-0000-7000-8000-000000000222",
+      "role": "assistant",
+      "created_at": "2026-10-14T10:00:03+08:00",
+      "text": "提现进度在提现记录里查看。",
+      "cards": [
+        {
+          "$ref": "guide"
+        }
+      ],
+      "finish_reason": "stop"
+    },
+    "active": {
+      "code": 0,
+      "msg": "",
+      "data": {
+        "items": [
+          {
+            "$ref": "u1"
+          },
+          {
+            "$ref": "a1"
+          },
+          {
+            "message_id": "019a0000-0000-7000-8000-000000000223",
+            "role": "user",
+            "created_at": "2026-10-14T10:01:00+08:00",
+            "text": "我现在有多少收益",
+            "cards": [],
+            "finish_reason": null
+          },
+          {
+            "message_id": "019a0000-0000-7000-8000-000000000224",
+            "role": "assistant",
+            "created_at": "2026-10-14T10:01:04+08:00",
+            "text": "这是你当时的收益概况，以钱包页为准。",
+            "cards": [
+              {
+                "$ref": "earnings"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ],
+        "next_cursor": "opaque-cursor-older-page",
+        "expired": false
+      },
+      "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+    },
+    "expired": {
+      "code": 0,
+      "msg": "",
+      "data": {
+        "items": [
+          {
+            "message_id": "019a0000-0000-7000-8000-000000000231",
+            "role": "user",
+            "created_at": "2026-10-12T21:00:00+08:00",
+            "text": "返利什么时候到账",
+            "cards": [],
+            "finish_reason": null
+          },
+          {
+            "message_id": "019a0000-0000-7000-8000-000000000232",
+            "role": "assistant",
+            "created_at": "2026-10-12T21:00:05+08:00",
+            "text": "",
+            "cards": [],
+            "finish_reason": "cancelled"
+          }
+        ],
+        "next_cursor": null,
+        "expired": true
+      },
+      "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+    },
+    "pairPage": {
+      "code": 0,
+      "msg": "",
+      "data": {
+        "items": [
+          {
+            "$ref": "u1"
+          },
+          {
+            "$ref": "a1"
+          }
+        ],
+        "next_cursor": null,
+        "expired": false
+      },
+      "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+    },
+    "emptyPage": {
+      "code": 0,
+      "msg": "",
+      "data": {
+        "items": [],
+        "next_cursor": null,
+        "expired": false
+      },
+      "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+    },
+    "local": [
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000211",
+        "turnId": "old",
+        "roleRaw": "user",
+        "text": "旧问题",
+        "createdAtIso": "2026-10-14T09:50:00+08:00",
+        "cards": []
+      },
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000212",
+        "turnId": "old",
+        "roleRaw": "assistant",
+        "text": "旧回复",
+        "statusRaw": "done",
+        "cards": []
+      },
+      {
+        "messageId": null,
+        "localId": "local-u",
+        "turnId": "target",
+        "roleRaw": "user",
+        "text": "提现记录在哪看",
+        "createdAtIso": "2026-10-14T10:00:00+08:00",
+        "cards": []
+      },
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000222",
+        "turnId": "target",
+        "roleRaw": "assistant",
+        "text": "提现",
+        "statusRaw": "disconnected",
+        "cardActionGeneration": 7,
+        "cards": [
+          {
+            "cardId": "c1",
+            "type": "page_guide",
+            "kind": "known",
+            "fallbackText": null,
+            "blockedRoute": null
+          }
+        ]
+      }
+    ],
+    "merged": [
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000211",
+        "text": "旧问题"
+      },
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000212",
+        "text": "旧回复"
+      },
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000221",
+        "text": "提现记录在哪看"
+      },
+      {
+        "messageId": "019a0000-0000-7000-8000-000000000222",
+        "text": "提现进度在提现记录里查看。",
+        "statusRaw": "done",
+        "cards": [
+          {
+            "cardId": "c1",
+            "type": "page_guide",
+            "kind": "known",
+            "fallbackText": null,
+            "blockedRoute": null
+          }
+        ]
+      }
+    ],
+    "visibility": [
+      {
+        "name": "done",
+        "input": {
+          "statusRaw": "done"
+        },
+        "expect": {
+          "visible": true
+        }
+      },
+      {
+        "name": "error",
+        "input": {
+          "statusRaw": "error"
+        },
+        "expect": {
+          "visible": true
+        }
+      },
+      {
+        "name": "cancelled",
+        "input": {
+          "statusRaw": "cancelled"
+        },
+        "expect": {
+          "visible": true
+        }
+      },
+      {
+        "name": "limited",
+        "input": {
+          "statusRaw": "limited"
+        },
+        "expect": {
+          "visible": true
+        }
+      },
+      {
+        "name": "disconnected",
+        "input": {
+          "statusRaw": "disconnected"
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "incomplete",
+        "input": {
+          "statusRaw": "incomplete"
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "streaming",
+        "input": {
+          "statusRaw": "streaming"
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "duplicate_waiting",
+        "input": {
+          "statusRaw": "done",
+          "duplicatePending": true
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "missing_id",
+        "input": {
+          "messageId": null
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "untrusted_meta_id",
+        "input": {
+          "replyIdTrusted": false
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "meta_id_resolves_to_user",
+        "input": {
+          "resolvedRoleRaw": "user"
+        },
+        "expect": {
+          "visible": false
+        }
+      },
+      {
+        "name": "user",
+        "input": {
+          "roleRaw": "user"
+        },
+        "expect": {
+          "visible": false
+        }
+      }
+    ],
+    "message": {
+      "roleRaw": "assistant",
+      "statusRaw": "done",
+      "messageId": "019a0000-0000-7000-8000-000000000222",
+      "replyIdTrusted": true,
+      "resolvedRoleRaw": "assistant",
+      "duplicatePending": false,
+      "owner": "A",
+      "conversationGeneration": 1
+    }
+  },
+  "sseBytes": [
+    {
+      "name": "G20_构造_UTF8四字节emoji在1_2_3字节处分块",
+      "input": {
+        "modeRaw": "utf8"
+      },
+      "expect": {
+        "text": "中😀文",
+        "emitted": [
+          "中",
+          "😀文"
+        ],
+        "bufferedBytes": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "1",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "base64",
+                  "value": "5Lit8A=="
+                },
+                {
+                  "encodingRaw": "base64",
+                  "value": "n5iA5paH"
+                }
+              ]
+            }
+          },
+          {
+            "name": "2",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "base64",
+                  "value": "5Lit8J8="
+                },
+                {
+                  "encodingRaw": "base64",
+                  "value": "mIDmloc="
+                }
+              ]
+            }
+          },
+          {
+            "name": "3",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "base64",
+                  "value": "5Lit8J+Y"
+                },
+                {
+                  "encodingRaw": "base64",
+                  "value": "gOaWhw=="
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G20_构造_中文拆块",
+      "input": {
+        "modeRaw": "utf8",
+        "chunks": [
+          {
+            "encodingRaw": "base64",
+            "value": "5A=="
+          },
+          {
+            "encodingRaw": "base64",
+            "value": "uK0="
+          }
+        ]
+      },
+      "expect": {
+        "text": "中",
+        "emitted": [
+          "",
+          "中"
+        ],
+        "bufferedBytes": 0
+      }
+    },
+    {
+      "name": "G20_构造_非法UTF8与EOF残字节",
+      "input": {
+        "modeRaw": "utf8"
+      },
+      "axes": [
+        [
+          {
+            "name": "非法两字节",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "base64",
+                  "value": "//4="
+                }
+              ]
+            },
+            "expect": {
+              "text": "��",
+              "emitted": [
+                "��"
+              ],
+              "bufferedBytes": 0
+            }
+          },
+          {
+            "name": "未完成emoji",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "base64",
+                  "value": "8J8="
+                }
+              ]
+            },
+            "expect": {
+              "text": "�",
+              "emitted": [
+                ""
+              ],
+              "bufferedBytes": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G21_契约accepted原文含ping后空行及末尾空行",
+      "input": {
+        "chunks": [
+          {
+            "encodingRaw": "utf8",
+            "value": {
+              "$ref": "accepted"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "items": [
+          {
+            "kindRaw": "frame",
+            "eventRaw": "meta",
+            "id": "1"
+          },
+          {
+            "kindRaw": "ping"
+          },
+          {
+            "kindRaw": "frame",
+            "eventRaw": "card",
+            "id": "2"
+          },
+          {
+            "kindRaw": "frame",
+            "eventRaw": "done",
+            "id": "3"
+          }
+        ],
+        "bufferedBytes": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "整块"
+          },
+          {
+            "name": "1_3_17循环切字节",
+            "input": {
+              "splitSizes": [
+                1,
+                3,
+                17
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G21_契约duplicateEnded原文",
+      "input": {
+        "chunks": [
+          {
+            "encodingRaw": "utf8",
+            "value": {
+              "$ref": "duplicateEnded"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "items": [
+          {
+            "kindRaw": "frame",
+            "eventRaw": "meta",
+            "id": "1"
+          },
+          {
+            "kindRaw": "frame",
+            "eventRaw": "done",
+            "id": "2",
+            "dataText": "{\"finish_reason\":\"stop\",\"quota_left\":24}"
+          }
+        ],
+        "bufferedBytes": 0
+      }
+    },
+    {
+      "name": "G21_契约duplicateInProgress原文",
+      "input": {
+        "chunks": [
+          {
+            "encodingRaw": "utf8",
+            "value": {
+              "$ref": "duplicateInProgress"
+            }
+          }
+        ],
+        "splitSizes": [
+          1,
+          3,
+          17
+        ]
+      },
+      "expect": {
+        "items": [
+          {
+            "kindRaw": "frame",
+            "eventRaw": "meta",
+            "id": "1"
+          },
+          {
+            "kindRaw": "frame",
+            "eventRaw": "error",
+            "id": "2",
+            "dataText": "{\"code\":30506,\"msg\":\"上一条还在回复中\",\"retryable\":true,\"fallback\":null,\"fallback_q\":null}"
+          }
+        ],
+        "bufferedBytes": 0
+      }
+    },
+    {
+      "name": "G21_构造_BOM拆块_CRLF跨块_裸CR_半行",
+      "input": {
+        "chunks": [
+          {
+            "encodingRaw": "base64",
+            "value": "7w=="
+          },
+          {
+            "encodingRaw": "base64",
+            "value": "uw=="
+          },
+          {
+            "encodingRaw": "base64",
+            "value": "vw=="
+          },
+          {
+            "encodingRaw": "utf8",
+            "value": "event: text.delta\r"
+          },
+          {
+            "encodingRaw": "utf8",
+            "value": "\nid: 2\rdata: {\"seq\":2,\"te"
+          },
+          {
+            "encodingRaw": "utf8",
+            "value": "xt\":\"中😀文\"}\r\r"
+          }
+        ]
+      },
+      "expect": {
+        "items": [
+          {
+            "kindRaw": "frame",
+            "eventRaw": "text.delta",
+            "id": "2",
+            "dataText": "{\"seq\":2,\"text\":\"中😀文\"}"
+          }
+        ],
+        "bufferedBytes": 0
+      }
+    },
+    {
+      "name": "G20_构造_非法UTF8位于data内仍交帧",
+      "input": {
+        "chunks": [
+          {
+            "encodingRaw": "utf8",
+            "value": "event: text.delta\nid: 2\ndata: {\"seq\":2,\"text\":\""
+          },
+          {
+            "encodingRaw": "base64",
+            "value": "/w=="
+          },
+          {
+            "encodingRaw": "utf8",
+            "value": "\"}\n\n"
+          }
+        ]
+      },
+      "expect": {
+        "items": [
+          {
+            "kindRaw": "frame",
+            "eventRaw": "text.delta",
+            "id": "2",
+            "dataText": "{\"seq\":2,\"text\":\"�\"}"
+          }
+        ],
+        "bufferedBytes": 0
+      }
+    },
+    {
+      "name": "G21_构造_一块meta三条delta再card",
+      "input": {
+        "chunks": [
+          {
+            "encodingRaw": "utf8",
+            "value": "event: meta\nid: 1\ndata: {}\n\nevent: text.delta\nid: 2\ndata: {\"seq\":2,\"text\":\"中\"}\n\nevent: text.delta\nid: 3\ndata: {\"seq\":3,\"text\":\"😀\"}\n\nevent: text.delta\nid: 4\ndata: {\"seq\":4,\"text\":\"文\"}\n\nevent: card\nid: 5\ndata: {}\n\n"
+          }
+        ]
+      },
+      "expect": {
+        "items": [
+          {
+            "eventRaw": "meta",
+            "id": "1"
+          },
+          {
+            "eventRaw": "text.delta",
+            "id": "2"
+          },
+          {
+            "eventRaw": "text.delta",
+            "id": "3"
+          },
+          {
+            "eventRaw": "text.delta",
+            "id": "4"
+          },
+          {
+            "eventRaw": "card",
+            "id": "5"
+          }
+        ],
+        "bufferedBytes": 0
+      }
+    },
+    {
+      "name": "G22_构造_data按原始UTF8字节计64KiB边界",
+      "axes": [
+        [
+          {
+            "name": "恰好65536",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "utf8",
+                  "value": {
+                    "$concat": [
+                      "event: card\nid: 2\ndata: ",
+                      {
+                        "$repeat": "中",
+                        "count": 21845
+                      },
+                      "a\n\n"
+                    ]
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "items": [
+                {
+                  "kindRaw": "frame",
+                  "eventRaw": "card",
+                  "id": "2",
+                  "dataUtf8Bytes": 65536
+                }
+              ],
+              "bufferedBytes": 0
+            }
+          },
+          {
+            "name": "65537",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "utf8",
+                  "value": {
+                    "$concat": [
+                      "event: card\nid: 2\ndata: ",
+                      {
+                        "$repeat": "中",
+                        "count": 21845
+                      },
+                      "ab\n\n"
+                    ]
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "items": [
+                {
+                  "kindRaw": "too_large"
+                }
+              ],
+              "bufferedBytes": 0
+            }
+          },
+          {
+            "name": "70KiB",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "utf8",
+                  "value": {
+                    "$concat": [
+                      "event: card\nid: 2\ndata: ",
+                      {
+                        "$repeat": "x",
+                        "count": 71680
+                      },
+                      "\n\n"
+                    ]
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "items": [
+                {
+                  "kindRaw": "too_large"
+                }
+              ],
+              "bufferedBytes": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G22_构造_半行及注释上限",
+      "axes": [
+        [
+          {
+            "name": "65552无换行",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "utf8",
+                  "value": {
+                    "$repeat": "x",
+                    "count": 65552
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "items": [],
+              "bufferedBytes": 0
+            }
+          },
+          {
+            "name": "65553无换行",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "utf8",
+                  "value": {
+                    "$repeat": "x",
+                    "count": 65553
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "items": [
+                {
+                  "kindRaw": "too_large"
+                }
+              ],
+              "bufferedBytes": 0
+            }
+          },
+          {
+            "name": "超长注释",
+            "input": {
+              "chunks": [
+                {
+                  "encodingRaw": "utf8",
+                  "value": {
+                    "$concat": [
+                      ":",
+                      {
+                        "$repeat": "x",
+                        "count": 65552
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "items": [
+                {
+                  "kindRaw": "too_large"
+                }
+              ],
+              "bufferedBytes": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G13_构造_真实流累计上限决策",
+      "input": {
+        "modeRaw": "limits",
+        "textCodePoints": 0,
+        "cardCount": 0,
+        "contentFrameCount": 0
+      },
+      "expect": {
+        "analytics": []
+      },
+      "axes": [
+        [
+          {
+            "name": "第400帧",
+            "input": {
+              "contentFrameCount": 399,
+              "incomingRaw": "text",
+              "text": "字"
+            },
+            "expect": {
+              "accept": true,
+              "statusRaw": "streaming"
+            }
+          },
+          {
+            "name": "第401帧",
+            "input": {
+              "contentFrameCount": 400,
+              "incomingRaw": "text",
+              "text": "字"
+            },
+            "expect": {
+              "accept": false,
+              "statusRaw": "limited",
+              "close": true,
+              "updatesQuota": false
+            }
+          },
+          {
+            "name": "第20000码点emoji",
+            "input": {
+              "textCodePoints": 19999,
+              "incomingRaw": "text",
+              "text": "😀"
+            },
+            "expect": {
+              "accept": true,
+              "statusRaw": "streaming"
+            }
+          },
+          {
+            "name": "第20001码点",
+            "input": {
+              "textCodePoints": 20000,
+              "incomingRaw": "text",
+              "text": "字"
+            },
+            "expect": {
+              "accept": false,
+              "statusRaw": "limited",
+              "close": true,
+              "updatesQuota": false
+            }
+          },
+          {
+            "name": "第12张卡",
+            "input": {
+              "cardCount": 11,
+              "incomingRaw": "card"
+            },
+            "expect": {
+              "accept": true,
+              "statusRaw": "streaming"
+            }
+          },
+          {
+            "name": "第13张卡",
+            "input": {
+              "cardCount": 12,
+              "incomingRaw": "card"
+            },
+            "expect": {
+              "accept": false,
+              "statusRaw": "limited",
+              "close": true,
+              "updatesQuota": false
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "contentRouting": [
+    {
+      "name": "G19_构造_ContentType决定分流",
+      "input": {
+        "http": 200,
+        "contentType": "text/event-stream",
+        "body": ": ping\n\n"
+      },
+      "axes": [
+        [
+          {
+            "name": "标准SSE",
+            "expect": {
+              "routeRaw": "stream",
+              "sinkRaw": "onBytes"
+            }
+          },
+          {
+            "name": "参数",
+            "input": {
+              "contentType": "text/event-stream; charset=utf-8"
+            },
+            "expect": {
+              "routeRaw": "stream",
+              "sinkRaw": "onBytes"
+            }
+          },
+          {
+            "name": "大小写",
+            "input": {
+              "contentType": "TEXT/EVENT-STREAM; CHARSET=UTF-8"
+            },
+            "expect": {
+              "routeRaw": "stream",
+              "sinkRaw": "onBytes"
+            }
+          },
+          {
+            "name": "201SSE",
+            "input": {
+              "http": 201
+            },
+            "expect": {
+              "routeRaw": "stream",
+              "sinkRaw": "onBytes"
+            }
+          },
+          {
+            "name": "403JSON",
+            "input": {
+              "http": 403,
+              "contentType": "application/json",
+              "body": "{\"code\":10004,\"msg\":\"\",\"data\":{\"consent_type\":\"ai_third_party\"}}"
+            },
+            "expect": {
+              "routeRaw": "envelope",
+              "sinkRaw": "onEnvelope",
+              "code": 10004
+            }
+          },
+          {
+            "name": "200JSON错误",
+            "input": {
+              "contentType": "application/json; charset=utf-8",
+              "body": "{\"code\":30501,\"msg\":\"\",\"data\":null}"
+            },
+            "expect": {
+              "routeRaw": "envelope",
+              "code": 30501
+            }
+          },
+          {
+            "name": "200JSON成功非流",
+            "input": {
+              "contentType": "application/json",
+              "body": "{\"code\":0,\"msg\":\"\",\"data\":{}}"
+            },
+            "expect": {
+              "routeRaw": "envelope",
+              "protocolError": true,
+              "statusRaw": "disconnected",
+              "reuseClientMsgId": true
+            }
+          },
+          {
+            "name": "200无类型但有外壳",
+            "input": {
+              "contentType": null,
+              "body": "{\"code\":30501,\"msg\":\"\",\"data\":null}"
+            },
+            "expect": {
+              "routeRaw": "envelope",
+              "code": 30501
+            }
+          },
+          {
+            "name": "200无类型且SSE正文",
+            "input": {
+              "contentType": null
+            },
+            "expect": {
+              "routeRaw": "no_envelope",
+              "statusRaw": "disconnected",
+              "reuseClientMsgId": true
+            }
+          },
+          {
+            "name": "502HTML",
+            "input": {
+              "http": 502,
+              "contentType": "text/html",
+              "body": "<html>bad gateway</html>"
+            },
+            "expect": {
+              "routeRaw": "no_envelope",
+              "statusRaw": "disconnected",
+              "reuseClientMsgId": true
+            }
+          },
+          {
+            "name": "HTML类型但有效外壳",
+            "input": {
+              "http": 502,
+              "contentType": "text/html",
+              "body": "{\"code\":50401,\"msg\":\"\",\"data\":null}"
+            },
+            "expect": {
+              "routeRaw": "envelope",
+              "code": 50401
+            }
+          },
+          {
+            "name": "非2xxSSE",
+            "input": {
+              "http": 403
+            },
+            "expect": {
+              "routeRaw": "no_envelope",
+              "statusRaw": "disconnected"
+            }
+          },
+          {
+            "name": "JSON损坏",
+            "input": {
+              "http": 400,
+              "contentType": "application/json",
+              "body": "{"
+            },
+            "expect": {
+              "routeRaw": "no_envelope",
+              "statusRaw": "disconnected"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G17_G18_构造_流请求头及无签名",
+      "input": {
+        "modeRaw": "request",
+        "operationRaw": "sendAgentMessage",
+        "admitted": true,
+        "privacyCurrent": true,
+        "credentialsAllowed": true,
+        "baseUrl": "https://api.example.com",
+        "streamBaseUrl": null
+      },
+      "expect": {
+        "sendsRequests": true,
+        "signed": false,
+        "idempotencyKeyPresent": false,
+        "accept": "text/event-stream",
+        "acceptEncoding": "identity",
+        "baseUrl": "https://api.example.com",
+        "publicHeaderNames": [
+          "X-App-Id",
+          "X-Platform",
+          "X-App-Version",
+          "X-Build",
+          "X-Channel",
+          "X-Trace-Id",
+          "X-Device-Id"
+        ]
+      },
+      "axes": [
+        [
+          {
+            "name": "游客",
+            "input": {
+              "identityRaw": "guest",
+              "token": null
+            },
+            "expect": {
+              "authorizationPresent": false
+            }
+          },
+          {
+            "name": "会员",
+            "input": {
+              "identityRaw": "member_known",
+              "token": "synthetic-A"
+            },
+            "expect": {
+              "authorizationPresent": true
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G23_G43_构造_每次实际写出前准入",
+      "input": {
+        "modeRaw": "request",
+        "operationRaw": "sendAgentMessage",
+        "admitted": true,
+        "privacyCurrent": true,
+        "credentialsAllowed": true,
+        "identityRaw": "member_known"
+      },
+      "expect": {
+        "sendsRequests": false,
+        "resultRaw": "notSent"
+      },
+      "axes": [
+        [
+          {
+            "name": "admit拒绝",
+            "input": {
+              "admitted": false
+            }
+          },
+          {
+            "name": "凭据屏障关闭",
+            "input": {
+              "credentialsAllowed": false
+            },
+            "expect": {
+              "credentialReads": 0
+            }
+          },
+          {
+            "name": "隐私版本未同意",
+            "input": {
+              "privacyCurrent": false
+            },
+            "expect": {
+              "credentialReads": 0
+            }
+          },
+          {
+            "name": "会员账号未知",
+            "input": {
+              "identityRaw": "member_unknown"
+            },
+            "expect": {
+              "credentialReads": 0
+            }
+          },
+          {
+            "name": "非流operation",
+            "input": {
+              "operationRaw": "listAgentSessionMessages"
+            },
+            "expect": {
+              "resultRaw": "notSent"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G23_构造_JSON刷新及注册最多重放一次",
+      "input": {
+        "modeRaw": "replay",
+        "body": {
+          "client_msg_id": "Previous_01234567",
+          "text": "提现记录在哪看"
+        },
+        "sseBytesReceived": 0,
+        "recoverySucceeded": true,
+        "replayAdmitted": true,
+        "priorReplays": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "10002",
+            "input": {
+              "code": 10002
+            },
+            "expect": {
+              "recoveryRaw": "single_flight_refresh",
+              "replays": 1,
+              "sameBody": true,
+              "clientMsgId": "Previous_01234567"
+            }
+          },
+          {
+            "name": "10402",
+            "input": {
+              "code": 10402
+            },
+            "expect": {
+              "recoveryRaw": "register_device",
+              "replays": 1,
+              "sameBody": true,
+              "clientMsgId": "Previous_01234567"
+            }
+          },
+          {
+            "name": "重放已用",
+            "input": {
+              "code": 10002,
+              "priorReplays": 1
+            },
+            "expect": {
+              "replays": 0
+            }
+          },
+          {
+            "name": "已有SSE字节",
+            "input": {
+              "code": 10002,
+              "sseBytesReceived": 1
+            },
+            "expect": {
+              "replays": 0
+            }
+          },
+          {
+            "name": "刷新失败",
+            "input": {
+              "code": 10002,
+              "recoverySucceeded": false
+            },
+            "expect": {
+              "replays": 0,
+              "resultRaw": "notSent",
+              "restoreInput": false
+            }
+          },
+          {
+            "name": "刷新后换号",
+            "input": {
+              "code": 10002,
+              "replayAdmitted": false
+            },
+            "expect": {
+              "replays": 0,
+              "resultRaw": "notSent",
+              "rebindIdentity": false
+            }
+          },
+          {
+            "name": "注册后切环境",
+            "input": {
+              "code": 10402,
+              "replayAdmitted": false
+            },
+            "expect": {
+              "replays": 0,
+              "resultRaw": "notSent",
+              "rebindIdentity": false
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "timeouts": [
+    {
+      "name": "G16_构造_首帧30秒从请求写出起算",
+      "input": {
+        "requestAtMs": 0,
+        "events": [
+          {
+            "atMs": 29999,
+            "kindRaw": "tick"
+          },
+          {
+            "atMs": 30000,
+            "kindRaw": "tick"
+          }
+        ]
+      },
+      "expect": {
+        "disconnectAtMs": 30000,
+        "reasonRaw": "idle",
+        "close": true,
+        "retryVisible": true
+      }
+    },
+    {
+      "name": "G16_构造_头半行慢JSON均不续期",
+      "axes": [
+        [
+          {
+            "name": "响应头",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 29000,
+                  "kindRaw": "headers"
+                },
+                {
+                  "atMs": 30000,
+                  "kindRaw": "tick"
+                }
+              ]
+            }
+          },
+          {
+            "name": "半行",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 10000,
+                  "kindRaw": "bytes",
+                  "text": "data: "
+                },
+                {
+                  "atMs": 29000,
+                  "kindRaw": "bytes",
+                  "text": "半行"
+                },
+                {
+                  "atMs": 30000,
+                  "kindRaw": "tick"
+                }
+              ]
+            }
+          },
+          {
+            "name": "JSON分块",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 1000,
+                  "kindRaw": "headers",
+                  "contentType": "application/json"
+                },
+                {
+                  "atMs": 15000,
+                  "kindRaw": "json_chunk"
+                },
+                {
+                  "atMs": 29999,
+                  "kindRaw": "json_chunk"
+                },
+                {
+                  "atMs": 30000,
+                  "kindRaw": "tick"
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "expect": {
+        "disconnectAtMs": 30000,
+        "reasonRaw": "idle"
+      }
+    },
+    {
+      "name": "G16_G21_构造_完整行及ping续空闲期",
+      "axes": [
+        [
+          {
+            "name": "完整字段行",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 29000,
+                  "kindRaw": "bytes",
+                  "text": "event: meta\n"
+                },
+                {
+                  "atMs": 58999,
+                  "kindRaw": "tick"
+                },
+                {
+                  "atMs": 59000,
+                  "kindRaw": "tick"
+                }
+              ]
+            },
+            "expect": {
+              "disconnectAtMs": 59000,
+              "reasonRaw": "idle"
+            }
+          },
+          {
+            "name": "ping",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 15000,
+                  "kindRaw": "bytes",
+                  "text": ": ping\n\n"
+                },
+                {
+                  "atMs": 44999,
+                  "kindRaw": "tick"
+                },
+                {
+                  "atMs": 45000,
+                  "kindRaw": "tick"
+                }
+              ]
+            },
+            "expect": {
+              "disconnectAtMs": 45000,
+              "reasonRaw": "idle"
+            }
+          },
+          {
+            "name": "10秒不是整体超时",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 10000,
+                  "kindRaw": "tick"
+                },
+                {
+                  "atMs": 29999,
+                  "kindRaw": "tick"
+                }
+              ]
+            },
+            "expect": {
+              "disconnectAtMs": null
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G16_构造_持续ping仍在90秒结束",
+      "input": {
+        "requestAtMs": 0,
+        "events": [
+          {
+            "atMs": 15000,
+            "kindRaw": "bytes",
+            "text": ": ping\n\n"
+          },
+          {
+            "atMs": 30000,
+            "kindRaw": "bytes",
+            "text": ": ping\n\n"
+          },
+          {
+            "atMs": 45000,
+            "kindRaw": "bytes",
+            "text": ": ping\n\n"
+          },
+          {
+            "atMs": 60000,
+            "kindRaw": "bytes",
+            "text": ": ping\n\n"
+          },
+          {
+            "atMs": 75000,
+            "kindRaw": "bytes",
+            "text": ": ping\n\n"
+          },
+          {
+            "atMs": 89999,
+            "kindRaw": "tick"
+          },
+          {
+            "atMs": 90000,
+            "kindRaw": "tick"
+          }
+        ]
+      },
+      "expect": {
+        "disconnectAtMs": 90000,
+        "reasonRaw": "round_limit",
+        "retryVisible": true,
+        "automaticReconnects": 0
+      }
+    },
+    {
+      "name": "G02_构造_后台保留流但不重试",
+      "input": {
+        "requestAtMs": 0,
+        "events": [
+          {
+            "atMs": 1000,
+            "kindRaw": "background"
+          },
+          {
+            "atMs": 30000,
+            "kindRaw": "tick"
+          },
+          {
+            "atMs": 40000,
+            "kindRaw": "foreground"
+          }
+        ]
+      },
+      "expect": {
+        "disconnectAtMs": 30000,
+        "automaticReconnects": 0,
+        "historyRequests": 0
+      }
+    },
+    {
+      "name": "G16_构造_终止或作废取消所有计时",
+      "axes": [
+        [
+          {
+            "name": "done",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 5000,
+                  "kindRaw": "done"
+                },
+                {
+                  "atMs": 90000,
+                  "kindRaw": "tick"
+                }
+              ]
+            }
+          },
+          {
+            "name": "invalidate",
+            "input": {
+              "requestAtMs": 0,
+              "events": [
+                {
+                  "atMs": 5000,
+                  "kindRaw": "invalidate"
+                },
+                {
+                  "atMs": 90000,
+                  "kindRaw": "tick"
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "expect": {
+        "disconnectAtMs": null,
+        "activeTimers": 0
+      }
+    }
+  ],
+  "seqGap": [
+    {
+      "name": "G11_G13_G36_构造_1_3_4_done",
+      "input": {
+        "events": [
+          {
+            "id": 1,
+            "eventRaw": "meta"
+          },
+          {
+            "id": 3,
+            "eventRaw": "text.delta"
+          },
+          {
+            "id": 4,
+            "eventRaw": "card"
+          },
+          {
+            "id": 5,
+            "eventRaw": "done"
+          }
+        ]
+      },
+      "expect": {
+        "statusRaw": "incomplete",
+        "deliveredIds": [
+          1
+        ],
+        "reloadAfterRaw": "terminal",
+        "reloads": 1,
+        "updatesQuota": false,
+        "analytics": []
+      }
+    },
+    {
+      "name": "G11_构造_1_2_2_3",
+      "input": {
+        "events": [
+          {
+            "id": 1,
+            "eventRaw": "meta"
+          },
+          {
+            "id": 2,
+            "eventRaw": "text.delta"
+          },
+          {
+            "id": 2,
+            "eventRaw": "text.delta"
+          },
+          {
+            "id": 3,
+            "eventRaw": "done"
+          }
+        ]
+      },
+      "expect": {
+        "statusRaw": "done",
+        "deliveredIds": [
+          1,
+          2,
+          3
+        ],
+        "reloadAfterRaw": "none",
+        "reloads": 0
+      }
+    },
+    {
+      "name": "G11_构造_1_5_4_6_不修改旧Reducer乱序向量",
+      "input": {
+        "events": [
+          {
+            "id": 1,
+            "eventRaw": "meta"
+          },
+          {
+            "id": 5,
+            "eventRaw": "text.delta"
+          },
+          {
+            "id": 4,
+            "eventRaw": "card"
+          },
+          {
+            "id": 6,
+            "eventRaw": "done"
+          }
+        ]
+      },
+      "expect": {
+        "statusRaw": "incomplete",
+        "deliveredIds": [
+          1
+        ],
+        "reloadAfterRaw": "terminal",
+        "reloads": 1
+      }
+    },
+    {
+      "name": "G11_构造_suggestions和终止帧也判id",
+      "axes": [
+        [
+          {
+            "name": "suggestions缺号",
+            "input": {
+              "events": [
+                {
+                  "id": 1,
+                  "eventRaw": "meta"
+                },
+                {
+                  "id": 3,
+                  "eventRaw": "suggestions"
+                },
+                {
+                  "eventRaw": "eof"
+                }
+              ]
+            },
+            "expect": {
+              "statusRaw": "incomplete",
+              "deliveredIds": [
+                1
+              ],
+              "reloadAfterRaw": "disconnect",
+              "reloads": 1
+            }
+          },
+          {
+            "name": "终止缺号",
+            "input": {
+              "events": [
+                {
+                  "id": 1,
+                  "eventRaw": "meta"
+                },
+                {
+                  "id": 3,
+                  "eventRaw": "done"
+                }
+              ]
+            },
+            "expect": {
+              "statusRaw": "incomplete",
+              "deliveredIds": [
+                1
+              ],
+              "reloadAfterRaw": "terminal",
+              "reloads": 1
+            }
+          },
+          {
+            "name": "meta不是1",
+            "input": {
+              "events": [
+                {
+                  "id": 2,
+                  "eventRaw": "meta"
+                },
+                {
+                  "id": 3,
+                  "eventRaw": "done"
+                }
+              ]
+            },
+            "expect": {
+              "statusRaw": "incomplete",
+              "deliveredIds": [],
+              "reloadAfterRaw": "terminal",
+              "reloads": 1
+            }
+          },
+          {
+            "name": "缺号尚未终止",
+            "input": {
+              "events": [
+                {
+                  "id": 1,
+                  "eventRaw": "meta"
+                },
+                {
+                  "id": 3,
+                  "eventRaw": "card"
+                }
+              ]
+            },
+            "expect": {
+              "statusRaw": "incomplete",
+              "deliveredIds": [
+                1
+              ],
+              "reloadAfterRaw": "waiting",
+              "reloads": 0,
+              "connectionOpen": true
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "history": [
+    {
+      "name": "G08_G10_G42_契约active示例原文",
+      "input": {
+        "response": {
+          "$ref": "active"
+        }
+      },
+      "expect": {
+        "messages": [
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000221",
+            "roleRaw": "user",
+            "text": "提现记录在哪看",
+            "cards": []
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000222",
+            "roleRaw": "assistant",
+            "statusRaw": "done",
+            "text": "提现进度在提现记录里查看。",
+            "feedbackVisible": true,
+            "cards": [
+              {
+                "cardId": "c1",
+                "type": "page_guide",
+                "kind": "known",
+                "fallbackText": null,
+                "blockedRoute": null
+              }
+            ]
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000223",
+            "roleRaw": "user",
+            "text": "我现在有多少收益",
+            "cards": []
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000224",
+            "roleRaw": "assistant",
+            "statusRaw": "done",
+            "cards": [
+              {
+                "cardId": "c2",
+                "type": "earnings_summary",
+                "kind": "known",
+                "fallbackText": null,
+                "blockedRoute": null
+              }
+            ]
+          }
+        ],
+        "nextCursor": "opaque-cursor-older-page",
+        "expired": false,
+        "readOnly": false,
+        "updatesQuota": false
+      }
+    },
+    {
+      "name": "G09_G42_契约expired示例原文",
+      "input": {
+        "response": {
+          "$ref": "expired"
+        }
+      },
+      "expect": {
+        "messages": [
+          {
+            "roleRaw": "user",
+            "text": "返利什么时候到账"
+          },
+          {
+            "roleRaw": "assistant",
+            "statusRaw": "cancelled",
+            "displayText": "已停止",
+            "feedbackVisible": true,
+            "reportVisible": true
+          }
+        ],
+        "nextCursor": null,
+        "expired": true,
+        "readOnly": true,
+        "inputEnabled": false,
+        "capsulesEnabled": false,
+        "cardActionsEnabled": true,
+        "updatesQuota": false
+      }
+    },
+    {
+      "name": "G10_构造_坏项和未知role整项丢弃",
+      "input": {
+        "items": [
+          {
+            "$ref": "u1"
+          },
+          {
+            "role": "assistant",
+            "created_at": "2026-10-14T10:00:03+08:00",
+            "text": "缺id",
+            "cards": [],
+            "finish_reason": "stop"
+          },
+          {
+            "$ref": "a1",
+            "with": {
+              "role": "system"
+            }
+          },
+          {
+            "$ref": "a1",
+            "with": {
+              "text": 7
+            }
+          },
+          {
+            "$ref": "a1",
+            "with": {
+              "cards": "bad"
+            }
+          },
+          {
+            "$ref": "a1"
+          }
+        ]
+      },
+      "expect": {
+        "messages": [
+          {
+            "roleRaw": "user",
+            "text": "提现记录在哪看"
+          },
+          {
+            "roleRaw": "assistant",
+            "text": "提现进度在提现记录里查看。"
+          }
+        ],
+        "droppedItems": 4
+      }
+    },
+    {
+      "name": "G10_G12_G13_构造_历史卡外壳_未知卡_禁路由",
+      "input": {
+        "items": [
+          {
+            "$ref": "a1",
+            "with": {
+              "cards": [
+                {
+                  "card_id": "c3",
+                  "type": "future_card",
+                  "schema_version": 1,
+                  "data": {},
+                  "fallback_text": "暂不能展示"
+                },
+                {
+                  "card_id": "c4",
+                  "type": "page_guide",
+                  "schema_version": 1,
+                  "data": {
+                    "route": "Settings",
+                    "text_key": "agent.guide.Settings"
+                  },
+                  "fallback_text": "请到设置查看"
+                },
+                {
+                  "type": "page_guide",
+                  "schema_version": 1,
+                  "data": {},
+                  "fallback_text": "缺card_id"
+                },
+                {
+                  "card_id": "c5",
+                  "type": "page_guide",
+                  "schema_version": 2,
+                  "data": {
+                    "route": "Wallet",
+                    "text_key": "agent.guide.Wallet"
+                  },
+                  "fallback_text": "请到钱包查看"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "messages": [
+          {
+            "cards": [
+              {
+                "cardId": "c3",
+                "type": "future_card",
+                "kind": "fallback",
+                "fallbackText": "暂不能展示",
+                "blockedRoute": null
+              },
+              {
+                "cardId": "c4",
+                "type": "page_guide",
+                "kind": "fallback",
+                "fallbackText": "请到设置查看",
+                "blockedRoute": "Settings"
+              },
+              {
+                "cardId": "c5",
+                "type": "page_guide",
+                "kind": "fallback",
+                "fallbackText": "请到钱包查看",
+                "blockedRoute": null
+              }
+            ]
+          }
+        ],
+        "analytics": [],
+        "automaticRoutes": []
+      }
+    },
+    {
+      "name": "G10_构造_历史收益卡误带金额仍只保留历史形状",
+      "input": {
+        "items": [
+          {
+            "$ref": "a1",
+            "with": {
+              "cards": [
+                {
+                  "$ref": "earnings",
+                  "with": {
+                    "data": {
+                      "as_of": "2026-10-14T10:01:03+08:00",
+                      "withdrawable_fen": 1000,
+                      "estimated_total_fen": 5678,
+                      "next_credit_period": "2026-11",
+                      "credit_overdue": false,
+                      "latest_withdrawal": {
+                        "title_key": "withdrawal_status.PENDING_REVIEW.label",
+                        "amount_fen": 2000
+                      },
+                      "actions": [
+                        {
+                          "route": "Wallet",
+                          "text_key": "agent.earnings.open_wallet"
+                        },
+                        {
+                          "route": "WithdrawRecords",
+                          "text_key": "agent.earnings.open_records"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "messages": [
+          {
+            "cards": [
+              {
+                "cardId": "c2",
+                "type": "earnings_summary",
+                "kind": "known"
+              }
+            ],
+            "earningsShapeRaw": "history",
+            "earningsTextKey": "agent.earnings.history"
+          }
+        ],
+        "walletRequests": 0,
+        "withdrawalRequests": 0,
+        "updatesQuota": false
+      }
+    },
+    {
+      "name": "G04_G42_构造_空assistant全部finish_reason",
+      "axes": [
+        [
+          {
+            "name": "stop",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "stop"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true,
+                  "canStop": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "fallback",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "fallback"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "auth_required",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "auth_required"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "safety",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "safety"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "limit"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "budget",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "budget"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "timeout",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "timeout"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "feedbackVisible": true,
+                  "retryVisible": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "cancelled",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "cancelled"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "cancelled",
+                  "displayText": "已停止",
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "error",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": "error"
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "error",
+                  "genericError": true,
+                  "trace6": null,
+                  "retryVisible": false,
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          },
+          {
+            "name": "null无run_id按补充已结束",
+            "input": {
+              "items": [
+                {
+                  "$ref": "a1",
+                  "with": {
+                    "text": "",
+                    "cards": [],
+                    "finish_reason": null
+                  }
+                }
+              ]
+            },
+            "expect": {
+              "messages": [
+                {
+                  "statusRaw": "done",
+                  "finishReasonRaw": null,
+                  "canStop": false,
+                  "feedbackVisible": true
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "expect": {
+        "updatesQuota": false
+      }
+    },
+    {
+      "name": "G41_构造_user原文含URL不剥离不链接",
+      "input": {
+        "items": [
+          {
+            "$ref": "u1",
+            "with": {
+              "text": "查看 https://example.com/x ￥ABCD￥"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "messages": [
+          {
+            "text": "查看 https://example.com/x ￥ABCD￥",
+            "renderRaw": "plain",
+            "links": [],
+            "feedbackVisible": false,
+            "reportVisible": false
+          }
+        ]
+      }
+    }
+  ],
+  "historyMerge": [
+    {
+      "name": "G06_G39_构造_冷启动只读恢复",
+      "input": {
+        "reasonRaw": "cold_start",
+        "local": [],
+        "history": {
+          "$ref": "pairPage"
+        },
+        "ticketMatches": true
+      },
+      "expect": {
+        "messages": [
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000221"
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000222",
+            "statusRaw": "done"
+          }
+        ],
+        "createSessionRequests": 0,
+        "sendMessageRequests": 0,
+        "walletRequests": 0
+      }
+    },
+    {
+      "name": "G05_G06_构造_只替换目标轮_历史卡优先",
+      "input": {
+        "local": {
+          "$ref": "local"
+        },
+        "history": {
+          "$ref": "active"
+        },
+        "targetTurnId": "target",
+        "ticketMatches": true,
+        "scrolledUp": true,
+        "purchaseInFlight": true,
+        "oldCardActionGeneration": 7
+      },
+      "expect": {
+        "messages": {
+          "$ref": "merged"
+        },
+        "cardActionGeneration": 8,
+        "oldCardCallbacksAccepted": false,
+        "purchaseExternalOpen": false,
+        "automaticScrolls": 0,
+        "walletRequests": 0,
+        "updatesQuota": false
+      },
+      "axes": [
+        [
+          {
+            "name": "disconnect",
+            "input": {
+              "reasonRaw": "disconnect"
+            }
+          },
+          {
+            "name": "seq_gap",
+            "input": {
+              "reasonRaw": "seq_gap"
+            }
+          },
+          {
+            "name": "duplicate_done",
+            "input": {
+              "reasonRaw": "duplicate_done"
+            }
+          },
+          {
+            "name": "cancel_30505",
+            "input": {
+              "reasonRaw": "cancel_30505"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G05_构造_meta前按最后同文本及五分钟下界匹配",
+      "input": {
+        "reasonRaw": "disconnect",
+        "ticketMatches": true,
+        "targetTurnId": "target",
+        "local": [
+          {
+            "messageId": null,
+            "localId": "local-u",
+            "turnId": "target",
+            "roleRaw": "user",
+            "text": "提现记录在哪看",
+            "createdAtIso": "2026-10-14T10:05:00+08:00"
+          },
+          {
+            "messageId": null,
+            "localId": "local-a",
+            "turnId": "target",
+            "roleRaw": "assistant",
+            "text": "本地部分",
+            "statusRaw": "disconnected"
+          }
+        ],
+        "history": {
+          "$ref": "pairPage"
+        }
+      },
+      "expect": {
+        "matched": true,
+        "messages": [
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000221"
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000222"
+          }
+        ]
+      },
+      "axes": [
+        [
+          {
+            "name": "下界恰好"
+          },
+          {
+            "name": "取最后一组",
+            "input": {
+              "history": {
+                "code": 0,
+                "msg": "",
+                "data": {
+                  "items": [
+                    {
+                      "$ref": "u1",
+                      "with": {
+                        "message_id": "019a0000-0000-7000-8000-000000000201",
+                        "created_at": "2026-10-14T10:00:00+08:00"
+                      }
+                    },
+                    {
+                      "$ref": "a1",
+                      "with": {
+                        "message_id": "019a0000-0000-7000-8000-000000000202",
+                        "created_at": "2026-10-14T10:00:01+08:00"
+                      }
+                    },
+                    {
+                      "$ref": "u1",
+                      "with": {
+                        "created_at": "2026-10-14T10:04:00+08:00"
+                      }
+                    },
+                    {
+                      "$ref": "a1",
+                      "with": {
+                        "created_at": "2026-10-14T10:04:01+08:00"
+                      }
+                    }
+                  ],
+                  "next_cursor": null,
+                  "expired": false
+                }
+              }
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G05_构造_对不上不猜按补充追加",
+      "input": {
+        "reasonRaw": "disconnect",
+        "ticketMatches": true,
+        "targetTurnId": "target",
+        "local": [
+          {
+            "messageId": null,
+            "localId": "local-u",
+            "turnId": "target",
+            "roleRaw": "user",
+            "text": "另一个问题",
+            "createdAtIso": "2026-10-14T10:00:00+08:00"
+          },
+          {
+            "messageId": null,
+            "localId": "local-a",
+            "turnId": "target",
+            "roleRaw": "assistant",
+            "text": "保留本地",
+            "statusRaw": "disconnected"
+          }
+        ],
+        "history": {
+          "$ref": "pairPage"
+        }
+      },
+      "expect": {
+        "matched": false,
+        "messages": [
+          {
+            "localId": "local-u",
+            "text": "另一个问题"
+          },
+          {
+            "localId": "local-a",
+            "text": "保留本地"
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000221"
+          },
+          {
+            "messageId": "019a0000-0000-7000-8000-000000000222"
+          }
+        ],
+        "persisted": false
+      }
+    },
+    {
+      "name": "G05_构造_五分钟之外不匹配",
+      "input": {
+        "reasonRaw": "disconnect",
+        "ticketMatches": true,
+        "targetTurnId": "target",
+        "local": [
+          {
+            "messageId": null,
+            "localId": "local-u",
+            "turnId": "target",
+            "roleRaw": "user",
+            "text": "提现记录在哪看",
+            "createdAtIso": "2026-10-14T10:05:00.001+08:00"
+          },
+          {
+            "messageId": null,
+            "localId": "local-a",
+            "turnId": "target",
+            "roleRaw": "assistant",
+            "text": "",
+            "statusRaw": "disconnected"
+          }
+        ],
+        "history": {
+          "$ref": "pairPage"
+        }
+      },
+      "expect": {
+        "matched": false,
+        "messageCount": 4
+      }
+    },
+    {
+      "name": "G03_构造_meta指到user不得当回复id",
+      "input": {
+        "reasonRaw": "disconnect",
+        "ticketMatches": true,
+        "targetTurnId": "target",
+        "local": {
+          "$ref": "local"
+        },
+        "metaMessageId": "019a0000-0000-7000-8000-000000000221",
+        "history": {
+          "$ref": "pairPage"
+        }
+      },
+      "expect": {
+        "matchedByRaw": "text_time",
+        "usedMetaAsReplyId": false
+      }
+    },
+    {
+      "name": "G06_构造_迟到历史丢弃",
+      "input": {
+        "reasonRaw": "disconnect",
+        "local": {
+          "$ref": "local"
+        },
+        "history": {
+          "$ref": "active"
+        },
+        "targetTurnId": "target",
+        "ticketMatches": false
+      },
+      "expect": {
+        "messages": {
+          "$ref": "local"
+        },
+        "accepted": false,
+        "quotaMutations": 0,
+        "cardMutations": 0,
+        "analytics": [],
+        "automaticRoutes": []
+      },
+      "axes": [
+        [
+          {
+            "name": "A失效后登录B",
+            "input": {
+              "mismatchRaw": "account"
+            }
+          },
+          {
+            "name": "新对话",
+            "input": {
+              "mismatchRaw": "conversation"
+            }
+          },
+          {
+            "name": "旧session",
+            "input": {
+              "mismatchRaw": "session"
+            }
+          },
+          {
+            "name": "旧run",
+            "input": {
+              "mismatchRaw": "run"
+            }
+          },
+          {
+            "name": "旧页面",
+            "input": {
+              "mismatchRaw": "page"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G08_G35_构造_翻页单飞_更早页前插",
+      "input": {
+        "modeRaw": "paging",
+        "localMessageIds": [
+          "new-1",
+          "new-2"
+        ],
+        "nextCursor": "opaque+/=older",
+        "events": [
+          {
+            "kindRaw": "top"
+          },
+          {
+            "kindRaw": "top"
+          },
+          {
+            "kindRaw": "page",
+            "messageIds": [
+              "old-1",
+              "old-2"
+            ],
+            "nextCursor": null
+          },
+          {
+            "kindRaw": "top"
+          }
+        ]
+      },
+      "expect": {
+        "requests": [
+          {
+            "cursor": "opaque+/=older",
+            "limit": 20
+          }
+        ],
+        "messageIds": [
+          "old-1",
+          "old-2",
+          "new-1",
+          "new-2"
+        ],
+        "hasEarlier": false,
+        "apiGetRetries": 1,
+        "apiGetRetryDelayMs": 500
+      }
+    },
+    {
+      "name": "G35_G39_构造_当前会话入口不自动创建",
+      "input": {
+        "modeRaw": "entry"
+      },
+      "axes": [
+        [
+          {
+            "name": "有session",
+            "input": {
+              "sessionId": "session-A"
+            },
+            "expect": {
+              "operationsRaw": [
+                "getCurrentAgentSession",
+                "listAgentSessionMessages"
+              ],
+              "limit": 20
+            }
+          },
+          {
+            "name": "无session",
+            "input": {
+              "sessionId": null
+            },
+            "expect": {
+              "operationsRaw": [
+                "getCurrentAgentSession"
+              ],
+              "pageStateRaw": "empty"
+            }
+          },
+          {
+            "name": "读取失败",
+            "input": {
+              "currentResultRaw": "network_error"
+            },
+            "expect": {
+              "pageStateRaw": "load_failed",
+              "createSessionRequests": 0
+            }
+          },
+          {
+            "name": "基本模式",
+            "input": {
+              "basicMode": true
+            },
+            "expect": {
+              "operationsRaw": []
+            }
+          },
+          {
+            "name": "会员账号未知",
+            "input": {
+              "identityRaw": "member_unknown"
+            },
+            "expect": {
+              "operationsRaw": []
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "reconnect": [
+    {
+      "name": "G07_构造_断线本身不自动请求",
+      "input": {
+        "triggerRaw": "disconnect",
+        "userRetry": false
+      },
+      "expect": {
+        "historyRequestTimesMs": [],
+        "streamRequests": 0,
+        "actionRaw": "retry_button_only"
+      }
+    },
+    {
+      "name": "G07_构造_用户重试先拉历史",
+      "input": {
+        "triggerRaw": "disconnect",
+        "userRetry": true,
+        "clientMsgId": "Previous_01234567",
+        "sendGateOpen": true,
+        "consentGateOpen": true
+      },
+      "axes": [
+        [
+          {
+            "name": "已结束",
+            "input": {
+              "historyResults": [
+                {
+                  "resultRaw": "success",
+                  "matched": true,
+                  "finishReasonRaw": "stop"
+                }
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0
+              ],
+              "actionRaw": "replace",
+              "streamRequests": 0
+            }
+          },
+          {
+            "name": "没受理",
+            "input": {
+              "historyResults": [
+                {
+                  "resultRaw": "success",
+                  "matched": false
+                }
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0
+              ],
+              "actionRaw": "resend_same_id",
+              "streamRequests": 1,
+              "clientMsgId": "Previous_01234567"
+            }
+          },
+          {
+            "name": "G04_null且无run_id按补充结束",
+            "input": {
+              "historyResults": [
+                {
+                  "resultRaw": "success",
+                  "matched": true,
+                  "finishReasonRaw": null,
+                  "historyHasRunId": false
+                }
+              ]
+            },
+            "expect": {
+              "actionRaw": "replace",
+              "statusRaw": "done",
+              "streamRequests": 0,
+              "cancelRequests": 0
+            }
+          },
+          {
+            "name": "发送限流未过",
+            "input": {
+              "sendGateOpen": false,
+              "historyResults": [
+                {
+                  "resultRaw": "success",
+                  "matched": false
+                }
+              ]
+            },
+            "expect": {
+              "actionRaw": "retry_button_only",
+              "streamRequests": 0
+            }
+          },
+          {
+            "name": "AI同意锁住",
+            "input": {
+              "consentGateOpen": false
+            },
+            "expect": {
+              "historyRequestTimesMs": [],
+              "streamRequests": 0,
+              "actionRaw": "consent_required"
+            }
+          },
+          {
+            "name": "历史30504",
+            "input": {
+              "historyResults": [
+                {
+                  "resultRaw": "envelope",
+                  "code": 30504
+                }
+              ]
+            },
+            "expect": {
+              "actionRaw": "new_chat",
+              "clearSessionId": true,
+              "streamRequests": 0
+            }
+          },
+          {
+            "name": "历史AI10004",
+            "input": {
+              "historyResults": [
+                {
+                  "resultRaw": "envelope",
+                  "code": 10004,
+                  "consentTypeRaw": "ai_third_party"
+                }
+              ]
+            },
+            "expect": {
+              "actionRaw": "consent_required",
+              "lockAiGate": true,
+              "showConsent": false,
+              "streamRequests": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G35_G36_G38_构造_首次加四次退避不叠加GET重试",
+      "input": {
+        "triggerRaw": "seq_gap",
+        "historyResults": [
+          {
+            "resultRaw": "network_error"
+          },
+          {
+            "resultRaw": "network_error"
+          },
+          {
+            "resultRaw": "network_error"
+          },
+          {
+            "resultRaw": "network_error"
+          },
+          {
+            "resultRaw": "network_error"
+          }
+        ]
+      },
+      "expect": {
+        "attempts": 5,
+        "apiGetRetries": 0,
+        "actionRaw": "retry_button_only",
+        "statusRaw": "disconnected",
+        "streamRequests": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "随机0",
+            "input": {
+              "randomUnits": [
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0,
+                500,
+                1500,
+                3500,
+                7500
+              ]
+            }
+          },
+          {
+            "name": "随机0点5",
+            "input": {
+              "randomUnits": [
+                0.5,
+                0.5,
+                0.5,
+                0.5
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0,
+                1000,
+                3000,
+                7000,
+                15000
+              ]
+            }
+          },
+          {
+            "name": "随机1边界",
+            "input": {
+              "randomUnits": [
+                1,
+                1,
+                1,
+                1
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0,
+                1500,
+                4500,
+                10500,
+                22500
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G38_构造_第三次成功停止后续退避",
+      "input": {
+        "triggerRaw": "disconnect",
+        "userRetry": true,
+        "randomUnits": [
+          0.5,
+          0.5
+        ],
+        "historyResults": [
+          {
+            "resultRaw": "network_error"
+          },
+          {
+            "resultRaw": "network_error"
+          },
+          {
+            "resultRaw": "success",
+            "matched": true,
+            "finishReasonRaw": "stop"
+          }
+        ]
+      },
+      "expect": {
+        "historyRequestTimesMs": [
+          0,
+          1000,
+          3000
+        ],
+        "actionRaw": "replace",
+        "pendingTimers": 0,
+        "streamRequests": 0
+      }
+    },
+    {
+      "name": "G02_G38_构造_退避期间进后台回来不续",
+      "input": {
+        "triggerRaw": "seq_gap",
+        "randomUnits": [
+          0.5
+        ],
+        "historyResults": [
+          {
+            "resultRaw": "network_error"
+          }
+        ],
+        "lifecycle": [
+          {
+            "atMs": 500,
+            "kindRaw": "background"
+          },
+          {
+            "atMs": 10000,
+            "kindRaw": "foreground"
+          }
+        ]
+      },
+      "expect": {
+        "historyRequestTimesMs": [
+          0
+        ],
+        "actionRaw": "retry_button_only",
+        "pausedInBackground": true,
+        "pendingTimers": 0,
+        "streamRequests": 0
+      }
+    },
+    {
+      "name": "G38_构造_后台触发不发历史",
+      "input": {
+        "triggerRaw": "duplicate_done",
+        "foreground": false
+      },
+      "expect": {
+        "historyRequestTimesMs": [],
+        "actionRaw": "paused_in_background",
+        "streamRequests": 0
+      }
+    },
+    {
+      "name": "G40_构造_duplicate三种结尾只新增传输重载决策",
+      "input": {
+        "duplicate": true,
+        "userRetry": false
+      },
+      "axes": [
+        [
+          {
+            "name": "duplicate-ended-done",
+            "input": {
+              "fixtureRaw": "duplicate-ended-done",
+              "terminalRaw": "done",
+              "historyResults": [
+                {
+                  "resultRaw": "success",
+                  "matched": true,
+                  "finishReasonRaw": "stop"
+                }
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0
+              ],
+              "actionRaw": "replace",
+              "updatesQuota": false,
+              "streamRequests": 0
+            }
+          },
+          {
+            "name": "duplicate-ended-error",
+            "input": {
+              "fixtureRaw": "duplicate-ended-error",
+              "terminalRaw": "error",
+              "code": 50302,
+              "historyResults": [
+                {
+                  "resultRaw": "success",
+                  "matched": true,
+                  "finishReasonRaw": "error"
+                }
+              ]
+            },
+            "expect": {
+              "historyRequestTimesMs": [
+                0
+              ],
+              "actionRaw": "replace",
+              "updatesQuota": false,
+              "streamRequests": 0
+            }
+          },
+          {
+            "name": "duplicate-in-progress",
+            "input": {
+              "fixtureRaw": "duplicate-in-progress",
+              "terminalRaw": "error",
+              "code": 30506
+            },
+            "expect": {
+              "historyRequestTimesMs": [],
+              "actionRaw": "refresh_button",
+              "sendDisableMs": 5000,
+              "streamRequests": 0,
+              "cancelRequests": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_构造_duplicate的10004先锁闸门不得补拉",
+      "input": {
+        "duplicate": true,
+        "terminalRaw": "error",
+        "code": 10004,
+        "consentTypeRaw": "ai_third_party"
+      },
+      "expect": {
+        "lockAiGate": true,
+        "historyRequestTimesMs": [],
+        "streamRequests": 0
+      }
+    }
+  ],
+  "cancel": [
+    {
+      "name": "G25_构造_meta后停止连点重进只发一次",
+      "input": {
+        "runTicket": "run-A",
+        "runId": "019a0000-0000-7000-8000-000000000121",
+        "events": [
+          {
+            "atMs": 0,
+            "kindRaw": "stop"
+          },
+          {
+            "atMs": 1,
+            "kindRaw": "stop"
+          },
+          {
+            "atMs": 2,
+            "kindRaw": "reenter"
+          },
+          {
+            "atMs": 3,
+            "kindRaw": "stop"
+          },
+          {
+            "atMs": 4,
+            "kindRaw": "late_done"
+          }
+        ],
+        "result": {
+          "code": 0
+        }
+      },
+      "expect": {
+        "sendsCancel": 1,
+        "localStatusRaw": "cancelled",
+        "closeAtMs": 0,
+        "reload": false,
+        "lateReducerDeliveries": 0,
+        "gateWrites": [],
+        "cancelOwnerRaw": "application",
+        "cardActionGenerationIncrement": 1
+      }
+    },
+    {
+      "name": "G25_G24_构造_停止结果",
+      "input": {
+        "runTicket": "run-A",
+        "runId": "019a0000-0000-7000-8000-000000000121",
+        "events": [
+          {
+            "atMs": 0,
+            "kindRaw": "stop"
+          }
+        ]
+      },
+      "expect": {
+        "sendsCancel": 1,
+        "localStatusRaw": "cancelled",
+        "navigate": false
+      },
+      "axes": [
+        [
+          {
+            "name": "200",
+            "input": {
+              "result": {
+                "code": 0
+              }
+            },
+            "expect": {
+              "reload": false,
+              "gateWrites": []
+            }
+          },
+          {
+            "name": "30505",
+            "input": {
+              "result": {
+                "code": 30505
+              }
+            },
+            "expect": {
+              "reload": true,
+              "reloadTargetRaw": "original_run",
+              "toast": null
+            }
+          },
+          {
+            "name": "10004",
+            "input": {
+              "result": {
+                "code": 10004,
+                "data": {
+                  "consent_type": "ai_third_party"
+                }
+              }
+            },
+            "expect": {
+              "lockAiGate": true,
+              "showConsent": false,
+              "reload": false
+            }
+          },
+          {
+            "name": "42901",
+            "input": {
+              "result": {
+                "code": 42901,
+                "retryAfter": "12"
+              }
+            },
+            "expect": {
+              "gateWrites": [
+                {
+                  "groupRaw": "action",
+                  "owner": "A",
+                  "delayMs": 12000
+                }
+              ],
+              "reload": false,
+              "toastCount": 1
+            }
+          },
+          {
+            "name": "网络失败",
+            "input": {
+              "result": {
+                "resultRaw": "network_error"
+              }
+            },
+            "expect": {
+              "reload": false,
+              "toast": null,
+              "retryCancel": false
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G25_构造_30505历史只替换非cancelled的原轮",
+      "input": {
+        "runId": "019a0000-0000-7000-8000-000000000121",
+        "events": [
+          {
+            "atMs": 0,
+            "kindRaw": "stop"
+          }
+        ],
+        "result": {
+          "code": 30505
+        }
+      },
+      "axes": [
+        [
+          {
+            "name": "服务端stop",
+            "input": {
+              "historyMatched": true,
+              "historyFinishReasonRaw": "stop",
+              "ticketMatches": true
+            },
+            "expect": {
+              "localStatusRaw": "done",
+              "replaced": true
+            }
+          },
+          {
+            "name": "服务端cancelled",
+            "input": {
+              "historyMatched": true,
+              "historyFinishReasonRaw": "cancelled",
+              "ticketMatches": true
+            },
+            "expect": {
+              "localStatusRaw": "cancelled",
+              "replaced": false
+            }
+          },
+          {
+            "name": "历史没有目标",
+            "input": {
+              "historyMatched": false,
+              "ticketMatches": true
+            },
+            "expect": {
+              "localStatusRaw": "cancelled",
+              "replaced": false
+            }
+          },
+          {
+            "name": "已经新对话",
+            "input": {
+              "historyMatched": true,
+              "historyFinishReasonRaw": "stop",
+              "ticketMatches": false
+            },
+            "expect": {
+              "replaced": false,
+              "conversationMutations": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G26_构造_meta前停止正在停止最长30秒",
+      "input": {
+        "runId": null,
+        "requestAtMs": 0
+      },
+      "expect": {
+        "contentDeliveriesAfterStop": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "拿到meta",
+            "input": {
+              "events": [
+                {
+                  "atMs": 0,
+                  "kindRaw": "stop"
+                },
+                {
+                  "atMs": 1,
+                  "kindRaw": "stop"
+                },
+                {
+                  "atMs": 10,
+                  "kindRaw": "late_content"
+                },
+                {
+                  "atMs": 1000,
+                  "kindRaw": "meta",
+                  "runId": "019a0000-0000-7000-8000-000000000121"
+                }
+              ]
+            },
+            "expect": {
+              "statusAtStopRaw": "stopping",
+              "displayAtStop": "正在停止",
+              "localStatusRaw": "cancelled",
+              "sendsCancel": 1,
+              "closeAtMs": 1000
+            }
+          },
+          {
+            "name": "30秒没meta",
+            "input": {
+              "events": [
+                {
+                  "atMs": 0,
+                  "kindRaw": "stop"
+                },
+                {
+                  "atMs": 29999,
+                  "kindRaw": "tick"
+                },
+                {
+                  "atMs": 30000,
+                  "kindRaw": "tick"
+                },
+                {
+                  "atMs": 30001,
+                  "kindRaw": "meta",
+                  "runId": "019a0000-0000-7000-8000-000000000121"
+                }
+              ]
+            },
+            "expect": {
+              "statusAtStopRaw": "stopping",
+              "localStatusRaw": "cancelled",
+              "sendsCancel": 0,
+              "closeAtMs": 30000
+            }
+          },
+          {
+            "name": "先到终止",
+            "input": {
+              "events": [
+                {
+                  "atMs": 0,
+                  "kindRaw": "stop"
+                },
+                {
+                  "atMs": 1000,
+                  "kindRaw": "done"
+                }
+              ]
+            },
+            "expect": {
+              "localStatusRaw": "cancelled",
+              "sendsCancel": 0,
+              "closeAtMs": 1000
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_构造_动作限流仍本地停止",
+      "input": {
+        "runId": "019a0000-0000-7000-8000-000000000121",
+        "actionGateOpen": false,
+        "events": [
+          {
+            "atMs": 0,
+            "kindRaw": "stop"
+          }
+        ]
+      },
+      "expect": {
+        "sendsCancel": 0,
+        "localStatusRaw": "cancelled",
+        "closeAtMs": 0,
+        "retryCancel": false
+      }
+    }
+  ],
+  "ownershipCancel": [
+    {
+      "name": "G01_构造_身份事件乘run和原身份准入",
+      "input": {
+        "owner": "A",
+        "currentOwner": "A",
+        "hasRunId": true,
+        "originalAdmitted": true,
+        "lateCallbacksRaw": [
+          "text.delta",
+          "card",
+          "done",
+          "history",
+          "feedback",
+          "report"
+        ],
+        "historyInFlight": true
+      },
+      "expect": {
+        "controllerSendsCancel": 0,
+        "localInvalidationSynchronous": true,
+        "lateReducerDeliveries": 0,
+        "lateHistoryAccepted": false,
+        "conversationMutations": 0,
+        "quotaMutations": 0,
+        "analytics": [],
+        "navigate": false,
+        "showDialog": false,
+        "retryCancel": false,
+        "waitForCancelResult": false,
+        "historyBackoffTimers": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "logout",
+            "input": {
+              "eventRaw": "logout"
+            },
+            "expect": {
+              "sendsCancel": 1,
+              "cancelIdentityRaw": "original",
+              "beforeOwnRequest": true
+            }
+          },
+          {
+            "name": "privacy",
+            "input": {
+              "eventRaw": "privacy_withdrawn"
+            },
+            "expect": {
+              "sendsCancel": 1,
+              "cancelIdentityRaw": "original",
+              "beforeOwnRequest": true
+            }
+          },
+          {
+            "name": "ai",
+            "input": {
+              "eventRaw": "ai_consent_withdrawn"
+            },
+            "expect": {
+              "sendsCancel": 1,
+              "cancelIdentityRaw": "original",
+              "beforeOwnRequest": true
+            }
+          },
+          {
+            "name": "environment",
+            "input": {
+              "eventRaw": "env_switch"
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null
+            }
+          },
+          {
+            "name": "session_invalid",
+            "input": {
+              "eventRaw": "session_invalid"
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null
+            }
+          },
+          {
+            "name": "passive_switch",
+            "input": {
+              "eventRaw": "account_switch",
+              "currentOwner": "B"
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null
+            }
+          },
+          {
+            "name": "new_chat",
+            "input": {
+              "eventRaw": "new_chat"
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null
+            }
+          },
+          {
+            "name": "page_destroyed",
+            "input": {
+              "eventRaw": "page_destroyed"
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null
+            }
+          }
+        ],
+        [
+          {
+            "name": "有run可准入"
+          },
+          {
+            "name": "无run可准入",
+            "input": {
+              "hasRunId": false
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null,
+              "beforeOwnRequest": false
+            }
+          },
+          {
+            "name": "有run不可准入",
+            "input": {
+              "originalAdmitted": false
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null,
+              "beforeOwnRequest": false
+            }
+          },
+          {
+            "name": "无run不可准入",
+            "input": {
+              "hasRunId": false,
+              "originalAdmitted": false
+            },
+            "expect": {
+              "sendsCancel": 0,
+              "cancelIdentityRaw": null,
+              "beforeOwnRequest": false
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G02_构造_切Tab覆盖页面保活",
+      "input": {
+        "hasRunId": true,
+        "originalAdmitted": true,
+        "historyInFlight": true,
+        "hiddenEventsRaw": [
+          "text.delta",
+          "card",
+          "done",
+          "history"
+        ],
+        "returnVisible": true
+      },
+      "expect": {
+        "sendsCancel": 0,
+        "connectionClosed": false,
+        "historyCancelled": false,
+        "historyReloads": 0,
+        "hiddenUiUpdates": 0,
+        "hiddenNavigation": 0,
+        "hiddenDialogs": 0,
+        "hiddenAnnouncements": 0,
+        "visibleApplyCount": 1,
+        "duplicateExposureCount": 0
+      },
+      "axes": [
+        [
+          {
+            "name": "切Tab",
+            "input": {
+              "eventRaw": "tab_hidden"
+            }
+          },
+          {
+            "name": "同栈覆盖",
+            "input": {
+              "eventRaw": "page_covered"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G01_G24_构造_应用级cancel结果无页面副作用",
+      "input": {
+        "eventRaw": "logout",
+        "owner": "A",
+        "hasRunId": true,
+        "originalAdmitted": true,
+        "pageDestroyedAfterSend": true
+      },
+      "expect": {
+        "sendsCancel": 1,
+        "cancelOwnerRaw": "application",
+        "cancelledByPage": false,
+        "navigate": false,
+        "showDialog": false,
+        "conversationMutations": 0,
+        "retryCancel": false
+      },
+      "axes": [
+        [
+          {
+            "name": "200",
+            "input": {
+              "cancelResult": {
+                "code": 0
+              }
+            },
+            "expect": {
+              "historyReloads": 0
+            }
+          },
+          {
+            "name": "30505",
+            "input": {
+              "cancelResult": {
+                "code": 30505
+              }
+            },
+            "expect": {
+              "historyReloads": 0
+            }
+          },
+          {
+            "name": "42901",
+            "input": {
+              "cancelResult": {
+                "code": 42901,
+                "retryAfter": "2"
+              }
+            },
+            "expect": {
+              "gateWrites": [
+                {
+                  "groupRaw": "action",
+                  "owner": "A",
+                  "delayMs": 2000
+                }
+              ]
+            }
+          },
+          {
+            "name": "10405",
+            "input": {
+              "cancelResult": {
+                "code": 10405
+              }
+            },
+            "expect": {
+              "dispatchForceUpdate": true
+            }
+          },
+          {
+            "name": "AI10004安全闸门",
+            "input": {
+              "cancelResult": {
+                "code": 10004,
+                "data": {
+                  "consent_type": "ai_third_party"
+                }
+              }
+            },
+            "expect": {
+              "lockAiGate": true,
+              "historyReloads": 0
+            }
+          },
+          {
+            "name": "网络失败",
+            "input": {
+              "cancelResult": {
+                "resultRaw": "network_error"
+              }
+            },
+            "expect": {
+              "historyReloads": 0
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "jsonErrors": [
+    {
+      "name": "G24_构造_六operation公共码分流（cancel 单列，编排者 2026-10-14 R2-07）",
+      "input": {
+        "modeRaw": "error",
+        "http": 200,
+        "owner": "A",
+        "traceId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "expect": {
+        "gateWrites": [],
+        "automaticReplay": false
+      },
+      "axes": [
+        [
+          {
+            "name": "create",
+            "input": {
+              "operationRaw": "createAgentSession"
+            },
+            "expect": {
+              "gateGroupRaw": "send",
+              "minVersionGate": true
+            }
+          },
+          {
+            "name": "current",
+            "input": {
+              "operationRaw": "getCurrentAgentSession"
+            },
+            "expect": {
+              "gateGroupRaw": "read",
+              "minVersionGate": false
+            }
+          },
+          {
+            "name": "history",
+            "input": {
+              "operationRaw": "listAgentSessionMessages"
+            },
+            "expect": {
+              "gateGroupRaw": "read",
+              "minVersionGate": false
+            }
+          },
+          {
+            "name": "send",
+            "input": {
+              "operationRaw": "sendAgentMessage"
+            },
+            "expect": {
+              "gateGroupRaw": "send",
+              "minVersionGate": true
+            }
+          },
+          {
+            "name": "feedback",
+            "input": {
+              "operationRaw": "setAgentMessageFeedback"
+            },
+            "expect": {
+              "gateGroupRaw": "action",
+              "minVersionGate": true
+            }
+          },
+          {
+            "name": "report",
+            "input": {
+              "operationRaw": "reportAgentMessage"
+            },
+            "expect": {
+              "gateGroupRaw": "action",
+              "minVersionGate": true
+            }
+          }
+        ],
+        [
+          {
+            "name": "30501",
+            "input": {
+              "code": 30501
+            },
+            "expect": {
+              "actionRaw": "unavailable",
+              "furtherAgentRequests": 0
+            }
+          },
+          {
+            "name": "10001",
+            "input": {
+              "code": 10001
+            },
+            "expect": {
+              "actionRaw": "unified_error",
+              "routeRaw": "Login"
+            }
+          },
+          {
+            "name": "10005",
+            "input": {
+              "code": 10005
+            },
+            "expect": {
+              "actionRaw": "unified_error",
+              "routeRaw": "BindPhone"
+            }
+          },
+          {
+            "name": "privacy10004",
+            "input": {
+              "code": 10004,
+              "data": {
+                "consent_type": "privacy"
+              }
+            },
+            "expect": {
+              "actionRaw": "unified_consent",
+              "lockAiGate": false
+            }
+          },
+          {
+            "name": "agreement10004",
+            "input": {
+              "code": 10004,
+              "data": {
+                "consent_type": "agreement"
+              }
+            },
+            "expect": {
+              "actionRaw": "unified_consent",
+              "lockAiGate": false
+            }
+          },
+          {
+            "name": "无类型10004",
+            "input": {
+              "code": 10004,
+              "data": null
+            },
+            "expect": {
+              "actionRaw": "unified_consent",
+              "lockAiGate": false
+            }
+          },
+          {
+            "name": "10405",
+            "input": {
+              "code": 10405
+            },
+            "expect": {
+              "actionRaw": "force_update"
+            }
+          },
+          {
+            "name": "无外壳",
+            "input": {
+              "code": null,
+              "hasEnvelope": false
+            },
+            "expect": {
+              "actionRaw": "network_error"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_编排者_cancel公共码单列_不导航不弹框",
+      "input": {
+        "modeRaw": "error",
+        "http": 200,
+        "owner": "A",
+        "traceId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "expect": {
+        "gateWrites": [],
+        "automaticReplay": false,
+        "navigates": false,
+        "showsDialog": false
+      },
+      "axes": [
+        [
+          {
+            "name": "cancel",
+            "input": {
+              "operationRaw": "cancelAgentRun"
+            },
+            "expect": {
+              "gateGroupRaw": "action",
+              "minVersionGate": true
+            }
+          }
+        ],
+        [
+          {
+            "name": "30501",
+            "input": {
+              "code": 30501
+            },
+            "expect": {
+              "furtherAgentRequests": 0,
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "10001",
+            "input": {
+              "code": 10001
+            },
+            "expect": {
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "10005",
+            "input": {
+              "code": 10005
+            },
+            "expect": {
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "privacy10004",
+            "input": {
+              "code": 10004,
+              "data": {
+                "consent_type": "privacy"
+              }
+            },
+            "expect": {
+              "lockAiGate": false,
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "agreement10004",
+            "input": {
+              "code": 10004,
+              "data": {
+                "consent_type": "agreement"
+              }
+            },
+            "expect": {
+              "lockAiGate": false,
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "无类型10004",
+            "input": {
+              "code": 10004,
+              "data": null
+            },
+            "expect": {
+              "lockAiGate": false,
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "10405",
+            "input": {
+              "code": 10405
+            },
+            "expect": {
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "无外壳",
+            "input": {
+              "code": null,
+              "hasEnvelope": false
+            },
+            "expect": {
+              "routeRaw": null,
+              "navigates": false,
+              "showsDialog": false,
+              "automaticReplay": false
+            }
+          }
+        ]
+      ],
+      "note": "任务书 §0.2 与编排者补充第 1 条：cancel 结果不导航、不弹框；AI 10004 仍同步锁闸门（见 lockAiGate 组），42901 / 10405 照常结算，停止场景 30505 见 cancel 组。"
+    },
+    {
+      "name": "G24_构造_七operation的AI10004同步锁闸门",
+      "input": {
+        "modeRaw": "error",
+        "code": 10004,
+        "data": {
+          "consent_type": "ai_third_party"
+        },
+        "owner": "A",
+        "visible": true,
+        "ticketMatches": true
+      },
+      "expect": {
+        "lockAiGate": true,
+        "lockSynchronous": true,
+        "historyAllowed": false,
+        "feedbackAllowed": false,
+        "reportAllowed": false,
+        "automaticReplay": false
+      },
+      "axes": [
+        [
+          {
+            "name": "send",
+            "input": {
+              "operationRaw": "sendAgentMessage"
+            },
+            "expect": {
+              "showConsent": true,
+              "replayAfterConsentRaw": "same_message"
+            }
+          },
+          {
+            "name": "create",
+            "input": {
+              "operationRaw": "createAgentSession"
+            },
+            "expect": {
+              "showConsent": true,
+              "replayAfterConsentRaw": "none"
+            }
+          },
+          {
+            "name": "current",
+            "input": {
+              "operationRaw": "getCurrentAgentSession"
+            },
+            "expect": {
+              "showConsent": true,
+              "replayAfterConsentRaw": "none"
+            }
+          },
+          {
+            "name": "history",
+            "input": {
+              "operationRaw": "listAgentSessionMessages"
+            },
+            "expect": {
+              "showConsent": false,
+              "replayAfterConsentRaw": "none"
+            }
+          },
+          {
+            "name": "feedback",
+            "input": {
+              "operationRaw": "setAgentMessageFeedback"
+            },
+            "expect": {
+              "showConsent": false,
+              "replayAfterConsentRaw": "none"
+            }
+          },
+          {
+            "name": "report",
+            "input": {
+              "operationRaw": "reportAgentMessage"
+            },
+            "expect": {
+              "showConsent": false,
+              "replayAfterConsentRaw": "none"
+            }
+          },
+          {
+            "name": "cancel",
+            "input": {
+              "operationRaw": "cancelAgentRun"
+            },
+            "expect": {
+              "showConsent": false,
+              "replayAfterConsentRaw": "none"
+            }
+          },
+          {
+            "name": "隐藏发送",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "visible": false
+            },
+            "expect": {
+              "showConsent": false
+            }
+          },
+          {
+            "name": "旧对话同身份",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "ticketMatches": false
+            },
+            "expect": {
+              "showConsent": false,
+              "conversationMutations": 0
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_构造_七operation各写所属RetryAfter闸门",
+      "input": {
+        "modeRaw": "error",
+        "http": 429,
+        "code": 42901,
+        "owner": "A"
+      },
+      "expect": {
+        "actionRaw": "rate_limited",
+        "gateWriteCount": 1,
+        "gateOwner": "A",
+        "automaticReplay": false
+      },
+      "axes": [
+        {
+          "$ref": "operations"
+        },
+        [
+          {
+            "name": "12秒",
+            "input": {
+              "retryAfter": "12"
+            },
+            "expect": {
+              "disableMs": 12000
+            }
+          },
+          {
+            "name": "缺失",
+            "input": {
+              "retryAfter": null
+            },
+            "expect": {
+              "disableMs": 5000
+            }
+          },
+          {
+            "name": "非法",
+            "input": {
+              "retryAfter": "bad"
+            },
+            "expect": {
+              "disableMs": 5000
+            }
+          },
+          {
+            "name": "负数",
+            "input": {
+              "retryAfter": "-1"
+            },
+            "expect": {
+              "disableMs": 5000
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_构造_三组独立_UI与执行层都拦截",
+      "input": {
+        "modeRaw": "gate",
+        "owner": "A",
+        "writes": [
+          {
+            "operationRaw": "sendAgentMessage",
+            "retryAfter": "12",
+            "atMs": 0
+          },
+          {
+            "operationRaw": "listAgentSessionMessages",
+            "retryAfter": "2",
+            "atMs": 0
+          },
+          {
+            "operationRaw": "setAgentMessageFeedback",
+            "retryAfter": "5",
+            "atMs": 0
+          }
+        ]
+      },
+      "axes": [
+        [
+          {
+            "name": "1999毫秒",
+            "input": {
+              "checkAtMs": 1999
+            },
+            "expect": {
+              "sendUiAllowed": false,
+              "sendExecutionAllowed": false,
+              "readUiAllowed": false,
+              "readExecutionAllowed": false,
+              "actionUiAllowed": false,
+              "actionExecutionAllowed": false
+            }
+          },
+          {
+            "name": "2000毫秒",
+            "input": {
+              "checkAtMs": 2000
+            },
+            "expect": {
+              "sendExecutionAllowed": false,
+              "readExecutionAllowed": true,
+              "actionExecutionAllowed": false
+            }
+          },
+          {
+            "name": "5000毫秒",
+            "input": {
+              "checkAtMs": 5000
+            },
+            "expect": {
+              "sendExecutionAllowed": false,
+              "readExecutionAllowed": true,
+              "actionExecutionAllowed": true
+            }
+          },
+          {
+            "name": "12000毫秒",
+            "input": {
+              "checkAtMs": 12000
+            },
+            "expect": {
+              "sendExecutionAllowed": true,
+              "readExecutionAllowed": true,
+              "actionExecutionAllowed": true
+            }
+          },
+          {
+            "name": "换号B",
+            "input": {
+              "checkAtMs": 1,
+              "currentOwner": "B"
+            },
+            "expect": {
+              "sendExecutionAllowed": true,
+              "readExecutionAllowed": true,
+              "actionExecutionAllowed": true,
+              "oldGateApplied": false
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_G31_构造_30504按operation分开",
+      "input": {
+        "modeRaw": "error",
+        "code": 30504
+      },
+      "axes": [
+        [
+          {
+            "name": "history",
+            "input": {
+              "operationRaw": "listAgentSessionMessages"
+            },
+            "expect": {
+              "actionRaw": "empty_conversation",
+              "clearSessionId": true
+            }
+          },
+          {
+            "name": "feedback",
+            "input": {
+              "operationRaw": "setAgentMessageFeedback"
+            },
+            "expect": {
+              "actionRaw": "action_failed",
+              "rollback": true,
+              "clearSessionId": false
+            }
+          },
+          {
+            "name": "report",
+            "input": {
+              "operationRaw": "reportAgentMessage"
+            },
+            "expect": {
+              "actionRaw": "action_failed",
+              "closeSheet": true,
+              "clearSessionId": false
+            }
+          },
+          {
+            "name": "send_round_limit",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "data": {
+                "reason": "round_limit"
+              }
+            },
+            "expect": {
+              "actionRaw": "new_chat",
+              "automaticReplay": false
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_G25_构造_专有码与5xxxx",
+      "input": {
+        "modeRaw": "error",
+        "traceId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+      },
+      "axes": [
+        [
+          {
+            "name": "cancel30505",
+            "input": {
+              "operationRaw": "cancelAgentRun",
+              "code": 30505
+            },
+            "expect": {
+              "actionRaw": "reload_original_run",
+              "showError": false
+            }
+          },
+          {
+            "name": "send30506",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "code": 30506
+            },
+            "expect": {
+              "actionRaw": "run_in_progress",
+              "disableMs": 5000
+            }
+          },
+          {
+            "name": "send30502",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "code": 30502,
+              "data": {
+                "next": "login"
+              }
+            },
+            "expect": {
+              "actionRaw": "quota"
+            }
+          },
+          {
+            "name": "send20001",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "code": 20001,
+              "data": {
+                "fields": [
+                  "text"
+                ]
+              }
+            },
+            "expect": {
+              "actionRaw": "text_too_long"
+            }
+          },
+          {
+            "name": "feedback20001",
+            "input": {
+              "operationRaw": "setAgentMessageFeedback",
+              "code": 20001,
+              "data": {
+                "fields": [
+                  "feedback"
+                ]
+              }
+            },
+            "expect": {
+              "rollback": true,
+              "actionRaw": "unified_error"
+            }
+          },
+          {
+            "name": "report20001",
+            "input": {
+              "operationRaw": "reportAgentMessage",
+              "code": 20001,
+              "data": {
+                "fields": [
+                  "reason"
+                ]
+              }
+            },
+            "expect": {
+              "actionRaw": "reason_error",
+              "keepSheet": true
+            }
+          },
+          {
+            "name": "send50001接旧策略",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "code": 50001
+            },
+            "expect": {
+              "actionRaw": "new_chat",
+              "trace6": "4f5a6b"
+            }
+          },
+          {
+            "name": "send50401接旧策略",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "code": 50401
+            },
+            "expect": {
+              "actionRaw": "retry_same_message",
+              "reuseClientMsgId": true,
+              "trace6": "4f5a6b"
+            }
+          },
+          {
+            "name": "send50302",
+            "input": {
+              "operationRaw": "sendAgentMessage",
+              "code": 50302
+            },
+            "expect": {
+              "actionRaw": "unified_error",
+              "trace6": "4f5a6b"
+            }
+          },
+          {
+            "name": "history50001",
+            "input": {
+              "operationRaw": "listAgentSessionMessages",
+              "code": 50001
+            },
+            "expect": {
+              "actionRaw": "load_failed",
+              "clearSessionId": false,
+              "trace6": "4f5a6b"
+            }
+          },
+          {
+            "name": "feedback50401",
+            "input": {
+              "operationRaw": "setAgentMessageFeedback",
+              "code": 50401
+            },
+            "expect": {
+              "rollback": true,
+              "trace6": "4f5a6b",
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "report50001",
+            "input": {
+              "operationRaw": "reportAgentMessage",
+              "code": 50001
+            },
+            "expect": {
+              "keepSheet": true,
+              "trace6": "4f5a6b",
+              "automaticReplay": false
+            }
+          },
+          {
+            "name": "没有trace",
+            "input": {
+              "operationRaw": "listAgentSessionMessages",
+              "code": 50001,
+              "traceId": null
+            },
+            "expect": {
+              "trace6": null
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G24_构造_SSE错误trace取响应头而不是帧内字段",
+      "input": {
+        "modeRaw": "stream_error",
+        "operationRaw": "sendAgentMessage",
+        "code": 50001,
+        "responseHeaders": {
+          "x-trace-id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+        }
+      },
+      "expect": {
+        "trace6": "4f5a6b",
+        "automaticReplay": false
+      }
+    }
+  ],
+  "quotaNext": [
+    {
+      "name": "G27_构造_服务端next优先于本地身份",
+      "input": {
+        "resetAtIso": "2026-10-15T00:00:00+08:00"
+      },
+      "expect": {
+        "showResetAt": false,
+        "inputEnabled": false
+      },
+      "axes": [
+        [
+          {
+            "name": "guest",
+            "input": {
+              "identityRaw": "guest"
+            }
+          },
+          {
+            "name": "member_unbound",
+            "input": {
+              "identityRaw": "member_unbound"
+            }
+          },
+          {
+            "name": "member_bound",
+            "input": {
+              "identityRaw": "member_bound"
+            }
+          }
+        ],
+        [
+          {
+            "name": "login",
+            "input": {
+              "nextRaw": "login"
+            },
+            "expect": {
+              "buttons": [
+                "Login",
+                "Search"
+              ],
+              "navigationRaw": "in_app"
+            }
+          },
+          {
+            "name": "bind_phone",
+            "input": {
+              "nextRaw": "bind_phone"
+            },
+            "expect": {
+              "buttons": [
+                "BindPhone",
+                "Search"
+              ],
+              "navigationRaw": "in_app"
+            }
+          },
+          {
+            "name": "none",
+            "input": {
+              "nextRaw": "none"
+            },
+            "expect": {
+              "buttons": [
+                "Search"
+              ],
+              "showTomorrow": true
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G27_构造_next缺失或未知回落本地规则",
+      "axes": [
+        [
+          {
+            "name": "missing",
+            "input": {
+              "nextRaw": null
+            }
+          },
+          {
+            "name": "unknown",
+            "input": {
+              "nextRaw": "future_value"
+            }
+          }
+        ],
+        [
+          {
+            "name": "guest",
+            "input": {
+              "identityRaw": "guest"
+            },
+            "expect": {
+              "buttons": [
+                "Login",
+                "Search"
+              ]
+            }
+          },
+          {
+            "name": "unbound",
+            "input": {
+              "identityRaw": "member_unbound"
+            },
+            "expect": {
+              "buttons": [
+                "BindPhone",
+                "Search"
+              ]
+            }
+          },
+          {
+            "name": "bound",
+            "input": {
+              "identityRaw": "member_bound"
+            },
+            "expect": {
+              "buttons": [
+                "Search"
+              ]
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "feedback": [
+    {
+      "name": "G03_G28_构造_反馈按钮可见条件",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "modeRaw": "visibility"
+        }
+      },
+      "axes": [
+        {
+          "$ref": "visibility"
+        }
+      ]
+    },
+    {
+      "name": "G28_G30_构造_乐观更新_在途禁点_同值不发_改选",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "events": [
+            {
+              "kindRaw": "tap",
+              "valueRaw": "up"
+            },
+            {
+              "kindRaw": "tap",
+              "valueRaw": "down"
+            },
+            {
+              "kindRaw": "result",
+              "code": 0
+            },
+            {
+              "kindRaw": "tap",
+              "valueRaw": "up"
+            },
+            {
+              "kindRaw": "tap",
+              "valueRaw": "down"
+            },
+            {
+              "kindRaw": "result",
+              "code": 0
+            }
+          ]
+        }
+      },
+      "expect": {
+        "steps": [
+          {
+            "selectedRaw": "up",
+            "enabled": false,
+            "a11y": "已赞",
+            "requestCount": 1
+          },
+          {
+            "selectedRaw": "up",
+            "enabled": false,
+            "requestCount": 1
+          },
+          {
+            "selectedRaw": "up",
+            "enabled": true,
+            "requestCount": 1
+          },
+          {
+            "selectedRaw": "up",
+            "enabled": true,
+            "requestCount": 1
+          },
+          {
+            "selectedRaw": "down",
+            "enabled": false,
+            "a11y": "已踩",
+            "requestCount": 2
+          },
+          {
+            "selectedRaw": "down",
+            "enabled": true,
+            "requestCount": 2
+          }
+        ],
+        "bodies": [
+          {
+            "feedback": "up"
+          },
+          {
+            "feedback": "down"
+          }
+        ],
+        "reasonSheetCount": 0,
+        "idempotencyKeyPresent": false
+      }
+    },
+    {
+      "name": "G28_G31_构造_失败回滚",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "selectedRaw": "up",
+          "tapRaw": "down"
+        }
+      },
+      "expect": {
+        "selectedRaw": "up",
+        "requestCount": 1,
+        "clearSessionId": false
+      },
+      "axes": [
+        [
+          {
+            "name": "30504",
+            "input": {
+              "result": {
+                "code": 30504
+              }
+            },
+            "expect": {
+              "message": "操作没有成功，请稍后再试"
+            }
+          },
+          {
+            "name": "20001",
+            "input": {
+              "result": {
+                "code": 20001
+              }
+            },
+            "expect": {
+              "actionRaw": "unified_error"
+            }
+          },
+          {
+            "name": "10004",
+            "input": {
+              "result": {
+                "code": 10004,
+                "data": {
+                  "consent_type": "ai_third_party"
+                }
+              }
+            },
+            "expect": {
+              "lockAiGate": true,
+              "showConsent": false
+            }
+          },
+          {
+            "name": "42901",
+            "input": {
+              "result": {
+                "code": 42901,
+                "retryAfter": "2"
+              }
+            },
+            "expect": {
+              "gateWrites": [
+                {
+                  "groupRaw": "action",
+                  "owner": "A",
+                  "delayMs": 2000
+                }
+              ]
+            }
+          },
+          {
+            "name": "50001",
+            "input": {
+              "result": {
+                "code": 50001,
+                "traceId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+              }
+            },
+            "expect": {
+              "trace6": "4f5a6b"
+            }
+          },
+          {
+            "name": "网络失败",
+            "input": {
+              "result": {
+                "resultRaw": "network_error"
+              }
+            },
+            "expect": {
+              "actionRaw": "network_error"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G28_构造_游客可用及内存重载清空选择",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "identityRaw": "guest",
+          "selectedRaw": "up",
+          "events": [
+            {
+              "kindRaw": "history_reload"
+            },
+            {
+              "kindRaw": "tap",
+              "valueRaw": "up"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "steps": [
+          {
+            "selectedRaw": null
+          },
+          {
+            "selectedRaw": "up",
+            "requestCount": 1
+          }
+        ],
+        "bodies": [
+          {
+            "feedback": "up"
+          }
+        ],
+        "persisted": false
+      }
+    },
+    {
+      "name": "G28_构造_迟到反馈结果不写新对话",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "events": [
+            {
+              "kindRaw": "tap",
+              "valueRaw": "up"
+            },
+            {
+              "kindRaw": "invalidate"
+            },
+            {
+              "kindRaw": "result",
+              "code": 0
+            }
+          ]
+        }
+      },
+      "expect": {
+        "lateResultAccepted": false,
+        "conversationMutationsAfterInvalidation": 0,
+        "navigate": false
+      }
+    }
+  ],
+  "report": [
+    {
+      "name": "G03_G28_G29_构造_举报入口与反馈同条件",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "modeRaw": "visibility"
+        }
+      },
+      "axes": [
+        {
+          "$ref": "visibility"
+        }
+      ]
+    },
+    {
+      "name": "G29_构造_举报原因拼接及码点边界",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "selectedReason": "其他问题",
+          "supplement": "",
+          "result": {
+            "code": 0
+          }
+        }
+      },
+      "axes": [
+        [
+          {
+            "name": "未选择",
+            "input": {
+              "selectedReason": null
+            },
+            "expect": {
+              "requestCount": 0,
+              "submitEnabled": false
+            }
+          },
+          {
+            "name": "空补充",
+            "expect": {
+              "requestCount": 1,
+              "bodies": [
+                {
+                  "reason": "其他问题"
+                }
+              ]
+            }
+          },
+          {
+            "name": "空白补充",
+            "input": {
+              "supplement": " \t\n "
+            },
+            "expect": {
+              "bodies": [
+                {
+                  "reason": "其他问题"
+                }
+              ]
+            }
+          },
+          {
+            "name": "trim和中文冒号",
+            "input": {
+              "supplement": "  描述不对 😀  "
+            },
+            "expect": {
+              "bodies": [
+                {
+                  "reason": "其他问题：描述不对 😀"
+                }
+              ]
+            }
+          },
+          {
+            "name": "200码点",
+            "input": {
+              "supplement": {
+                "$repeat": "😀",
+                "count": 195
+              }
+            },
+            "expect": {
+              "requestCount": 1,
+              "reasonCodePoints": 200,
+              "bodies": [
+                {
+                  "reason": {
+                    "$concat": [
+                      "其他问题：",
+                      {
+                        "$repeat": "😀",
+                        "count": 195
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "201码点",
+            "input": {
+              "supplement": {
+                "$repeat": "😀",
+                "count": 196
+              }
+            },
+            "expect": {
+              "requestCount": 0,
+              "submitEnabled": false,
+              "validationRaw": "too_long"
+            }
+          },
+          {
+            "name": "组合字符按码点而非字素",
+            "input": {
+              "supplement": {
+                "$repeat": "é",
+                "count": 98
+              }
+            },
+            "expect": {
+              "requestCount": 0,
+              "validationRaw": "too_long"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G29_G30_构造_读屏等价入口_提交单飞_成功不可重复",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "entryRaw": "accessibility_more",
+          "selectedReason": "内容不实或有误导",
+          "supplement": "",
+          "events": [
+            {
+              "kindRaw": "submit"
+            },
+            {
+              "kindRaw": "submit"
+            },
+            {
+              "kindRaw": "result",
+              "code": 0
+            },
+            {
+              "kindRaw": "open"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "requestCount": 1,
+        "bodies": [
+          {
+            "reason": "内容不实或有误导"
+          }
+        ],
+        "sheetOpen": false,
+        "reported": true,
+        "entryVisible": false,
+        "label": "已举报",
+        "toast": "举报已提交，我们会核实处理",
+        "stepUpRequests": 0,
+        "idempotencyKeyPresent": false,
+        "persisted": false
+      }
+    },
+    {
+      "name": "G29_G31_构造_失败界面动作",
+      "input": {
+        "$ref": "message",
+        "with": {
+          "selectedReason": "其他问题",
+          "supplement": "保留这段",
+          "submitted": true
+        }
+      },
+      "axes": [
+        [
+          {
+            "name": "20001",
+            "input": {
+              "result": {
+                "code": 20001,
+                "data": {
+                  "fields": [
+                    "reason"
+                  ]
+                }
+              }
+            },
+            "expect": {
+              "sheetOpen": true,
+              "supplement": "保留这段",
+              "reasonInlineError": true
+            }
+          },
+          {
+            "name": "10004",
+            "input": {
+              "result": {
+                "code": 10004,
+                "data": {
+                  "consent_type": "ai_third_party"
+                }
+              }
+            },
+            "expect": {
+              "sheetOpen": false,
+              "lockAiGate": true,
+              "showConsent": false
+            }
+          },
+          {
+            "name": "42901",
+            "input": {
+              "result": {
+                "code": 42901,
+                "retryAfter": null
+              }
+            },
+            "expect": {
+              "sheetOpen": true,
+              "supplement": "保留这段",
+              "gateWrites": [
+                {
+                  "groupRaw": "action",
+                  "owner": "A",
+                  "delayMs": 5000
+                }
+              ]
+            }
+          },
+          {
+            "name": "30504",
+            "input": {
+              "result": {
+                "code": 30504
+              }
+            },
+            "expect": {
+              "sheetOpen": false,
+              "clearSessionId": false,
+              "message": "操作没有成功，请稍后再试"
+            }
+          },
+          {
+            "name": "网络失败",
+            "input": {
+              "result": {
+                "resultRaw": "network_error"
+              }
+            },
+            "expect": {
+              "sheetOpen": true,
+              "supplement": "保留这段",
+              "reported": false
+            }
+          },
+          {
+            "name": "50001",
+            "input": {
+              "result": {
+                "code": 50001,
+                "traceId": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+              }
+            },
+            "expect": {
+              "sheetOpen": true,
+              "trace6": "4f5a6b"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G29_构造_迟到举报成功与重载",
+      "input": {
+        "$ref": "message"
+      },
+      "axes": [
+        [
+          {
+            "name": "旧对话结果",
+            "input": {
+              "events": [
+                {
+                  "kindRaw": "submit"
+                },
+                {
+                  "kindRaw": "invalidate"
+                },
+                {
+                  "kindRaw": "result",
+                  "code": 0
+                }
+              ]
+            },
+            "expect": {
+              "lateResultAccepted": false,
+              "toastCountAfterInvalidation": 0,
+              "closeOtherSheet": false
+            }
+          },
+          {
+            "name": "重载清空已举报",
+            "input": {
+              "reported": true,
+              "events": [
+                {
+                  "kindRaw": "history_reload"
+                }
+              ]
+            },
+            "expect": {
+              "reported": false,
+              "entryVisible": true,
+              "persisted": false
+            }
+          },
+          {
+            "name": "系统返回只关本实例",
+            "input": {
+              "sheetOpen": true,
+              "events": [
+                {
+                  "kindRaw": "system_back"
+                }
+              ]
+            },
+            "expect": {
+              "sheetOpen": false,
+              "navigate": false,
+              "closeOtherSheet": false
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "availability": [
+    {
+      "name": "G32_G34_构造_构建环境及开关矩阵",
+      "input": {
+        "entryVisible": true,
+        "agentEnabled": true,
+        "received30501": false,
+        "basicMode": false,
+        "privacyCurrent": true,
+        "identityRaw": "guest",
+        "aiConsentGranted": true,
+        "mockRequested": true,
+        "planned": true
+      },
+      "axes": [
+        [
+          {
+            "name": "debug_staging",
+            "input": {
+              "buildRaw": "debug",
+              "environmentRaw": "staging"
+            },
+            "expect": {
+              "portRaw": "fake"
+            }
+          },
+          {
+            "name": "debug_prod",
+            "input": {
+              "buildRaw": "debug",
+              "environmentRaw": "prod"
+            },
+            "expect": {
+              "portRaw": "real"
+            }
+          },
+          {
+            "name": "staging_staging",
+            "input": {
+              "buildRaw": "staging",
+              "environmentRaw": "staging"
+            },
+            "expect": {
+              "portRaw": "fake"
+            }
+          },
+          {
+            "name": "staging_prod",
+            "input": {
+              "buildRaw": "staging",
+              "environmentRaw": "prod"
+            },
+            "expect": {
+              "portRaw": "real"
+            }
+          },
+          {
+            "name": "release_prod",
+            "input": {
+              "buildRaw": "release",
+              "environmentRaw": "prod"
+            },
+            "expect": {
+              "portRaw": "real"
+            }
+          },
+          {
+            "name": "debug未请求假流",
+            "input": {
+              "buildRaw": "debug",
+              "environmentRaw": "staging",
+              "mockRequested": false
+            },
+            "expect": {
+              "portRaw": "real"
+            }
+          }
+        ],
+        [
+          {
+            "name": "正常",
+            "expect": {
+              "pageStateRaw": "ready",
+              "sendsRequests": true,
+              "settingsRowVisible": true,
+              "tabRaw": "agent"
+            }
+          },
+          {
+            "name": "entry关闭",
+            "input": {
+              "entryVisible": false
+            },
+            "expect": {
+              "pageStateRaw": "unavailable",
+              "sendsRequests": false,
+              "settingsRowVisible": false,
+              "tabRaw": "search"
+            }
+          },
+          {
+            "name": "enabled关闭",
+            "input": {
+              "agentEnabled": false
+            },
+            "expect": {
+              "pageStateRaw": "unavailable",
+              "sendsRequests": false,
+              "settingsRowVisible": false
+            }
+          },
+          {
+            "name": "两项都关闭",
+            "input": {
+              "entryVisible": false,
+              "agentEnabled": false
+            },
+            "expect": {
+              "pageStateRaw": "unavailable",
+              "sendsRequests": false,
+              "settingsRowVisible": false,
+              "tabRaw": "search"
+            }
+          },
+          {
+            "name": "收到30501",
+            "input": {
+              "received30501": true
+            },
+            "expect": {
+              "pageStateRaw": "unavailable",
+              "sendsRequests": false,
+              "settingsRowVisible": false
+            }
+          },
+          {
+            "name": "基本模式",
+            "input": {
+              "basicMode": true
+            },
+            "expect": {
+              "sendsRequests": false,
+              "settingsRowVisible": false
+            }
+          },
+          {
+            "name": "当前隐私未同意",
+            "input": {
+              "privacyCurrent": false
+            },
+            "expect": {
+              "sendsRequests": false
+            }
+          },
+          {
+            "name": "会员账号未知",
+            "input": {
+              "identityRaw": "member_unknown"
+            },
+            "expect": {
+              "sendsRequests": false
+            }
+          },
+          {
+            "name": "AI未同意",
+            "input": {
+              "aiConsentGranted": false
+            },
+            "expect": {
+              "pageStateRaw": "consent_required",
+              "sendsRequests": false
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G32_G34_构造_30501只锁当前进入周期_planned不本地拒绝",
+      "input": {
+        "buildRaw": "release",
+        "environmentRaw": "prod",
+        "entryVisible": true,
+        "agentEnabled": true,
+        "basicMode": false,
+        "privacyCurrent": true,
+        "aiConsentGranted": true,
+        "identityRaw": "guest",
+        "planned": true
+      },
+      "axes": [
+        [
+          {
+            "name": "本周期收到30501",
+            "input": {
+              "received30501": true,
+              "newEntry": false
+            },
+            "expect": {
+              "sendsRequests": false,
+              "pageStateRaw": "unavailable"
+            }
+          },
+          {
+            "name": "重新进入",
+            "input": {
+              "received30501": true,
+              "newEntry": true
+            },
+            "expect": {
+              "sendsRequests": true,
+              "portRaw": "real"
+            }
+          },
+          {
+            "name": "planned404进入页",
+            "input": {
+              "responseHttp": 404,
+              "hasEnvelope": false,
+              "phaseRaw": "entry"
+            },
+            "expect": {
+              "pageStateRaw": "load_failed",
+              "retryVisible": true,
+              "portRaw": "real"
+            }
+          },
+          {
+            "name": "planned404发送",
+            "input": {
+              "responseHttp": 404,
+              "hasEnvelope": false,
+              "phaseRaw": "send"
+            },
+            "expect": {
+              "pageStateRaw": "disconnected",
+              "reuseClientMsgId": true,
+              "portRaw": "real"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "G33_构造_代码开放不等于允许提审",
+      "input": {
+        "buildRaw": "release",
+        "environmentRaw": "prod",
+        "entryVisible": true,
+        "agentEnabled": true,
+        "basicMode": false,
+        "privacyCurrent": true,
+        "aiConsentGranted": true,
+        "aiConsentVersionPublished": false,
+        "legalTextApproved": false
+      },
+      "expect": {
+        "portRaw": "real",
+        "releaseSubmissionAllowed": false,
+        "needs": [
+          "N-38"
+        ]
+      }
+    },
+    {
+      "name": "G33_构造_连续两次同意成功仍10004不循环弹框",
+      "input": {
+        "modeRaw": "consent_loop",
+        "successfulConsentThenAi10004Count": 2
+      },
+      "expect": {
+        "sendsRequests": false,
+        "lockAiGate": true,
+        "automaticConsentDialogs": 0,
+        "message": "同意没有保存成功"
+      }
+    }
+  ],
+  "gaps": [
+    {
+      "id": "G03",
+      "statusRaw": "contract_pending",
+      "detail": "meta.message_id与历史user示例冲突。只接受可确认的assistant id；不从run_id推导message_id，不向done添加契约外回复id。"
+    },
+    {
+      "id": "G04",
+      "statusRaw": "overridden",
+      "detail": "编排者补充覆盖旧的历史null→回复中：当前历史无run_id，一律已结束且无停止。show_running仅在未来契约提供合法运行标识并重新裁定后补向量，不伪造历史run_id。"
+    },
+    {
+      "id": "G05",
+      "statusRaw": "partial",
+      "detail": "已固定逐字文本、最后匹配及发送时刻减5分钟下界。未来时间上界、同文本多设备并发歧义没有裁定，不猜。对不上追加按补充；G06仍禁止把已明确属于其他更新轮的内容插入目标轮。"
+    },
+    {
+      "id": "G10",
+      "statusRaw": "platform_followup",
+      "detail": "历史商品价格时效沿用已有BR-PRICE-11组件；没有组件时不造时效文案。本文件不重新测试旧卡片解码。"
+    },
+    {
+      "id": "G12",
+      "statusRaw": "overridden",
+      "detail": "高schema_version仍整卡兜底，引用旧cards用例；不按较新规划放宽。"
+    },
+    {
+      "id": "G13",
+      "statusRaw": "contract_pending",
+      "detail": "events.yaml没有agent_*与sdui_card_error；只允许不含正文的本机诊断，不新增埋点。"
+    },
+    {
+      "id": "G14",
+      "statusRaw": "out_of_scope",
+      "detail": "tool.status折叠时机另跟进。"
+    },
+    {
+      "id": "G15",
+      "statusRaw": "deployment_pending",
+      "detail": "流主机缺省API基址；stream子域启用、证书白名单与联调由部署确定。"
+    },
+    {
+      "id": "G17",
+      "statusRaw": "integration_required",
+      "detail": "请求identity；响应仍gzip时必须由各端真实网络栈验证解压和分批交付，纯策略测试不冒充网络栈证据。"
+    },
+    {
+      "id": "G20",
+      "statusRaw": "partial",
+      "detail": "FF/FE及EOF残缺序列已固定U+FFFD；复杂非法序列的逐字节替换分组没有进一步约定，不自行规定日志次数以外的分组细节。"
+    },
+    {
+      "id": "G22",
+      "statusRaw": "partial",
+      "detail": "单行data和半行字节边界已固定。多行data合并时合成LF是否计入64KiB未明确，暂不写冲突期望；旧多行切帧只引用旧用例。"
+    },
+    {
+      "id": "G24",
+      "statusRaw": "partial",
+      "detail": "Retry-After缺失、非法、负数按5秒。HTTP-date、浮点、超大值的取舍需沿用统一RetryAfterGate既有契约，未在本任务另造规则。跨身份迟到AI10004必须沿既有全局身份校验，不允许锁住无关新身份。"
+    },
+    {
+      "id": "G26",
+      "statusRaw": "partial",
+      "detail": "采用正在停止、最多30秒。已覆盖无meta、终止先到、迟到meta。停止期间持续完整ping如何与原空闲截止合并、meta恰在截止时刻的竞态优先级尚未细化，不猜；实现不得超过30秒保守等待上限。"
+    },
+    {
+      "id": "G30",
+      "statusRaw": "texts_pending",
+      "detail": "赞踩、正在停止、举报、历史错误等缺键文案属于AgentDraftTexts TODO(N-38)，测试字符串不是新增契约键。"
+    },
+    {
+      "id": "G32",
+      "statusRaw": "overridden",
+      "detail": "entry.visible=false时Tab换搜索已纳入；本文件判定策略，三端壳层必须另用真实Tab接线验证。"
+    },
+    {
+      "id": "G33",
+      "statusRaw": "release_blocker",
+      "detail": "AI同意版本键与法务定稿缺失；代码路径可开放，提审和对外发布条件未满足。"
+    },
+    {
+      "id": "G34",
+      "statusRaw": "integration_required",
+      "detail": "planned不作客户端拒绝依据。Release制品0假流标记、0fixture，真实Router归属隔离抓包及AC-S1-179真机性能须由三端实现阶段补执行证据；本组纯函数结果不代表制品扫描已通过。"
+    },
+    {
+      "id": "G37",
+      "statusRaw": "platform_pending",
+      "detail": "鸿蒙RCP最低API逐块回调需实测，不可用才按任务书改requestInStream；四个输出文件不能替代该核实。"
+    },
+    {
+      "id": "G38",
+      "statusRaw": "provisional",
+      "detail": "首次+4次，1/2/4/8秒已确认；抖动仍按现在做法0.5–1.5倍均匀分布，随机数注入，待规划补齐。"
+    },
+    {
+      "id": "G43",
+      "statusRaw": "prerequisite",
+      "detail": "Android需先合入CredentialReadBarrier及CT-LOCK-01。各operation只经ApiClient取凭据，需网络层集成测试验证。"
+    },
+    {
+      "id": "G44",
+      "statusRaw": "prerequisite",
+      "detail": "iOS AgentCore尚未实现；三端JSON接线仅转换类型并调用实际生产逻辑，禁止按测试名返回期望。此批为实现前测试，尚未编译运行。"
+    }
+  ]
+}

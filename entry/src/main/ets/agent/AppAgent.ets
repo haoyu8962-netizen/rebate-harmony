@@ -6,7 +6,9 @@ import {
   AgentProductRef, AgentRetryTap, AgentRunTicket, AgentSnapshot, AgentTap, AgentWithdrawFlow, AgentWithdrawOutcome,
   AmountMaskStore, ApiClient, ApiOutcome, ApiRequest, ApiResult,
   AppConfig, ClipboardController, ConfigStore, EnvironmentSource, PrivacyState, RetryAfterGate, RouteRequest, RouteSource,
-  shanghaiIso
+  shanghaiIso, AgentAvailability, AgentCancelLedger, AgentGates, AgentOwnershipDecision, AgentOwnershipEvent,
+  AgentOwnershipHandlers, AgentOwnershipStop, AgentReplyTicket, ApiAgentContractPort, SessionState, AgentIdentityChange,
+  AgentSyncAction, AgentSyncPolicy, AgentConsentLapse
 } from 'core';
 import { CouliFormat, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
 import { AgentActions, AgentScreenModel, AgentScreenPort } from 'agent';
@@ -59,11 +61,14 @@ class AgentCardHost implements TradeCardHost {
 class BuyRef {
   readonly itemCardId: string;
   readonly productKey: string;
+  /** APP-10 共性第 34 条：尝试绑完整商品引用（控制器、对话、run、外层卡、商品卡编号、link_id），不只比 card_id。 */
+  readonly linkId: string;
   readonly ref: AgentProductRef;
 
-  constructor(itemCardId: string, productKey: string, ref: AgentProductRef) {
+  constructor(itemCardId: string, productKey: string, linkId: string, ref: AgentProductRef) {
     this.itemCardId = itemCardId;
     this.productKey = productKey;
+    this.linkId = linkId;
     this.ref = ref;
   }
 }
@@ -135,6 +140,30 @@ class AgentControllerPort implements AgentScreenPort {
     this.agent.controller?.consentReopen(t);
   }
 
+  feedback(t: AgentReplyTicket, value: string): void {
+    this.agent.controller?.feedback(t, value);
+  }
+
+  reportOpen(t: AgentReplyTicket): void {
+    this.agent.controller?.reportOpen(t);
+  }
+
+  reportEdit(t: AgentReplyTicket, reason: string | null, supplement: string): void {
+    this.agent.controller?.reportEdit(t, reason, supplement);
+  }
+
+  reportSubmit(t: AgentReplyTicket): void {
+    this.agent.controller?.reportSubmit(t);
+  }
+
+  reportClose(t: AgentReplyTicket): void {
+    this.agent.controller?.reportClose(t);
+  }
+
+  loadEarlier(t: AgentPageTicket): void {
+    this.agent.controller?.loadEarlier(t);
+  }
+
   consentBeforeOpen(t: AgentConsentTicket): boolean {
     // R1-10：票据仍是此刻那一张、页面可见、没有阻挡层（隐私弹窗、强更、更新提示、半屏）；打开前与打开完成后各核对一次。
     const c: AgentController | null = this.agent.controller;
@@ -170,10 +199,16 @@ class AgentControllerPort implements AgentScreenPort {
  * - 身份（环境 + 身份档 + 账号 + 网络层归属键（含隐私 / 会话世代）+ AI 同意世代 + 页面实例）在控制器构造时固定；AppRouting.stateChanged 每次
  *   同步时只比较，变了就在同步出口作废旧控制器（关连接、停计时、清消息与金额，不发 cancel）并按新身份重建（从空对话开始）。
  * - 撤回隐私同意、切换环境：登记为 AppConfig.cleaners 的「清理前第一步」（agent_conversation），清理开始即同步作废。对话只在内存，没有要删的本机数据。
- * - Release（AgentVariant.contract() 为 null）：「未开放」，不显示输入框、不弹同意框、不发请求。
+ * - APP-10b（F-X-04）：Release 与 Debug / Staging 都接真实端口 ApiAgentContractPort（经 ApiClient；Debug / Staging 的本机假服务在实际传输入口按
+ *   DebugMockGate 接管）。「未开放」只在 agent.entry.visible=false（底部 Tab 换成「搜索」）、config.agent.enabled=false、本次进入收到 30501 时显示。
+ * - 切 Tab / 被覆盖时流保活（G02）：只撤销导航与弹层许可，隐藏期间不更新界面、回来一次性应用；页面实例销毁、归属变化才作废。
+ * - 归属协调器（AgentOwnershipStop，G01）：退出登录、撤回 AI 同意、撤回隐私同意的确认后同步入口、发出该流程自己的请求之前，先同步作废控制器，
+ *   再以原身份尽力发一次 cancel（不挂页面归属、不等结果、结果不导航不弹框）；切环境只停流不发。
  */
 export class AppAgent {
   private static instance: AppAgent | null = null;
+  /** 身份档：会员但账号未知（不是 basic / guest / member；控制器按 BLOCKED 处理）。 */
+  static readonly MEMBER_UNKNOWN: string = 'member_unknown';
 
   static get shared(): AppAgent {
     if (AppAgent.instance === null) {
@@ -207,6 +242,23 @@ export class AppAgent {
   private unsubscribeOverlays: (() => void) | null = null;
   /** 设置页撤回 AI 同意的 42901 禁用期（R2-06；按会话归属）。 */
   private withdrawGate: RetryAfterGate | null = null;
+  /** 三组 Retry-After 闸门（G24：发送 / 读取 / 动作；按不含页面实例的会话归属保存，跨页面实例共用，R3-03）。 */
+  private gates: AgentGates | null = null;
+  /** 真实端口（APP-10b；main 源码集，与构建类型无关）。 */
+  private readonly port: ApiAgentContractPort = new ApiAgentContractPort((): ApiClient | null => AppNetwork.client);
+  /** 已发 cancel 的 run（【停止】、重进页面、归属协调器共用：同一 run 只发 1 次）。 */
+  private readonly ledger: AgentCancelLedger = new AgentCancelLedger();
+  private ownership: AgentOwnershipStop | null = null;
+  private unsubscribeConfig: (() => void) | null = null;
+  /** 撤回 AI 同意 / 撤回隐私 / 退出登录流程在途（harmony-review-r1 R1-03）：在途期间不重建控制器、不准入任何页面归属的 agent 请求。 */
+  private readonly identityChange: AgentIdentityChange = new AgentIdentityChange();
+  /** 当前控制器构建时的配置可用性（Config 变化时与此刻比较，R1-07）。 */
+  private builtAvailable: boolean = false;
+  /**
+   * 应用级「AI 同意失效」（harmony-review-r2 R2-02，S0；R3-01 起汇入所有来源的 AI 10004）：按原归属（不含页面实例）记下，同步停下该归属此刻的控制器；
+   * 之后重建的控制器一开始就是「需要重新同意」、页面归属请求在端口出口与控制器准入都不放行，直到同一归属重新同意记录成功。
+   */
+  private readonly consentLapse: AgentConsentLapse = new AgentConsentLapse();
 
   get controller(): AgentController | null {
     return this.current;
@@ -231,14 +283,44 @@ export class AppAgent {
       return;
     }
     this.composed = true;
-    this.gate = new RetryAfterGate(Date.now, (): string => this.identityKey());
+    // harmony-review-r3 R3-03（G55）：闸门按不含页面实例的会话归属判定；同归属页面重建保留截止时间，归属改变才清理（invalidate → retain）。
+    this.gates = AgentGates.create(Date.now, (): string => this.identityNow().ownerKey);
+    this.gate = (this.gates as AgentGates).send;
+    const handlers: AgentOwnershipHandlers = new AgentOwnershipHandlers();
+    handlers.rateLimited = (ownerKey: string, ms: number): void => {
+      // 42901 写动作闸门：R3-03 先核对原归属（不含页面实例）仍是此刻归属，不同归属的迟到结果不写。
+      if (ownerKey === this.identityNow().ownerKey) {
+        this.gates?.action.start(ms);
+      }
+    };
+    handlers.forceUpdate = (): void => AppUpdate.shared.onServerForced();
+    handlers.aiConsentLost = (ownerKey: string): void => {
+      // R2-02：按原身份的归属键核对（不同身份整体丢弃），记下应用级「AI 同意失效」并同步停下该归属此刻的控制器（不弹框、不导航）。
+      const kept: boolean = this.consentLapse.lapse(ownerKey, this.identityNow().ownerKey, this.current);
+      hilog.info(DOMAIN, TAG, 'agent ownership cancel ai consent lost kept=%{public}s', String(kept));
+    };
+    handlers.log = (message: string): void => {
+      hilog.info(DOMAIN, TAG, '%{public}s', message);
+    };
+    this.ownership = new AgentOwnershipStop(this.ledger, handlers);
+    // R1-03 / R1-07：实际发包出口的应用级许可（配置可用、没有身份变更流程在途）；cancel 不经它。
+    this.port.gate = (): boolean => this.requestsAllowed();
+    // 退出登录、撤回隐私同意的确认后同步入口（AppMe）经这里先锁「身份变更在途」、停 Agent 流并尽力 cancel（G01）；流程结束后解锁并按结果重建。
+    AppMe.agentStop = (event: string): void => {
+      this.ownershipStop(event);
+    };
+    AppMe.agentStopEnd = (event: string): void => {
+      this.identityChangeDone(event);
+    };
     this.model.port = new AgentControllerPort(this);
-    this.model.unavailableBuild = AgentVariant.contract() === null;
+    this.model.unavailableBuild = !this.available();
+    ShellState.shared.agentEntryVisible = AppAgent.entryVisible();
     AppRouting.shared.syncAgent = (): void => this.sync();
-    // 撤回隐私同意、切换环境：清理开始时同步作废（对话、卡片、金额、还没交出的情境都只在内存，作废即清空）。
+    // 撤回隐私同意、切换环境：清理开始时同步作废（对话、卡片、金额、还没交出的情境都只在内存，作废即清空）。隐私撤回已在确认入口先经
+    // 归属协调器停流并尽力 cancel（AppPrivacyPorts.haltPush）；这里是兜底与切环境（只停流、不发 cancel，G01）。
     AppConfig.cleaners.setBeforeClear('agent_conversation', (): void => {
       this.handoff.clear();
-      this.invalidate();
+      this.ownershipStop(AgentOwnershipEvent.ENV_SWITCH);
     });
     const previous: (destination: RouteDestination) => void = ShellState.onRootShown;
     ShellState.onRootShown = (destination: RouteDestination): void => {
@@ -257,6 +339,98 @@ export class AppAgent {
       this.model.screenReader = on;
     });
     this.model.screenReader = AppHome.shared.screenReader.value();
+    this.watchConfig();
+  }
+
+  /** 配置变化（agent.entry.visible / agent.enabled）：底部 Tab 与「未开放」态跟着变；sync 按可用性变化立即作废并重建（R1-07）。 */
+  private watchConfig(): void {
+    if (this.unsubscribeConfig !== null) {
+      return;
+    }
+    const store: ConfigStore | null = AppClientCore.shared.config;
+    if (store === null) {
+      return;
+    }
+    this.unsubscribeConfig = (store as ConfigStore).subscribe((): void => {
+      ShellState.shared.agentEntryVisible = AppAgent.entryVisible();
+      this.model.unavailableBuild = !this.available();
+      this.sync();
+    });
+  }
+
+  // ---------------------------------------------------------------- 可用性（G32–G34）
+
+  /** features.flags['agent.entry.visible']（缺省可见；只认 false 为关）。 */
+  static entryVisible(): boolean {
+    const forced: boolean | null = AgentVariant.entryVisibleOverride();
+    if (forced !== null) {
+      return forced as boolean;
+    }
+    const store: ConfigStore | null = AppClientCore.shared.config;
+    const text: string | null = store === null ? null : store.value('features');
+    if (text === null) {
+      return true;
+    }
+    try {
+      const features: Record<string, Object> = JSON.parse(text) as Record<string, Object>;
+      const flags: Object | undefined = features['flags'];
+      if (flags === undefined || flags === null || typeof flags !== 'object') {
+        return true;
+      }
+      return (flags as Record<string, Object>)['agent.entry.visible'] !== false;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /** config.agent.enabled（缺省可用；只认 false 为关）。 */
+  static agentEnabled(): boolean {
+    const cfg: Record<string, Object> | null = AppAgent.agentConfig();
+    return cfg === null || cfg['enabled'] !== false;
+  }
+
+  /** 这次进入能不能用（不发任何 agent 请求的「未开放」：入口开关关、agent.enabled 关；30501 由控制器按本次进入锁）。 */
+  available(): boolean {
+    return !AgentAvailability.unavailable(AppAgent.entryVisible(), AppAgent.agentEnabled(), false);
+  }
+
+  /** 页面归属的 agent 请求此刻能否准入（R1-03、R1-07：配置可用，且没有身份变更流程在途；R2-02：此刻归属没有「AI 同意失效」）。 */
+  private requestsAllowed(): boolean {
+    return this.available() && !this.identityChange.active && !this.consentLapse.blocks(this.identityNow().ownerKey);
+  }
+
+  /** 「会员但账号未知」（FU-AND-0714 第 4 条）：有会话却读不出账号——不取会话、不拉历史、不建会话、不发消息、不反馈举报。 */
+  private static memberUnknown(): boolean {
+    if (AppRouting.shared.privacyState !== PrivacyState.CONSENTED) {
+      return false;
+    }
+    return AppLogin.shared.sessionState() !== SessionState.GUEST && AppMe.account() === null;
+  }
+
+  // ---------------------------------------------------------------- 归属协调（G01）
+
+  /**
+   * 身份事件的同步入口（退出登录、撤回 AI 同意、撤回隐私同意在发出自己的请求之前；切环境在清理开始时）：同步作废当前控制器（关连接、停计时、
+   * 作废票据），再按 G01 表以原身份尽力发一次 cancel（不挂页面归属、不等结果）。返回是否交出了 cancel。
+   */
+  ownershipStop(event: string): boolean {
+    if (event === AgentOwnershipEvent.LOGOUT || event === AgentOwnershipEvent.AI_CONSENT_WITHDRAWN
+      || event === AgentOwnershipEvent.PRIVACY_WITHDRAWN) {
+      // R1-03（S0）：确认后的同步入口先锁住「身份变更在途」，再作废控制器、捕获那一次 cancel；之后返回 Agent Tab 不重建、不准入。
+      this.identityChange.begin(event);
+    }
+    const coordinator: AgentOwnershipStop | null = this.ownership;
+    if (coordinator === null) {
+      this.handoff.clear();
+      this.invalidate();
+      return false;
+    }
+    const decision: AgentOwnershipDecision = (coordinator as AgentOwnershipStop).before(event, this.current);
+    // 控制器已在 before 里同步作废；这里清掉页面模型与本页购买状态。
+    this.invalidate();
+    const sent: boolean = (coordinator as AgentOwnershipStop).dispatch(decision, this.port);
+    hilog.info(DOMAIN, TAG, 'agent ownership %{public}s cancel=%{public}s', event, String(sent));
+    return sent;
   }
 
   // ---------------------------------------------------------------- 身份
@@ -268,7 +442,8 @@ export class AppAgent {
 
   /** 此刻的身份（构造控制器时取一次；之后只用来比较）。 */
   identityNow(): AgentIdentity {
-    const level: string = AppRouting.shared.privacyState !== PrivacyState.CONSENTED ? AgentIdentity.BASIC : AppMe.level();
+    const level: string = AppRouting.shared.privacyState !== PrivacyState.CONSENTED ? AgentIdentity.BASIC :
+      (AppAgent.memberUnknown() ? AppAgent.MEMBER_UNKNOWN : AppMe.level());
     const client: ApiClient | null = AppNetwork.client;
     const session: string = client === null ? '' : ClipboardController.scopeKey(client.captureScope());
     return new AgentIdentity(AppAgent.envName(), level, level === AgentIdentity.MEMBER ? AppMe.account() : null, session,
@@ -279,24 +454,54 @@ export class AppAgent {
     return this.identityNow().key;
   }
 
-  /** 每次状态同步（AppRouting.stateChanged）：身份变了就在同步出口作废旧控制器，并按新身份重建（从空对话开始）。 */
+  /** 身份变更流程结束（成功、失败都调用）：解锁，回到可见的 Agent 页时按此刻身份与配置重建（R1-03）。 */
+  identityChangeDone(event: string): void {
+    this.identityChange.end(event);
+    this.visibilityChanged();
+  }
+
+  /**
+   * 每次状态同步（AppRouting.stateChanged、Config 变化、回到 Agent Tab）：按 AgentSyncPolicy 判定——身份变了或配置可用性变了就在同步出口作废旧控制器
+   * （关连接、取消所属请求），并按此刻身份与配置重建（关闭时重建成「未开放」，R1-07）；身份变更流程在途时只作废、不重建（R1-03）。
+   */
   sync(): void {
     const now: AgentIdentity = this.identityNow();
     const old: AgentController | null = this.current;
-    if (old !== null && old.boundIdentity.key === now.key) {
+    const action: string = AgentSyncPolicy.decide(old === null ? null : old.boundIdentity.key, this.builtAvailable, now.key,
+      this.available(), this.identityChange.active, this.livePage !== 0, AppConfig.environment() !== undefined);
+    if (action === AgentSyncAction.KEEP) {
       return;
     }
     this.invalidate();
-    if (this.livePage === 0 || AppConfig.environment() === undefined) {
-      return;
+    if (action === AgentSyncAction.REBUILD) {
+      this.build(now);
     }
-    this.build(now);
   }
 
   private build(identity: AgentIdentity): void {
     const gate: RetryAfterGate = this.gate as RetryAfterGate;
     const deps: AgentDeps = new AgentDeps(identity, (): string => this.identityKey(), gate);
-    deps.contract = AgentVariant.contract();
+    // APP-10b：真实端口（Debug / Staging 的假服务在传输入口接管）；入口开关、agent.enabled 关闭时没有端口（「未开放」、不发请求）。
+    this.builtAvailable = this.available();
+    deps.contract = this.builtAvailable ? this.port : null;
+    // R1-03 / R1-07：控制器的每次准入同样复核配置与身份变更在途。
+    deps.allowed = (): boolean => this.requestsAllowed();
+    // R2-02：应用级「AI 同意失效」期间重建的控制器一开始就是「需要重新同意」。
+    deps.consentLapsed = (): boolean => this.consentLapse.blocks(identity.ownerKey);
+    // harmony-review-r3 R3-01（S0）：控制器任何来源的 AI 10004（发送、反馈 / 举报、流内、【停止】的 cancel，含页面实例已销毁后到达的）
+    // 都汇入应用级「AI 同意失效」：按不含页面实例的归属键核对（不同归属丢弃），记下并同步停下同归属此刻的控制器；只有同归属重新同意成功才解除。
+    deps.aiConsentLost = (ownerKey: string): void => {
+      const kept: boolean = this.consentLapse.lapse(ownerKey, this.identityNow().ownerKey, this.current);
+      hilog.info(DOMAIN, TAG, 'agent ai consent lost kept=%{public}s', String(kept));
+    };
+    // R3-01：【停止】与身份事件 cancel 的结果按不含页面实例的归属键核对（页面重建后到达的不丢）。
+    deps.currentOwnerKey = (): string => this.identityNow().ownerKey;
+    deps.conversation = this.port;
+    deps.readGate = this.gates === null ? null : (this.gates as AgentGates).read;
+    deps.actionGate = this.gates === null ? null : (this.gates as AgentGates).action;
+    deps.foreground = (): boolean => this.foreground;
+    deps.cancelLedger = this.ledger;
+    deps.memberUnknown = identity.level === AppAgent.MEMBER_UNKNOWN;
     deps.masked = (): boolean => AmountMaskStore.shared.hidden;
     deps.subscribeMask = (listener: (hidden: boolean) => void): () => void => AmountMaskStore.shared.subscribe(listener);
     deps.money = (fen: number): string => CouliFormat.money(fen);
@@ -313,10 +518,9 @@ export class AppAgent {
     };
     deps.toast = (text: string): void => this.toast(text);
     deps.forceUpdate = (): void => AppUpdate.shared.onServerForced();
-    // R1-03：【停止】、【新对话】作废本页购买执行器的在途尝试（只挡外跳；之后的响应带旧卡片世代，控制器不再更新卡片）。
-    deps.cancelPurchase = (): void => {
-      this.trade?.controller.cancelLoading();
-    };
+    // R1-03 + APP-10 共性第 26 条：【停止】、【新对话】、历史替换同步释放本页购买执行器的在途状态（加载、超时条、确认框、外跳中），
+    // 清空本对话的购买尝试定位（之后到达的响应不再更新卡片）。
+    deps.cancelPurchase = (): void => this.releasePurchases();
     // H10：额度用完时已绑手机的会员不再引导绑定（未知按未验证）。
     deps.phoneBound = (): boolean | null => AppMe.shared.settingsPhoneBound();
     deps.log = (message: string): void => {
@@ -347,10 +551,28 @@ export class AppAgent {
     if (old !== null) {
       old.dispose();
     }
-    this.buyRefs = [];
-    this.gate?.reset();
+    this.releasePurchases();
+    // R3-03：同归属的控制器作废 / 页面重建保留三组闸门的截止时间；归属真正改变才清理。
+    this.gates?.retain(this.identityNow().ownerKey);
     this.model.snapshot = new AgentSnapshot();
     this.model.draft = '';
+  }
+
+  /** 本页购买执行器的在途状态同步清空（共性第 26 条：不只取消加载）。 */
+  private releasePurchases(): void {
+    this.buyRefs = [];
+    const t: TradeBinder | null = this.trade;
+    if (t === null) {
+      return;
+    }
+    try {
+      t.controller.cancelLoading();
+      t.controller.dismissTimeout();
+      t.controller.dismissDialog();
+      t.controller.cancelBrowser();
+    } catch (e) {
+      // 执行器出错不影响作废。
+    }
   }
 
   // ---------------------------------------------------------------- 页面实例
@@ -405,6 +627,10 @@ export class AppAgent {
   private visibilityChanged(): void {
     const visible: boolean = this.visibleNow();
     this.model.visible = visible;
+    if (visible && this.current === null) {
+      // 归属协调器作废后（撤回 AI 同意失败等身份没变的情形）：回到页面时按此刻身份重建；身份变更流程在途时不重建（R1-03）。
+      this.sync();
+    }
     const c: AgentController | null = this.current;
     if (c !== null) {
       c.setVisible(visible);
@@ -425,11 +651,14 @@ export class AppAgent {
 
   onAppForeground(): void {
     this.foreground = true;
+    this.current?.setForeground(true);
     this.visibilityChanged();
   }
 
   onAppBackground(): void {
     this.foreground = false;
+    // 后台不发起任何重试（03 §7.2）：退避中的历史重载停下、只留【重试】；流照常到 30 秒空闲或系统挂起。
+    this.current?.setForeground(false);
     this.visibilityChanged();
   }
 
@@ -448,8 +677,10 @@ export class AppAgent {
     }
     const itemId: string = AgentJson.stringOf(product['card_id']) ?? '';
     const key: string = AgentJson.stringOf(product['product_key']) ?? '';
-    this.buyRefs = this.buyRefs.filter((b: BuyRef): boolean => !(b.itemCardId === itemId && b.productKey === key));
-    this.buyRefs.push(new BuyRef(itemId, key, ref));
+    const linkId: string = AgentJson.stringOf(product['link_id']) ?? '';
+    this.buyRefs = this.buyRefs.filter((b: BuyRef): boolean => !(b.itemCardId === itemId && b.productKey === key
+      && b.linkId === linkId));
+    this.buyRefs.push(new BuyRef(itemId, key, linkId, ref));
     // 场景 agent：spm 照已有规则（页面.区块.位置）。
     t.controller.buy(product as Record<string, Object>, 'AgentChat.card.buy');
   }
@@ -457,9 +688,10 @@ export class AppAgent {
   updateCard(target: Record<string, Object>, transform: (card: Record<string, Object>) => Record<string, Object>): void {
     const itemId: Object | undefined = target['card_id'];
     const key: Object | undefined = target['product_key'];
+    const linkId: Object | undefined = target['link_id'];
     for (let i: number = this.buyRefs.length - 1; i >= 0; i--) {
       const b: BuyRef = this.buyRefs[i];
-      if (b.itemCardId === itemId && b.productKey === key) {
+      if (b.itemCardId === itemId && b.productKey === key && (linkId === undefined || b.linkId === linkId)) {
         this.current?.updateProduct(b.ref, transform);
         return;
       }
@@ -482,9 +714,14 @@ export class AppAgent {
     body['client_at'] = shanghaiIso(Date.now());
     const request: ApiRequest = new ApiRequest('recordConsent', {}, '', JSON.stringify(body));
     request.owner = (): boolean => this.identityKey() === identityKey;
+    const ownerKey: string = this.identityNow().ownerKey;
     return client.request(request).then((r: ApiResult): AgentHttpResult => {
       if (r.ok) {
         AgentVariant.consentRecorded(accepted);
+        if (accepted && this.identityKey() === identityKey) {
+          // R2-02：同一归属重新同意记录成功，才解除应用级「AI 同意失效」。
+          this.consentLapse.agreed(ownerKey);
+        }
       }
       // 失败保留完整结果（R2-06）：42901 的 Retry-After（ApiClient 已解析成 disableMillis）、本地拒绝（没有发出）原样交回。
       const ms: number = r.effect === null ? 0 : r.effect.disableMillis;
@@ -494,9 +731,9 @@ export class AppAgent {
     });
   }
 
-  /** 设置页【撤回 AI 服务同意】是否显示：只在 Agent 可用的构建与环境里（Release 现为不显示，G18）。 */
+  /** 设置页【撤回 AI 服务同意】是否显示（G32：Agent 可用——入口开关与 agent.enabled 都开、非基本模式；Release 同样显示）。 */
   withdrawAvailable(): boolean {
-    return AgentVariant.contract() !== null;
+    return this.available() && AppRouting.shared.privacyState === PrivacyState.CONSENTED;
   }
 
   /**
@@ -527,8 +764,18 @@ export class AppAgent {
         }
       },
       (): boolean => this.identityKey() === key && permit());
+    let began: boolean = false;
+    if (!(this.withdrawGate as RetryAfterGate).active) {
+      // G01：撤回 AI 同意的确认后同步入口、recordConsent(false) 发出之前：先锁「身份变更在途」（R1-03）、同步停流，再以原身份尽力发一次 cancel。
+      this.ownershipStop(AgentOwnershipEvent.AI_CONSENT_WITHDRAWN);
+      began = true;
+    }
     return flow.run().then((o: AgentWithdrawOutcome): string => {
       hilog.info(DOMAIN, TAG, 'agent consent withdraw ok=%{public}s code=%{public}d', String(o.ok), o.result.code);
+      if (began) {
+        // 结果落定（成功已按新 AI 同意世代作废、失败保持原身份）后解锁，回到 Agent 页再按结果重建。
+        this.identityChangeDone(AgentOwnershipEvent.AI_CONSENT_WITHDRAWN);
+      }
       return o.text;
     });
   }

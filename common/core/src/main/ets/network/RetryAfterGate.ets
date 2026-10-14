@@ -15,9 +15,13 @@ export class RetryAfterGate {
   /** 交给 ApiRequest.sendAllowed 的发送闸门。 */
   readonly sendAllowed: () => boolean;
 
-  constructor(clock: () => number, scope: () => string) {
+  /** 到期时是否起计时器通知（APP-10b 向量接线用虚拟时钟时为 false：只按时钟判定，不起系统计时器）。 */
+  private readonly timers: boolean;
+
+  constructor(clock: () => number, scope: () => string, timers: boolean = true) {
     this.clock = clock;
     this.scope = scope;
+    this.timers = timers;
     this.sendAllowed = (): boolean => !this.active;
   }
 
@@ -71,6 +75,9 @@ export class RetryAfterGate {
 
   private arm(): void {
     this.cancel();
+    if (!this.timers) {
+      return;
+    }
     const wait: number = Math.max(0, this.until - this.clock());
     this.timer = setTimeout((): void => {
       this.timer = -1;

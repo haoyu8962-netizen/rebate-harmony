@@ -87,6 +87,12 @@ import homeFixR2Test from './HomeFixR2.test';
 import homeFixR3Test from './HomeFixR3.test';
 import agentVectorTest from './AgentVector.test';
 import agentIntegrationTest from './AgentIntegration.test';
+import agentTransportVectorTest from './AgentTransportVector.test';
+import agentTransportIntegrationTest from './AgentTransportIntegration.test';
+import agentTransportReviewR1Test from './AgentTransportReviewR1.test';
+import agentTransportReviewR2Test from './AgentTransportReviewR2.test';
+import agentTransportReviewR3Test from './AgentTransportReviewR3.test';
+import { installAgentVectorWiring } from './AgentVectorWiring';
 import accountVectorTest from './AccountVector.test';
 import accountIntegrationTest from './AccountIntegration.test';
 import accountPendingTest from './AccountPending.test';
@@ -100,6 +106,8 @@ import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
 export default function testsuite() {
+  // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
+  installAgentVectorWiring();
   environmentConfigTest();
   // 本机单测按 default target（Release 源码）编译；Router 向量按 Debug / Staging 构建判定（含 debug_only 路由，
   // isDebugBuild 由向量给出），所以像 entry 的 staging 构建那样注册调试路由表（测试副本，gen.py 生成）。
@@ -192,6 +200,11 @@ export default function testsuite() {
   homeFixR3Test();
   agentVectorTest();
   agentIntegrationTest();
+  agentTransportVectorTest();
+  agentTransportIntegrationTest();
+  agentTransportReviewR1Test();
+  agentTransportReviewR2Test();
+  agentTransportReviewR3Test();
   accountVectorTest();
   accountIntegrationTest();
   accountPendingTest();

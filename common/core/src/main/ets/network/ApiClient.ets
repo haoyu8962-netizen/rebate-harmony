@@ -6,7 +6,14 @@ import { LoginEpochIds, SessionReadStatus, SessionTokens, SessionTokenSet } from
 import {
   EffectKind, ErrorActionInput, ErrorActionMapper, ErrorActionState, ErrorEffect, ErrorUpdateState, ReplayKind
 } from './ErrorActionMapper';
-import { HttpTransport, TransportFailure, TransportRequest, TransportResponse } from './HttpTransport';
+import {
+  HttpStreamTransport, HttpTransport, TransportFailure, TransportRequest, TransportResponse, TransportStreamSink
+} from './HttpTransport';
+import {
+  ApiStreamHandle, ApiStreamOperations, ApiStreamRecovery, ApiStreamRequest, ApiStreamRequestPolicy,
+  ApiStreamRoutingPolicy, ApiStreamSink
+} from './ApiStream';
+import { StreamUtf8Decoder } from './StreamUtf8Decoder';
 import {
   HeaderDecision, LocalRejectReason, NetworkHeaders, NetworkPrivacy, NetworkRequestState, PendingResolution,
   RequestHeaderPolicy, RetryPlan,
@@ -149,6 +156,11 @@ export class ApiClientDeps {
   readonly identity: ApiAppIdentity;
   readonly tokens: SessionTokens;
   readonly update: UpdatePort;
+  /**
+   * 流式传输（APP-10b，ApiClient.stream）：生产为 RcpTransport（与 transport 同一个 RCP 会话），Debug / Staging 为本机假服务入口
+   * （DebugFakeServer 经 DebugMockTransport 同一道闸门）。null = 没有流式能力，stream 一律本地拒绝。
+   */
+  streamTransport: HttpStreamTransport | null = null;
   credentials: CredentialSource = new NoDeviceCredentials();
   digest: DigestPort = new CryptoKitDigest();
   /** 四个 step-up 操作的未决键；null 时不记录。 */
@@ -255,6 +267,17 @@ export class ApiRequest {
    * 只在 10006 统一落点里调用；null = 没有发起页面（只按调用入口时的导航标记核对）。
    */
   navigationPermit: (() => boolean) | null = null;
+  /**
+   * GET 超时 / 断连的自动重试（03 §4.2，1 次）。APP-10b G35：Agent 断线 / 缺号 / duplicate / 30505 的历史重载自己按 1/2/4/8 秒退避，
+   * 这些请求置 false，ApiClient 不再叠加自动重试（每次尝试只发一次）。
+   */
+  autoRetry: boolean = true;
+  /**
+   * 单次发送策略（APP-10b harmony-review-r1 R1-02：身份事件与【停止】的 cancelAgentRun）：整个调用至多实际写出 1 次——不等刷新屏障（屏障在途时
+   * 不发出）、不做 GET 自动重试与 10401 校时重签、10002 不触发单飞刷新、10402 不触发设备重新注册、都不重放；也不清会话、不隔离凭据、不导航。
+   * 只保留调用方的归属与发包准入，结果只结算允许的共享事实（10405 强更；42901 由调用方写自己的闸门）。
+   */
+  singleShot: boolean = false;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -304,6 +327,8 @@ export class ApiResult {
   pendingResolution: string | null = null;
   /** 成功与 304 时响应头 ETag 的原值（不透明字符串；没有为 null，APP-03b）。 */
   etag: string | null = null;
+  /** 业务错误响应头 Retry-After 的原值（没有为 null；APP-10b：42901 写调用方给的闸门时按 G24 解析）。 */
+  retryAfter: string | null = null;
   /**
    * 外壳的 data 原文是 JSON null（APP-13a G47：getDeletion 的 `Deletion | null`，null = 从未申请）。外壳解析时 null 与缺省都折成 {}，
    * 只有这个标记能区分「服务端明确给了 null」与「给了空对象 / 坏数据」；其余调用不看它。
@@ -566,11 +591,15 @@ class LiveRequest {
   readonly abort: () => void;
   /** 发起调用的归属守卫（ApiRequest.owner；桥调用为 call.valid）；cancelOwned 按它取消。 */
   readonly owner: (() => boolean) | null;
+  /** 流式请求的底层取消（cancelStream）；null 为整包请求（transport.cancel）。 */
+  readonly cancel: (() => void) | null;
 
-  constructor(request: TransportRequest, abort: () => void, owner: (() => boolean) | null = null) {
+  constructor(request: TransportRequest, abort: () => void, owner: (() => boolean) | null = null,
+    cancel: (() => void) | null = null) {
     this.request = request;
     this.abort = abort;
     this.owner = owner;
+    this.cancel = cancel;
   }
 }
 
@@ -748,7 +777,11 @@ export class ApiClient {
     this.live.clear();
     for (const entry of live) {
       try {
-        this.deps.transport.cancel(entry.request);
+        if (entry.cancel !== null) {
+          entry.cancel();
+        } else {
+          this.deps.transport.cancel(entry.request);
+        }
       } catch (e) {
         // 传输层不得抛出；万一抛出，下面照样按取消收口。
       }
@@ -800,7 +833,15 @@ export class ApiClient {
     for (const entry of Array.from(this.live.values())) {
       if (entry.owner === owner) {
         this.live.delete(entry);
-        this.cancelQuietly(entry.request);
+        if (entry.cancel !== null) {
+          try {
+            entry.cancel();
+          } catch (e) {
+            // 传输层不得抛出。
+          }
+        } else {
+          this.cancelQuietly(entry.request);
+        }
         entry.abort();
         count++;
       }
@@ -916,6 +957,301 @@ export class ApiClient {
     ctx.sendAllowed = request.sendAllowed;
     ctx.navigationPermit = request.navigationPermit;
     return this.runCall(new Attempt(request, operation, false, false, ctx));
+  }
+
+  /**
+   * 流式请求（APP-10b §2 第 1 条，F-X-04；三端同名 ApiClient.stream）。不抛出；结果只经 sink 交付（同一请求至多一个终结）。
+   * 与 request 共用：operation 查表与路径参数编码、公共头、可选 Authorization（x-auth optional：有可用会话才带）、调用归属（bind / ownershipLost，
+   * 在途登记 live：invalidate 与 cancelOwned(owner) 同步取消）、每次实际写出前的 admit（TransportRequest.admit：归属 + sendAllowed）、
+   * 单飞刷新与 10402 重新注册（G23：只在拿到 JSON 外壳、尚未收到 SSE 字节时以同一请求体至多重放一次）、10405 强更、10006 统一落点、
+   * 10404 清会话、受限会话规则。另加 Accept / Accept-Encoding: identity；不签名、不带 Idempotency-Key（x-signed / x-idempotent 均 false）。
+   * 不套 10 秒整体超时：连接建立超时沿用 10 秒，之后由 StreamClient 的 30 秒空闲与单轮总时长负责（G16）。
+   * 流开始之后每个字节块交付前都核对调用归属：归属变了就同步关闭连接，之后到达的字节一律不交付（ApiStreamHandle.dropped 计数）。
+   */
+  stream(request: ApiStreamRequest, sink: ApiStreamSink): ApiStreamHandle {
+    const handle: ApiStreamHandle = new ApiStreamHandle();
+    const outlet: StreamOutlet = new StreamOutlet(handle, sink);
+    const operation: ApiOperation | undefined = ApiOperations.byId(request.operationId);
+    if (operation === undefined || !ApiStreamOperations.isStreaming(request.operationId)
+      || this.deps.streamTransport === null) {
+      const reason: string = operation === undefined ? LocalRejectReason.UNKNOWN_OPERATION : ApiClient.STREAM_NOT_ALLOWED;
+      Promise.resolve().then((): void => outlet.envelope(ApiResult.rejected(reason)));
+      return handle;
+    }
+    this.observeUpdateState();
+    this.ensureRestrictedBarrier();
+    const ctx: CallContext = this.bind(operation);
+    ctx.owner = request.owner;
+    ctx.sendAllowed = request.sendAllowed;
+    const api: ApiRequest = new ApiRequest(request.operationId, request.pathParams, '', request.body);
+    api.owner = request.owner;
+    api.sendAllowed = request.sendAllowed;
+    api.onAdmit = request.onAdmit;
+    this.runStream(new Attempt(api, operation, false, false, ctx), outlet, 0)
+      .then((result: ApiResult | null): void => {
+        if (result !== null) {
+          outlet.envelope(result);
+        }
+      })
+      .catch((): void => {
+        outlet.envelope(ApiResult.rejected(LocalRejectReason.CANCELLED));
+      });
+    return handle;
+  }
+
+  /** 流式请求不在 ApiStreamOperations 表里（或没有流式传输层）：本地拒绝、不发出。 */
+  static readonly STREAM_NOT_ALLOWED: string = 'stream_not_allowed';
+  /** 外壳 code=0 却不是流（G19）：本条按连接中断、同键【重试】。 */
+  static readonly STREAM_PROTOCOL: string = 'stream_protocol';
+  /** 非流响应正文的读取上限（统一外壳很小；超出按没有统一外壳）。 */
+  static readonly STREAM_ENVELOPE_MAX_BYTES: number = 1048576;
+
+  /** 一次流式尝试（首发或重放）。返回 null = 已成为流（之后经 outlet 交付）；否则为外壳 / 失败 / 本地拒绝的结果。 */
+  private async runStream(attempt: Attempt, outlet: StreamOutlet, replays: number): Promise<ApiResult | null> {
+    const op: ApiOperation = attempt.operation;
+    const request: ApiRequest = attempt.request;
+    const ctx: CallContext = attempt.ctx;
+    if (ctx.bound) {
+      const barrier: ApiResult | null = await this.awaitBarrier(ctx);
+      if (barrier !== null) {
+        return barrier;
+      }
+    }
+    if (outlet.closed) {
+      return null;
+    }
+    const lost: string | null = this.ownershipLost(ctx);
+    if (lost !== null) {
+      return this.lostResult(lost);
+    }
+    if (!ApiClient.sendPermitted(ctx)) {
+      return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
+    }
+    const prepared: Prepared = this.prepare(op, request, null);
+    if (prepared.rejected !== null) {
+      return ApiResult.rejected(prepared.rejected);
+    }
+    const endpoints: EnvironmentEndpoints = prepared.endpoints as EnvironmentEndpoints;
+    const traceId: string = this.deps.random.uuid();
+    attempt.sentDeviceId = prepared.deviceId;
+    const headers: Record<string, string> = this.headers(prepared.decision as HeaderDecision, op, request,
+      prepared.accessToken, prepared.deviceId, prepared.key, traceId);
+    ApiStreamRequestPolicy.extraHeaders(headers);
+    if (prepared.installSecret !== null) {
+      this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
+    }
+    const admitBlocked: boolean[] = [];
+    // G15：流式基址缺省等于 API 基址（stream.<主域> 待部署确定，TODO(N-38)）。
+    const transportRequest: TransportRequest = new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery,
+      headers, request.body, RetryPolicy.TIMEOUT_MILLIS, (): boolean => {
+        const owned: boolean = this.ownershipLost(ctx) === null;
+        const permitted: boolean = owned && ApiClient.sendPermitted(ctx) && !outlet.closed;
+        if (owned && !permitted) {
+          admitBlocked.push(true);
+        }
+        return ApiClient.observeAdmit(request, permitted);
+      });
+    const response: StreamResponse = await this.sendStream(transportRequest, ctx, outlet);
+    if (response.kind === StreamResponse.STARTED || response.kind === StreamResponse.CLOSED) {
+      return null;
+    }
+    const afterSend: string | null = this.ownershipLost(ctx);
+    if (afterSend !== null) {
+      return this.lostResult(afterSend);
+    }
+    if (response.kind === StreamResponse.FAILED) {
+      if (response.failure === TransportFailure.CANCELLED) {
+        return ApiResult.rejected(admitBlocked.length > 0 ? LocalRejectReason.SEND_BLOCKED : LocalRejectReason.CANCELLED);
+      }
+      return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, traceId, 0, response.failure, null,
+        ApiClient.networkEffect(), null);
+    }
+    this.observeServerDate(response.headers);
+    const body: string = StreamUtf8Decoder.decodeAll(response.body);
+    const envelope: Envelope | null = Envelope.parse(body);
+    if (envelope === null) {
+      return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, ApiClient.headerValue(response.headers, 'x-trace-id')
+        ?? traceId, response.status, 'no_envelope', null, ApiClient.networkEffect(), null);
+    }
+    const responseTrace: string = envelope.traceId.length > 0 ? envelope.traceId :
+      (ApiClient.headerValue(response.headers, 'x-trace-id') ?? traceId);
+    if (envelope.code === 0) {
+      // G19：外壳成功却不是 text/event-stream —— 协议错误，按没有流处理（本条连接中断、同键重试）。
+      return new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, responseTrace, response.status,
+        ApiClient.STREAM_PROTOCOL, null, ApiClient.networkEffect(), null);
+    }
+    const effect: ErrorEffect = ErrorActionMapper.map(new ErrorActionInput(envelope.code, envelope.data, op,
+      response.headers, attempt.isReplay, this.errorState(prepared.scope), false));
+    const failed: ApiResult = new ApiResult(ApiOutcome.BUSINESS_ERROR, envelope.code, envelope.msg, envelope.data,
+      responseTrace, response.status, TransportFailure.NONE, null, effect, null);
+    failed.retryAfter = ApiClient.headerValue(response.headers, 'retry-after');
+    const usedToken: string | null = prepared.carriesToken ? prepared.accessToken : null;
+    const recovery: string | null = ApiStreamRequestPolicy.replay(envelope.code, 0, replays);
+    if (effect.effectKindRaw === EffectKind.REFRESH_REPLAY || effect.effectKindRaw === EffectKind.REGISTER_DEVICE_REPLAY) {
+      if (recovery === ApiStreamRecovery.REFRESH && effect.effectKindRaw === EffectKind.REFRESH_REPLAY) {
+        const outcome: RefreshOutcome = await this.singleFlightRefresh(usedToken, ctx);
+        const lostAfter: string | null = this.ownershipLost(ctx);
+        if (lostAfter === LocalRejectReason.CANCELLED) {
+          return this.lostResult(lostAfter);
+        }
+        if (outcome.kind === RefreshOutcome.OK && lostAfter === null) {
+          // 同一请求体（同一 client_msg_id）重放一次（BR-AI-23 ⑥ 不重复计数）；重放前 runStream 重新核对归属与 admit。
+          return this.runStream(new Attempt(request, op, true, false, ctx), outlet, replays + 1);
+        }
+        if (outcome.kind === RefreshOutcome.FAILED || outcome.kind === RefreshOutcome.TRANSIENT) {
+          return this.withRefreshFailure(failed, outcome);
+        }
+        return this.lostResult(lostAfter ?? LocalRejectReason.SESSION_CHANGED);
+      }
+      if (recovery === ApiStreamRecovery.REGISTER && effect.effectKindRaw === EffectKind.REGISTER_DEVICE_REPLAY) {
+        let registered: boolean = false;
+        try {
+          const owner: (() => boolean) | null = ctx.owner;
+          const shared: Promise<boolean> = this.deps.deviceRegistrar.reregister(prepared.deviceId, owner);
+          registered = owner === null ? await shared : ((await this.waitOwnedFlag(shared, owner)) ?? false);
+        } catch (e) {
+          registered = false;
+        }
+        const lostAfter: string | null = this.ownershipLost(ctx);
+        if (lostAfter !== null) {
+          return this.lostResult(lostAfter);
+        }
+        if (registered) {
+          return this.runStream(new Attempt(request, op, true, false, ctx), outlet, replays + 1);
+        }
+        return this.withEffect(failed, new ErrorEffect(EffectKind.GENERIC_ERROR, null, null, ReplayKind.NONE, false, 0, true));
+      }
+      // 已经重放过一次：不再重放（G23），按这次结果交回。
+      return failed;
+    }
+    if (envelope.code === 10402 && this.ownershipLost(ctx) === null) {
+      try {
+        this.deps.deviceRegistrar.isolate(prepared.deviceId);
+      } catch (e) {
+        // 凭据源出错不影响本次结果。
+      }
+    }
+    return this.applyEffect(attempt, effect, failed, null, usedToken, prepared.deviceId);
+  }
+
+  /**
+   * 交给流式传输层并等到「成为流 / 完整非流响应 / 失败」三者之一。成为流之后字节直接经 outlet 交付（每块先核对调用归属）。
+   * 登记为在途：invalidate、cancelOwned(owner) 同步 cancelStream 并以 cancelled 收口；调用方 handle.cancel() 同步关闭、不再交付。
+   */
+  private sendStream(request: TransportRequest, ctx: CallContext, outlet: StreamOutlet): Promise<StreamResponse> {
+    const transport: HttpStreamTransport = this.deps.streamTransport as HttpStreamTransport;
+    return new Promise<StreamResponse>((resolve: (r: StreamResponse) => void): void => {
+      let settled: boolean = false;
+      const settle = (r: StreamResponse): void => {
+        if (!settled) {
+          settled = true;
+          resolve(r);
+        }
+      };
+      const cancelTransport = (): void => {
+        try {
+          transport.cancelStream(request);
+        } catch (e) {
+          // 传输层不得抛出。
+        }
+      };
+      const pipe: StreamPipe = new StreamPipe();
+      const entry: LiveRequest = new LiveRequest(request, (): void => {
+        // 撤回同意、切环境、cancelOwned：已成为流的交一个 cancelled 终结（之后一律不交付）；还没成为流的按取消收口。
+        pipe.finished = true;
+        if (pipe.started) {
+          outlet.failure(TransportFailure.CANCELLED);
+        }
+        settle(StreamResponse.failed(TransportFailure.CANCELLED));
+      }, ctx.owner, cancelTransport);
+      this.live.add(entry);
+      outlet.bindCancel((): void => {
+        pipe.finished = true;
+        this.live.delete(entry);
+        cancelTransport();
+        settle(StreamResponse.closed());
+      });
+      const done = (): void => {
+        pipe.finished = true;
+        this.live.delete(entry);
+      };
+      pipe.headers = (status: number, raw: Record<string, string>): void => {
+        if (pipe.finished || pipe.started || pipe.status !== -1) {
+          return;
+        }
+        const lower: Record<string, string> = {};
+        for (const k of Object.keys(raw)) {
+          lower[k.toLowerCase()] = raw[k];
+        }
+        pipe.status = status;
+        pipe.responseHeaders = lower;
+        if (!ApiStreamRoutingPolicy.isStream(status, lower['content-type'] ?? null)) {
+          return;
+        }
+        if (this.ownershipLost(ctx) !== null) {
+          done();
+          cancelTransport();
+          settle(StreamResponse.failed(TransportFailure.CANCELLED));
+          return;
+        }
+        pipe.started = true;
+        settle(StreamResponse.started());
+        outlet.headers(status, lower);
+      };
+      pipe.bytes = (chunk: ArrayBuffer): void => {
+        if (pipe.finished) {
+          outlet.drop();
+          return;
+        }
+        if (pipe.started) {
+          if (this.ownershipLost(ctx) !== null) {
+            // 归属在流中途变了：同步关闭连接，这一块与之后的字节都不交付（brief §0 第 1 条）。
+            done();
+            cancelTransport();
+            outlet.drop();
+            outlet.failure(TransportFailure.CANCELLED);
+            return;
+          }
+          outlet.bytes(chunk);
+          return;
+        }
+        pipe.size += chunk.byteLength;
+        if (pipe.size > ApiClient.STREAM_ENVELOPE_MAX_BYTES) {
+          done();
+          cancelTransport();
+          settle(StreamResponse.response(pipe.status, pipe.responseHeaders, new Uint8Array(0)));
+          return;
+        }
+        pipe.chunks.push(new Uint8Array(chunk.slice(0)));
+      };
+      pipe.end = (): void => {
+        if (pipe.finished) {
+          return;
+        }
+        done();
+        if (pipe.started) {
+          outlet.end();
+          return;
+        }
+        settle(StreamResponse.response(pipe.status < 0 ? 0 : pipe.status, pipe.responseHeaders, pipe.joined()));
+      };
+      pipe.failed = (failure: string): void => {
+        if (pipe.finished) {
+          return;
+        }
+        done();
+        if (pipe.started) {
+          outlet.failure(failure);
+          return;
+        }
+        settle(StreamResponse.failed(failure));
+      };
+      try {
+        transport.stream(request, pipe);
+      } catch (e) {
+        pipe.failed(TransportFailure.DISCONNECT);
+      }
+    });
   }
 
   /**
@@ -1619,6 +1955,10 @@ export class ApiClient {
     const op: ApiOperation = attempt.operation;
     const request: ApiRequest = attempt.request;
     const ctx: CallContext = attempt.ctx;
+    if (request.singleShot && this.refreshRound !== null) {
+      // R1-02：单次发送不等刷新屏障（屏障之后带的是新令牌）：没有发出。
+      return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
+    }
     if (op.operationId !== ApiClient.REFRESH_OPERATION && ctx.bound) {
       const barrier: ApiResult | null = await this.awaitBarrier(ctx);
       if (barrier !== null) {
@@ -1657,7 +1997,10 @@ export class ApiClient {
       ctx.pendingKey = key;
       ctx.pendingAccount = account;
     }
-    const plan: RetryPlan = RetryPolicy.forOperation(op);
+    const basePlan: RetryPlan = RetryPolicy.forOperation(op);
+    // G35：调用方关掉自动重试（Agent 退避重载）时每次尝试只发一次。
+    const plan: RetryPlan = request.autoRetry && !request.singleShot ? basePlan
+      : new RetryPlan(0, 0, basePlan.timeoutMillis);
     const traceId: string = this.deps.random.uuid();
     let resigned: boolean = false;
     let lastKind: string = PendingResponseKind.NO_RESULT;
@@ -1717,7 +2060,7 @@ export class ApiClient {
         this.observeServerDate(response.headers);
         const envelope: Envelope | null = Envelope.parse(response.body);
         if (envelope !== null && envelope.code === 10401 && prepared.installSecret !== null && !resigned
-          && this.adjustClock(response.headers)) {
+          && !request.singleShot && this.adjustClock(response.headers)) {
           // BR-ID-09：校时后用新的 X-Timestamp 与 X-Nonce 重签再发 1 次（不是重放原签名）。
           resigned = true;
           lastKind = PendingResponseKind.NO_RESULT;
@@ -1771,13 +2114,22 @@ export class ApiClient {
       ErrorActionMapper.map(new ErrorActionInput(envelope.code, envelope.data, op, response.headers, attempt.isReplay,
         this.errorState(prepared.scope), request.fromProductCard)));
     // 只有网络层确实要沿用原键自动重放时，未决记录才保持在途（且仍由本调用占用）；否则这次没有业务结果（R1-05）。
-    const willReplay: boolean = !attempt.internalRefresh && (effect.effectKindRaw === EffectKind.REFRESH_REPLAY
-      || effect.effectKindRaw === EffectKind.REGISTER_DEVICE_REPLAY);
+    const willReplay: boolean = !attempt.internalRefresh && !request.singleShot
+      && (effect.effectKindRaw === EffectKind.REFRESH_REPLAY || effect.effectKindRaw === EffectKind.REGISTER_DEVICE_REPLAY);
     const replayCode: boolean = envelope.code === 10002 || envelope.code === 10402;
     this.settle(ctx, willReplay || !replayCode ? PendingResponseKind.ofCode(envelope.code) :
     PendingResponseKind.NO_RESULT);
     const failed: ApiResult = new ApiResult(ApiOutcome.BUSINESS_ERROR, envelope.code, envelope.msg, envelope.data,
       responseTrace, response.status, TransportFailure.NONE, null, effect, key);
+    failed.retryAfter = ApiClient.headerValue(response.headers, 'retry-after');
+    if (request.singleShot) {
+      // R1-02：单次发送只结算允许的共享结果（10405 强更）；刷新、重新注册、重放、清会话、隔离凭据、导航一律不做。
+      if (effect.effectKindRaw === EffectKind.FORCE_UPDATE) {
+        return this.applyEffect(attempt, effect, failed, key, null, null);
+      }
+      return this.withEffect(failed, new ErrorEffect(EffectKind.GENERIC_ERROR, null, null, ReplayKind.NONE, false,
+        effect.disableMillis, true));
+    }
     if (envelope.code === 10402 && !attempt.internalRefresh
       && effect.effectKindRaw !== EffectKind.REGISTER_DEVICE_REPLAY && this.ownershipLost(ctx) === null) {
       // 有效世代的 10402 一律隔离这次所用的凭据，重放里再收到也一样（F-ALL-08 / 共性 25）；走重新注册的那条由
@@ -2767,5 +3119,176 @@ class AbandonBody {
   constructor(action: string, key: string) {
     this.action = action;
     this.idempotency_key = key;
+  }
+}
+
+/** sendStream 的结论。 */
+class StreamResponse {
+  static readonly STARTED: string = 'started';
+  static readonly RESPONSE: string = 'response';
+  static readonly FAILED: string = 'failed';
+  /** 调用方已取消（handle.cancel）：什么都不再交付。 */
+  static readonly CLOSED: string = 'closed';
+  readonly kind: string;
+  readonly status: number;
+  readonly headers: Record<string, string>;
+  readonly body: Uint8Array;
+  readonly failure: string;
+
+  constructor(kind: string, status: number, headers: Record<string, string>, body: Uint8Array, failure: string) {
+    this.kind = kind;
+    this.status = status;
+    this.headers = headers;
+    this.body = body;
+    this.failure = failure;
+  }
+
+  static started(): StreamResponse {
+    return new StreamResponse(StreamResponse.STARTED, 0, {}, new Uint8Array(0), TransportFailure.NONE);
+  }
+
+  static closed(): StreamResponse {
+    return new StreamResponse(StreamResponse.CLOSED, 0, {}, new Uint8Array(0), TransportFailure.CANCELLED);
+  }
+
+  static failed(failure: string): StreamResponse {
+    return new StreamResponse(StreamResponse.FAILED, 0, {}, new Uint8Array(0), failure);
+  }
+
+  static response(status: number, headers: Record<string, string>, body: Uint8Array): StreamResponse {
+    return new StreamResponse(StreamResponse.RESPONSE, status, headers, body, TransportFailure.NONE);
+  }
+}
+
+/** 传输层回调到 sendStream 闭包的转接（ArkTS 不用带方法的对象字面量）。 */
+class StreamPipe implements TransportStreamSink {
+  started: boolean = false;
+  finished: boolean = false;
+  status: number = -1;
+  responseHeaders: Record<string, string> = {};
+  chunks: Uint8Array[] = [];
+  size: number = 0;
+  headers: (status: number, headers: Record<string, string>) => void = (_s: number, _h: Record<string, string>) => {
+  };
+  bytes: (chunk: ArrayBuffer) => void = (_c: ArrayBuffer) => {
+  };
+  end: () => void = () => {
+  };
+  failed: (failure: string) => void = (_f: string) => {
+  };
+
+  onHeaders(status: number, headers: Record<string, string>): void {
+    this.headers(status, headers);
+  }
+
+  onBytes(chunk: ArrayBuffer): void {
+    this.bytes(chunk);
+  }
+
+  onEnd(): void {
+    this.end();
+  }
+
+  onFailure(failure: string): void {
+    this.failed(failure);
+  }
+
+  joined(): Uint8Array {
+    const all: Uint8Array = new Uint8Array(this.size);
+    let at: number = 0;
+    for (const c of this.chunks) {
+      all.set(c, at);
+      at += c.length;
+    }
+    return all;
+  }
+}
+
+/** 交付到调用方 sink 的出口：调用方取消后、或已有终结后一律不再交付（只计数）。 */
+class StreamOutlet {
+  private readonly handle: ApiStreamHandle;
+  private readonly sink: ApiStreamSink;
+  private terminal: boolean = false;
+
+  constructor(handle: ApiStreamHandle, sink: ApiStreamSink) {
+    this.handle = handle;
+    this.sink = sink;
+  }
+
+  get closed(): boolean {
+    return this.terminal || this.handle.cancelled;
+  }
+
+  bindCancel(cancel: () => void): void {
+    this.handle.bind(cancel);
+  }
+
+  headers(status: number, headers: Record<string, string>): void {
+    if (this.closed) {
+      return;
+    }
+    try {
+      this.sink.onHeaders(status, headers);
+    } catch (e) {
+      // 调用方出错不影响传输。
+    }
+  }
+
+  bytes(chunk: ArrayBuffer): void {
+    if (this.closed) {
+      this.handle.dropped++;
+      return;
+    }
+    this.handle.delivered++;
+    try {
+      this.sink.onBytes(chunk);
+    } catch (e) {
+      // 调用方出错不影响传输。
+    }
+  }
+
+  drop(): void {
+    this.handle.dropped++;
+  }
+
+  end(): void {
+    if (this.closed) {
+      return;
+    }
+    this.finish();
+    try {
+      this.sink.onEnd();
+    } catch (e) {
+      // 忽略。
+    }
+  }
+
+  failure(failure: string): void {
+    if (this.closed) {
+      return;
+    }
+    this.finish();
+    try {
+      this.sink.onFailure(failure);
+    } catch (e) {
+      // 忽略。
+    }
+  }
+
+  envelope(result: ApiResult): void {
+    if (this.closed) {
+      return;
+    }
+    this.finish();
+    try {
+      this.sink.onEnvelope(result);
+    } catch (e) {
+      // 忽略。
+    }
+  }
+
+  private finish(): void {
+    this.terminal = true;
+    this.handle.markStopped();
   }
 }

@@ -1,5 +1,6 @@
 import {
-  AgentChipTap, AgentConsentGate, AgentConsentTicket, AgentPageTicket, AgentPhase, AgentRunTicket, AgentSnapshot, AgentTurnView
+  AgentChipTap, AgentConsentTicket, AgentErrorView, AgentPageTicket, AgentPhase, AgentReplyTicket, AgentReportSheetView,
+  AgentRetryTap, AgentRunTicket, AgentSnapshot, AgentTurnView
 } from 'core';
 import {
   CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliIcon,
@@ -8,7 +9,7 @@ import {
 } from 'designsystem';
 import { AgentChipRow, AgentTurnItemView } from './AgentCards';
 import { AgentConsentHost } from './AgentConsentDialog';
-import { AgentScreenModel, AgentTurnItem } from './AgentScreenModel';
+import { AgentScreenModel, AgentScreenPort, AgentTurnItem } from './AgentScreenModel';
 
 /** entry 填入的页面模型（Agent Tab 一份；本模块不 import entry）。 */
 export class AgentActions {
@@ -30,8 +31,8 @@ class ComposerState {
   constructor(s: AgentSnapshot, ready: boolean) {
     this.page = s.page;
     this.stop = s.stop;
-    // 限流期、AI 同意没记录成功（待同意 / 提交中 / 失败）时发送与胶囊都禁用（R1-01；执行层另有同一闸门）。
-    this.disabled = s.limited || s.consentGate !== AgentConsentGate.CLEAR;
+    // 限流期、AI 同意没记录成功（待同意 / 提交中 / 失败）、只读过期会话（G09）时发送与胶囊都禁用（R1-01；执行层另有同一闸门）。
+    this.disabled = s.sendBlocked || s.readOnly;
     this.quota = s.quotaExhausted;
     this.ordersChip = s.ordersChip;
     this.contextKey = s.contextLabelKey;
@@ -60,6 +61,10 @@ export struct AgentTabRoot {
   @Param readonlyMode: boolean = false;
   @Local model: AgentScreenModel = AgentActions.model;
   @Local atBottom: boolean = true;
+  /** 举报半屏显示（快照里有半屏且页面可见；系统关闭时经 reportClose 回写，G29）。 */
+  @Local sheetShown: boolean = false;
+  /** 半屏内容（关闭动画期间保留上一份，不让内容先变空；ArkUI 内容为空时不响应关闭）。 */
+  @Local sheetView: AgentReportSheetView | undefined = undefined;
   private instance: number = 0;
   private scroller: Scroller = new Scroller();
   private consent: AgentConsentHost | null = null;
@@ -69,7 +74,19 @@ export struct AgentTabRoot {
   aboutToAppear(): void {
     this.consent = new AgentConsentHost(this.getUIContext());
     this.instance = this.model.port.pageAppear();
+    // 共性第 32 条：跟随状态随页面票据恢复（同一控制器、同一对话时沿用上次的阅读位置状态）。
+    this.atBottom = this.model.followTicket === this.followKey() ? this.model.following : true;
     this.syncList();
+  }
+
+  private followKey(): string {
+    return String(this.model.snapshot.page.controller) + '|' + String(this.model.snapshot.page.conversation);
+  }
+
+  @Monitor('atBottom')
+  onFollow(_m: IMonitor): void {
+    this.model.followTicket = this.followKey();
+    this.model.following = this.atBottom;
   }
 
   aboutToDisappear(): void {
@@ -82,14 +99,22 @@ export struct AgentTabRoot {
     return this.model.port.text(key);
   }
 
-  /** 限流期或 AI 同意没记录成功：胶囊、追问、【重试】置灰（R1-01）。 */
+  /** 发送闸门限流期或 AI 同意没记录成功：胶囊、追问、卡片置灰（R1-01）。 */
   private blockedSend(): boolean {
-    return this.model.snapshot.limited || this.model.snapshot.consentGate !== AgentConsentGate.CLEAR;
+    return this.model.snapshot.sendBlocked;
+  }
+
+  /** 消息内【重试】/【刷新】（harmony-review-r2 R2-06）：重连查询与刷新用读取闸门，同键重发与新消息用发送闸门。 */
+  private retryBlocked(turn: AgentTurnView): boolean {
+    const e: AgentErrorView | null = turn.error;
+    const r: AgentRetryTap | null = e === null ? null : e.retry;
+    return r === null ? this.blockedSend() : this.model.snapshot.retryDisabled(r.mode);
   }
 
   @Monitor('model.snapshot')
   onSnapshot(_m: IMonitor): void {
     this.syncList();
+    this.syncSheet();
     this.syncConsent();
     const s: AgentSnapshot = this.model.snapshot;
     if (this.model.screenReader) {
@@ -110,6 +135,17 @@ export struct AgentTabRoot {
   @Monitor('model.visible', 'model.blocked')
   onVisible(_m: IMonitor): void {
     this.syncConsent();
+    this.syncSheet();
+  }
+
+  private syncSheet(): void {
+    const shown: boolean = this.model.snapshot.reportSheet !== null && this.model.visible;
+    if (this.model.snapshot.reportSheet !== null) {
+      this.sheetView = this.model.snapshot.reportSheet as AgentReportSheetView;
+    }
+    if (shown !== this.sheetShown) {
+      this.sheetShown = shown;
+    }
   }
 
   private syncList(): void {
@@ -213,18 +249,46 @@ export struct AgentTabRoot {
   messages() {
     Stack({ alignContent: Alignment.Bottom }) {
       List({ scroller: this.scroller }) {
+        if (this.model.snapshot.earlier !== 'hidden') {
+          ListItem() {
+            // @Builder 按值传参不随状态刷新：按状态做键重建（「加载中 / 没有更早的」跟着变）。
+            Column() {
+              ForEach([this.model.snapshot.earlier], (state: string) => {
+                this.earlierRow(this.model.snapshot.page, state, this.model.snapshot.earlierDisabled,
+                  this.model.snapshot.loadErrorText)
+              }, (state: string) => 'earlier|' + state + '|' + String(this.model.snapshot.page.conversation) + '|'
+                + String(this.model.snapshot.earlierDisabled) + '|' + this.model.snapshot.loadErrorText)
+            }
+          }
+        }
         LazyForEach(this.model.source, (item: AgentTurnItem) => {
           ListItem() {
             AgentTurnItemView({
               turn: item.turn, port: this.model.port, busy: this.model.snapshot.sending,
-              limited: this.blockedSend()
+              limited: this.blockedSend(), retryLimited: this.retryBlocked(item.turn),
+              actionLimited: this.model.snapshot.actionDisabled
             })
           }
         }, (item: AgentTurnItem) => item.key)
+        if (this.model.snapshot.sessionNotice.length > 0) {
+          ListItem() {
+            Column() {
+              ForEach([this.model.snapshot.sessionNotice], (text: string) => {
+                this.sessionNotice(this.model.snapshot.page, text)
+              }, (text: string) => 'notice|' + text + '|' + String(this.model.snapshot.page.conversation))
+            }
+          }
+        }
       }
       .width('100%')
       .height('100%')
       .edgeEffect(EdgeEffect.Spring)
+      .onReachStart(() => {
+        // 滚到顶部（第一条消息进入可见区）：取更早一页（G08；一次只在途一页、读取闸门期间不取由 Core 判断）。
+        if (this.model.snapshot.earlier === 'more') {
+          this.model.port.loadEarlier(this.model.snapshot.page);
+        }
+      })
       .onScrollIndex((_start: number, end: number) => {
         this.atBottom = end >= this.model.source.totalCount() - 1 - BOTTOM_SLACK_ITEMS;
       })
@@ -256,6 +320,67 @@ export struct AgentTabRoot {
     }
     .width('100%')
     .height('100%')
+  }
+
+  /**
+   * 「加载更早的消息」/ 加载中 /「没有更早的消息」/ 加载失败（G08；文案 TODO(N-38)）。读取闸门期间不可点（R2-06）；失败时有统一文案（5xxxx 带
+   * trace6）就显示它（R2-05）。
+   */
+  @Builder
+  earlierRow(page: AgentPageTicket, state: string, disabled: boolean, failedText: string) {
+    Row({ space: CouliSpacing.space2 }) {
+      if (state === 'loading') {
+        LoadingProgress()
+          .width(16)
+          .height(16)
+          .color(CouliColors.textSecondary)
+      }
+      Text(state === 'failed' && failedText.length > 0 ? failedText : this.t(state === 'none' ? 'agent.draft.history.none' :
+        state === 'failed' ? 'agent.draft.history.failed' : 'agent.draft.history.earlier'))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+    .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+    .accessibilityGroup(true)
+    .focusable(state === 'more' || state === 'failed')
+    .focusBox(CouliFocus.box)
+    .enabled(!disabled)
+    .opacity(disabled && (state === 'more' || state === 'failed') ? 0.5 : 1)
+    .onClick(() => {
+      if ((state === 'more' || state === 'failed') && !this.model.snapshot.earlierDisabled) {
+        this.model.port.loadEarlier(page);
+      }
+    })
+  }
+
+  /** 会话提示（过期只读、历史 30504）：error.30504 +【新对话】（G09）。 */
+  @Builder
+  sessionNotice(page: AgentPageTicket, text: string) {
+    Column({ space: CouliSpacing.space2 }) {
+      Text(text)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .textAlign(TextAlign.Center)
+      CouliButton({
+        text: this.t('agent.draft.new_chat'),
+        variant: CouliButtonVariant.SECONDARY,
+        buttonSize: CouliButtonSize.COMPACT,
+        buttonId: 'agent-session-new-chat',
+        onTap: () => {
+          this.model.port.newChat(page);
+        }
+      })
+    }
+    .width('100%')
+    .padding(CouliSpacing.space4)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 举报半屏（AgentReport 稿）：内容是独立组件（@Param 随快照刷新）。 */
+  @Builder
+  reportSheet() {
+    AgentReportSheetContent({ view: this.sheetView, port: this.model.port,
+      actionLimited: this.model.snapshot.actionDisabled })
   }
 
   /** 快捷胶囊 + 输入框（page：渲染时的对话票据；回调只比较）。 */
@@ -402,7 +527,8 @@ export struct AgentTabRoot {
             ErrorState({
               title: this.model.snapshot.loadErrorText,
               retryText: this.t('agent.draft.retry'),
-              retryDisabled: this.model.snapshot.limited,
+              // R2-06：整页加载（取当前会话 + 历史首页）的【重试】受读取闸门控制。
+              retryDisabled: this.model.snapshot.loadRetryDisabled,
               onRetry: () => {
                 this.model.port.retryLoad(page);
               }
@@ -439,6 +565,22 @@ export struct AgentTabRoot {
     .height('100%')
     .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
     .backgroundColor(CouliColors.backgroundCanvas)
+    .bindSheet(this.sheetShown!!, this.reportSheet(), {
+      height: SheetSize.MEDIUM,
+      dragBar: true,
+      showClose: true,
+      onWillDismiss: (action: DismissSheetAction) => {
+        // 系统返回、点遮罩、关闭按钮：只关本实例（不提交、不导航，G29）。
+        action.dismiss();
+      },
+      onDisappear: () => {
+        this.sheetShown = false;
+        const v: AgentReportSheetView | null = this.model.snapshot.reportSheet;
+        if (v !== null) {
+          this.model.port.reportClose((v as AgentReportSheetView).ticket);
+        }
+      }
+    })
   }
 }
 
@@ -446,4 +588,101 @@ export struct AgentTabRoot {
 @Builder
 export function agentTabRootBuilder(readonlyMode: boolean) {
   AgentTabRoot({ readonlyMode: readonlyMode })
+}
+
+/** 举报半屏内容（AgentReport 稿）：被举报回复的摘要、五个原因单选、补充说明（选填）、【提交举报】。只在内存；回调只交回渲染时的回复票据。 */
+@ComponentV2
+struct AgentReportSheetContent {
+  @Param view: AgentReportSheetView | undefined = undefined;
+  @Param port: AgentScreenPort | undefined = undefined;
+  @Param actionLimited: boolean = false;
+
+  private t(key: string): string {
+    return this.port?.text(key) ?? '';
+  }
+
+  @Builder
+  reasonRow(v: AgentReportSheetView, reason: string) {
+    Row({ space: CouliSpacing.space2 }) {
+      Radio({ value: reason, group: 'agent-report-reason' })
+        .checked(v.selected === reason)
+        .enabled(!v.submitting)
+        .hitTestBehavior(HitTestMode.None)
+      Text(reason)
+        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+    .accessibilityGroup(true)
+    .accessibilityRole(AccessibilityRoleType.RADIO)
+    .accessibilityChecked(v.selected === reason)
+    .accessibilityText(reason)
+    .focusable(true)
+    .focusBox(CouliFocus.box)
+    .onClick(() => {
+      if (!v.submitting) {
+        this.port?.reportEdit(v.ticket, reason, v.supplement);
+      }
+    })
+  }
+
+  build() {
+    if (this.view !== undefined) {
+      Scroll() {
+        Column({ space: CouliSpacing.space3 }) {
+          Text(this.t('agent.draft.report.title'))
+            .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
+            .accessibilityLevel('yes')
+          Text(this.t('agent.draft.report.subtitle'))
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          Text(this.view.quote)
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .padding(CouliSpacing.space3)
+            .width('100%')
+            .backgroundColor(CouliColors.backgroundMuted)
+            .borderRadius(CouliRadius.card)
+          ForEach(this.view.reasons, (reason: string) => {
+            this.reasonRow(this.view as AgentReportSheetView, reason)
+          }, (reason: string) => reason + ':' + String((this.view as AgentReportSheetView).selected === reason))
+          if (this.view.inlineError) {
+            Text(this.t('agent.draft.report.reason_error'))
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusWarningText))
+          }
+          TextArea({ text: this.view.supplement, placeholder: this.t('agent.draft.report.supplement') })
+            .width('100%')
+            .height(88)
+            .maxLength(this.view.supplementLimit)
+            .enabled(!this.view.submitting)
+            .onChange((value: string) => {
+              const v: AgentReportSheetView | undefined = this.view;
+              if (v !== undefined) {
+                this.port?.reportEdit(v.ticket, v.selected, value);
+              }
+            })
+          CouliButton({
+            text: this.t('agent.draft.report.submit'),
+            variant: CouliButtonVariant.PRIMARY,
+            fullWidth: true,
+            disabled: this.view.selected === null || this.view.submitting || this.actionLimited,
+            buttonId: 'agent-report-submit',
+            onTap: () => {
+              const v: AgentReportSheetView | undefined = this.view;
+              if (v !== undefined) {
+                this.port?.reportSubmit(v.ticket);
+              }
+            }
+          })
+        }
+        .width('100%')
+        .padding(CouliSpacing.space4)
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .height('100%')
+      .align(Alignment.Top)
+    }
+  }
 }

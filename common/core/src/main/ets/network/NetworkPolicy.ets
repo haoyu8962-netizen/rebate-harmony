@@ -25,6 +25,10 @@ export class NetworkHeaders {
   static readonly IF_NONE_MATCH: string = 'If-None-Match';
   /** APP-12 G03：个性化推荐关闭（值 off）。 */
   static readonly PERSONALIZATION: string = 'X-Personalization';
+  /** APP-10b G18：流式请求带 Accept: text/event-stream。 */
+  static readonly ACCEPT: string = 'Accept';
+  /** APP-10b G17：流式请求带 Accept-Encoding: identity（流不压缩）。 */
+  static readonly ACCEPT_ENCODING: string = 'Accept-Encoding';
 }
 
 /** 本地拒绝的原因（不发出请求）。 */
@@ -184,8 +188,12 @@ export class RequestHeaderPolicy {
   static readonly BASIC_MODE_ALLOWLIST: string[] = ['getConfig', 'searchProducts', 'getProduct', 'listArticles'];
   /** 首启尚未同意时只放行配置（03 §4.1）。TODO(N-19)：线上协议文本的 operation 待契约给出。 */
   static readonly UNDECIDED_ALLOWLIST: string[] = ['getConfig'];
-  /** 作废接口不带 Idempotency-Key（BR-ID-10 细则「作废接口」：原键放请求体）。 */
-  static readonly NO_IDEMPOTENCY_HEADER: string[] = ['abandonIdempotencyKey'];
+  /**
+   * 不带 Idempotency-Key 的写操作：作废接口（BR-ID-10 细则「作废接口」：原键放请求体）；Agent 的 5 个写 operation（契约 x-idempotent:false，
+   * APP-10b brief §0 第 3 条：不带 Idempotency-Key；发送靠 client_msg_id 去重，反馈 / 举报不幂等）。
+   */
+  static readonly NO_IDEMPOTENCY_HEADER: string[] = ['abandonIdempotencyKey', 'createAgentSession', 'sendAgentMessage',
+    'cancelAgentRun', 'setAgentMessageFeedback', 'reportAgentMessage'];
 
   static decide(state: NetworkRequestState, operation: ApiOperation): HeaderDecision {
     if (!state.environmentSettled) {

@@ -4,8 +4,10 @@
 // 不发出任何网络请求；否则原样交给真实传输层。这道检查在实际传输入口统一做（Core 的 DebugMockTransport，R2-01）：
 // send / cancel 只经它，不按接口逐个判断，草稿、公告等新增的假响应同样受它约束。
 import {
-  DebugMockTransport, DebugSubstitutes, HttpTransport, NetworkHeaders, RcpTransport, TransportFailure, TransportRequest, TransportResponse
+  AgentFakeTransport, DebugMockTransport, DebugSubstitutes, HttpStreamTransport, HttpTransport, NetworkHeaders, RcpTransport,
+  TransportFailure, TransportRequest, TransportResponse, TransportStreamSink
 } from 'core';
+import { AgentVariant } from '../agent/AgentVariant';
 import { DebugFakeSearch, FakeAnswer } from './DebugFakeSearch';
 import { DebugFakeClipboard } from './DebugFakeClipboard';
 import { DebugFakeTrade } from './DebugFakeTrade';
@@ -16,7 +18,7 @@ import { DebugFakeHome } from './DebugFakeHome';
 import { DebugFakeAccount } from './DebugFakeAccount';
 
 /** 传输入口闸门放行时的本机回答一侧（只由 DebugMockTransport 调用）。 */
-class FakeSide implements HttpTransport {
+class FakeSide implements HttpTransport, HttpStreamTransport {
   private readonly server: DebugFakeServer;
 
   constructor(server: DebugFakeServer) {
@@ -29,6 +31,15 @@ class FakeSide implements HttpTransport {
 
   cancel(request: TransportRequest): void {
     this.server.fakeCancel(request);
+  }
+
+  stream(request: TransportRequest, sink: TransportStreamSink): void {
+    // APP-10b：流式请求只有 sendAgentMessage，由 Agent 的本机假服务按脚本逐块下发字节。
+    AgentVariant.fakeTransport().stream(request, sink);
+  }
+
+  cancelStream(request: TransportRequest): void {
+    AgentVariant.fakeTransport().cancelStream(request);
   }
 }
 
@@ -66,7 +77,7 @@ export const DEBUG_FAKE_SERVER_KEY: string = 'couli_debug_fake_server';
  * - APP-12：GET /v1/me（13 个字段）、申诉、consents、推送令牌上报、resetTip；封禁场景的钱包摘要 10006（场景见 DebugFakeMe）。
  *   /v1/config 补上客服链接与 AI 公示的测试值。
  */
-export class DebugFakeServer implements HttpTransport {
+export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
   /**
    * 启动参数里的开关（只由 setEnabled 写）。F-X-02 / FU-HM-0711b R1-06：私有，本文件以外读不到（编译期拦下；tools/ci/lint.py
    * HM-LINT-10 再按词法兜一层）——其余替身一律经 mockGate（假服务打开 且 当前环境允许 MOCK_DATA，每次使用时重新判断）；传输入口在
@@ -96,8 +107,10 @@ export class DebugFakeServer implements HttpTransport {
   /** 等待回答中的请求：取消时清掉计时器并按 cancelled 结束。 */
   private readonly waiting: Map<TransportRequest, Waiting> = new Map<TransportRequest, Waiting>();
   /** 实际传输入口（R2-01）：每次发包按「假服务打开 + 当前环境允许 MOCK_DATA」选本机回答或真实传输层（RcpTransport）。 */
-  private readonly entry: DebugMockTransport = new DebugMockTransport(new FakeSide(this), new RcpTransport(),
-    (): boolean => DebugFakeServer.enabled);
+  private readonly real: RcpTransport = new RcpTransport();
+  private readonly side: FakeSide = new FakeSide(this);
+  private readonly entry: DebugMockTransport = new DebugMockTransport(this.side, this.real,
+    (): boolean => DebugFakeServer.enabled, undefined, this.side, this.real);
 
   send(request: TransportRequest): Promise<TransportResponse> {
     return this.entry.send(request);
@@ -107,10 +120,26 @@ export class DebugFakeServer implements HttpTransport {
     this.entry.cancel(request);
   }
 
+  /** APP-10b：流式请求经同一个实际传输入口（同一道闸门，不另开旁路）。 */
+  stream(request: TransportRequest, sink: TransportStreamSink): void {
+    this.entry.stream(request, sink);
+  }
+
+  cancelStream(request: TransportRequest): void {
+    this.entry.cancelStream(request);
+  }
+
   /** 本机回答（闸门已放行）。 */
   fakeSend(request: TransportRequest): Promise<TransportResponse> {
     if (!request.admit()) {
       return Promise.resolve(TransportResponse.failed(TransportFailure.CANCELLED));
+    }
+    if (AgentFakeTransport.handles(request.url)) {
+      // APP-10b：7 个 /v1/agent operation 由 Agent 的本机假服务回答（同一道闸门）。
+      this.agentRequests.add(request);
+      return AgentVariant.fakeTransport().send(request).finally((): void => {
+        this.agentRequests.delete(request);
+      });
     }
     // APP-12：「我的」类接口最先答（/v1/me 的 13 个字段；实名状态沿用钱包假服务的值）；APP-09：钱包类接口其次。
     // APP-13a：注销与换手机号的接口最先答（负余额摘要、未绑手机的 getMe 只在对应场景接管）。
@@ -134,8 +163,15 @@ export class DebugFakeServer implements HttpTransport {
     });
   }
 
+  private readonly agentRequests: Set<TransportRequest> = new Set<TransportRequest>();
+
   /** 取消本机假服务接下的请求（由传输入口按当初的去向转来）。 */
   fakeCancel(request: TransportRequest): void {
+    if (this.agentRequests.has(request)) {
+      this.agentRequests.delete(request);
+      AgentVariant.fakeTransport().cancel(request);
+      return;
+    }
     const w: Waiting | undefined = this.waiting.get(request);
     if (w !== undefined) {
       this.waiting.delete(request);

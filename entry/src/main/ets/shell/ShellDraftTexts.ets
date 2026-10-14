@@ -49,6 +49,10 @@ export class ShellDraftTexts {
   static readonly TAB_ORDERS: string = '订单';
   /** TODO(N-16) 待法务定稿，不得提审。 */
   static readonly TAB_ME: string = '我的';
+  /**
+   * APP-10b（G32，编排者补充第 4 条）：agent.entry.visible=false 时 AI 助手 Tab 换成「搜索」（BR-AI-12）。TODO(N-38) 代拟，与首页搜索框同义。
+   */
+  static readonly TAB_SEARCH: string = '搜索';
 
   /** TODO(N-16) 待法务定稿，不得提审。Tab 的读屏位置说明（adaptation-a11y-spec §9「名称，角色，状态」）。 */
   static tabPosition(index: number, count: number): string {

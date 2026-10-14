@@ -19,6 +19,11 @@ export class ShellState {
 
   /** 当前选中的 Tab（0 = 首页）。 */
   @Trace selected: number = 0;
+  /**
+   * APP-10b（G32，编排者补充第 4 条）：Config features.flags['agent.entry.visible']（缺省可见）。false 时底部 AI 助手 Tab 换成「搜索」
+   * （点它经 Router 打开 Search），Agent 页即便被别的入口打开也只显示「未开放」、不发请求。AppAgent 在配置变化时写入。
+   */
+  @Trace agentEntryVisible: boolean = true;
   /** 每个 Tab 根页最近一次由 Router 打开时的只读标记。 */
   @Trace readonlyFlags: boolean[] = SHELL_TABS.map((_tab: ShellTab) => false);
   /** Router 已经打开过 Tab 根页（外壳重建时不再重新判定、不覆盖已保存的只读标记；只有用户点 Tab 才重新判定）。 */
