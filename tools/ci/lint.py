@@ -116,12 +116,14 @@ REGEX_PREV_KEYWORDS = {"return", "typeof", "instanceof", "in", "of", "new", "del
                        "else", "yield", "await"}
 # 控制语句关键字：其后括号配对的右括号之后是语句开头，`/` 是正则（F-HM-29）。
 CONTROL_PAREN_KEYWORDS = {"if", "while", "for", "with"}
-# 记号之后 `/` 开始正则的多字符记号：控制语句右括号、块结束右花括号、箭头、case / default 标签的冒号（F-HM-29）。
-REGEX_PREV_MARKS = {"ctrl)", "block}", "=>", "label:"}
+# 记号之后 `/` 开始正则的多字符记号：控制语句右括号、块结束右花括号、箭头、case / default 标签的冒号（F-HM-29）、
+# 空值合并 `??` / `??=`（F-HM-30：作为完整记号，之后是操作数开头）。
+REGEX_PREV_MARKS = {"ctrl)", "block}", "=>", "label:", "??"}
 # 记号之后的 `{` 是语句块（不是对象字面量）：开头、语句边界、右括号、箭头、标识符 / 关键字（class X {、try {、else {）、
-# case / default 标签的冒号（F-HM-29 第 1 轮修复）、返回类型结尾的 `]` / `>`（`): number[] {`、`): Promise<void> {`；表达式里
-# `]` / `>` 之后不会紧跟对象字面量）。
-BLOCK_BRACE_PREV = {"", ";", "{", "}", "block}", ")", "ctrl)", "=>", "id", "else", "do", "label:", "]", ">"}
+# case / default 标签的冒号（F-HM-29 第 1 轮修复）、返回类型结尾的 `]`（`): number[] {`）、闭合泛型尖括号的 `>`（">type"：
+# `): Promise<void> {`、`class A<T> {`）。F-HM-30：`>` 不只凭前一个记号判定——只有与前面「标识符之后的 `<`」在同一层括号里
+# 配对的 `>` 才记成 ">type"；比较运算符 `>`（a > { k: 1 }）仍记成 ">"，其后的 `{` 是对象字面量。
+BLOCK_BRACE_PREV = {"", ";", "{", "}", "block}", ")", "ctrl)", "=>", "id", "else", "do", "label:", "]", ">type"}
 
 
 class HM10Lexer:
@@ -161,6 +163,9 @@ class HM10Lexer:
         # 模板表达式入口（top=False）按左圆括号之后处理：表达式开头，`/` 是正则，`{` 是对象字面量。
         prev = "" if top else "("
         case_label = False  # 读到 case / default，等它的标签冒号
+        # F-HM-30：未配对的泛型尖括号候选（标识符之后的 `<`），记打开时的（圆括号层数，花括号层数）；同层的 `>` 与之配对即为
+        # 类型结尾。语句结束 `;`、所在的圆括号 / 花括号关闭时丢弃（a < b 之类的比较不会一直挂着）。
+        angles = []
         ternary = 0  # case 表达式里未配对的 `?`（其 `:` 不是标签冒号）
         while i < n:
             ch = src[i]
@@ -196,6 +201,8 @@ class HM10Lexer:
                 prev = "("
             elif ch == ")":
                 control = parens.pop() if parens else False
+                while angles and angles[-1][0] > len(parens):
+                    angles.pop()
                 i += 1
                 prev = "ctrl)" if control else ")"
             elif ch == "{":
@@ -206,6 +213,8 @@ class HM10Lexer:
                 if not braces and not top:
                     return i + 1
                 block = braces.pop() if braces else True
+                while angles and angles[-1][1] > len(braces):
+                    angles.pop()
                 i += 1
                 prev = "block}" if block else "}"
             elif src.startswith("++", i) or src.startswith("--", i):
@@ -229,7 +238,28 @@ class HM10Lexer:
                         case_label = True
                         ternary = 0
                 i = j
-            elif case_label and ch == "?" and not src.startswith("?.", i) and not src.startswith("??", i):
+            elif src.startswith("??", i):
+                # F-HM-30：空值合并 `??` / `??=` 是一个完整记号，不是两个 `?`（case b ?? 1: 里不算三元）。
+                i += 3 if src.startswith("??=", i) else 2
+                prev = "??"
+            elif ch == "<" and prev == "id" and src[i + 1:i + 2] not in ("<", "="):
+                angles.append((len(parens), len(braces)))
+                prev = ch
+                i += 1
+            elif ch == ">":
+                here = (len(parens), len(braces))
+                if angles and angles[-1] == here:
+                    angles.pop()
+                    prev = ">type"
+                else:
+                    prev = ch
+                i += 1
+            elif ch == ";":
+                while angles and angles[-1] == (len(parens), len(braces)):
+                    angles.pop()
+                prev = ch
+                i += 1
+            elif case_label and ch == "?" and not src.startswith("?.", i):
                 ternary += 1
                 prev = ch
                 i += 1
@@ -415,6 +445,28 @@ HM10_CASES = [
     ("泛型返回类型的函数体结束之后的正则（反例）",
      "function f(): Promise<void> { return p; }\n/DebugFakeServer.enabled/.test(s);", 0),
     ("模板表达式里调用之后的除号", "const x = `${f(a) / DebugFakeServer.enabled}`;", 1),
+    # F-HM-30（FU-HM-0711c R2-01）：评审给出的两例（比较运算符 > 之后的对象字面量、case 里的 ??）与同类情形
+    ("比较运算符之后对象字面量的除号", "const x = a > { k: 1 } / (DebugFakeServer.enabled ? 1 : 2) / 2;", 1),
+    ("模板表达式里比较运算符之后对象字面量的除号",
+     "const x = `${a > { k: 1 } / (DebugFakeServer.enabled ? 1 : 2) / 2}`;", 1),
+    ("case 表达式含 ?? 之后的块（反例）", "switch(a) { case b ?? 1: {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("case 表达式含 ??= 之后的块（反例）", "switch(a) { case (b ??= 1): {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("?? 之后的正则（反例）", "const x = a ?? /DebugFakeServer.enabled/.test(s);", 0),
+    ("?? 之后的真实读取", "const x = a ?? b / DebugFakeServer.enabled;", 1),
+    ("case 含 ?? 与三元之后的块（反例）",
+     "switch (a) { case b ?? (c ? 1 : 2): {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("比较之后再比较对象字面量的除号",
+     "for (let i = 0; i < n; i++) {}\nconst x = a > { k: 1 } / DebugFakeServer.enabled;", 1),
+    ("if 条件里 < 比较之后 > 对象字面量的除号", "if (a < b) {}\nconst x = c > { k: 1 } / DebugFakeServer.enabled;", 1),
+    ("嵌套泛型返回类型的函数体结束之后的正则（反例）",
+     "function f(): Map<string, Array<number>> { return m; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("对象类型泛型返回类型的函数体结束之后的正则（反例）",
+     "function f(): Promise<{ a: number }> { return p; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("泛型类声明体结束之后的正则（反例）",
+     "class A<T> extends B<T> { x: T; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("函数类型泛型返回类型的函数体结束之后的正则（反例）",
+     "function f(): Array<() => void> { return []; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    (">= 之后对象字面量的除号", "const x = a >= { k: 1 } / DebugFakeServer.enabled;", 1),
 ]
 
 

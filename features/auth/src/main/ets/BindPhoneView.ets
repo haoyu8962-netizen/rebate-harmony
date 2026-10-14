@@ -73,6 +73,16 @@ export class BindPhonePageConfig {
    */
   pageLeft: () => void = () => {
   };
+  /**
+   * 本页实例建好表单时调（视图 aboutToAppear）：entry 按需做老用户 phone_bound 补查（F-HM-31），补查持有本页许可。
+   */
+  recheck: (form: BindPhoneForm) => void = (_form: BindPhoneForm) => {
+  };
+  /**
+   * 补查已绑且本页许可仍有效（F-HM-31）：entry 只退出本页这一个导航实例（不按路由名移除）。
+   */
+  onRecheckBound: () => void = () => {
+  };
 
   constructor(service: BindPhoneService, texts: LoginTexts) {
     this.service = service;
@@ -169,6 +179,8 @@ export struct BindPhoneView {
     this.identity = form.pageIdentity;
     // R3-01：同步离页出口（onWillDisappear）作废本实例的页面许可；aboutToDisappear 里再调一次。
     this.config.pageLeft = (): void => form.leave();
+    // F-HM-31：老用户 phone_bound 补查持有本页许可（迟到结果不动后来打开的同名页）。
+    this.config.recheck(form);
     this.model.gateActive = this.config.service.phoneGateActive;
     this.refreshPending();
     this.config.pageShown = (): void => {

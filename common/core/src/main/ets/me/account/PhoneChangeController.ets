@@ -125,6 +125,11 @@ export class PhoneChangeController implements AccountSessionAware {
   private deferredStepUp: DeferredResult | null = null;
   private blockedSeq: number = 0;
   /**
+   * 第 2 步表单世代（F-HM-32，harmony-recheck-r3fix RC-01）：表单被清空重来（返回第 1 步、回第 1 步重新验证）时加 1，作废旧表单的
+   * 发码结果许可。发码回调捕获世代与号码；迟到的结果只结算共享倒计时 / 限流，不把错误、提示、已发码写进换代后的表单。
+   */
+  private step2Gen: number = 0;
+  /**
    * R1-06：页面不可见或导航世代已变时到达的 44001：只存结局（登记时的页面实例、会话世代与归属键），回到有效页面再弹；
    * 出栈、会话变化时作废（同 APP-09 R3-04 的延后浮层）。
    */
@@ -322,6 +327,7 @@ export class PhoneChangeController implements AccountSessionAware {
     }
     const identity: AccountIdentity = this.identity;
     const phone: string = s.newPhone.trim();
+    const gen: number = this.step2Gen;
     const key: string = this.bindKey();
     const deadlines: KeyedDeadlines = this.d.session.bindSms;
     const ticket: number = deadlines.begin(key, this.d.clock());
@@ -361,6 +367,14 @@ export class PhoneChangeController implements AccountSessionAware {
           : AccountMessages.raw(failure.message.text);
       }
       if (!this.alive || s !== this.state) {
+        return;
+      }
+      if (gen !== this.step2Gen || phone !== s.newPhone.trim()) {
+        // F-HM-32：表单已换代（返回过第 1 步）或号码已改：只按共享截止时间刷新当前表单的倒计时 / 限流，不写错误与提示。
+        if (s.step === PhoneChangeStep.STEP2) {
+          this.refreshCountdown();
+          this.emit();
+        }
         return;
       }
       s.sending = false;
@@ -773,6 +787,8 @@ export class PhoneChangeController implements AccountSessionAware {
 
   private resetForm(): void {
     const s: PhoneChangeSnapshot = this.state;
+    // F-HM-32：旧第 2 步表单的发码结果许可作废。
+    this.step2Gen++;
     s.newPhone = '';
     s.code = '';
     s.phoneError = null;

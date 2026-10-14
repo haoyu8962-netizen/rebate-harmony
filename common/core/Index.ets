@@ -118,7 +118,7 @@ export {
 } from './src/main/ets/login/OAuthLoginService';
 export {
   BindOutcome, BindPhoneFields, BindPhoneForm, BindPhoneFormBinding, BindPhoneHost, BindPhoneIdentity, BindPhonePagePermit,
-  BindPhoneService
+  BindPhoneRecheck, BindPhoneService
 } from './src/main/ets/login/BindPhoneService';
 export { AuthFeedback } from './src/main/ets/login/AuthFeedback';
 export { AuthAnnouncement, BindPhoneAnnouncer } from './src/main/ets/login/BindPhoneAnnouncer';

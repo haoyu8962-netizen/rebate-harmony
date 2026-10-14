@@ -59,6 +59,12 @@ export struct AppBindPhonePage {
         this.exitOwnInstance();
         AppLogin.shared.bindPageCompleted();
       };
+      // F-HM-31：【关闭】与老用户 phone_bound 补查查清已绑，也只退出本页这一个导航实例（补查的页面许可由 BindPhoneForm 核对）。
+      config.onClose = (): void => {
+        this.exitOwnInstance();
+        AppLogin.shared.bindPageClosed();
+      };
+      config.onRecheckBound = (): void => this.exitOwnInstance();
     }
     this.config = config;
   }

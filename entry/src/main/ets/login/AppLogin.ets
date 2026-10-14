@@ -1,7 +1,8 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, BindPhoneHost, BindPhoneService, ConfigStore, LoginOutcome, LoginService, OAuthLoginOutcome, OAuthLoginRoute,
-  OAuthLoginService, OAuthProvider, PhoneBindingState, RouterLoginHost, RoutePolicy, SessionState, SessionTokens
+  ApiClient, BindPhoneForm, BindPhoneHost, BindPhoneRecheck, BindPhoneService, ConfigStore, LoginOutcome, LoginService,
+  OAuthLoginOutcome, OAuthLoginRoute, OAuthLoginService, OAuthProvider, PhoneBindingState, RouterLoginHost, RoutePolicy,
+  SessionState, SessionTokens
 } from 'core';
 import { CouliDialog, CouliDialogOptions, CouliToast } from 'designsystem';
 import { BindPhonePageConfig, LoginPageConfig, LoginTexts } from 'auth';
@@ -321,6 +322,11 @@ export class AppLogin {
     AppRouting.shared.router.prerequisiteCompleted();
   }
 
+  /** 绑手机页的【关闭】（页面已只退出自己那一个导航实例，F-HM-31）：没绑定就按【暂不】恢复保留的待办。 */
+  bindPageClosed(): void {
+    this.releaseHeldPending();
+  }
+
   /** 绑手机页出栈（系统返回等不经 onClose 的离开）：没绑定就按【暂不】恢复保留的待办。 */
   bindPageLeft(): void {
     this.releaseHeldPending();
@@ -344,19 +350,29 @@ export class AppLogin {
 
   /**
    * 第三方老用户登录后 phone_bound 没查清（getMe 失败，R1-02）就进了绑手机页：再查一次；查清是已绑就关掉本页，待办经 Router
-   * 守卫照常恢复（这不是完成了绑定，不重置计时）。
+   * 守卫照常恢复（这不是完成了绑定，不重置计时）。F-HM-31（同 R3-03）：补查持有发起页面的许可，只退出那一个导航实例
+   * （config.onRecheckBound，按 navDestinationId），不按路由名移除；原页面已离开（许可失效）时只做共享结算（守卫重算），
+   * 不出栈、不恢复待办，后来打开的同名页不受影响。
    */
-  private recheckPhoneBinding(): void {
+  private recheckPhoneBinding(form: BindPhoneForm, config: BindPhonePageConfig): void {
     const client: ApiClient | null = AppNetwork.client;
     const oauth: OAuthLoginService | null = this.oauthService();
     if (client === null || oauth === null || !this.phoneBinding.isUnverified(client.sessionAccount())) {
       return;
     }
     const account: string | null = client.sessionAccount();
-    oauth.refreshMe().then((known: boolean): void => {
-      if (known && this.phoneBinding.get(account) === true && client.sessionAccount() === account) {
-        AppRouting.shared.navigator.remove(RoutePolicy.BIND_PHONE);
-        AppRouting.shared.stateChanged(false);
+    form.recheckBound((): Promise<boolean> => oauth.refreshMe().then((known: boolean): boolean =>
+      known && this.phoneBinding.get(account) === true && client.sessionAccount() === account
+    )).then((result: string): void => {
+      if (result === BindPhoneRecheck.UNBOUND) {
+        return;
+      }
+      const here: boolean = result === BindPhoneRecheck.BOUND_HERE;
+      if (here) {
+        config.onRecheckBound();
+      }
+      AppRouting.shared.stateChanged(false);
+      if (here) {
         AppRouting.shared.router.resumePending();
       }
     });
@@ -375,11 +391,9 @@ export class AppLogin {
     }
     const config: BindPhonePageConfig = new BindPhonePageConfig(service, this.texts);
     config.providerName = LoginDraftTexts.text('login.provider.' + this.lastProvider);
-    config.onClose = (): void => {
-      AppRouting.shared.navigator.remove(RoutePolicy.BIND_PHONE);
-      this.releaseHeldPending();
-    };
-    // R3-03：onBound（出栈本实例 + 恢复待办）由 AppBindPhonePage 按本页导航实例接上。
+    // F-HM-31：onClose（只退出本实例 + 恢复暂缓）、onRecheckBound 与 R3-03 的 onBound（出栈本实例 + 恢复待办）都由 AppBindPhonePage
+    // 按本页导航实例接上，不按路由名移除。
+    config.recheck = (form: BindPhoneForm): void => this.recheckPhoneBinding(form, config);
     config.onCustomerService = (): void => AppLogin.openCustomerService();
     // R2-03：10007 stage=cooling → 经 Router 打开 DeleteAccount（守卫照常判定）。
     config.onNavigate = (route: string): void => {
@@ -392,7 +406,6 @@ export class AppLogin {
       }
       AppRouting.shared.openInApp(route);
     };
-    this.recheckPhoneBinding();
     return config;
   }
 

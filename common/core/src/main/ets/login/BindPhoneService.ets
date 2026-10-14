@@ -112,6 +112,16 @@ export class BindPhonePagePermit {
 }
 
 /**
+ * 老用户 phone_bound 补查的结局（F-HM-31）：UNBOUND 没查清或未绑；BOUND_LEFT 已绑但发起补查的页面许可已失效（离页、换代），
+ * 只做共享结算（守卫重算），不出栈、不恢复待办；BOUND_HERE 已绑且原页面许可仍有效，由原页面只退出自己那一个导航实例。
+ */
+export class BindPhoneRecheck {
+  static readonly UNBOUND: string = 'unbound';
+  static readonly BOUND_LEFT: string = 'bound_left';
+  static readonly BOUND_HERE: string = 'bound_here';
+}
+
+/**
  * BindPhone 页的普通表单回调（harmony-review-r2 R2-01，S0；R1-01 只覆盖了确认 / 放弃）：手机号输入、清空、验证码输入、发码、提交都经
  * 渲染时捕获的 BindPhoneFormBinding 执行——先比较页面实例、固定身份、表单模型仍是当前的且身份仍是当前会话，再只写捕获到的模型、只用捕获
  * 到的身份发包。会话换代后（reset 换了身份与模型）旧回调零写入、零请求。每个页面实例一份。
@@ -228,6 +238,20 @@ export class BindPhoneForm {
     const permit: BindPhonePagePermit = new BindPhonePagePermit(this, b.identity);
     return this.service.bind(b.fields.phoneText, b.fields.codeText, b.identity)
       .then((o: BindOutcome): BindOutcome | null => this.gated(permit, o));
+  }
+
+  /**
+   * 老用户 phone_bound 补查（F-HM-31，同 R3-03）：发起时取本页许可；check 查清已绑时，许可仍有效为 BOUND_HERE（页面只退出自己的
+   * 导航实例），已失效为 BOUND_LEFT（只做共享结算）。不按路由名移除，后来打开的同名页不受影响。
+   */
+  recheckBound(check: () => Promise<boolean>): Promise<string> {
+    const permit: BindPhonePagePermit = this.permit();
+    return check().then((bound: boolean): string => {
+      if (!bound) {
+        return BindPhoneRecheck.UNBOUND;
+      }
+      return this.permitted(permit) ? BindPhoneRecheck.BOUND_HERE : BindPhoneRecheck.BOUND_LEFT;
+    });
   }
 
   /** 【确认上一次提交】（R3-01）：点击时的许可；响应照常共享结算，许可失效时页面拿到 null（不导航、不弹窗、不提示）。 */
