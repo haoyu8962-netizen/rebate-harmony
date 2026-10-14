@@ -1402,6 +1402,12 @@ export class ClipboardController {
       || decision.actionRaw === ShareImportAction.IGNORE_BUSY) {
       return decision.actionRaw;
     }
+    // F-HM-26（FU-CLIP 共性第 9 条）：候选是到达时按当时规则抽出的；发布提示之前按当前规则再校验全部候选，规则收紧（如恢复的配置
+    // 关闭了该平台）后任何一个不再被允许就整条丢弃——不跳首页、不出提示、不上传，接收身份不重新取。
+    if (payload.candidates.length > 0 && !this.candidatesStillAllowed(payload.candidates)) {
+      this.lastShareAction = ShareImportAction.DROP;
+      return this.lastShareAction;
+    }
     const before: OwnerTicket = this.capture();
     if (!this.homeRoot()) {
       const params: Record<string, Object> = {};
@@ -1456,18 +1462,32 @@ export class ClipboardController {
 
   /** 提示条背后的候选在当前规则下仍全部被允许（规则表收紧后作废，§2.1 第 5 条）。 */
   private shareStillAllowed(payload: SharePromptPayload): boolean {
+    return this.candidatesStillAllowed(payload.candidates);
+  }
+
+  /** 这组候选在当前规则下仍全部被允许（提示条、暂存分享与发布前复核共用，F-HM-26）。 */
+  private candidatesStillAllowed(candidates: ClipboardCandidate[]): boolean {
     const rules: ClipboardRules = this.rules();
-    const raws: string[] = payload.candidates.map((c: ClipboardCandidate): string => c.raw);
+    const raws: string[] = candidates.map((c: ClipboardCandidate): string => c.raw);
     const again: string[] = ClipboardCandidates.extract(raws.join('\n'), rules, this.shareDomains())
       .map((c: ClipboardCandidate): string => c.raw);
     return again.length === raws.length && again.every((r: string, i: number): boolean => r === raws[i]);
   }
 
-  /** 规则表可能变了（配置更新、状态同步）：已显示但未点击的分享提示条若候选已不被允许，同步作废；在途 parse 不追回。 */
+  /**
+   * 规则表可能变了（配置更新、状态同步）：已显示但未点击的分享提示条若候选已不被允许，同步作废；暂存（不在前台或冷启动未就绪时到达）
+   * 的分享同样同步检查，候选不再全部被允许就丢弃（F-HM-26，FU-CLIP 共性第 9 条）；在途 parse 不追回。
+   */
   rulesChanged(): void {
     const payload: SharePromptPayload | null = this.sharePrompt;
     if (payload !== null && !this.shareStillAllowed(payload)) {
       this.dropPrompt();
+    }
+    const pending: PendingShare | null = this.pendingShare;
+    if (pending !== null && pending.payload.candidates.length > 0
+      && !this.candidatesStillAllowed(pending.payload.candidates)) {
+      this.pendingShare = null;
+      this.lastShareAction = ShareImportAction.DROP;
     }
   }
 

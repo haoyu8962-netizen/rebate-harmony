@@ -757,6 +757,8 @@ export class LoginService {
     } catch (e) {
       // 删除失败：SecureSessionTokens 已在内存里作废旧令牌并持续重试删除（lessons 38），按已登出处理。
     }
+    // F-HM-28：令牌已清（或隔离），已绑定的会话归属同步改为游客。
+    this.client.onSessionTokensCleared();
     this.host.sessionEnded();
     this.host.sessionChanged();
   }

@@ -1338,12 +1338,15 @@ export class OrderPageState {
   readonly conditions: string;
   readonly anchor: string;
   readonly input: string;
+  /** 归属世代哈希（F-HM-25）：写入时的账号与持久化归属世代的哈希；没有为空串。 */
+  readonly generation: string;
 
-  constructor(account: string, conditions: string, anchor: string, input: string) {
+  constructor(account: string, conditions: string, anchor: string, input: string, generation: string = '') {
     this.account = account;
     this.conditions = conditions;
     this.anchor = anchor;
     this.input = input;
+    this.generation = generation;
   }
 
   encode(): string {
@@ -1352,6 +1355,9 @@ export class OrderPageState {
     record['conditions'] = this.conditions;
     record['anchor'] = this.anchor;
     record['input'] = this.input;
+    if (this.generation.length > 0) {
+      record['gen'] = this.generation;
+    }
     return JSON.stringify(record);
   }
 
@@ -1365,7 +1371,7 @@ export class OrderPageState {
         return null;
       }
       return new OrderPageState(OrderJson.text(r, 'account') ?? '', OrderJson.text(r, 'conditions') ?? '',
-        OrderJson.text(r, 'anchor') ?? '', OrderJson.text(r, 'input') ?? '');
+        OrderJson.text(r, 'anchor') ?? '', OrderJson.text(r, 'input') ?? '', OrderJson.text(r, 'gen') ?? '');
     } catch (e) {
       return null;
     }
@@ -1389,13 +1395,133 @@ export class OrderPageRestorer {
   input: string = '';
   /** 写盘用的固定账号（恢复决策、会话换代时一次性取得；FU-HM-0712）。 */
   private owner: string | null = null;
+  /**
+   * 与 owner 同时固定的持久化登录世代（F-HM-25 第 1 轮修复 R1-01）：读不出为 null（未知，不写盘、不恢复）。之后写盘时当前登录世代
+   * 已变（同账号重新登录、清空通知还没到）不写——旧会话的条件不记到新登录名下。
+   */
+  private ownerEpoch: string | null = null;
+  /**
+   * 令牌存储里的持久化登录世代（F-HM-25 第 1 轮修复 R1-01；App 传 SecureSessionTokens.loginEpoch，为 null 时不绑登录世代，旧用法）。
+   * 记录的归属世代哈希 = 账号 + 持久化登录世代 + 订单偏好里的清理计数（附加项）：同账号重新登录换了登录世代，旧记录即使清理计数、
+   * 待清理标记、删除全都没写进去也对不上；读不出（抛错或为 null）按未知处理，禁止恢复。
+   */
+  private readonly loginEpoch: (() => string | null) | null;
+  /**
+   * 持久化的待清理标记与归属世代（F-HM-25；App 传 OrderPageStateStore.marks()，为 null 时只有本进程内存标记，旧用法）：
+   * - 待清理标记落在与记录同一个命名空间：写失败、删不掉时先放进存储内存（putSync），之后任何一次同命名空间的 flush 把失败写入顺带
+   *   落盘时，标记也一起落盘；单独重建 Restorer（同一进程共用同一份偏好实例）或进程重启都能读到，恢复前先重试删除、不按记录恢复；
+   * - 记录带归属世代哈希（账号 + 持久化归属世代）：写失败、清理（会话换代、撤回同意、切环境）时归属世代先加一，旧记录即使之后被
+   *   顺带落盘，读取时哈希对不上也不恢复；读不出世代按不恢复处理。
+   */
+  private readonly marks: OrderRestoreMarks | null;
 
   constructor(read: () => string | null, write: (value: string | null) => void, account: () => string | null,
-    keeper: OrderAnchorKeeper) {
+    keeper: OrderAnchorKeeper, marks: OrderRestoreMarks | null = null, loginEpoch: (() => string | null) | null = null) {
     this.read = read;
     this.write = write;
     this.account = account;
     this.keeper = keeper;
+    this.marks = marks;
+    this.loginEpoch = loginEpoch;
+  }
+
+  /**
+   * 归属世代哈希：账号短标识、持久化登录世代与清理计数合在一起再取短标识（不出现 user_id 与登录世代原文）。
+   * 没接登录世代时 epoch 为空串。
+   */
+  static generationHash(account: string, epoch: string, generation: number): string {
+    return OrderStaleCache.accountTag(OrderStaleCache.accountTag(account) + '|' + epoch + '|' + String(generation));
+  }
+
+  /** 此刻的持久化登录世代：没接为空串；读不出（抛错、为 null 或空）为 null（未知）。 */
+  private currentEpoch(): string | null {
+    const source: (() => string | null) | null = this.loginEpoch;
+    if (source === null) {
+      return '';
+    }
+    try {
+      const epoch: string | null = source();
+      return epoch !== null && epoch.length > 0 ? epoch : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** 固定写盘归属：账号与持久化登录世代同时取（账号为 null 时不读登录世代）。 */
+  private fixOwner(): void {
+    const account: string | null = this.account();
+    this.owner = account;
+    this.ownerEpoch = account === null ? null : this.currentEpoch();
+  }
+
+  /** 绑定的哈希：账号 + 登录世代 + 清理计数；任一来源读不出为 null（未知）。都没接时为空串（旧用法，不核对）。 */
+  private bindingHash(account: string, epoch: string): string | null {
+    const marks: OrderRestoreMarks | null = this.marks;
+    if (marks === null && this.loginEpoch === null) {
+      return '';
+    }
+    let generation: number = 0;
+    if (marks !== null) {
+      try {
+        generation = marks.generation();
+      } catch (e) {
+        return null;
+      }
+    }
+    return OrderPageRestorer.generationHash(account, epoch, generation);
+  }
+
+  /** 持久化的待清理标记（读不出按有标记处理）；没有持久化标记时为 false。 */
+  private persistedPending(): boolean {
+    const marks: OrderRestoreMarks | null = this.marks;
+    if (marks === null) {
+      return false;
+    }
+    try {
+      return marks.pending();
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /** 记下待清理：内存一定记，持久化尽力写（写不进时存储内存里的值仍会随之后的 flush 落盘）。 */
+  private markPending(): void {
+    this.wipePending = true;
+    const marks: OrderRestoreMarks | null = this.marks;
+    if (marks !== null) {
+      try {
+        marks.setPending(true);
+      } catch (e) {
+        // 尽力：内存标记仍阻断本进程恢复。
+      }
+    }
+  }
+
+  /** 归属世代加一（尽力）：之前写下的记录（含之后被顺带落盘的失败写入）一律作废。 */
+  private advanceGeneration(): void {
+    const marks: OrderRestoreMarks | null = this.marks;
+    if (marks === null) {
+      return;
+    }
+    try {
+      marks.setGeneration(marks.generation() + 1);
+    } catch (e) {
+      // 尽力：待清理标记另行阻断恢复。
+    }
+  }
+
+  /**
+   * 记录的归属世代哈希与当前账号、持久化登录世代、清理计数相符（都没接时不核对）。登录世代或清理计数读不出：不恢复。
+   */
+  private generationMatches(saved: OrderPageState, account: string, epoch: string | null): boolean {
+    if (this.marks === null && this.loginEpoch === null) {
+      return true;
+    }
+    if (epoch === null) {
+      return false;
+    }
+    const expected: string | null = this.bindingHash(account, epoch);
+    return expected !== null && expected.length > 0 && saved.generation === expected;
   }
 
   /** 恢复决策已完成（之后才允许持久化）。 */
@@ -1408,8 +1534,8 @@ export class OrderPageRestorer {
    * 页面并持久化，恢复进行中写的仍是原锚点，R2-05）；没有可恢复的条件时从顶部开始。
    */
   restore(list: OrderListController, routeScope: string | null): void {
-    if (this.wipePending) {
-      // 上次清理没删掉：先重试删除；无论结果都不按这份记录恢复（禁止恢复，共性第 36 条）。
+    if (this.wipePending || this.persistedPending()) {
+      // 上次清理没删掉（本进程内存标记，或 F-HM-25 持久化的待清理标记）：先重试删除；无论结果都不按这份记录恢复（禁止恢复，共性第 36 条）。
       this.wipePending = !this.wipe();
     }
     let saved: OrderPageState | null = null;
@@ -1421,12 +1547,13 @@ export class OrderPageRestorer {
         saved = null;
       }
     }
-    const account: string | null = this.account();
-    this.owner = account;
+    this.fixOwner();
+    const account: string | null = this.owner;
     let conditions: OrderListConditions | null = null;
     let anchor: string = '';
     this.input = '';
-    if (saved !== null && account !== null && saved.account === OrderStaleCache.accountTag(account)) {
+    if (saved !== null && account !== null && saved.account === OrderStaleCache.accountTag(account)
+      && this.generationMatches(saved, account, this.ownerEpoch)) {
       conditions = OrderListConditions.decode(saved.conditions);
       this.input = saved.input;
       anchor = saved.anchor;
@@ -1460,11 +1587,22 @@ export class OrderPageRestorer {
     if (owner === null || this.account() !== owner) {
       return OrderPersistResult.SKIPPED;
     }
+    // R1-01：写盘归属的登录世代未知，或当前登录世代已不是固定时的那个（同账号重新登录）：不写。
+    const epoch: string | null = this.ownerEpoch;
+    if (epoch === null || this.currentEpoch() !== epoch) {
+      return OrderPersistResult.SKIPPED;
+    }
     try {
+      const generation: string | null = this.bindingHash(owner, epoch);
+      if (generation === null) {
+        throw new Error('order restore generation unreadable');
+      }
       this.write(new OrderPageState(OrderStaleCache.accountTag(owner), list.conditions().encode(), this.keeper.anchor,
-        '').encode());
+        '', generation).encode());
     } catch (e) {
-      this.wipePending = true;
+      // F-HM-25：失败写入可能已进存储内存、之后被同命名空间的 flush 顺带落盘——归属世代先加一使它作废，再记持久化待清理标记。
+      this.advanceGeneration();
+      this.markPending();
       return OrderPersistResult.FAILED;
     }
     return OrderPersistResult.SAVED;
@@ -1481,7 +1619,7 @@ export class OrderPageRestorer {
    */
   reset(): void {
     this.wipe();
-    this.owner = this.account();
+    this.fixOwner();
   }
 
   /**
@@ -1491,6 +1629,8 @@ export class OrderPageRestorer {
   wipe(): boolean {
     this.keeper.reset();
     this.input = '';
+    // F-HM-25：先让归属世代加一——删除即使失败，旧记录之后也对不上哈希。
+    this.advanceGeneration();
     let ok: boolean = false;
     try {
       this.write(null);
@@ -1498,8 +1638,20 @@ export class OrderPageRestorer {
     } catch (e) {
       ok = false;
     }
-    this.wipePending = !ok;
-    return ok;
+    if (!ok) {
+      this.markPending();
+      return false;
+    }
+    this.wipePending = false;
+    const marks: OrderRestoreMarks | null = this.marks;
+    if (marks !== null) {
+      try {
+        marks.setPending(false);
+      } catch (e) {
+        // 标记清不掉：下次恢复前多删一次，无害。
+      }
+    }
+    return true;
   }
 }
 
@@ -1511,6 +1663,22 @@ export class OrderPersistResult {
   static readonly SKIPPED: string = 'skipped';
   /** 写入或落盘失败：不算保存完成。 */
   static readonly FAILED: string = 'failed';
+}
+
+/**
+ * 订单页面恢复记录的持久化待清理标记与归属世代（F-HM-25）。读、写失败一律抛错。
+ * App 用 OrderPageStateStore.marks()：与恢复记录同一个偏好命名空间、相邻的两个键。
+ */
+export interface OrderRestoreMarks {
+  /** 归属世代（没有为 0）。 */
+  generation(): number;
+
+  setGeneration(value: number): void;
+
+  /** 待清理标记。 */
+  pending(): boolean;
+
+  setPending(pending: boolean): void;
 }
 
 /** 页面恢复记录所在的键值存储（App 用系统偏好适配）。读、写、删失败一律抛错。 */
@@ -1561,11 +1729,63 @@ export class OrderPageStateStore {
 
   /** 写入并同步落盘；value 为 null 时删除并落盘——存储打不开、写入 / 删除或落盘失败都抛错（R2-02：调用方据此报失败）。 */
   write(value: string | null): void {
+    this.writeKey(this.key, value);
+  }
+
+  private writeKey(key: string, value: string | null): void {
     if (value === null) {
-      this.kv().remove(this.key);
+      this.kv().remove(key);
       return;
     }
-    this.kv().put(this.key, value);
+    this.kv().put(key, value);
+  }
+
+  /**
+   * 持久化的待清理标记与归属世代（F-HM-25）：同一命名空间里 `<key>.wipe` 与 `<key>.gen` 两个键，写入同样 put + flushSync。
+   * 落盘失败时值已进存储内存（同一进程重建的 Restorer 读得到），之后同命名空间的任何 flush 都会把它与失败写入一起落盘。
+   */
+  marks(): OrderRestoreMarks {
+    return new StoreRestoreMarks((k: string): string | null => this.kv().get(k),
+      (k: string, v: string | null): void => this.writeKey(k, v), this.key);
+  }
+}
+
+class StoreRestoreMarks implements OrderRestoreMarks {
+  private readonly getFn: (key: string) => string | null;
+  private readonly writeFn: (key: string, value: string | null) => void;
+  private readonly genKey: string;
+  private readonly wipeKey: string;
+
+  constructor(get: (key: string) => string | null, write: (key: string, value: string | null) => void, key: string) {
+    this.getFn = get;
+    this.writeFn = write;
+    this.genKey = key + '.gen';
+    this.wipeKey = key + '.wipe';
+  }
+
+  generation(): number {
+    const raw: string | null = this.getFn(this.genKey);
+    if (raw === null || raw.length === 0) {
+      return 0;
+    }
+    const value: number = Number(raw);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error('order restore generation unreadable');
+    }
+    return value;
+  }
+
+  setGeneration(value: number): void {
+    this.writeFn(this.genKey, String(value));
+  }
+
+  pending(): boolean {
+    const raw: string | null = this.getFn(this.wipeKey);
+    return raw !== null && raw.length > 0;
+  }
+
+  setPending(pending: boolean): void {
+    this.writeFn(this.wipeKey, pending ? '1' : null);
   }
 }
 

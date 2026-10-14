@@ -525,5 +525,59 @@ export default function clipboardFuClipReviewR2Test() {
       g.share.text(0, TB_LINK);
       expect(await b).assertEqual(ShareImportAction.DROP);
     });
+
+    // ---------------------------------------------------------------- F-HM-26（FU-CLIP 共性第 9 条，FU-CLIP 鸿蒙 R3-01）
+    it('fhm26_staged_share_dropped_when_restored_config_disables_platform', 0, async () => {
+      // 评审场景：内容先返回（按默认规则暂存）→ 恢复的配置关闭淘宝（配置订阅 → rulesChanged）→ 启动就绪：不出提示，请求数为 0
+      const f: Fixture = new Fixture(true);
+      const a: Promise<string> = f.receive();
+      f.share.text(0, TB_LINK);
+      expect(await a).assertEqual('pending');
+      f.flags['clipboard.enabled.taobao'] = false;
+      f.controller.rulesChanged();
+      // 配置收紧时同步检查暂存：当场丢弃
+      expect(f.controller.lastShareAction).assertEqual(ShareImportAction.DROP);
+      f.controller.onForeground();
+      f.settle();
+      expect(f.prompt() === null).assertTrue();
+      expect(f.confirm()).assertFalse();
+      await flush();
+      expect(f.parseCount()).assertEqual(0);
+      // 对照：配置没收紧时同一流程照常出提示
+      const g: Fixture = new Fixture(true);
+      const b: Promise<string> = g.receive();
+      g.share.text(0, TB_LINK);
+      await b;
+      g.controller.rulesChanged();
+      g.controller.onForeground();
+      g.settle();
+      expect(g.promptPlatform()).assertEqual('taobao');
+    });
+
+    it('fhm26_staged_share_revalidated_before_prompt_even_without_rules_notification', 0, async () => {
+      // 规则收紧但没有经过配置订阅 / 状态同步通知：发布提示之前按当前规则再校验候选，失效就丢弃（不跳首页、不出提示、不上传）
+      const f: Fixture = new Fixture(true);
+      const a: Promise<string> = f.receive();
+      f.share.text(0, TB_LINK);
+      expect(await a).assertEqual('pending');
+      f.flags['clipboard.enabled.taobao'] = false;
+      f.ready = true;
+      f.rig.context.settled = true;
+      f.controller.onForeground();
+      expect(f.controller.lastShareAction).assertEqual(ShareImportAction.DROP);
+      expect(f.prompt() === null).assertTrue();
+      await flush();
+      expect(f.parseCount()).assertEqual(0);
+      // 别的平台不受影响：关闭的是京东，淘宝分享照常出提示（只按当前规则判定，不是一律丢弃）
+      const g: Fixture = new Fixture(true);
+      const b: Promise<string> = g.receive();
+      g.share.text(0, TB_LINK);
+      await b;
+      g.flags['clipboard.enabled.jd'] = false;
+      g.ready = true;
+      g.rig.context.settled = true;
+      g.controller.onForeground();
+      expect(g.promptPlatform()).assertEqual('taobao');
+    });
   });
 }

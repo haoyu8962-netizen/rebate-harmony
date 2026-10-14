@@ -70,6 +70,7 @@ export class AppNetwork {
   private static updateHandler: (() => void) | null = null;
   private static registry: DeviceRegistry | null = null;
   private static sessionTokens: SessionTokens | null = null;
+  private static secureTokens: SecureSessionTokens | null = null;
   private static versionName: string = '';
 
   /** 已组合的 ApiClient（compose 之前为 null）。 */
@@ -85,6 +86,14 @@ export class AppNetwork {
   /** 会话令牌（compose 之前为 null；埋点只读账号标识）。 */
   static get tokens(): SessionTokens | null {
     return AppNetwork.sessionTokens;
+  }
+
+  /**
+   * 令牌存储里的持久化登录世代（F-HM-25：订单恢复记录绑定它）。compose 之前、没有会话、隔离中、读不出都为 null（按未知处理）。
+   */
+  static loginEpoch(): string | null {
+    const tokens: SecureSessionTokens | null = AppNetwork.secureTokens;
+    return tokens === null ? null : tokens.loginEpoch();
   }
 
   /** X-App-Version 同一个版本号（埋点 app_version 用）。 */
@@ -112,6 +121,7 @@ export class AppNetwork {
     }
     const tokens: SecureSessionTokens = new SecureSessionTokens(new AssetSecureStore('couli_session'));
     AppNetwork.sessionTokens = tokens;
+    AppNetwork.secureTokens = tokens;
     // APP-05b：Debug / Staging 打开本机假服务时，未决记录放内存（模拟器的 Asset 不支持批量查询，step-up 操作发不出）；
     // Release 恒为 Asset。
     const pendingBackend: PendingKeyBackend =
@@ -170,8 +180,9 @@ export class AppNetwork {
     // APP-12 R1-08：调用入口时的导航标记（导航栈页面名 + 选中的 Tab），10006 落点据此不覆盖用户后续导航。
     deps.navigationMark = (): string => AppNetwork.navigationMark();
     const client: ApiClient = new ApiClient(deps);
+    // F-HM-28：令牌清理器同名替换为「清除后同步把已绑定归属改为游客」的版本（保持上面登记的位置）。
     const handler: () => void = NetworkComposition.install(client, AppConfig.cleaners,
-      (): void => AppRouting.shared.stateChanged());
+      (): void => AppRouting.shared.stateChanged(), EnvironmentSwitchGate.shared, tokens);
     AppNetwork.instance = client;
     AppNetwork.updateHandler = handler;
     return handler;

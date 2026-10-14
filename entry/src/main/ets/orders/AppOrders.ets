@@ -174,7 +174,7 @@ export class AppOrders {
    */
   private readonly restorer: OrderPageRestorer = new OrderPageRestorer((): string | null => this.readPageState(),
     (value: string | null): void => this.writePageState(value), (): string | null => AppOrders.account(),
-    this.anchorKeeper);
+    this.anchorKeeper, this.pageStateStore().marks(), (): string | null => AppNetwork.loginEpoch());
 
   attachUi(ui: UIContext): void {
     this.ui = ui;

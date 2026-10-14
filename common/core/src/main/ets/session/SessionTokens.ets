@@ -14,12 +14,38 @@ export class SessionTokenSet {
   readonly scope: string;
   /** 账号标识（未决幂等键按账号隔离用；登录流程 APP-05 写入，未知时为 null）。 */
   readonly account: string | null;
+  /**
+   * 持久化登录世代（F-HM-25，三端与 F-AND-25 同一口径）：每次登录保存（ApiClient 登录响应）新取一个不透明标识，与令牌整组存在
+   * 同一项里；刷新传 null，保存时沿用原值。同一账号退出后重新登录也是新世代——绑定它的本机缓存（订单恢复记录）跨进程永久失效。
+   */
+  readonly loginEpoch: string | null;
 
-  constructor(accessToken: string, refreshToken: string, scope: string, account: string | null) {
+  constructor(accessToken: string, refreshToken: string, scope: string, account: string | null,
+    loginEpoch: string | null = null) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
     this.scope = scope === SCOPE_DELETION_ONLY ? SCOPE_DELETION_ONLY : SCOPE_FULL;
     this.account = account;
+    this.loginEpoch = loginEpoch !== null && loginEpoch.length > 0 ? loginEpoch : null;
+  }
+}
+
+/**
+ * 令牌存储里的持久化登录世代（F-HM-25）。没有会话、隔离中、此刻读不出都返回 null——调用方一律按未知处理（禁止恢复绑定它的缓存）。
+ * 与 SessionTokens 分开声明：MemorySessionTokens、SecureSessionTokens 都实现它。
+ */
+export interface SessionLoginEpochs {
+  loginEpoch(): string | null;
+}
+
+/** 新登录世代标识（不透明、不含凭据；只要求跨进程不重复，不要求不可预测）。 */
+export class LoginEpochIds {
+  private static counter: number = 0;
+
+  static fresh(): string {
+    LoginEpochIds.counter++;
+    return Date.now().toString(36) + '-' + Math.floor(Math.random() * 0x7fffffff).toString(36) + '-'
+      + Math.floor(Math.random() * 0x7fffffff).toString(36) + '-' + LoginEpochIds.counter.toString(36);
   }
 }
 
@@ -58,7 +84,7 @@ export class SessionReadStatus {
   static readonly UNREADABLE: string = 'unreadable';
 }
 
-export class MemorySessionTokens implements SessionTokens {
+export class MemorySessionTokens implements SessionTokens, SessionLoginEpochs {
   private current: SessionTokenSet | null = null;
   clearCount: number = 0;
   /** 测试用：模拟安全存储此刻读不出（readStatus = unreadable，读取方法按没有会话返回）。 */
@@ -99,9 +125,15 @@ export class MemorySessionTokens implements SessionTokens {
     return this.current === null ? SessionReadStatus.ABSENT : SessionReadStatus.PRESENT;
   }
 
+  loginEpoch(): string | null {
+    const tokens: SessionTokenSet | null = this.visible();
+    return tokens === null ? null : tokens.loginEpoch;
+  }
+
   save(tokens: SessionTokenSet): void {
     const account: string | null = tokens.account ?? this.account();
-    this.current = new SessionTokenSet(tokens.accessToken, tokens.refreshToken, tokens.scope, account);
+    const epoch: string | null = tokens.loginEpoch ?? this.loginEpoch();
+    this.current = new SessionTokenSet(tokens.accessToken, tokens.refreshToken, tokens.scope, account, epoch);
   }
 
   clear(): void {
@@ -115,6 +147,7 @@ interface WireTokens {
   refresh_token?: string;
   session_scope?: string;
   account?: string | null;
+  login_epoch?: string | null;
 }
 
 /**
@@ -129,7 +162,7 @@ interface WireTokens {
  * - 读取失败（安全存储此刻不可用）：unreadable，不缓存、不删除，下次读取再试；需要会话的接口本地拒绝（ApiClient）；
  * - 内容损坏（解析不了或缺字段）：按没有会话（absent），进入隔离并尽力删除，删不掉的下次读写再删。
  */
-export class SecureSessionTokens implements SessionTokens {
+export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
   private static readonly ALIAS: string = 'session_tokens';
   private readonly store: SecureStore;
   private loaded: boolean = false;
@@ -171,14 +204,24 @@ export class SecureSessionTokens implements SessionTokens {
     return this.readFailed ? SessionReadStatus.UNREADABLE : SessionReadStatus.ABSENT;
   }
 
+  /** 持久化登录世代（与令牌同一项；没有会话、隔离中、读不出为 null）。 */
+  loginEpoch(): string | null {
+    const tokens: SessionTokenSet | null = this.load();
+    return tokens === null ? null : tokens.loginEpoch;
+  }
+
   save(tokens: SessionTokenSet): void {
     const account: string | null = tokens.account ?? this.account();
-    const next: SessionTokenSet = new SessionTokenSet(tokens.accessToken, tokens.refreshToken, tokens.scope, account);
+    // 刷新不带登录世代：沿用原值（同一次登录）；登录带新值，与令牌整组原子写入。
+    const epoch: string | null = tokens.loginEpoch ?? this.loginEpoch();
+    const next: SessionTokenSet = new SessionTokenSet(tokens.accessToken, tokens.refreshToken, tokens.scope, account,
+      epoch);
     const wire: WireTokens = {
       access_token: next.accessToken,
       refresh_token: next.refreshToken,
       session_scope: next.scope,
-      account: next.account
+      account: next.account,
+      login_epoch: next.loginEpoch
     };
     this.store.set(SecureSessionTokens.ALIAS, JSON.stringify(wire));
     this.current = next;
@@ -253,7 +296,8 @@ export class SecureSessionTokens implements SessionTokens {
       }
       return new SessionTokenSet(wire.access_token, wire.refresh_token,
         typeof wire.session_scope === 'string' ? wire.session_scope : SCOPE_FULL,
-        typeof wire.account === 'string' ? wire.account : null);
+        typeof wire.account === 'string' ? wire.account : null,
+        typeof wire.login_epoch === 'string' ? wire.login_epoch : null);
     } catch (e) {
       return null;
     }
@@ -266,21 +310,38 @@ export class SessionTokensCleaner implements LocalDataCleaner {
   private readonly tokens: SessionTokens;
   /** 清令牌之前先作废在途请求与刷新（ApiClient.invalidate），免得晚到的刷新结果把会话写回来。 */
   private readonly beforeClear: () => void;
+  /**
+   * 令牌清除之后同步执行（F-HM-28：ApiClient.onSessionTokensCleared 把已绑定的会话归属改为游客）。删除失败（SecureSessionTokens
+   * 已在内存里作废旧令牌、进入隔离）同样执行；beforeClear 抛出（令牌没动）不执行。
+   */
+  private readonly afterClear: () => void;
 
   constructor(tokens: SessionTokens, beforeClear: () => void = () => {
+  }, afterClear: () => void = () => {
   }) {
     this.tokens = tokens;
     this.beforeClear = beforeClear;
+    this.afterClear = afterClear;
   }
 
   clean(): Promise<void> {
     try {
       this.beforeClear();
-      this.tokens.clear();
-      return Promise.resolve();
     } catch (e) {
       return Promise.reject(e);
     }
+    let failure: Object | null = null;
+    try {
+      this.tokens.clear();
+    } catch (e) {
+      failure = e as Object;
+    }
+    try {
+      this.afterClear();
+    } catch (e) {
+      // 通知出错不影响清理结论。
+    }
+    return failure === null ? Promise.resolve() : Promise.reject(failure);
   }
 
   /** 登记进注册表（同名替换占位）。 */

@@ -114,6 +114,14 @@ def strip_comments_keep_strings(src):
 
 REGEX_PREV_KEYWORDS = {"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do",
                        "else", "yield", "await"}
+# 控制语句关键字：其后括号配对的右括号之后是语句开头，`/` 是正则（F-HM-29）。
+CONTROL_PAREN_KEYWORDS = {"if", "while", "for", "with"}
+# 记号之后 `/` 开始正则的多字符记号：控制语句右括号、块结束右花括号、箭头、case / default 标签的冒号（F-HM-29）。
+REGEX_PREV_MARKS = {"ctrl)", "block}", "=>", "label:"}
+# 记号之后的 `{` 是语句块（不是对象字面量）：开头、语句边界、右括号、箭头、标识符 / 关键字（class X {、try {、else {）、
+# case / default 标签的冒号（F-HM-29 第 1 轮修复）、返回类型结尾的 `]` / `>`（`): number[] {`、`): Promise<void> {`；表达式里
+# `]` / `>` 之后不会紧跟对象字面量）。
+BLOCK_BRACE_PREV = {"", ";", "{", "}", "block}", ")", "ctrl)", "=>", "id", "else", "do", "label:", "]", ">"}
 
 
 class HM10Lexer:
@@ -141,10 +149,19 @@ class HM10Lexer:
         return "".join(self.plain), "".join(self.kept), self.enabled_strings
 
     def code(self, i, top=False):
-        """扫一段代码，直到与入口配对的 `}`（模板表达式）或源码结束；返回结束位置（`}` 之后）。"""
+        """扫一段代码，直到与入口配对的 `}`（模板表达式）或源码结束；返回结束位置（`}` 之后）。
+        F-HM-29（FU-HM-0711b R3-02）：补齐三种词法状态——控制语句（if / while / for / with）括号配对的右括号之后、
+        语句块结束的 `}` 之后是语句开头，`/` 开始正则；后缀 `++` / `--` 之后是操作数结束，`/` 是除号。
+        F-HM-29 第 1 轮修复（R1-02）：`.` / `?.` 之后的关键字是成员名（obj.if(a) 不是控制语句）；模板 `${` 入口之后是表达式
+        上下文（其中的 `{` 是对象字面量）；case / default 标签冒号之后是语句开头（其后的 `{` 是语句块）。"""
         src, n = self.src, self.n
-        depth = 0
-        prev = ""  # 前一个有效记号：""（开头）、标点字符、"id"（标识符 / 数字 / 右括号类）或关键字本身
+        parens = []  # 每层圆括号是否属于控制语句
+        braces = []  # 每层花括号是否是语句块（False：对象字面量等表达式）
+        # 前一个有效记号：""（开头）、标点字符、"id"（标识符 / 数字 / 字面量）、关键字本身或 REGEX_PREV_MARKS。
+        # 模板表达式入口（top=False）按左圆括号之后处理：表达式开头，`/` 是正则，`{` 是对象字面量。
+        prev = "" if top else "("
+        case_label = False  # 读到 case / default，等它的标签冒号
+        ternary = 0  # case 表达式里未配对的 `?`（其 `:` 不是标签冒号）
         while i < n:
             ch = src[i]
             if ch in " \t\r\n":
@@ -166,29 +183,68 @@ class HM10Lexer:
                 i = self.template(i)
                 prev = "id"
             elif ch == "/":
-                if prev == "" or prev in REGEX_PREV_KEYWORDS or (len(prev) == 1 and prev not in ")]}"):
+                if prev == "" or prev in REGEX_PREV_KEYWORDS or prev in REGEX_PREV_MARKS \
+                        or (len(prev) == 1 and prev not in ")]}"):
                     i = self.regex(i)
                     prev = "id"
                 else:
                     i += 1
                     prev = "/"
+            elif ch == "(":
+                parens.append(prev in CONTROL_PAREN_KEYWORDS)
+                i += 1
+                prev = "("
+            elif ch == ")":
+                control = parens.pop() if parens else False
+                i += 1
+                prev = "ctrl)" if control else ")"
             elif ch == "{":
-                depth += 1
+                braces.append(prev in BLOCK_BRACE_PREV)
                 i += 1
                 prev = "{"
             elif ch == "}":
-                if depth == 0 and not top:
+                if not braces and not top:
                     return i + 1
-                depth = max(0, depth - 1)
+                block = braces.pop() if braces else True
                 i += 1
-                prev = "}"
+                prev = "block}" if block else "}"
+            elif src.startswith("++", i) or src.startswith("--", i):
+                # 前面是操作数（标识符、字面量、右括号 / 右方括号）：后缀，之后的 `/` 是除号；否则是前缀运算符。
+                i += 2
+                prev = "id" if prev in ("id", ")", "]") else ch
+            elif src.startswith("=>", i):
+                i += 2
+                prev = "=>"
             elif ch.isalnum() or ch in "_$" or ord(ch) > 127:
                 j = i
                 while j < n and (src[j].isalnum() or src[j] in "_$" or ord(src[j]) > 127):
                     j += 1
                 word = src[i:j]
-                prev = word if word in REGEX_PREV_KEYWORDS else "id"
+                if prev == ".":
+                    # 成员名（obj.if、a?.case）：不是关键字。
+                    prev = "id"
+                else:
+                    prev = word if word in REGEX_PREV_KEYWORDS or word in CONTROL_PAREN_KEYWORDS else "id"
+                    if word == "case" or (word == "default" and src[j:].lstrip(" \t\r\n").startswith(":")):
+                        case_label = True
+                        ternary = 0
                 i = j
+            elif case_label and ch == "?" and not src.startswith("?.", i) and not src.startswith("??", i):
+                ternary += 1
+                prev = ch
+                i += 1
+            elif case_label and ch == ":":
+                if ternary > 0:
+                    ternary -= 1
+                    prev = ch
+                else:
+                    case_label = False
+                    prev = "label:"
+                i += 1
+            elif src.startswith("?.", i) and not src[i + 2:i + 3].isdigit():
+                # 可选链：之后是成员名（a?.if）或调用 / 下标。
+                i += 2
+                prev = "."
             else:
                 prev = ch
                 i += 1
@@ -331,6 +387,34 @@ HM10_CASES = [
     ("模板文本里有引号", "const a = `it's ${DebugFakeServer.enabled}`;", 1),
     ("模板字符串键名的方括号取值", "const a = DebugFakeServer[`enabled`];", 1),
     ("字符串里的方括号形式（反例）", "const a = \"DebugFakeServer['enabled']\";", 0),
+    # F-HM-29（FU-HM-0711b R3-02）：评审给出的两例与同类情形
+    ("if 右括号之后的正则（反例）", "if (ready) /DebugFakeServer.enabled/.test(s);", 0),
+    ("后缀 ++ 之后的除号", "const x = count++ / (DebugFakeServer.enabled ? 1 : 2) / 2;", 1),
+    ("后缀 -- 之后的除号", "const x = count-- / (DebugFakeServer.enabled ? 1 : 2);", 1),
+    ("while 右括号之后的正则（反例）", "while (more()) /DebugFakeServer.enabled/g.exec(s);", 0),
+    ("for 右括号之后的正则（反例）", "for (const s of list) /DebugFakeServer.enabled/.test(s);", 0),
+    ("with 右括号之后的正则（反例）", "with (o) /DebugFakeServer.enabled/.test(s);", 0),
+    ("块结束之后的正则（反例）", "if (a) { b(); }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("函数体结束之后的正则（反例）", "function f() {}\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("对象字面量结束之后的除号", "const a = { k: 1 } / DebugFakeServer.enabled / 2;", 1),
+    ("普通调用右括号之后的除号", "const a = f(x) / DebugFakeServer.enabled / 2;", 1),
+    ("if 条件里调用的右括号之后的除号", "if (f(x) / DebugFakeServer.enabled) {}", 1),
+    ("前缀 ++ 之后仍是操作数开头", "const a = ++i / DebugFakeServer.enabled;", 1),
+    ("箭头之后的正则（反例）", "const t = (s: string) => /DebugFakeServer.enabled/.test(s);", 0),
+    # F-HM-29 第 1 轮修复（R1-02）：评审给出的四例（前两例是真实读取，必须报出；后两例是正则，不得误报）与同类情形
+    ("成员名 if 的调用之后的除号", "const x = obj.if(a) / (DebugFakeServer.enabled ? 1 : 2) / 2;", 1),
+    ("模板表达式里对象字面量之后的除号", "const x = `${{a: 1} / DebugFakeServer.enabled / 2}`;", 1),
+    ("case 标签之后语句块结束的正则（反例）", "switch (a) { case 1: {} /DebugFakeServer.enabled/.test(b); }", 0),
+    ("数组返回类型的函数体结束之后的正则（反例）",
+     "function f(): number[] { return []; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("可选链成员名 while 的调用之后的除号", "const x = obj?.while(a) / DebugFakeServer.enabled / 2;", 1),
+    ("模板入口直接是正则（反例）", "const x = `${/DebugFakeServer.enabled/.test(s)}`;", 0),
+    ("default 标签之后语句块结束的正则（反例）", "switch (a) { default: {} /DebugFakeServer.enabled/.test(b); }", 0),
+    ("case 表达式含三元之后的块（反例）", "switch (a) { case b ? 1 : 2: {} /DebugFakeServer.enabled/.test(b); }", 0),
+    ("case 里对象字面量之后的除号", "switch (a) { case 1: x = {k: 1} / DebugFakeServer.enabled; }", 1),
+    ("泛型返回类型的函数体结束之后的正则（反例）",
+     "function f(): Promise<void> { return p; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("模板表达式里调用之后的除号", "const x = `${f(a) / DebugFakeServer.enabled}`;", 1),
 ]
 
 

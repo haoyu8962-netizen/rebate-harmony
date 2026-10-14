@@ -1,6 +1,7 @@
 import { EnvironmentSwitchGate } from '../config/EnvironmentSwitchGate';
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { UpdateState } from '../router/GuardState';
+import { SessionTokens, SessionTokensCleaner } from '../session/SessionTokens';
 import { ApiClient, UpdatePort } from './ApiClient';
 import { ErrorUpdateState } from './ErrorActionMapper';
 
@@ -47,6 +48,9 @@ export class UpdateNetworkPort implements UpdatePort {
  * - 运行中切换环境（harmony-review-r2 R2-01、lessons 17）：ApiClient.invalidate 同时登记为环境闸门的 onClosed 监听——
  *   闸门在切换开始、任何 await 之前同步关闭时就作废网络世代并取消全部在途请求（等连接 / TLS 的不再发往旧环境），
  *   不等到 cleanAll 的「清理前第一步」。实际的数据清理仍在切换标记持久化之后。
+ * - 令牌清理器（F-HM-28）：传入 tokens 时，用同名替换（保持原注册位置）登记带「清除后同步把已绑定归属改为游客」的
+ *   SessionTokensCleaner（ApiClient.onSessionTokensCleared），删除成功或失败进入隔离都通知；切换环境时令牌已清、
+ *   未决存储清理还没运行的窗口里，确认 / 放弃上一笔按 account_unknown 结束。
  * - 返回强更状态变更的处理函数：App 把它设为 AppUpdate.onChanged。每次强更结论变化先通知网络层
  *   （ApiClient.onUpdateStateChanged：由低于 / 未知恢复为不低于且本机会话是 deletion_only 时立即发起受限会话刷新屏障，
  *   R3-04、R2-02），再交给 next（AppRouting.stateChanged）。网络层通知出错不影响路由协调。
@@ -55,8 +59,12 @@ export class NetworkComposition {
   static readonly INVALIDATE_STEP: string = 'network_in_flight';
 
   static install(client: ApiClient, cleaners: LocalDataCleanerRegistry, next: () => void,
-    gate: EnvironmentSwitchGate = EnvironmentSwitchGate.shared): () => void {
+    gate: EnvironmentSwitchGate = EnvironmentSwitchGate.shared, tokens: SessionTokens | null = null): () => void {
     cleaners.setBeforeClear(NetworkComposition.INVALIDATE_STEP, (): void => client.invalidate());
+    if (tokens !== null) {
+      cleaners.register(new SessionTokensCleaner(tokens, (): void => {
+      }, (): void => client.onSessionTokensCleared()));
+    }
     gate.onClosed((): void => client.invalidate());
     return (): void => {
       try {

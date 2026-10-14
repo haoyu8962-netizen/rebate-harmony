@@ -74,6 +74,7 @@ import followupHM0710Test from './FollowupHM0710.test';
 import followupHM0711Test from './FollowupHM0711.test';
 import followupHM0712Test from './FollowupHM0712.test';
 import followupHM0711bTest from './FollowupHM0711b.test';
+import followupHM0711cTest from './FollowupHM0711c.test';
 import meVectorTest from './MeVector.test';
 import meIntegrationTest from './MeIntegration.test';
 import meReviewR1Test from './MeReviewR1.test';
@@ -169,6 +170,7 @@ export default function testsuite() {
   followupHM0711Test();
   followupHM0712Test();
   followupHM0711bTest();
+  followupHM0711cTest();
   meVectorTest();
   meIntegrationTest();
   meReviewR1Test();

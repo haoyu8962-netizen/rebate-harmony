@@ -83,7 +83,8 @@ export {
 } from './src/main/ets/network/ApiClient';
 export { UpdateNetworkPort, NetworkComposition } from './src/main/ets/network/NetworkComposition';
 export {
-  SessionTokenSet, SessionTokens, SessionReadStatus, MemorySessionTokens, SecureSessionTokens, SessionTokensCleaner
+  SessionTokenSet, SessionTokens, SessionReadStatus, MemorySessionTokens, SecureSessionTokens, SessionTokensCleaner,
+  SessionLoginEpochs, LoginEpochIds
 } from './src/main/ets/session/SessionTokens';
 export { SecureEntry, SecureStore, MemorySecureStore, AssetSecureStore } from './src/main/ets/storage/SecureStore';
 // 纯 ArkTS 的 SHA-256（FU-CLIP：剪贴板加盐指纹的测试核对「不等于未加盐 SHA-256」用）。
@@ -202,7 +203,7 @@ export {
 export {
   OrderPhase, OrderErrorView, OrderOutcome, guardedOrder, OrderRateGate, OrderListSnapshot, OrderListDeps,
   OrderListConditions, OrderListController, OrderScrollAnchor, OrderAnchorKeeper, OrderPageState,
-  OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderRenderTicket, OrderListPage, OrderInputStamp,
+  OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderRestoreMarks, OrderRenderTicket, OrderListPage, OrderInputStamp,
   OrderInputModel, OrderInputHandlers, OrderPersistResult, FlushedPageStateKv
 } from './src/main/ets/orders/OrderListController';
 export { OrderListEntries, OrderDetailEntries } from './src/main/ets/orders/OrderEntries';

@@ -2,7 +2,7 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
 import { ApiOperation, ApiOperations } from 'generated';
 import { EnvironmentEndpoints } from '../config/AppEnvironment';
-import { SessionReadStatus, SessionTokens, SessionTokenSet } from '../session/SessionTokens';
+import { LoginEpochIds, SessionReadStatus, SessionTokens, SessionTokenSet } from '../session/SessionTokens';
 import {
   EffectKind, ErrorActionInput, ErrorActionMapper, ErrorActionState, ErrorEffect, ErrorUpdateState, ReplayKind
 } from './ErrorActionMapper';
@@ -156,6 +156,10 @@ export class ApiClientDeps {
   deviceRegistrar: DeviceRegistrar = new NoDeviceRegistrar();
   timer: NetworkTimer = new SystemNetworkTimer();
   random: NetworkRandom = new SystemNetworkRandom();
+  /**
+   * 新的持久化登录世代标识（F-HM-25）：每次登录保存时取一个，随令牌整组写进令牌存储（不占用 random 的序列）。
+   */
+  loginEpochId: () => string = () => LoginEpochIds.fresh();
   /** 毫秒时钟。 */
   clock: () => number = () => Date.now();
   /**
@@ -1311,6 +1315,15 @@ export class ApiClient {
     return this.ownerAccount;
   }
 
+  /**
+   * 令牌已被清除或进入隔离（F-HM-28，FU-HM-0711b R3-01）：切换环境 / 撤回同意的令牌清理器、本机清会话删令牌之后同步调用。
+   * 已绑定的会话归属立即改为游客，不再靠未决存储的 resetGeneration 推断会话是否还在——令牌已清、未决清理还没运行的窗口里，
+   * 确认 / 放弃上一笔与凭据可读时一样按 account_unknown 结束。不读凭据、不发送。删除失败（隔离）同样按已清除处理。
+   */
+  onSessionTokensCleared(): void {
+    this.observeOwner(null);
+  }
+
   /** 记下凭据可读时读到的会话账号（只在可读的读取点调用；不为它另读凭据）。 */
   private observeOwner(account: string | null): void {
     this.ownerAccount = account !== null && account.length > 0 ? account : null;
@@ -2258,10 +2271,13 @@ export class ApiClient {
       pair = tokens as Record<string, Object>;
       account = typeof userId === 'string' ? userId as string : null;
     }
-    const set: SessionTokenSet | null = ApiClient.tokenSet(pair, account);
-    if (set === null) {
+    const parsed: SessionTokenSet | null = ApiClient.tokenSet(pair, account);
+    if (parsed === null) {
       return login ? LocalRejectReason.INVALID_SESSION_TOKENS : null;
     }
+    // F-HM-25：登录保存带新的持久化登录世代（同账号重新登录也换新），刷新不带、沿用原值。
+    const set: SessionTokenSet = login ? new SessionTokenSet(parsed.accessToken, parsed.refreshToken, parsed.scope,
+      parsed.account, this.deps.loginEpochId()) : parsed;
     const previous: string | null = this.deps.tokens.accessToken();
     if (login) {
       this.loginSerial++;
