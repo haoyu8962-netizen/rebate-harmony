@@ -219,6 +219,21 @@ tail -1 "$LOG_DIR/contract-lock-check.log"
 record "contract.lock 一致性" PASS "锁定提交 $(lock_field rebate_platform.commit | cut -c1-12) 重建逐字节相同、files 哈希相同"
 
 # ---------------------------------------------------------------- 2. 项目 lint
+# 前置检查（F-HM-33 / FU-HM-0716）：HM-LINT-10 用 node + typescript 解析源码。lint.py 的推导顺序：COULI_HM_NODE →
+# $DEVECO_HOME/tools/node/bin/node → $NVM_BIN/node → ~/.nvm 最高版本 → PATH；COULI_HM_TYPESCRIPT → 鸿蒙 SDK
+# ets-loader 的 ohos-typescript → DevEco hvigor / ohpm 的 typescript。本机 CI 要求解析 ArkTS 语法的 ohos-typescript
+# （带 ets 编译选项）；找不到即失败，不退化为手写词法启发式。
+step "lint 前置：HM-LINT-10 扫描器（node + typescript）"
+export DEVECO_HOME
+HM10_TOOLCHAIN="$(python3 "$ROOT/tools/ci/lint.py" --hm10-toolchain)" \
+    || fail_fast "lint-hm10-toolchain" "找不到 HM-LINT-10 扫描器要用的 node 或 typescript（见上方输出；设 DEVECO_HOME / COULI_HM_NODE / COULI_HM_TYPESCRIPT）"
+echo "$HM10_TOOLCHAIN"
+case "$HM10_TOOLCHAIN" in
+    *"带 ets 编译选项"*) ;;
+    *) fail_fast "lint-hm10-toolchain" "找到的 typescript 不带 ets 编译选项（不是鸿蒙 SDK 的 ohos-typescript），ArkTS 语法会退回扫描器判定" ;;
+esac
+record "lint-hm10-toolchain" PASS "$(printf '%s' "$HM10_TOOLCHAIN" | sed -E 's/^HM-LINT-10 扫描器：//; s/（[^）]*）/ /g; s/ +$//')"
+
 step "lint.py（项目规则）"
 python3 "$ROOT/tools/ci/lint.py" || fail_fast "lint.py" "见上方输出"
 record "lint.py" PASS
@@ -244,7 +259,7 @@ for dir in "$ROOT"/tools/ci/lint-fixtures/HM-LINT-*; do
 done
 [ "$FIXTURE_COUNT" -eq 10 ] || fail_fast "lint-fixtures" "应有 10 个违反样例，实际 ${FIXTURE_COUNT}"
 record "lint-fixtures" PASS "HM-LINT-1…10 均被拦下"
-# FU-HM-0711b R1-06、R2-03：HM-LINT-10 的词法检查正反例（字符串、注释、正则字面量、模板表达式、导入别名、局部别名等）。
+# FU-HM-0711b R1-06、R2-03、F-HM-33：HM-LINT-10 的正反例（字符串、注释、正则字面量、模板表达式、导入别名、局部别名、泛型 / 比较、case、ASI 等）。
 python3 "$ROOT/tools/ci/lint.py" --self-test-hm10 || fail_fast "lint-hm10-self-test" "HM-LINT-10 正反例自测失败"
 record "lint-hm10-self-test" PASS "HM-LINT-10 正反例全部符合"
 

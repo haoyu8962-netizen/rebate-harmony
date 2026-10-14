@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""项目自有静态规则（只用 Python 3 标准库）。codelinter 管通用规则，这里管凑狸自己的硬规则。
+"""项目自有静态规则（Python 3 标准库；HM-LINT-10 另用 node + typescript，见下）。codelinter 管通用规则，这里管凑狸自己的硬规则。
 
 用法：
     python3 tools/ci/lint.py                 # 检查仓库
     python3 tools/ci/lint.py --root <目录>    # 检查另一个目录（verify.sh 用它证明 lint-fixtures 会被拦）
+    python3 tools/ci/lint.py --self-test-hm10 # HM-LINT-10 正反例自测
+    python3 tools/ci/lint.py --hm10-toolchain # 打印 HM-LINT-10 扫描器所用的 node 与 typescript（找不到以 3 退出）
+
+退出码：0 = 无违反；1 = 有违反；2 = 参数不对（自测：失败用例 1、扫描器不可用 2）；3 = HM-LINT-10 找不到 node / typescript
+（或扫描器出错）；4 = HM-LINT-10 无法保证扫完某个文件：该文件有语法错误，且退回扫描时遇到未闭合的模板 / 字符串 / 正则 /
+块注释，或模板插值的花括号无法配对（FU-HM-0716 R3-01，fail-closed；修好该文件的语法错误后重跑）。
 
 规则（命中任一即退出 1，每行输出带规则号）：
     HM-LINT-1 no-cjk-in-features   features/ 下 .ets 的字符串字面量含中日韩字符（BR-TEXT-12：文案经字典取键）
@@ -23,15 +29,19 @@
                                    背景图只能用 backgroundImage 等背景属性（不参与尺寸测量）
     HM-LINT-10 debug-mock-gate     F-X-02：entry/src/staging 里只有 DebugFakeServer.ets 能读 DebugFakeServer.enabled。其余调试替身
                                    一律经 DebugFakeServer.mockGate（假服务打开 且 当前环境允许 MOCK_DATA，每次使用时重新判断），
-                                   切到 prod 后不给假数据。FU-HM-0711b R1-06、R2-03：按词法检查真实的属性访问（HM10Lexer 去掉注释、
-                                   字符串内容与正则字面量，模板字符串 ${} 里的表达式按同一套规则递归扫描，其中的字符串、注释、
-                                   嵌套模板与花括号都正确配对），认导入别名（import { DebugFakeServer as X }、import * as NS）、
-                                   局部别名（const X = DebugFakeServer）、可选链、方括号取值与解构；`--self-test-hm10` 跑正反例
+                                   切到 prod 后不给假数据。FU-HM-0711b R1-06、R2-03：检查真实的属性访问，认导入别名
+                                   （import { DebugFakeServer as X }、import * as NS）、局部别名（const X = DebugFakeServer）、可选链、
+                                   方括号取值与解构；注释、字符串、正则字面量与模板文本不算。F-HM-33（FU-HM-0716）：用真正的
+                                   TypeScript 解析器判定（tools/ci/hm10-scan.js，node + 鸿蒙 SDK 的 ohos-typescript，推导顺序见
+                                   hm10_toolchain），代替原来手写的 HM10Lexer；找不到 node / typescript 时 lint 以 3 退出，不退化。
+                                   文件有语法错误时退回扫描器逐记号判定；扫描器无法保证扫完该文件时 lint 以 4 退出（R3-01）。
+                                   `--self-test-hm10` 跑正反例，`--hm10-toolchain` 打印所用的 node 与 typescript
 """
 
 import json
 import os
 import re
+import subprocess
 import sys
 
 FEATURES = ["home", "search", "product", "agent", "orders", "wallet", "me", "auth", "web"]
@@ -61,11 +71,7 @@ BACK_PRESSED_RE = re.compile(r"\.onBackPressed\s*\(")
 NAVBAR_BUILDER_RE = re.compile(r"(?<![A-Za-z0-9_.])navBar\s*\(\s*\)\s*\{")
 NAVBAR_FORBIDDEN_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(Image\s*\(|\.\s*height\s*\(\s*['\"]\s*[0-9.]+\s*%\s*['\"]\s*\))")
-FAKE_FLAG_CLASS = "DebugFakeServer"
 FAKE_FLAG_OWNER = "entry/src/staging/ets/variant/DebugFakeServer.ets"
-IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
-NAMED_IMPORT_RE = re.compile(r"\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*(['\"])([^'\"]*)\2")
-NAMESPACE_IMPORT_RE = re.compile(r"\bimport\s+\*\s+as\s+(" + IDENT + r")\s+from\s*(['\"])([^'\"]*)\2")
 IMPORT_FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
@@ -112,272 +118,102 @@ def strip_comments_keep_strings(src):
     return "".join(out), strings
 
 
-REGEX_PREV_KEYWORDS = {"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do",
-                       "else", "yield", "await"}
-# 控制语句关键字：其后括号配对的右括号之后是语句开头，`/` 是正则（F-HM-29）。
-CONTROL_PAREN_KEYWORDS = {"if", "while", "for", "with"}
-# 记号之后 `/` 开始正则的多字符记号：控制语句右括号、块结束右花括号、箭头、case / default 标签的冒号（F-HM-29）、
-# 空值合并 `??` / `??=`（F-HM-30：作为完整记号，之后是操作数开头）。
-REGEX_PREV_MARKS = {"ctrl)", "block}", "=>", "label:", "??"}
-# 记号之后的 `{` 是语句块（不是对象字面量）：开头、语句边界、右括号、箭头、标识符 / 关键字（class X {、try {、else {）、
-# case / default 标签的冒号（F-HM-29 第 1 轮修复）、返回类型结尾的 `]`（`): number[] {`）、闭合泛型尖括号的 `>`（">type"：
-# `): Promise<void> {`、`class A<T> {`）。F-HM-30：`>` 不只凭前一个记号判定——只有与前面「标识符之后的 `<`」在同一层括号里
-# 配对的 `>` 才记成 ">type"；比较运算符 `>`（a > { k: 1 }）仍记成 ">"，其后的 `{` 是对象字面量。
-BLOCK_BRACE_PREV = {"", ";", "{", "}", "block}", ")", "ctrl)", "=>", "id", "else", "do", "label:", "]", ">type"}
+HM10_SCANNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hm10-scan.js")
+# 鸿蒙 SDK 的 ets-loader 自带 ohos-typescript（能解析 ArkTS 的 struct、装饰器与组件尾随闭包）；相对 SDK 目录的位置。
+SDK_TYPESCRIPT = os.path.join("default", "openharmony", "ets", "build-tools", "ets-loader", "node_modules", "typescript")
 
 
-class HM10Lexer:
-    """HM-LINT-10 用的词法扫描（FU-HM-0711b R2-03）：在原始源码上一次扫完，输出两份与源码逐字对齐的视图——
-    plain：注释、字符串内容、正则字面量内容、模板字符串文本都换成空格（换行保留），模板 `${}` 里的表达式按同一套规则
-    递归扫描（其中的字符串、注释、正则、嵌套模板与花括号都正确配对）；kept：同上但保留字符串内容（找导入路径用）。
-    另记下内容恰好是 enabled 的字符串字面量起点（方括号取值 X['enabled']）。正则与除号按前一个有效记号区分。"""
-
-    def __init__(self, src):
-        self.src = src
-        self.n = len(src)
-        self.plain = list(src)
-        self.kept = list(src)
-        self.enabled_strings = set()
-
-    def blank(self, a, b, keep=False):
-        for k in range(a, min(b, self.n)):
-            if self.src[k] != "\n":
-                self.plain[k] = " "
-                if not keep:
-                    self.kept[k] = " "
-
-    def run(self):
-        self.code(0, top=True)
-        return "".join(self.plain), "".join(self.kept), self.enabled_strings
-
-    def code(self, i, top=False):
-        """扫一段代码，直到与入口配对的 `}`（模板表达式）或源码结束；返回结束位置（`}` 之后）。
-        F-HM-29（FU-HM-0711b R3-02）：补齐三种词法状态——控制语句（if / while / for / with）括号配对的右括号之后、
-        语句块结束的 `}` 之后是语句开头，`/` 开始正则；后缀 `++` / `--` 之后是操作数结束，`/` 是除号。
-        F-HM-29 第 1 轮修复（R1-02）：`.` / `?.` 之后的关键字是成员名（obj.if(a) 不是控制语句）；模板 `${` 入口之后是表达式
-        上下文（其中的 `{` 是对象字面量）；case / default 标签冒号之后是语句开头（其后的 `{` 是语句块）。"""
-        src, n = self.src, self.n
-        parens = []  # 每层圆括号是否属于控制语句
-        braces = []  # 每层花括号是否是语句块（False：对象字面量等表达式）
-        # 前一个有效记号：""（开头）、标点字符、"id"（标识符 / 数字 / 字面量）、关键字本身或 REGEX_PREV_MARKS。
-        # 模板表达式入口（top=False）按左圆括号之后处理：表达式开头，`/` 是正则，`{` 是对象字面量。
-        prev = "" if top else "("
-        case_label = False  # 读到 case / default，等它的标签冒号
-        # F-HM-30：未配对的泛型尖括号候选（标识符之后的 `<`），记打开时的（圆括号层数，花括号层数）；同层的 `>` 与之配对即为
-        # 类型结尾。语句结束 `;`、所在的圆括号 / 花括号关闭时丢弃（a < b 之类的比较不会一直挂着）。
-        angles = []
-        ternary = 0  # case 表达式里未配对的 `?`（其 `:` 不是标签冒号）
-        while i < n:
-            ch = src[i]
-            if ch in " \t\r\n":
-                i += 1
-            elif src.startswith("//", i):
-                j = src.find("\n", i)
-                j = n if j < 0 else j
-                self.blank(i, j)
-                i = j
-            elif src.startswith("/*", i):
-                j = src.find("*/", i + 2)
-                j = n if j < 0 else j + 2
-                self.blank(i, j)
-                i = j
-            elif ch in ("'", '"'):
-                i = self.string(i)
-                prev = "id"
-            elif ch == "`":
-                i = self.template(i)
-                prev = "id"
-            elif ch == "/":
-                if prev == "" or prev in REGEX_PREV_KEYWORDS or prev in REGEX_PREV_MARKS \
-                        or (len(prev) == 1 and prev not in ")]}"):
-                    i = self.regex(i)
-                    prev = "id"
-                else:
-                    i += 1
-                    prev = "/"
-            elif ch == "(":
-                parens.append(prev in CONTROL_PAREN_KEYWORDS)
-                i += 1
-                prev = "("
-            elif ch == ")":
-                control = parens.pop() if parens else False
-                while angles and angles[-1][0] > len(parens):
-                    angles.pop()
-                i += 1
-                prev = "ctrl)" if control else ")"
-            elif ch == "{":
-                braces.append(prev in BLOCK_BRACE_PREV)
-                i += 1
-                prev = "{"
-            elif ch == "}":
-                if not braces and not top:
-                    return i + 1
-                block = braces.pop() if braces else True
-                while angles and angles[-1][1] > len(braces):
-                    angles.pop()
-                i += 1
-                prev = "block}" if block else "}"
-            elif src.startswith("++", i) or src.startswith("--", i):
-                # 前面是操作数（标识符、字面量、右括号 / 右方括号）：后缀，之后的 `/` 是除号；否则是前缀运算符。
-                i += 2
-                prev = "id" if prev in ("id", ")", "]") else ch
-            elif src.startswith("=>", i):
-                i += 2
-                prev = "=>"
-            elif ch.isalnum() or ch in "_$" or ord(ch) > 127:
-                j = i
-                while j < n and (src[j].isalnum() or src[j] in "_$" or ord(src[j]) > 127):
-                    j += 1
-                word = src[i:j]
-                if prev == ".":
-                    # 成员名（obj.if、a?.case）：不是关键字。
-                    prev = "id"
-                else:
-                    prev = word if word in REGEX_PREV_KEYWORDS or word in CONTROL_PAREN_KEYWORDS else "id"
-                    if word == "case" or (word == "default" and src[j:].lstrip(" \t\r\n").startswith(":")):
-                        case_label = True
-                        ternary = 0
-                i = j
-            elif src.startswith("??", i):
-                # F-HM-30：空值合并 `??` / `??=` 是一个完整记号，不是两个 `?`（case b ?? 1: 里不算三元）。
-                i += 3 if src.startswith("??=", i) else 2
-                prev = "??"
-            elif ch == "<" and prev == "id" and src[i + 1:i + 2] not in ("<", "="):
-                angles.append((len(parens), len(braces)))
-                prev = ch
-                i += 1
-            elif ch == ">":
-                here = (len(parens), len(braces))
-                if angles and angles[-1] == here:
-                    angles.pop()
-                    prev = ">type"
-                else:
-                    prev = ch
-                i += 1
-            elif ch == ";":
-                while angles and angles[-1] == (len(parens), len(braces)):
-                    angles.pop()
-                prev = ch
-                i += 1
-            elif case_label and ch == "?" and not src.startswith("?.", i):
-                ternary += 1
-                prev = ch
-                i += 1
-            elif case_label and ch == ":":
-                if ternary > 0:
-                    ternary -= 1
-                    prev = ch
-                else:
-                    case_label = False
-                    prev = "label:"
-                i += 1
-            elif src.startswith("?.", i) and not src[i + 2:i + 3].isdigit():
-                # 可选链：之后是成员名（a?.if）或调用 / 下标。
-                i += 2
-                prev = "."
-            else:
-                prev = ch
-                i += 1
-        return n
-
-    def string(self, i):
-        src, n, q = self.src, self.n, self.src[i]
-        j = i + 1
-        escaped = False
-        while j < n and src[j] != q and src[j] != "\n":
-            if src[j] == "\\":
-                escaped = True
-                j += 2
-                continue
-            j += 1
-        if not escaped and src[i + 1:j] == "enabled":
-            self.enabled_strings.add(i)
-        self.blank(i + 1, j, keep=True)
-        return j + 1 if j < n and src[j] == q else j
-
-    def template(self, i):
-        src, n = self.src, self.n
-        j = i + 1
-        text_start = j
-        simple = True
-        while j < n and src[j] != "`":
-            if src[j] == "\\":
-                simple = False
-                j += 2
-            elif src.startswith("${", j):
-                simple = False
-                self.blank(text_start, j, keep=True)
-                j = self.code(j + 2)
-                text_start = j
-            else:
-                j += 1
-        if simple and src[i + 1:j] == "enabled":
-            self.enabled_strings.add(i)
-        self.blank(text_start, j, keep=True)
-        return j + 1
-
-    def regex(self, i):
-        src, n = self.src, self.n
-        j = i + 1
-        in_class = False
-        while j < n and src[j] != "\n":
-            c = src[j]
-            if c == "\\":
-                j += 2
-                continue
-            if c == "[":
-                in_class = True
-            elif c == "]":
-                in_class = False
-            elif c == "/" and not in_class:
-                break
-            j += 1
-        self.blank(i + 1, j)
-        j += 1
-        while j < n and (src[j].isalnum() or src[j] in "_$"):
-            j += 1
-        return j
+class HM10ToolchainError(Exception):
+    pass
 
 
-def fake_flag_reads(src):
-    """HM-LINT-10：返回读 DebugFakeServer.enabled 的位置（src 为原始源码；位置与 src 对齐）。"""
-    plain, kept, enabled_strings = HM10Lexer(src).run()
-    names = {FAKE_FLAG_CLASS}
-    spaces = set()
-    for m in NAMED_IMPORT_RE.finditer(kept):
-        if not m.group(3).rstrip("/").endswith(FAKE_FLAG_CLASS):
-            continue
-        for part in m.group(1).split(","):
-            bits = part.strip().split()
-            if len(bits) == 3 and bits[0] == FAKE_FLAG_CLASS and bits[1] == "as":
-                names.add(bits[2])
-    for m in NAMESPACE_IMPORT_RE.finditer(kept):
-        if m.group(3).rstrip("/").endswith(FAKE_FLAG_CLASS):
-            spaces.add(m.group(1))
-    # 局部别名：const X = DebugFakeServer; / const X: typeof DebugFakeServer = NS.DebugFakeServer;（可连锁）
-    changed = True
-    while changed:
-        changed = False
-        refs = "|".join([re.escape(x) for x in sorted(names)]
-                        + [re.escape(x) + r"\s*\.\s*" + FAKE_FLAG_CLASS for x in sorted(spaces)])
-        for m in re.finditer(r"\b(?:const|let|var)\s+(" + IDENT + r")\s*(?::[^=;]+)?=\s*(?:" + refs + r")\s*[;\n)]",
-                             plain):
-            if m.group(1) not in names:
-                names.add(m.group(1))
-                changed = True
-    refs = "|".join([re.escape(x) for x in sorted(names)]
-                    + [re.escape(x) + r"\s*\.\s*" + FAKE_FLAG_CLASS for x in sorted(spaces)])
-    hits = []
-    access = re.compile(r"(?<![A-Za-z0-9_$.])(?:" + refs + r")\s*(?:\?\.|\.)\s*enabled(?![A-Za-z0-9_$])")
-    hits.extend(m.start() for m in access.finditer(plain))
-    # 方括号取值：X['enabled'] / X?.["enabled"] / X[`enabled`]（键名必须是内容恰好为 enabled 的字符串字面量）
-    bracket = re.compile(r"(?<![A-Za-z0-9_$.])(?:" + refs + r")\s*(?:\?\.)?\s*\[\s*(['\"`]) {7}\1\s*\]")
-    hits.extend(m.start() for m in bracket.finditer(plain) if m.start(1) in enabled_strings)
-    # 解构：const { enabled } = X; / const { enabled: on } = X;
-    destructure = re.compile(r"\{[^{}]*(?<![A-Za-z0-9_$])enabled(?![A-Za-z0-9_$])[^{}]*\}\s*=\s*(?:" + refs
-                             + r")(?![A-Za-z0-9_$])")
-    hits.extend(m.start() for m in destructure.finditer(plain))
-    return sorted(set(hits))
+def _version_key(name):
+    return [int(x) if x.isdigit() else 0 for x in re.split(r"[.]", name.lstrip("v"))]
+
+
+def hm10_toolchain():
+    """HM-LINT-10 扫描器用的 node 与 typescript 包（F-HM-33）。推导顺序：
+    node：① COULI_HM_NODE（显式指定；不存在即失败，不往下找）② $DEVECO_HOME/tools/node/bin/node（DevEco Studio 自带，
+          DEVECO_HOME 默认 /Applications/DevEco-Studio.app/Contents，与 verify.sh 同口径）③ $NVM_BIN/node
+          ④ ~/.nvm/versions/node/ 下版本最高的 bin/node ⑤ PATH 里的 node。
+    typescript：① COULI_HM_TYPESCRIPT（显式指定；不存在即失败）② $DEVECO_SDK_HOME/default/openharmony/ets/build-tools/
+          ets-loader/node_modules/typescript（鸿蒙 SDK 的 ohos-typescript，带 ets 编译选项；DEVECO_SDK_HOME 默认 $DEVECO_HOME/sdk）
+          ③ $DEVECO_HOME/tools/hvigor/hvigor/node_modules/typescript ④ $DEVECO_HOME/tools/ohpm/node_modules/typescript
+          （③④ 是普通 typescript，解析不了 ArkTS 组件语法的文件按「扫描器 + AST 可用部分」判定）。
+    都找不到就抛 HM10ToolchainError：lint 以非零退出并提示，不退化为旧的手写词法启发式。不装依赖、不改 package 清单。"""
+    deveco = os.environ.get("DEVECO_HOME") or "/Applications/DevEco-Studio.app/Contents"
+    sdk = os.environ.get("DEVECO_SDK_HOME") or os.path.join(deveco, "sdk")
+
+    def pick(env, candidates, what, ok):
+        explicit = os.environ.get(env)
+        if explicit:
+            if ok(explicit):
+                return explicit, env
+            raise HM10ToolchainError("%s=%s 不是可用的 %s" % (env, explicit, what))
+        for path, source in candidates:
+            if path and ok(path):
+                return path, source
+        raise HM10ToolchainError("找不到 %s（依次找过：%s；可设 %s 或 DEVECO_HOME）"
+                                 % (what, "、".join(p or s for p, s in candidates), env))
+
+    nvm_root = os.path.expanduser("~/.nvm/versions/node")
+    nvm_latest = None
+    if os.path.isdir(nvm_root):
+        versions = sorted(os.listdir(nvm_root), key=_version_key)
+        if versions:
+            nvm_latest = os.path.join(nvm_root, versions[-1], "bin", "node")
+    nvm_bin = os.environ.get("NVM_BIN")
+    which = None
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if d and os.access(os.path.join(d, "node"), os.X_OK):
+            which = os.path.join(d, "node")
+            break
+    node, node_src = pick("COULI_HM_NODE", [
+        (os.path.join(deveco, "tools", "node", "bin", "node"), "DevEco 自带 node"),
+        (os.path.join(nvm_bin, "node") if nvm_bin else None, "NVM_BIN"),
+        (nvm_latest, "nvm 最高版本"),
+        (which, "PATH"),
+    ], "node", lambda p: os.path.isfile(p) and os.access(p, os.X_OK))
+    typescript, ts_src = pick("COULI_HM_TYPESCRIPT", [
+        (os.path.join(sdk, SDK_TYPESCRIPT), "鸿蒙 SDK ets-loader 的 ohos-typescript"),
+        (os.path.join(deveco, "tools", "hvigor", "hvigor", "node_modules", "typescript"), "DevEco hvigor 的 typescript"),
+        (os.path.join(deveco, "tools", "ohpm", "node_modules", "typescript"), "DevEco ohpm 的 typescript"),
+    ], "typescript 包", lambda p: os.path.isfile(os.path.join(p, "package.json")))
+    return {"node": node, "node_source": node_src, "typescript": typescript, "typescript_source": ts_src}
+
+
+def fake_flag_scan(sources):
+    """HM-LINT-10：sources 为 [(文件名, 原始源码)]；一次调用 node + typescript 解析全部文件（hm10-scan.js），返回
+    (工具链信息, [每个文件的 {"hits": [{"pos", "line"}], "diagnostics": n, "mode": "ast" | "ast+scanner",
+    "incomplete": None | {"line", "reason"}}])。incomplete 非空表示退回扫描无法保证扫完该文件（lint 据此以 4 失败）。
+    认导入别名、命名空间导入、局部别名（可连锁）、可选链、方括号取值与解构（FU-HM-0711b 的规则口径）；注释、字符串、正则与模板
+    文本由解析器排除。工具链不可用或扫描器出错时抛 HM10ToolchainError。"""
+    tool = hm10_toolchain()
+    payload = json.dumps({"sources": [{"name": name, "text": text} for name, text in sources]}, ensure_ascii=False)
+    try:
+        proc = subprocess.run([tool["node"], HM10_SCANNER, tool["typescript"]], input=payload.encode("utf-8"),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise HM10ToolchainError("运行 %s 失败：%s" % (tool["node"], e))
+    if proc.returncode != 0:
+        raise HM10ToolchainError("hm10-scan.js 退出 %d：%s" % (proc.returncode, proc.stderr.decode("utf-8", "replace").strip()))
+    try:
+        out = json.loads(proc.stdout.decode("utf-8"))
+        results = out["results"]
+    except (ValueError, KeyError) as e:
+        raise HM10ToolchainError("hm10-scan.js 输出无法解析：%s" % e)
+    if len(results) != len(sources):
+        raise HM10ToolchainError("hm10-scan.js 返回 %d 份结果，应为 %d" % (len(results), len(sources)))
+    if any(not isinstance(r, dict) or "incomplete" not in r for r in results):
+        raise HM10ToolchainError("hm10-scan.js 的结果缺少 incomplete 字段（扫描器与 lint.py 版本不一致）")
+    tool.update(out.get("typescript") or {})
+    return tool, results
+
+
+def describe_toolchain(tool):
+    return "node %s（%s）+ %s %s（%s%s）" % (
+        tool["node"], tool["node_source"], tool.get("name", "typescript"), tool.get("version", "?"), tool["typescript"],
+        "，带 ets 编译选项" if tool.get("etsOptions") else "，无 ets 编译选项")
 
 
 HM10_CASES = [
@@ -467,17 +303,179 @@ HM10_CASES = [
     ("函数类型泛型返回类型的函数体结束之后的正则（反例）",
      "function f(): Array<() => void> { return []; }\n/DebugFakeServer.enabled/.test(s);", 0),
     (">= 之后对象字面量的除号", "const x = a >= { k: 1 } / DebugFakeServer.enabled;", 1),
+    # F-HM-33（FU-HM-0714 R1-01 / R1-02）：改用 TypeScript 解析器后，评审构造例与同类组合（FU-HM-0716）
+    ("同一表达式里 < 与 > 比较之后对象字面量的除号",
+     "const x = a < b && c > { k: 1 } / (DebugFakeServer.enabled ? 1 : 2) / 2;", 1),
+    ("模板表达式里 < 与 > 比较之后对象字面量的除号",
+     "const x = `${a < b && c > { k: 1 } / (DebugFakeServer.enabled ? 1 : 2) / 2}`;", 1),
+    ("三元分支里 < 与 > 比较之后对象字面量的除号",
+     "const x = t ? a < b && c > { k: 1 } / (DebugFakeServer.enabled ? 1 : 2) : 0;", 1),
+    ("成员名 if 调用与 < > 比较组合的除号", "const x = obj.if(a < b) && c > { k: 1 } / DebugFakeServer.enabled;", 1),
+    ("后缀 ++ 与 < > 比较组合的除号", "const x = i++ < b && c > { k: 1 } / DebugFakeServer.enabled;", 1),
+    ("case 表达式含 ?? 与对象字面量之后的块（反例）",
+     "switch(a) { case b ?? { k: 1 }: {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("case 表达式含括号里的 ?? 与对象字面量之后的块（反例）",
+     "switch(a) { case (b ?? { k: 1 }): {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("case 表达式含 ??= 与对象字面量之后的块（反例）",
+     "switch(a) { case (b ??= { k: 1 }): {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("case 表达式含对象字面量与三元之后的块（反例）",
+     "switch(a) { case t ? { k: 1 } : { k: 2 }: {} /DebugFakeServer.enabled/.test(s); }", 0),
+    ("case 里对象字面量之后读取", "switch(a) { case b ?? { k: 1 }: x = DebugFakeServer.enabled; }", 1),
+    ("泛型函数声明之后的正则（反例）",
+     "function f<T>(x: T): T { return x; }\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("泛型类声明之后的正则（反例）", "class A<T> {}\n/DebugFakeServer.enabled/.test(s);", 0),
+    ("泛型调用之后的除号", "const x = f<number>(a) / DebugFakeServer.enabled;", 1),
+    ("无分号：换行之后的 / 仍是除号（不插分号）", "const a = b\n/DebugFakeServer.enabled/ 2", 1),
+    ("无分号：return 换行之后的正则（反例）", "function f(s: string) { return\n/DebugFakeServer.enabled/.test(s) }", 0),
+    ("无分号：换行之后的前缀 ++", "const a = x\n++DebugFakeServer.enabled", 1),
+    ("无分号：换行之后的括号是调用", "const a = f\n(DebugFakeServer.enabled)", 1),
+    ("无分号：语句块之后换行的正则（反例）", "if (a) {}\n/DebugFakeServer.enabled/.test(s)", 0),
+    ("模板表达式里的正则与读取", "const x = `${/DebugFakeServer.enabled/.test(s) && DebugFakeServer.enabled}`;", 1),
+    ("括号包住的引用", "const a = (DebugFakeServer).enabled;", 1),
+    ("非空断言的引用", "const a = DebugFakeServer!.enabled;", 1),
+    ("可选链方括号取值", "const a = DebugFakeServer?.['enabled'];", 1),
+    ("改名解构", "const { enabled: on } = DebugFakeServer;", 1),
+    ("赋值解构", "let on = false;\n({ enabled: on } = DebugFakeServer);", 1),
+    ("命名空间导入的局部别名连锁",
+     "import * as S from './DebugFakeServer';\nconst A = S.DebugFakeServer;\nconst B = A;\nconst x = B.enabled;", 1),
+    ("ArkTS 组件里的读取",
+     "@ComponentV2\nstruct P {\n  build() {\n    Column() {\n      Text(DebugFakeServer.enabled ? 'a' : 'b')\n    }\n  }\n}", 1),
+    ("ArkTS 组件里的字符串与正则（反例）",
+     "@ComponentV2\nstruct P {\n  @Local s: string = 'DebugFakeServer.enabled';\n  build() {\n    Column() {\n"
+     "      Text(/DebugFakeServer.enabled/.test(this.s) ? 'a' : 'b')\n    }\n  }\n}", 0),
+    # FU-HM-0716 R1-01：解构右侧剥掉类型断言（as / satisfies / ! / 括号）并认 ?? || &&（右值）三元 逗号 赋值可能返回的
+    # 假服务引用；覆盖声明、参数默认值、赋值解构、嵌套与改名、模板内解构（正例均转成 JS 实际执行确认 getter 被调用）
+    ('解构右侧 as 类型断言', 'const { enabled } = DebugFakeServer as typeof DebugFakeServer;', 1),
+    ('解构右侧 ?? 回退', 'const { enabled } = DebugFakeServer ?? other;', 1),
+    ('解构右侧 || 回退', 'const { enabled } = DebugFakeServer || other;', 1),
+    ('参数默认值解构右侧 as', 'function f({ enabled }: Fake = DebugFakeServer as Fake) { return enabled; }\nf();', 1),
+    ('赋值解构右侧 ??（改名）', 'let e = false;\n({ enabled: e } = DebugFakeServer ?? other);', 1),
+    ('改名解构右侧括号里的 as 加非空断言', 'const { enabled: on } = (DebugFakeServer as Fake)!;', 1),
+    ('模板表达式里的解构右侧 as', 'const s = `${(() => { const { enabled } = DebugFakeServer as Fake; return enabled; })()}`;', 1),
+    ('解构右侧尖括号类型断言', 'const { enabled } = <Fake>DebugFakeServer;', 1),
+    ('解构右侧 satisfies', 'const { enabled } = DebugFakeServer satisfies Fake;', 1),
+    ('解构右侧 && 的右值', 'const { enabled } = other && DebugFakeServer;', 1),
+    ('解构右侧三元的一支', 'const { enabled } = no ? other : DebugFakeServer;', 1),
+    ('解构右侧逗号表达式的右值', 'const { enabled } = (0, DebugFakeServer);', 1),
+    ('解构右侧 ??= 的右值', 'let v: Fake | null = nil;\nconst { enabled } = (v ??= DebugFakeServer);', 1),
+    ('箭头函数参数默认值解构右侧 ??', 'const g = ({ enabled }: Fake = DebugFakeServer ?? nil) => enabled;\ng();', 1),
+    ('嵌套赋值解构（改名）', 'let e = false;\n({ a: { enabled: e } } = { a: DebugFakeServer as Fake });', 1),
+    ('嵌套声明解构', 'const { a: { enabled } } = { a: DebugFakeServer ?? other };', 1),
+    ('嵌套解构默认值 as', 'const { a: { enabled } = DebugFakeServer as Fake } = {};', 1),
+    ('嵌套赋值解构默认值 as', 'let e = false;\n({ a: { enabled: e } = DebugFakeServer as Fake } = {});', 1),
+    ('简写属性的嵌套解构', 'const { DebugFakeServer: { enabled } } = { DebugFakeServer };', 1),
+    ('数组解构里的对象解构', 'const [{ enabled }] = [DebugFakeServer as Fake];', 1),
+    ('for…of 解构', 'for (const { enabled } of [DebugFakeServer as Fake]) {}', 1),
+    ('计算键名解构右侧 as', "const { ['enabled']: on } = DebugFakeServer as Fake;", 1),
+    ('as 断言的局部别名', 'const X = DebugFakeServer as Fake;\nconst a = X.enabled;', 1),
+    ('?? 回退的局部别名', 'const X = nil ?? DebugFakeServer;\nconst a = X.enabled;', 1),
+    ('as 断言之后点取值', 'const a = (DebugFakeServer as Fake).enabled;', 1),
+    ('?? 回退之后方括号取值', "const a = (nil ?? DebugFakeServer)['enabled'];", 1),
+    ('解构右侧是无关对象的 as（反例）', 'const { enabled } = other as Fake;', 0),
+    ('解构右侧是无关对象的 ??（反例）', 'const { enabled } = other ?? nil;', 0),
+    ('解构右侧 && 的左值（反例）', 'const { enabled } = DebugFakeServer && other;', 0),
+    ('解构右侧逗号表达式的左值（反例）', 'const { enabled } = (DebugFakeServer, other);', 0),
+    ("解构右侧字符串 'DebugFakeServer'（反例）",
+     "const { length } = 'DebugFakeServer' as string;\nconst { enabled } = 'DebugFakeServer' as Fake;", 0),
+    ('解构别的键（反例）', 'const { mockGate } = DebugFakeServer as Fake;', 0),
+    ('嵌套解构取的是别的键（反例）', 'const { a: { enabled } } = { a: other, b: DebugFakeServer };', 0),
+    ('数组解构取的是别的下标（反例）', 'const [, { enabled }] = [DebugFakeServer, other];', 0),
+    ('调用结果的解构（反例）', 'const { enabled } = h(DebugFakeServer as Fake);', 0),
+    ('调用 mockGate 的回退（反例）', 'const { enabled } = DebugFakeServer.mockGate() ?? other;', 0),
+    # FU-HM-0716 R2-01：短路赋值 ??= ||= &&= 不赋值时返回左值，左右两侧都算候选；普通 = 只算右值（正例转成 JS 执行确认）
+    ('解构右侧 ??= 的左值', 'let X = DebugFakeServer;\nconst { enabled } = X ??= other;', 1),
+    ('??= 的左值之后点取值', 'let X = DebugFakeServer;\nconst a = (X ??= other).enabled;', 1),
+    ('??= 的左值之后方括号取值', "let X = DebugFakeServer;\nconst a = (X ??= other)['enabled'];", 1),
+    ('??= 的左值作局部别名', 'let X = DebugFakeServer;\nconst Y = X ??= other;\nconst a = Y.enabled;', 1),
+    ('参数默认值解构右侧 ??= 的左值', 'let X = DebugFakeServer;\nfunction f({ enabled }: Fake = X ??= other) { return enabled; }\nf();', 1),
+    ('解构右侧 ||= 的左值', 'let X = DebugFakeServer;\nconst { enabled } = X ||= other;', 1),
+    ('||= 的左值之后点取值', 'let X = DebugFakeServer;\nconst a = (X ||= other).enabled;', 1),
+    ('||= 的左值之后方括号取值', "let X = DebugFakeServer;\nconst a = (X ||= other)['enabled'];", 1),
+    ('||= 的左值作局部别名', 'let X = DebugFakeServer;\nconst Y = X ||= other;\nconst a = Y.enabled;', 1),
+    ('参数默认值解构右侧 ||= 的左值', 'let X = DebugFakeServer;\nfunction f({ enabled }: Fake = X ||= other) { return enabled; }\nf();', 1),
+    ('解构右侧 &&= 的左值（按同一口径保守多报）', 'let X = DebugFakeServer;\nconst { enabled } = X &&= other;', 1),
+    ('解构右侧 ??= 两侧都无关（反例）', 'let Y = other;\nconst { enabled } = Y ??= nil;', 0),
+    ('||= 两侧都无关之后点取值（反例）', 'let Y = other;\nconst a = (Y ||= nil).enabled;', 0),
+    ('&&= 两侧都无关之后方括号取值（反例）', "let Y = other;\nconst a = (Y &&= other)['enabled'];", 0),
+    ('解构右侧普通赋值 = 的左值（反例，只算右值）', 'let X = DebugFakeServer;\nconst { enabled } = (X = other);', 0),
+    # 解析出错时退回扫描器 + AST 可用部分（宁可多报，不漏报）
+    ("语法错误的文件里的读取（扫描器退回）", "const = ;\nconst a = DebugFakeServer.enabled;", 1, "ast+scanner"),
+    ("语法错误的文件里的字符串与正则（扫描器退回，反例）",
+     "const = ;\nconst a = 'DebugFakeServer.enabled'; const r = /DebugFakeServer.enabled/;", 0, "ast+scanner"),
+    ("语法错误的文件里的方括号与解构（扫描器退回）",
+     "const = ;\nconst a = DebugFakeServer['enabled'];\nconst { enabled } = DebugFakeServer;", 2, "ast+scanner"),
+    # R3-01：退回扫描不依赖错误 AST 的模板边界，自己配对 ${ 与 }；扫不完全文时判 incomplete（lint 以 4 失败）
+    ("模板插值误加分号之后的读取（R3-01 复现）", "const s = `${value;}`;\nconst a = DebugFakeServer.enabled;", 1, "ast+scanner"),
+    ("模板插值误加分号之后的方括号、解构与可选链",
+     "const s = `${value;}`;\nconst a = DebugFakeServer['enabled'];\nconst { enabled } = DebugFakeServer;\n"
+     "const b = DebugFakeServer?.enabled;", 3, "ast+scanner"),
+    ("嵌套模板插值误加分号之后的读取", "const s = `a${`b${v;}`;}c`;\nconst a = DebugFakeServer.enabled;", 1, "ast+scanner"),
+    ("模板续段之前的插值误加分号", "const s = `${a;}x${b}`;\nconst a = DebugFakeServer.enabled;", 1, "ast+scanner"),
+    ("语法错误的文件里插值含对象字面量", "const = ;\nconst s = `${ {k: 1}.k }`;\nconst a = DebugFakeServer.enabled;", 1,
+     "ast+scanner"),
+    ("语法错误的文件里正常的嵌套模板", "const = ;\nconst s = `${a}`;\nconst t = `b${ `c${d}` }`;\n"
+     "const a = DebugFakeServer.enabled;", 1, "ast+scanner"),
+    ("语法错误的文件里嵌套模板文本（反例）",
+     "const = ;\nconst s = `x ${`DebugFakeServer.enabled ${v}`} DebugFakeServer.enabled`;", 0, "ast+scanner"),
+    ("正常的多层嵌套模板（AST）", "const s = `a${`b${ {k: `c${v}`}.k }`}d`;\nconst a = DebugFakeServer.enabled;", 1),
+    ("未闭合的反引号（扫不完全文）", "const s = `abc;\nconst a = DebugFakeServer.enabled;", None, "incomplete"),
+    ("未闭合的字符串（扫不完全文）", "const s = 'abc; const a = DebugFakeServer.enabled;\n", None, "incomplete"),
+    ("未闭合的块注释（扫不完全文）", "const a = 1; /* abc\nconst b = DebugFakeServer.enabled;", None, "incomplete"),
+    ("模板插值到文件末尾仍未闭合（扫不完全文）", "const s = `${ {k: 1}.k ;\nconst a = DebugFakeServer.enabled;", None,
+     "incomplete"),
+    ("未闭合的正则（扫不完全文）", "const = ;\nconst r = /abc\nconst a = DebugFakeServer.enabled;", None, "incomplete"),
+]
+
+# R3-01：整条 lint 的退出码（把源码放进临时目录的 entry/src/staging 下跑 main）。复现例只要报出或非零失败二者之一，
+# 这里按实现要求更严：复现例必须报出（1），未闭合例必须以 4 失败。
+HM10_LINT_CASES = [
+    ("模板插值误加分号之后的读取 → 报出", "const s = `${value;}`;\nconst a = DebugFakeServer.enabled;", 1),
+    ("未闭合的反引号 → 4", "const s = `abc;\nconst a = DebugFakeServer.enabled;", 4),
+    ("未闭合的字符串 → 4", "const s = 'abc; const a = DebugFakeServer.enabled;\n", 4),
+    ("未闭合的块注释 → 4", "const a = 1; /* abc\nconst b = DebugFakeServer.enabled;", 4),
+    ("语法错误但能扫完的文件没有读取 → 0", "const = ;\nconst s = `${a}`;", 0),
 ]
 
 
 def self_test_hm10():
+    """HM-LINT-10 正反例：(说明, 源码, 应报个数[, 应有的判定方式])。没给判定方式的用例必须由 AST 完整解析（语法诊断为 0）；
+    带 "ast+scanner" 的用例故意含语法错误，验证扫描器退回路径。"""
+    try:
+        tool, results = fake_flag_scan([("Case%d.ets" % k, case[1]) for k, case in enumerate(HM10_CASES)])
+    except HM10ToolchainError as e:
+        print("HM-LINT-10 自测：扫描器不可用：%s" % e, file=sys.stderr)
+        return 2
+    print("HM-LINT-10 扫描器：" + describe_toolchain(tool))
     failed = 0
-    for title, src, want in HM10_CASES:
-        got = len(fake_flag_reads(src))
-        ok = got == want
+    for case, res in zip(HM10_CASES, results):
+        title, want = case[0], case[2]
+        want_mode = case[3] if len(case) > 3 else "ast"
+        got = len(res["hits"])
+        if want_mode == "incomplete":
+            # 扫不完全文：必须由扫描器退回路径判出 incomplete（lint 据此以 4 失败），报几处不计。
+            ok = res["mode"] == "ast+scanner" and bool(res["incomplete"])
+            print("  %s %s：应判扫不完全文，实际 %s（%s，语法诊断 %d，实报 %d）"
+                  % ("PASS" if ok else "FAIL", title, res["incomplete"], res["mode"], res["diagnostics"], got))
+        else:
+            ok = got == want and res["mode"] == want_mode and not res["incomplete"]
+            print("  %s %s：应报 %d，实报 %d（%s，语法诊断 %d%s）"
+                  % ("PASS" if ok else "FAIL", title, want, got, res["mode"], res["diagnostics"],
+                     "，扫不完全文 %s" % res["incomplete"] if res["incomplete"] else ""))
         failed += 0 if ok else 1
-        print("  %s %s：应报 %d，实报 %d" % ("PASS" if ok else "FAIL", title, want, got))
-    print("HM-LINT-10 自测：%d 例，%d 例失败" % (len(HM10_CASES), failed))
+    import tempfile
+    for title, src, want_exit in HM10_LINT_CASES:
+        with tempfile.TemporaryDirectory(prefix="hm10-selftest-") as tmp:
+            staging = os.path.join(tmp, "entry", "src", "staging")
+            os.makedirs(staging)
+            with open(os.path.join(staging, "Case.ets"), "w", encoding="utf-8") as f:
+                f.write(src)
+            got_exit = main(["lint.py", "--root", tmp])
+        ok = got_exit == want_exit
+        failed += 0 if ok else 1
+        print("  %s lint 退出码：%s：应为 %d，实为 %d" % ("PASS" if ok else "FAIL", title, want_exit, got_exit))
+    total = len(HM10_CASES) + len(HM10_LINT_CASES)
+    print("HM-LINT-10 自测：%d 例（扫描 %d 例 + lint 退出码 %d 例），%d 例失败"
+          % (total, len(HM10_CASES), len(HM10_LINT_CASES), failed))
     return 1 if failed else 0
 
 
@@ -531,6 +529,29 @@ def lint(root):
 
     def report(rule, path, line, msg):
         problems.append("%s:%d: %s %s" % (os.path.relpath(path, root), line, rule, msg))
+
+    # HM-LINT-10：entry/src/staging 下除 DebugFakeServer.ets 外的文件，一次交给 TypeScript 解析器（F-HM-33）。
+    hm10_files = []
+    for path in ets_files(root):
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+        if rel.startswith("entry/src/staging/") and rel != FAKE_FLAG_OWNER:
+            with open(path, encoding="utf-8") as f:
+                hm10_files.append((path, f.read()))
+    hm10_hits = {}
+    hm10_incomplete = []
+    hm10_toolchain()  # 没有要查的文件也先确认工具链可用：找不到就失败，不因目录里碰巧没有 staging 源码而放行
+    if hm10_files:
+        _, results = fake_flag_scan([(os.path.basename(p), text) for p, text in hm10_files])
+        for (p, _), res in zip(hm10_files, results):
+            hm10_hits[p] = res["hits"]
+            if res["incomplete"]:
+                # R3-01：未闭合记号吞掉了其后的源码，判不了有没有读取 → 该文件判失败（fail-closed），不只打印提示。
+                hm10_incomplete.append("%s:%d: HM-LINT-10 有 %d 处语法诊断，退回扫描遇到%s，无法保证扫完全文；先修好语法错误"
+                                       % (os.path.relpath(p, root), res["incomplete"]["line"], res["diagnostics"],
+                                          res["incomplete"]["reason"]))
+            elif res["diagnostics"]:
+                print("lint.py：HM-LINT-10 提示：%s 有 %d 处语法诊断，按扫描器 + AST 可用部分判定"
+                      % (os.path.relpath(p, root), res["diagnostics"]), file=sys.stderr)
 
     for path in ets_files(root):
         with open(path, encoding="utf-8") as f:
@@ -593,9 +614,9 @@ def lint(root):
                        "承载 WebView 容器的页面要用 NavDestination.onBackPressed 把系统返回交给容器（%d 个容器、%d 处 onBackPressed，R1-11）"
                        % (uses, backs))
 
-        if rel.startswith("entry/src/staging/") and rel != FAKE_FLAG_OWNER:
-            for pos in fake_flag_reads(src):
-                report("HM-LINT-10", path, line_of(src, pos),
+        if path in hm10_hits:
+            for h in hm10_hits[path]:
+                report("HM-LINT-10", path, h["line"],
                        "调试替身直接读了 DebugFakeServer.enabled；改用 DebugFakeServer.mockGate（含当前环境 MOCK_DATA 闸门，F-X-02）")
 
         if in_feature:
@@ -618,7 +639,7 @@ def lint(root):
                         (dep == f or re.search(r"(^|[/\\])features[/\\]%s([/\\]|$)" % re.escape(f), target))]
                 for other in hits:
                     report("HM-LINT-5", pkg, 1, "feature %s 的 %s 依赖了 feature %s（%s）" % (feature, section, other, dep))
-    return problems
+    return problems, hm10_incomplete
 
 
 def main(argv):
@@ -626,14 +647,32 @@ def main(argv):
     args = argv[1:]
     if args == ["--self-test-hm10"]:
         return self_test_hm10()
+    if args == ["--hm10-toolchain"]:
+        try:
+            print("HM-LINT-10 扫描器：" + describe_toolchain(fake_flag_scan([("Probe.ets", "")])[0]))
+            return 0
+        except HM10ToolchainError as e:
+            print("HM-LINT-10 扫描器不可用：%s" % e, file=sys.stderr)
+            return 3
     if args[:1] == ["--root"] and len(args) == 2:
         root = os.path.abspath(args[1])
     elif args:
-        print("用法：lint.py [--root <目录>] | --self-test-hm10", file=sys.stderr)
+        print("用法：lint.py [--root <目录>] | --self-test-hm10 | --hm10-toolchain", file=sys.stderr)
         return 2
-    problems = lint(root)
+    try:
+        problems, incomplete = lint(root)
+    except HM10ToolchainError as e:
+        # 1 留给「有违规」；工具链不可用是另一种失败（verify.sh 的 lint-fixtures 不会把它当成「拦下」）。
+        print("lint.py：HM-LINT-10 的 TypeScript 扫描器不可用，lint 失败（不退化为手写词法启发式）：%s" % e, file=sys.stderr)
+        return 3
     for p in problems:
         print(p)
+    if incomplete:
+        for p in incomplete:
+            print(p)
+        print("lint.py：HM-LINT-10 无法保证扫完 %d 个有语法错误的文件，lint 失败（exit 4）；修好语法错误后重跑"
+              % len(incomplete), file=sys.stderr)
+        return 4
     if problems:
         print("lint.py：%d 处违反项目规则" % len(problems), file=sys.stderr)
         return 1
