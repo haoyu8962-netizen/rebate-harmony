@@ -19,7 +19,8 @@ import {
 } from './AccountPolicies';
 import { AccountPendingView, AccountSensitiveFlow, AccountStep } from './AccountSensitiveFlow';
 import {
-  AccountClick, AccountDeps, AccountIdentity, AccountMessage, AccountMessages, AccountSessionAware, AccountSettle
+  AccountClick, AccountDeps, AccountIdentity, AccountMessage, AccountMessages, AccountSessionAware, AccountSettle,
+  PendingSettlement
 } from './AccountSession';
 
 type JSONValue = Object | null;
@@ -102,6 +103,12 @@ export class DeleteAccountController implements AccountSessionAware {
   private submitClick: AccountClick | null = null;
   private submitTicket: number = 0;
   private deferredStepUp: DeferredResult | null = null;
+  /**
+   * 撤回核对上下文（FU-HM-0722 R1-03，APP-13a 共性 33，Android R1-11）：撤回结果未知时记下点【撤回注销】时固定的身份与导航世代。
+   * 核对读取失败（5xxxx、42901 等）时保留，之后任一次 getDeletion 读取（【重试】、回到可见）成功查明已撤回就按撤回成功结算一次；读到
+   * 其他结论、身份失效、再次点撤回或离页即作废。
+   */
+  private cancelCheck: CancelCheck | null = null;
   onChange: (snapshot: DeletionSnapshot) => void = (_s: DeletionSnapshot) => {
   };
   /** 来源 settings 的撤回成功：出栈回 Settings 的唯一导航实例并轻提示（G18，APP-09 第 50 条）。页面接。 */
@@ -131,7 +138,7 @@ export class DeleteAccountController implements AccountSessionAware {
     this.unsubscribers.push(deps.session.meReadGate.subscribe(refresh));
     this.unsubscribers.push(deps.session.subscribePending(this.flow.operationId, (src: Object): void => {
       if (src !== this.flow && this.alive) {
-        this.pendingSettledElsewhere();
+        this.pendingSettledElsewhere(deps.session.settledNow(this.flow.operationId));
       }
     }));
     deps.session.add(this);
@@ -223,8 +230,42 @@ export class DeleteAccountController implements AccountSessionAware {
         if (!this.alive || seq !== this.deletionSeq || gen !== this.d.session.deletionGeneration) {
           return;
         }
+        if (this.reconcileCancel(result)) {
+          return;
+        }
         this.landDeletion(result);
       });
+  }
+
+  /**
+   * 撤回核对（R1-03）：有核对上下文时，这次读取查明已撤回（status=cancelled，不是系统按负余额撤销）→ 与撤回成功同一套结算（推进读取
+   * 世代、通知进度、按原来源与原导航许可回 Settings / 强更页并轻提示），返回 true。读取失败保留上下文（等【重试】）；读到其他结论或原身份
+   * 已失效则作废上下文，返回 false（照常落地读取结果）。
+   */
+  private reconcileCancel(result: ApiResult): boolean {
+    const check: CancelCheck | null = this.cancelCheck;
+    if (check === null) {
+      return false;
+    }
+    if (!check.identity.valid(this.d)) {
+      this.cancelCheck = null;
+      return false;
+    }
+    if (!result.ok) {
+      return false;
+    }
+    this.cancelCheck = null;
+    const record: DeletionRecord | null = AccountJson.deletionOf(result, true).record;
+    if (record === null || record.status !== DeletionRecord.CANCELLED || record.cancelReason === 'negative_balance') {
+      return false;
+    }
+    this.deletionLoading = false;
+    this.d.session.advanceDeletion();
+    this.d.deletionChanged();
+    const out: CancelOutcome = DeletionCancelPolicy.decide(
+      new AccountResultInput(AccountResultInput.OK, 0, result.data as AccountRecord, 0, result.traceId), this.source);
+    this.cancelled(out, result, this.nav.current(check.gen), check.identity, check.gen);
+    return true;
   }
 
   private landDeletion(result: ApiResult): void {
@@ -251,30 +292,10 @@ export class DeleteAccountController implements AccountSessionAware {
    * 强更页并轻提示）；仍在冷静期只落地读取结果，【撤回注销】留给用户再点，不自动重发。
    */
   private verifyCancel(identity: AccountIdentity, gen: number): void {
-    const seq: number = ++this.deletionSeq;
-    const dgen: number = this.d.session.deletionGeneration;
-    const owner: () => boolean = this.owner((): number => this.deletionSeq, seq);
-    this.d.read(DeleteAccountController.GET_OPERATION, owner, this.d.session.deletionReadGate)
-      .then((result: ApiResult): void => {
-        this.release(owner);
-        this.settleRead(result, this.d.session.deletionReadGate);
-        if (!this.alive || !identity.valid(this.d) || seq !== this.deletionSeq
-          || dgen !== this.d.session.deletionGeneration) {
-          return;
-        }
-        const p: DeletionParse | null = result.ok ? AccountJson.deletionOf(result, true) : null;
-        const record: DeletionRecord | null = p === null ? null : p.record;
-        if (record !== null && record.status === DeletionRecord.CANCELLED
-          && record.cancelReason !== 'negative_balance') {
-          this.d.session.advanceDeletion();
-          this.d.deletionChanged();
-          const out: CancelOutcome = DeletionCancelPolicy.decide(
-            new AccountResultInput(AccountResultInput.OK, 0, result.data as AccountRecord, 0, result.traceId), this.source);
-          this.cancelled(out, result, this.nav.current(gen), identity, gen);
-          return;
-        }
-        this.landDeletion(result);
-      });
+    // R1-03：核对上下文保留到之后的读取（核对读取本身失败时，【重试】查明已撤回仍按撤回成功结算），读取走统一的 loadDeletion
+    // （发送前闸门、Retry-After 结算、读取失败标记与【重试】、trace6）。
+    this.cancelCheck = new CancelCheck(identity, gen);
+    this.loadDeletion();
   }
 
   private loadWallet(): void {
@@ -590,7 +611,11 @@ export class DeleteAccountController implements AccountSessionAware {
     const s: DeletionSnapshot = this.state;
     if (!this.alive) {
       // 已出栈或会话变了：响应不改页面（未决记录已由 ApiClient 结算）；成功仍通知进度变了（强更标签等按原会话重算）。
-      if (step.outcome.deletion !== null && this.identity.valid(this.d)) {
+      // FU-HM-0722（共性 48，Android RC-02）：已写出的请求按「同账号 + 同登录会话」结算——同一登录会话里作用域刷新（deletion_only → full）
+      // 后迟到的成功照常推进读取世代、通知进度，新实例随共享通知重读进度；作用域变化只阻止首次发送与续发（sendGuard 的完整身份）。
+      // FU-HM-0722 R1-02：按「已受理的终结结局」（冷静期）判断共享成功，不以响应是否带 Deletion 为条件——放弃得到 completed、original.code=0
+      // 而没有 original.data 时同样推进读取世代、通知进度；缺的数据由仍有效的实例补读（pendingSettledElsewhere 的下一轮重读、强更标签按通知重算）。
+      if (step.outcome.nextState === DeletionOutcomePolicy.COOLING && this.identity.writeAlive(this.d)) {
         this.d.session.advanceDeletion();
         this.d.deletionChanged();
       }
@@ -740,6 +765,8 @@ export class DeleteAccountController implements AccountSessionAware {
     }
     s.cancelling = true;
     s.coolingNotice = null;
+    // R1-03：再次撤回时旧的核对上下文作废（结果未知时由这次重新建立）。
+    this.cancelCheck = null;
     s.version++;
     this.emit();
     const identity: AccountIdentity = this.identity;
@@ -753,7 +780,8 @@ export class DeleteAccountController implements AccountSessionAware {
       if (out.forceUpdate && AccountSettle.forcesUpdate(result)) {
         this.d.forceUpdate();
       }
-      if (result.ok && identity.valid(this.d)) {
+      // FU-HM-0722（共性 48）：撤回已写出后作用域在同一登录会话里换代，迟到的成功照常做共享结算（读取世代、进度通知）。
+      if (result.ok && identity.writeAlive(this.d)) {
         this.d.session.advanceDeletion();
         this.d.deletionChanged();
       }
@@ -846,7 +874,7 @@ export class DeleteAccountController implements AccountSessionAware {
 
   // ---------------------------------------------------------------- 未决同步与作废
 
-  private pendingSettledElsewhere(): void {
+  private pendingSettledElsewhere(settled: PendingSettlement | null = null): void {
     const s: DeletionSnapshot = this.state;
     if (s.stepUpAction !== null && this.stepUpPhase === 'confirm' && this.stepUpKey !== null
       && !this.flow.keyOpen(this.stepUpKey)) {
@@ -855,6 +883,20 @@ export class DeleteAccountController implements AccountSessionAware {
       this.deferredStepUp = null;
     }
     this.syncPending();
+    if (settled !== null && settled.nextState === DeletionOutcomePolicy.COOLING && settled.account === this.identity.account) {
+      // FU-HM-0722（共性 47、48）：别处（旧实例、作用域换代前已写出的请求）的确认 / 放弃查明已受理：本页按结局落到冷静期，不停在待确认
+      // 消失后的初始态、让用户误以为还能再申请。结局带了 Deletion 就直接用；没带就在发起方推进读取世代之后（下一轮）重读一次。
+      const record: DeletionRecord | null = settled.outcome !== null ? settled.outcome.deletion : null;
+      if (record !== null) {
+        this.loadedDeletion(record);
+      } else {
+        setTimeout((): void => {
+          if (this.alive) {
+            this.loadDeletion();
+          }
+        }, 0);
+      }
+    }
     this.refreshView();
     s.version++;
     this.emit();
@@ -879,6 +921,7 @@ export class DeleteAccountController implements AccountSessionAware {
       return;
     }
     this.left = true;
+    this.cancelCheck = null;
     const owners: (() => boolean)[] = this.owners;
     this.owners = [];
     for (const o of owners) {
@@ -919,5 +962,16 @@ export class DeleteAccountController implements AccountSessionAware {
     } catch (e) {
       // 页面回调出错不影响执行器。
     }
+  }
+}
+
+/** 撤回核对上下文（R1-03）：点【撤回注销】时固定的身份与导航世代（页面许可）。 */
+class CancelCheck {
+  readonly identity: AccountIdentity;
+  readonly gen: number;
+
+  constructor(identity: AccountIdentity, gen: number) {
+    this.identity = identity;
+    this.gen = gen;
   }
 }

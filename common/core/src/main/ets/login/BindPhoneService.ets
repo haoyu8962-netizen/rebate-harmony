@@ -9,6 +9,7 @@ import { PendingKeyRecord, PendingKeyStateRaw } from '../network/PendingKeyStore
 import { AccountOutcome, AccountPhase, PhoneChangeOutcomePolicy, PhoneMask } from '../me/account/AccountPolicies';
 import { AccountPendingView } from '../me/account/AccountSensitiveFlow';
 import { AccountSettle, BindPhoneAccountPort, PendingSettlement } from '../me/account/AccountSession';
+import { withTrace6 } from '../search/SearchController';
 
 /** 绑手机的结果。 */
 export class BindOutcome {
@@ -45,6 +46,25 @@ export class BindOutcome {
   sentCode: string | null = null;
   /** 本次沿用了保留着的（held）原键与原请求体（R1-02）；由 BindPhoneService.bind 填写。 */
   reusedHeld: boolean = false;
+  /**
+   * 本次实际发出的请求体里的规范化手机号（FU-HM-0722，F-X-15）：复用 held 键时是原请求体里的号码；没走到发包为 null。由 bind 填写。
+   */
+  sentPhone: string | null = null;
+  /**
+   * 待确认的键因终结业务错误结束（FU-HM-0722 R1-01，APP-13a 共性 47）：确认 30411 / 30414、放弃 completed 原 3xxxx 等。页面按下面的
+   * 保留策略恢复表单、显示原结果错误；本实例发起（gated 交回）与别处结算（endedElsewhere）同一口径，与换号页第 2 步一致。
+   */
+  ended: boolean = false;
+  /** 30414：错误提示旁给【联系客服】（与换号页 showCustomerService 同一结局字段）。 */
+  customerService: boolean = false;
+  /** completed + 原 3xxxx：同时给「上一次提交已经处理完成」轻提示（toastKey）；没有为 null。 */
+  noticeKey: string | null = null;
+  /** 结局的字段保留策略：手机号保留、验证码清空、字段错误位置（none / phone / code）。 */
+  keepsPhone: boolean = true;
+  clearsCode: boolean = false;
+  fieldError: string = 'none';
+  /** 表外码且字典没有时的服务端 msg（G26）；没有为空串。 */
+  rawText: string = '';
 
   constructor(actionRaw: string, textKey: string | null = null, trace6: string = '', disableMillis: number = 0,
     maskedPhone: string = '', route: string | null = null) {
@@ -64,6 +84,44 @@ export class BindOutcome {
     return o.actionRaw === BindPhoneAction.ERROR && (o.textKey === 'error.20002' || o.textKey === 'error.20003');
   }
 
+  /**
+   * 待确认卡上的提示（FU-HM-0722，APP-13a 共性 41，Android R2-08）：先按字典格式化（填 {trace6}），再用统一错误格式化函数独立附加
+   * trace6——文案本身没有 {trace6} 占位（如 pending_confirm.retry_later）时也带上，已带上的不重复。
+   */
+  static pendingText(formatted: string, o: BindOutcome): string {
+    return withTrace6(formatted, o.trace6);
+  }
+
+  /**
+   * 号码类结果（FU-HM-0722，F-X-15）：归属于提交时那个手机号的反馈——20001 号码错误、30411（含并号确认）/ 30414 等 304xx、44001 风控。
+   * 复用 held 原请求体时，要按原提交的号码核对，不能落到用户之后改过的新号上。
+   */
+  static phoneClass(o: BindOutcome): boolean {
+    if (o.actionRaw === BindPhoneAction.MERGE_CONFIRM || o.actionRaw === BindOutcome.PHONE_INVALID) {
+      return true;
+    }
+    const key: string = o.textKey ?? '';
+    return o.actionRaw === BindPhoneAction.ERROR && (key.startsWith('error.20001') || key.startsWith('error.304')
+      || key.startsWith('error.44001') || key.startsWith('risk_msg'));
+  }
+
+  /**
+   * 键因终结业务错误结束的页面结果（R1-01）：错误文案、trace6、30414 客服入口、已处理完轻提示与字段保留策略都来自同一份结局。
+   * trace6 与本实例发起时的口径相同（这次响应 trace_id 的后 6 位，页面经 pendingText 独立附加）。
+   */
+  static ended(o: AccountOutcome, traceId: string, serverMsg: string): BindOutcome {
+    const trace6: string = traceId.length <= 6 ? traceId : traceId.substring(traceId.length - 6);
+    const out: BindOutcome = new BindOutcome(BindPhoneAction.ERROR, o.textKey ?? 'error.50001', trace6);
+    out.ended = true;
+    out.customerService = o.showCustomerService;
+    out.noticeKey = o.toastKey;
+    out.keepsPhone = o.keepsNewPhone;
+    out.clearsCode = o.clearsCode;
+    out.fieldError = o.fieldError;
+    out.rawText = o.serverMsg ? serverMsg : '';
+    return out;
+  }
+
   /** 网络层 Effect 要求跳页（navigate 且给了路由）时的结果；否则 null（R2-03）。 */
   static navigation(effect: ErrorEffect, trace6: string): BindOutcome | null {
     if (effect.effectKindRaw !== EffectKind.NAVIGATE || effect.route === null) {
@@ -76,7 +134,19 @@ export class BindOutcome {
 /** BindPhoneService.bind 内部记录：本次实际发出的验证码与是否复用 held 原请求体（R2-01）。 */
 class BindSent {
   code: string | null = null;
+  phone: string | null = null;
   reusedHeld: boolean = false;
+
+  /** 原请求体里的手机号（按规范化结果；读不出为 null）。 */
+  static phoneOf(body: string): string | null {
+    try {
+      const parsed: Record<string, Object> = JSON.parse(body) as Record<string, Object>;
+      const phone: Object | undefined = parsed['phone'];
+      return typeof phone === 'string' ? PhoneNumber.normalize(phone as string).normalized : null;
+    } catch (e) {
+      return null;
+    }
+  }
 
   /** 原请求体里的验证码；读不出为 null（调用方按没有可核对的归属处理）。 */
   static codeOf(body: string): string | null {
@@ -147,6 +217,26 @@ export class BindPhonePagePermit {
 }
 
 /**
+ * 待确认补办的手动入口（FU-HM-0722 R1-04，APP-13a 共性 41，Android R2-07）：确认 / 放弃在途时页面被盖住（或进后台），回包是前置码
+ * （10001 / 10004 / 10005）且给了 guideRoute——页面许可已失效、不自动导航，但同一实例、固定身份仍有效时记下原键与补办目标，回到可见后
+ * 卡片上给手动入口。离页、会话换代、待确认键变了即作废；补办回来记录仍待确认，不自动提交。
+ */
+export class BindPendingGuide {
+  readonly key: string;
+  readonly route: string;
+  /** 入口文案键（前置码的 error.1000x）。 */
+  readonly textKey: string;
+  readonly identity: BindPhoneIdentity;
+
+  constructor(key: string, route: string, textKey: string, identity: BindPhoneIdentity) {
+    this.key = key;
+    this.route = route;
+    this.textKey = textKey;
+    this.identity = identity;
+  }
+}
+
+/**
  * 老用户 phone_bound 补查的结局（F-HM-31）：UNBOUND 没查清或未绑；BOUND_LEFT 已绑但发起补查的页面许可已失效（离页、换代），
  * 只做共享结算（守卫重算），不出栈、不恢复待办；BOUND_HERE 已绑且原页面许可仍有效，由原页面只退出自己那一个导航实例。
  */
@@ -189,6 +279,13 @@ export class BindPhoneForm {
   deadlinesChanged: () => void = () => {
   };
   /**
+   * 补办手动入口刚保存、页面此刻就该显示时调（FU-HM-0722 R2-01，R1-04 的另一种顺序）：确认 / 放弃在途时页面被盖住、回包前又回到可见，
+   * 共享通知先刷新了待确认卡（那时入口还没保存），之后结果因发起时的可见许可失效被换成 null 并保存入口。原实例与固定身份仍有效、此刻
+   * 可见时通知页面按本页正显示的待确认键重读入口（pendingGuide 核对键）；只刷新入口，不自动导航、不自动提交、不提示。由页面设置。
+   */
+  guideChanged: () => void = () => {
+  };
+  /**
    * 验证码修订号（FU-HM-0721，APP-05b 共性 29，iOS R2-03）：setCode 内容变了、页面直接清码（codeReset）都 +1。【绑定】提交时捕获，
    * 回来的 20002 / 20003 只在修订号未变、输入框仍是提交时那串码时交给页面；同号码改了码，旧请求的验证码错误丢弃（不清空、不显示在新码上）。
    */
@@ -198,6 +295,15 @@ export class BindPhoneForm {
    * 字段反馈按这次原提交的修订号核对，不按重发时捕获的当前输入。
    */
   private sentStamp: CodeStamp | null = null;
+  /** 本实例正在确认 / 放弃的键（R1-01：自己发起的结局由 gated 交回，不再按共享通知重复落地）。 */
+  private ownPending: string | null = null;
+  /**
+   * 发起 ownPending 那次确认 / 放弃时的页面固定身份（FU-HM-0722 R3-01）：只抑制同一身份正在等直接结果的重复通知。会话 / 作用域换代
+   * reset 后本页换了新身份，旧请求的结果经 gated 只会是 null，同键结局必须按通知交给新身份的表单。
+   */
+  private ownPendingIdentity: BindPhoneIdentity | null = null;
+  /** 许可失效时保存的补办手动入口（R1-04）。 */
+  private guide: BindPendingGuide | null = null;
 
   constructor(service: BindPhoneService, fields: BindPhoneFields) {
     this.service = service;
@@ -220,6 +326,8 @@ export class BindPhoneForm {
   reset(fields: BindPhoneFields): BindPhoneIdentity {
     // R1-02：旧身份延后的绑定成功不交给新身份。
     this.deferredDone = null;
+    // FU-HM-0722 R1-04：旧身份的补办入口不交给新身份。
+    this.guide = null;
     this.identity = this.service.capturePage();
     this.fields = fields;
     this.current = new BindPhoneFormBinding(this, this.identity, fields);
@@ -239,6 +347,7 @@ export class BindPhoneForm {
   leave(): void {
     this.left = true;
     this.deferredDone = null;
+    this.guide = null;
   }
 
   /** 点击时取页面许可（页面实例 + 当时的固定身份 + 可见世代）。 */
@@ -270,12 +379,77 @@ export class BindPhoneForm {
    * notifyPending）；通知到达时本页此刻不可呈现（被盖住、进后台、已走过离页出口但还没退订、身份已换代）就不交给页面——不更新待确认卡、
    * 不提示、不播报。回到可见时页面在 onShown 里重新读取共享记录刷新一次。请求自身的结果仍按发起时的许可（gated）核对。
    */
-  subscribePending(listener: () => void): () => void {
-    return this.service.subscribePending((): void => {
-      if (this.presentable()) {
-        listener();
+  subscribePending(listener: () => void, ended: ((o: BindOutcome) => void) | null = null,
+    shownKey: (() => string | null) | null = null): () => void {
+    return this.service.subscribeSettled((settled: PendingSettlement | null): void => {
+      if (!this.presentable()) {
+        return;
+      }
+      // FU-HM-0722 R1-01（共性 47）：先按刷新前本页正显示的待确认键核对，再刷新卡片，最后按结局恢复表单与错误。
+      const o: BindOutcome | null = ended !== null && shownKey !== null ? this.endedElsewhere(settled, shownKey()) : null;
+      listener();
+      if (o !== null && ended !== null) {
+        ended(o);
       }
     });
+  }
+
+  /**
+   * 别处结算了本页正显示的待确认键（FU-HM-0722 R1-01，APP-13a 共性 47）：另一个 BindPhone 实例或换号页确认 / 放弃同一键，通知携带完整
+   * 结局。只在本页此刻可呈现、原身份仍有效、账号与键都对得上、且不是本实例自己在途的那一次时交给页面：
+   * - abandoned / 20903 → ABANDONED（可以重新绑定，清验证码，轻提示）；
+   * - 终结业务错误（确认 30411 / 30414、放弃 completed 原 3xxxx）→ ended 的 ERROR：错误、30414 客服入口、已处理完轻提示与字段保留策略。
+   * 其余（成功、不结束键）为 null，只刷新卡片。
+   */
+  endedElsewhere(settled: PendingSettlement | null, shownKey: string | null): BindOutcome | null {
+    if (settled === null || settled.outcome === null || shownKey === null || settled.key !== shownKey
+      || (settled.key === this.ownPending && this.ownPendingIdentity === this.identity)
+      || settled.account !== this.identity.account || !this.presentable()) {
+      return null;
+    }
+    const o: AccountOutcome = settled.outcome;
+    if (settled.nextState === PhoneChangeOutcomePolicy.STEP1) {
+      const out: BindOutcome = new BindOutcome(BindOutcome.ABANDONED, settled.textKey);
+      out.clearsCode = true;
+      return out;
+    }
+    if (o.keyEnds && settled.nextState === PhoneChangeOutcomePolicy.STEP2) {
+      return BindOutcome.ended(o, settled.traceId, settled.serverMsg);
+    }
+    return null;
+  }
+
+  /**
+   * 本页正显示的待确认键上保存着的补办入口（R1-04）：同一实例、没离页、固定身份仍是本页当前身份且仍是当前会话、键没变才给；
+   * 否则作废并返回 null。
+   */
+  pendingGuide(shownKey: string | null): BindPendingGuide | null {
+    const g: BindPendingGuide | null = this.guide;
+    if (g === null) {
+      return null;
+    }
+    if (this.left || g.identity !== this.identity || !this.service.identityValid(g.identity) || shownKey !== g.key) {
+      this.guide = null;
+      return null;
+    }
+    return g;
+  }
+
+  /** 点手动入口（R1-04）：此刻可见且入口仍有效时取出补办目标（取一次即作废）；页面经 Router 打开，回来仍待确认、不自动提交。 */
+  takeGuide(shownKey: string | null): string | null {
+    const g: BindPendingGuide | null = this.pendingGuide(shownKey);
+    if (g === null || this.hidden) {
+      return null;
+    }
+    this.guide = null;
+    return g.route;
+  }
+
+  /** 许可失效时到达的待确认补办结局（R1-04）：同一实例、身份仍有效时记下补办目标。 */
+  private keepGuide(key: string, p: BindPhonePagePermit, o: BindOutcome): void {
+    if (o.actionRaw === BindOutcome.PENDING && o.route !== null && this.sameInstance(p)) {
+      this.guide = new BindPendingGuide(key, o.route, o.textKey ?? 'pending_confirm.retry_later', p.identity);
+    }
   }
 
   /** 页面被盖住 / 进后台（NavDestination.onHidden 同步调用）：可见世代 +1。 */
@@ -374,6 +548,12 @@ export class BindPhoneForm {
     const permit: BindPhonePagePermit = new BindPhonePagePermit(this, b.identity, this.visibleSerial);
     return this.service.sendCode(b.fields.phoneText, b.identity)
       .then((o: SendCodeOutcome): SendCodeOutcome | null => {
+        if (o.stateRaw === BindOutcome.STALE && this.permitted(permit)) {
+          // FU-HM-0722（F-X-13 / APP-05b 共性 34，iOS R3-02）：发码在途时改过号码（清空再粘回、等价写法都会作废在途结果）——旧结果的提示 /
+          // 字段错误 / 播报丢弃，但服务里已按规范化号码记下截止时间；本实例此刻可见、身份未变，页面按当前号码重算倒计时 / 限流并启动计时器。
+          this.deadlinesChanged();
+          return null;
+        }
         if (this.permitted(permit)) {
           return o;
         }
@@ -400,11 +580,24 @@ export class BindPhoneForm {
       .then((o: BindOutcome): BindOutcome | null => {
         // R2-01：验证码归属绑定到实际发送的提交。新请求体 → 就是这次捕获的 stamp（记下来，供之后原键重试核对）；
         // 复用 held 原请求体 → 沿用原提交的 stamp，且它记录的码必须就是实际重发的那串码，否则没有可核对的归属。
+        if (o.reusedHeld && BindOutcome.phoneClass(o)
+          && (o.sentPhone === null || o.sentPhone !== PhoneNumber.normalize(b.fields.phoneText).normalized)) {
+          // FU-HM-0722（F-X-15）：重发的是 held 原请求体里的旧号码，用户之后改了号——旧号码的 20001 / 30411 / 30414 / 44001 不落到新号上
+          // （共享结算在服务里照常，键已按结局结束，下一次提交按当前输入用新键）。并号凭据一并清掉。
+          this.service.discardMerge();
+          return null;
+        }
         let owner: CodeStamp | null = stamp;
         if (o.reusedHeld) {
           owner = this.sentStamp !== null && this.sentStamp.code === o.sentCode ? this.sentStamp : null;
         } else if (o.sentCode !== null) {
           this.sentStamp = stamp;
+        }
+        if (BindOutcome.codeError(o) && o.sentPhone !== null
+          && o.sentPhone !== PhoneNumber.normalize(b.fields.phoneText).normalized) {
+          // FU-HM-0722 R2-02（F-X-15）：验证码错误也归属实际发送的那个号码——held 原体重发的是旧号码 A、用户已改成 B（验证码没改），
+          // A 的 20002 / 20003 不落到 B 的验证码框、不播报；输入保留，共享结算照常（等价写法规范化后相同，照常交给页面）。
+          return null;
         }
         if (BindOutcome.codeError(o)
           && (owner === null || !this.codeRev.current(owner, b.fields.codeText)
@@ -436,8 +629,29 @@ export class BindPhoneForm {
     if (!this.permitted(permit)) {
       return Promise.resolve(null);
     }
+    this.guide = null;
+    this.ownPending = key;
+    this.ownPendingIdentity = permit.identity;
     return this.service.confirmPending(key, permit.identity)
-      .then((o: BindOutcome): BindOutcome | null => this.gated(permit, o));
+      .then((o: BindOutcome): BindOutcome | null => this.pendingResult(key, permit, o));
+  }
+
+  /** 确认 / 放弃的结果（R1-01、R1-04）：许可有效交给页面；失效时补办目标按同实例保存，其余只做共享结算。 */
+  private pendingResult(key: string, permit: BindPhonePagePermit, o: BindOutcome): BindOutcome | null {
+    // R3-01：只清本身份这一次的标记（reset 后新身份自己发起的同键不被旧回包清掉）。
+    if (this.ownPending === key && this.ownPendingIdentity === permit.identity) {
+      this.ownPending = null;
+      this.ownPendingIdentity = null;
+    }
+    const out: BindOutcome | null = this.gated(permit, o);
+    if (out === null) {
+      this.keepGuide(key, permit, o);
+      // R2-01：页面先回到可见、回包后到——onShown 那次刷新时入口还没保存，这里通知页面重读（被盖住时由回到可见的刷新兜）。
+      if (this.guide !== null && this.guide.key === key && this.sameInstance(permit) && !this.hidden) {
+        this.guideChanged();
+      }
+    }
+    return out;
   }
 
   /** 【放弃上一次提交】（R3-01）：同上。 */
@@ -445,8 +659,11 @@ export class BindPhoneForm {
     if (!this.permitted(permit)) {
       return Promise.resolve(null);
     }
+    this.guide = null;
+    this.ownPending = key;
+    this.ownPendingIdentity = permit.identity;
     return this.service.abandonPending(key, permit.identity)
-      .then((o: BindOutcome): BindOutcome | null => this.gated(permit, o));
+      .then((o: BindOutcome): BindOutcome | null => this.pendingResult(key, permit, o));
   }
 }
 
@@ -605,8 +822,11 @@ export class BindPhoneService {
     return PhoneChangeOutcomePolicy.decide(phase, AccountSettle.inputOf(result), false);
   }
 
-  private settlementOf(key: string, identity: BindPhoneIdentity, o: AccountOutcome): PendingSettlement | null {
-    return o.keyEnds ? new PendingSettlement(key, identity.account, o.nextState, o.textKey) : null;
+  /** FU-HM-0722（共性 47）：通知携带完整结局、trace_id 与服务端 msg（换号页按它恢复第 2 步与错误提示）。 */
+  private settlementOf(key: string, identity: BindPhoneIdentity, o: AccountOutcome,
+    result: ApiResult): PendingSettlement | null {
+    return o.keyEnds ? new PendingSettlement(key, identity.account, o.nextState, o.textKey, null, o, result.traceId,
+      result.msg) : null;
   }
 
   /** 订阅 bindPhone 未决记录的结算（换号页或本服务发起的都通知；页面据此 refreshPending）。 */
@@ -614,6 +834,19 @@ export class BindPhoneService {
     const port: BindPhoneAccountPort | null = this.accountPort;
     return port === null ? (): void => {
     } : port.subscribePending(BindPhoneService.BIND_OPERATION, (_src: Object): void => listener());
+  }
+
+  /**
+   * 订阅 bindPhone 未决记录的结算，并带上这次通知携带的终结结果（FU-HM-0722 R1-01；不是终结或发送方没给为 null）。
+   */
+  subscribeSettled(listener: (settled: PendingSettlement | null) => void): () => void {
+    const port: BindPhoneAccountPort | null = this.accountPort;
+    if (port === null) {
+      return (): void => {
+      };
+    }
+    return port.subscribePending(BindPhoneService.BIND_OPERATION,
+      (_src: Object): void => listener(port.settledNow(BindPhoneService.BIND_OPERATION)));
   }
 
   /** 发码 / 绑定的会话归属（R2-07：不随页面离开失效，只看固定身份或发起时的账号与登录世代）。 */
@@ -837,6 +1070,7 @@ export class BindPhoneService {
     const o: BindOutcome = await this.bindOnce(rawPhone, code, identity, sent);
     o.sentCode = sent.code;
     o.reusedHeld = sent.reusedHeld;
+    o.sentPhone = sent.phone;
     return o;
   }
 
@@ -876,6 +1110,7 @@ export class BindPhoneService {
     // R2-01：记下实际发出的验证码（held 时是原请求体里的码）。
     sent.reusedHeld = held !== null;
     sent.code = held !== null ? BindSent.codeOf(held.body) : code;
+    sent.phone = held !== null ? BindSent.phoneOf(held.body) : phone.normalized;
     // R2-07：B 类写请求不设 owner（离开页面不取消，flow-map §21）；固定身份与 phoneGate 在每次实际发包前核对。离页后结果只是
     // 不再改页面（serial），绑手机、token、phoneGate 与未决记录照常结算。
     request.sendAllowed = this.sendGuard(identity, account, generation);
@@ -898,8 +1133,9 @@ export class BindPhoneService {
     }
     if (result.outcome === ApiOutcome.BUSINESS_ERROR && result.code === 42901 && result.effect !== null) {
       // R1-03：与换号共用的 phoneGate（页面关了也写，按发起时身份）。
+      // FU-HM-0722 R3-02：写入前复核发起时的完整归属（账号 + 登录世代 + 作用域）；作用域换代后迟到的 42901 不写进新作用域的闸门。
       this.startGate(result.effect.disableMillis > 0 ? result.effect.disableMillis : 5000,
-        this.client.sessionAccount() === account && this.client.sessionGenerationId() === generation);
+        identity !== null ? this.identityValid(identity) : this.ownerCurrent(owner));
     }
     if (issued !== this.serial) {
       return new BindOutcome(BindOutcome.STALE);
@@ -979,7 +1215,7 @@ export class BindPhoneService {
       this.binding = false;
     }
     const o: AccountOutcome = this.decidePending(AccountPhase.CONFIRM, result);
-    this.notifyPending(this.settlementOf(key, identity, o));
+    this.notifyPending(this.settlementOf(key, identity, o, result));
     return this.pendingOutcome(o, result, identity);
   }
 
@@ -999,7 +1235,7 @@ export class BindPhoneService {
       this.binding = false;
     }
     const o: AccountOutcome = this.decidePending(AccountPhase.ABANDON, result);
-    this.notifyPending(this.settlementOf(key, identity, o));
+    this.notifyPending(this.settlementOf(key, identity, o, result));
     return this.pendingOutcome(o, result, identity);
   }
 
@@ -1026,7 +1262,8 @@ export class BindPhoneService {
         this.mergeTicket = BindPhoneAction.mergeTicket(result.data);
         return new BindOutcome(BindPhoneAction.MERGE_CONFIRM, 'error.30411.mergeable', result.trace6);
       }
-      return new BindOutcome(BindPhoneAction.ERROR, o.textKey ?? 'error.50001', result.trace6);
+      // FU-HM-0722 R1-01：与别处结算同一口径（错误、30414 客服入口、已处理完轻提示、字段保留策略）。
+      return BindOutcome.ended(o, result.traceId, result.msg);
     }
     if (o.nextState === PhoneChangeOutcomePolicy.FORCE_UPDATE) {
       return new BindOutcome(BindOutcome.PENDING, 'error.10405');

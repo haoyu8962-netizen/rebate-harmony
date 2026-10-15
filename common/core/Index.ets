@@ -122,7 +122,7 @@ export {
   LoginPageEntries, OAuthLoginOutcome, OAuthLoginService
 } from './src/main/ets/login/OAuthLoginService';
 export {
-  BindOutcome, BindPhoneFields, BindPhoneForm, BindPhoneFormBinding, BindPhoneHost, BindPhoneIdentity, BindPhonePagePermit,
+  BindOutcome, BindPendingGuide, BindPhoneFields, BindPhoneForm, BindPhoneFormBinding, BindPhoneHost, BindPhoneIdentity, BindPhonePagePermit,
   BindPhoneRecheck, BindPhoneService, BindPhoneTickScheduler, BindPhoneTicker, SystemBindPhoneTickScheduler
 } from './src/main/ets/login/BindPhoneService';
 export { AuthFeedback } from './src/main/ets/login/AuthFeedback';

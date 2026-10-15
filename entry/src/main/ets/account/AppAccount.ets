@@ -62,6 +62,12 @@ export class AppAccount {
     return client === null ? '' : ClipboardController.scopeKey(client.captureScope()) + '|' + AppAccount.sessionScope();
   }
 
+  /** 不含会话作用域的会话归属键（同账号刷新只换作用域时不变；FU-HM-0722）。 */
+  static ownerKey(): string {
+    const client: ApiClient | null = AppNetwork.client;
+    return client === null ? '' : ClipboardController.scopeKey(client.captureScope());
+  }
+
   static sessionScope(): string {
     const client: ApiClient | null = AppNetwork.client;
     try {
@@ -79,6 +85,8 @@ export class AppAccount {
   deps(): AccountDeps {
     const d: AccountDeps = new AccountDeps(AppWallet.shared.apiPort(), this.session);
     d.scope = (): string => AppAccount.scopeKey();
+    // FU-HM-0722（共性 48）：已写出的写请求按不含作用域的会话归属（账号 + 登录序号 + 会话世代 + 隐私 / 环境世代）存活与共享结算。
+    d.ownerScope = (): string => AppAccount.ownerKey();
     d.account = (): string | null => AppMe.account();
     d.sessionScope = (): string => AppAccount.sessionScope();
     d.stepUpRestricted = (): boolean => AppAccount.sessionScope() === SessionScope.DELETION_ONLY;

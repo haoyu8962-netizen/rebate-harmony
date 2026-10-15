@@ -12,7 +12,7 @@ import { StepUpTokenCache } from '../../wallet/WalletPresentation';
 import { SmsResendClock, WalletApiPort, WalletLoadFailure } from '../../wallet/WalletSession';
 import { AccountDraftTexts } from './AccountDraftTexts';
 import { AccountRecord } from './AccountJson';
-import { AccountResultInput } from './AccountPolicies';
+import { AccountOutcome, AccountResultInput } from './AccountPolicies';
 
 /** 执行器构造时一次性取得的固定身份（APP-09 第 39、52、59、60、63、65 条，S0）：之后对当前会话只做比较，不再赋值。 */
 export class AccountIdentity {
@@ -22,23 +22,41 @@ export class AccountIdentity {
   readonly sessionScope: string;
   /** AccountSession 的会话世代。 */
   readonly epoch: number;
+  /**
+   * 不含会话作用域的会话归属键（FU-HM-0722，APP-13a 共性 48）：账号 + 登录序号 + 会话世代 + 隐私 / 环境世代。同账号刷新令牌只把作用域
+   * 从 deletion_only 换成 full（或反过来）时它不变。只用于「已写出的请求」的存活与共享结算，不用于发送前检查。
+   */
+  readonly ownerKey: string;
 
-  constructor(account: string | null, key: string, sessionScope: string, epoch: number) {
+  constructor(account: string | null, key: string, sessionScope: string, epoch: number, ownerKey: string | null = null) {
     this.account = account;
     this.key = key;
     this.sessionScope = sessionScope;
     this.epoch = epoch;
+    this.ownerKey = ownerKey ?? key;
   }
 
   static capture(d: AccountDeps): AccountIdentity {
     // 同一次读取：账号、归属键、作用域、世代都来自这一刻（第 65 条）。
-    return new AccountIdentity(d.account(), d.scope(), d.sessionScope(), d.session.epoch);
+    return new AccountIdentity(d.account(), d.scope(), d.sessionScope(), d.session.epoch, d.ownerScope());
   }
 
-  /** 仍是当前会话（只比较）。 */
+  /**
+   * 仍是当前会话（只比较）：完整固定身份——账号、归属键（含登录序号、会话世代、隐私 / 环境世代与会话作用域）、AccountSession 世代。
+   * 写请求的发送前检查（首次派发、等待刷新结束、每次实际写出前）用它（APP-13a 共性 45）。
+   */
   valid(d: AccountDeps): boolean {
     return this.account !== null && d.account() === this.account && d.scope() === this.key
       && d.session.epoch === this.epoch;
+  }
+
+  /**
+   * 已写出的写请求仍归这个会话（FU-HM-0722，APP-13a 共性 48，Android RC-02）：同账号、同登录序号与会话世代、同隐私 / 环境世代，
+   * 不看会话作用域与 AccountSession 世代（作用域换代会 reset，但同一登录会话里已到服务端的请求照常完成共享结算，不落成结果未知）。
+   * 只决定共享结算（进度变了、token 作废），页面更新仍看 valid。
+   */
+  writeAlive(d: AccountDeps): boolean {
+    return this.account !== null && d.account() === this.account && d.ownerScope() === this.ownerKey;
   }
 
   get restricted(): boolean {
@@ -224,14 +242,44 @@ export class PendingSettlement {
   readonly textKey: string | null;
   /** 这次实际发出的那份固定摘要（取不到为 null）。 */
   readonly summary: string | null;
+  /**
+   * 完整终结结局（FU-HM-0722，APP-13a 共性 47，Android RC-01）：终结业务错误（确认 30411 / 30414、放弃 completed 原 3xxxx 等）落第 2 步时，
+   * 订阅页按它恢复第 2 步、错误提示（字段 / 横幅、30414 客服入口、已处理完轻提示）与字段保留策略。null = 发送方没给（按 nextState 处理）。
+   */
+  readonly outcome: AccountOutcome | null;
+  /** 这次响应的 trace_id（提示独立附加 trace6）；没有为空串。 */
+  readonly traceId: string;
+  /** 表外码时的服务端 msg（outcome.serverMsg，G26）；没有为空串。 */
+  readonly serverMsg: string;
 
   constructor(key: string, account: string | null, nextState: string, textKey: string | null,
-    summary: string | null = null) {
+    summary: string | null = null, outcome: AccountOutcome | null = null, traceId: string = '', serverMsg: string = '') {
     this.key = key;
     this.account = account;
     this.nextState = nextState;
     this.textKey = textKey;
     this.summary = summary;
+    this.outcome = outcome;
+    this.traceId = traceId;
+    this.serverMsg = serverMsg;
+  }
+
+  /**
+   * 终结业务错误的页面提示（与发起页 AccountSensitiveFlow.message 同一口径）：表外码用服务端 msg；文案键按 trace6 策略独立附加 trace6。
+   * 没有 outcome 或没有可显示的提示为 null。
+   */
+  message(): AccountMessage | null {
+    const o: AccountOutcome | null = this.outcome;
+    if (o === null) {
+      return null;
+    }
+    if (o.serverMsg) {
+      return this.serverMsg.length > 0 ? AccountMessages.raw(this.serverMsg) : AccountMessages.of(AccountMessages.GENERIC_KEY);
+    }
+    if (o.textKey === null) {
+      return null;
+    }
+    return AccountMessages.of(o.textKey, new Map<string, string>(), o.trace6 !== null ? this.traceId : '');
   }
 }
 
@@ -248,6 +296,8 @@ export interface BindPhoneAccountPort {
    */
   notifyPending(operationId: string, source: Object, settled?: PendingSettlement | null): void;
   subscribePending(operationId: string, listener: (source: Object) => void): () => void;
+  /** 正在通知的这次结算携带的终结结果（FU-HM-0722 R1-01：BindPhone 接收方按它恢复表单与错误）；不在通知期间为 null。 */
+  settledNow(operationId: string): PendingSettlement | null;
 }
 
 /** 会话换代时要清空的执行器。 */
@@ -406,6 +456,11 @@ export class AccountDeps implements StepUpDeps {
   clock: () => number = Date.now;
   /** 会话归属键（captureScope 的键 + 会话作用域）。 */
   scope: () => string = () => '';
+  /**
+   * 不含会话作用域的会话归属键（captureScope 的键；FU-HM-0722，共性 48）：已写出的写请求的存活条件与共享结算用。没接时同 scope（作用域
+   * 变化也算失效，口径偏严）。
+   */
+  ownerScope: () => string = (): string => this.scope();
   account: () => string | null = () => null;
   /** 会话作用域：full / deletion_only（没有会话为 full）。 */
   sessionScope: () => string = () => 'full';

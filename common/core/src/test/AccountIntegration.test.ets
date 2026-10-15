@@ -136,6 +136,7 @@ export class AccountFixture {
     const d: AccountDeps = new AccountDeps(new ApiClientWalletPort(this.rig.client), this.session);
     d.clock = (): number => this.rig.nowMillis;
     d.scope = (): string => this.scope();
+    d.ownerScope = (): string => this.walletScope();
     d.account = (): string | null => this.rig.client.sessionAccount();
     d.sessionScope = (): string => this.rig.client.sessionScope();
     d.stepUpRestricted = (): boolean => this.rig.client.sessionScope() === 'deletion_only';

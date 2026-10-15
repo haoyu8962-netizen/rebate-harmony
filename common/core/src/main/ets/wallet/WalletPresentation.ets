@@ -568,6 +568,15 @@ export class SensitiveOutcome {
  */
 export class StepUpTokenCache {
   private readonly tokens: Map<string, StepUpEntry> = new Map<string, StepUpEntry>();
+  /**
+   * 失效世代（FU-HM-0722，APP-13a 共性 39、43，Android R3-01）：整体清空（会话换代、换号 / 绑手机成功）时加 1，只增不减。
+   * 二次验证的验证请求发起时记下它；回包写缓存、交给发起方之前复核，变了就说明这期间 token 已被统一作废，迟到的新 token 丢弃。
+   */
+  private gen: number = 0;
+
+  get generation(): number {
+    return this.gen;
+  }
 
   put(action: string, account: string, token: string, expireAtMs: number, binding: string = ''): void {
     this.tokens.set(action, new StepUpEntry(account, token, expireAtMs, binding));
@@ -598,6 +607,7 @@ export class StepUpTokenCache {
   /** 会话换代、登出、换账号、撤回同意、换手机号成功（APP-13a G04）：全部清空。 */
   onSessionChanged(): void {
     this.tokens.clear();
+    this.gen++;
   }
 
   /** 得到 10003：丢弃并重新弹面板。 */

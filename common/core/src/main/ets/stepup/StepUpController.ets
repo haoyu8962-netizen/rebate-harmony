@@ -300,6 +300,9 @@ export class StepUpController {
     const request: ApiRequest = new ApiRequest(StepUpController.VERIFY_OPERATION, {}, '', JSON.stringify(body));
     // 归属只按会话与账号（同发码，共性第 27 条）：面板关闭后到达的 42901 仍写进共享验证限流；结果本身（含 token）面板关了就丢弃。
     const d: StepUpDeps = this.d;
+    // FU-HM-0722（APP-13a 共性 43，Android R3-01）：发起时固定 token 失效世代。回包之前别处的换号 / 绑手机成功（或会话换代）已统一
+    // 作废 token 时，这次签发的 token 不写共享缓存、不交给发起方（换号第 1 步不进第 2 步，提交也就带不上它）。
+    const tokenGen: number = d.session.tokens.generation;
     request.owner = (): boolean => this.sameSession();
     request.sendAllowed = this.d.session.verifyGate.sendAllowed;
     this.d.api.request(request).then((result: ApiResult) => {
@@ -320,6 +323,14 @@ export class StepUpController {
         const grant: StepUpGrant | null = WalletJson.stepUp(result.data);
         if (grant === null) {
           s.error = WalletMessages.of(WalletMessages.GENERIC_KEY);
+          this.emit();
+          return;
+        }
+        if (d.session.tokens.generation !== tokenGen) {
+          // 共性 43：先作废、后到达的验证成功：丢弃 token，面板留在可输入状态，清空验证码请用户重新验证（提示复用 error.10003，G01）。
+          s.code = '';
+          s.clearSeq++;
+          s.error = WalletMessages.of('error.10003');
           this.emit();
           return;
         }

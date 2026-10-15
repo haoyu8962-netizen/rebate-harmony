@@ -1,11 +1,11 @@
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import {
   AccountPendingView, AuthAnnouncement, AuthFeedback, BindOutcome, BindPhoneAction, BindPhoneAnnouncer, BindPhoneFields, BindPhoneForm,
-  BindPhoneFormBinding, BindPhoneIdentity, BindPhonePagePermit, BindPhoneService, CodeInput, LoginSendState, MergeDecision, MergeResult, PhoneNumber, PhoneResult,
+  BindPendingGuide, BindPhoneFormBinding, BindPhoneIdentity, BindPhonePagePermit, BindPhoneService, CodeInput, LoginSendState, MergeDecision, MergeResult, PhoneNumber, PhoneResult,
   BindPhoneTicker, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
-  CouliAnnounce, CouliButton, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon,
+  CouliAnnounce, CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon,
   CouliInteraction, CouliLayout, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier, CouliToast, CouliTypography,
   TABULAR_FEATURE, CouliFormat, PendingConfirmCard, PendingSummaryRow, PriceTerms
 } from 'designsystem';
@@ -117,6 +117,14 @@ export class BindPhoneModel implements BindPhoneFields {
   @Trace pendingVersion: number = 0;
   /** 换号与绑手机共用的 phoneGate（42901）禁用中（harmony-review-r1 R1-03）：【绑定】与待确认两个按钮置灰。 */
   @Trace gateActive: boolean = false;
+  /**
+   * 待确认的键因终结业务错误结束后的原结果提示（FU-HM-0722 R1-01，共性 47）：本页或别处确认 30411 / 30414、放弃 completed 原 3xxxx。
+   * 表单恢复可用；30414 时旁边给【联系客服】。下一次提交、确认、放弃前清掉。
+   */
+  @Trace endedText: string = '';
+  @Trace endedCs: boolean = false;
+  /** 待确认补办的手动入口（R1-04，共性 41）：入口文案；空串 = 没有。 */
+  @Trace guideText: string = '';
 }
 
 /** 待确认卡按钮的渲染时绑定（原键、版本、渲染时的页面固定身份；R1-01：执行时只比较）。 */
@@ -187,6 +195,9 @@ export struct BindPhoneView {
     // FU-HM-0720 R2-01：发码结果因发起时的许可失效被丢弃、但页面此刻可见且身份未变（先回可见、后成功 / 42901）——按共享截止时间
     // 重算倒计时并启动每秒刷新，到期自动恢复【获取验证码】；不补弹窗、提示、播报。
     form.deadlinesChanged = (): void => this.refreshTimers();
+    // FU-HM-0722 R2-01：确认 / 放弃在途时被盖住、回包前已回到可见——入口在结果到达时才保存，按本页正显示的待确认键重读手动入口
+    // （不自动导航、不自动提交）。
+    form.guideChanged = (): void => this.refreshGuide();
     this.identity = form.pageIdentity;
     // R3-01：同步离页出口（onWillDisappear）作废本实例的页面许可；aboutToDisappear 里再调一次。
     this.config.pageLeft = (): void => form.leave();
@@ -218,7 +229,10 @@ export struct BindPhoneView {
     }));
     // R2-04：bindPhone 未决记录有结论了（本页、别的实例或换号页发起的）：从存储重新同步待确认（inFlight 不残留）。
     // FU-HM-0720 R3-01：经本页表单订阅——被盖住、进后台、已离页未退订、身份已换代时不更新、不提示、不播报；回到可见由 onShown 重读。
-    this.unsubscribers.push(form.subscribePending((): void => this.refreshPending()));
+    // FU-HM-0722 R1-01（共性 47）：别处结算了本页正显示的待确认键时，按通知携带的完整结局恢复表单、错误与字段保留策略。
+    this.unsubscribers.push(form.subscribePending((): void => this.refreshPending(),
+      (o: BindOutcome): void => this.pendingSettled(o),
+      (): string | null => this.model.pending === null ? null : this.model.pending.key));
     // R1-07（APP-05b 共性 7）：键盘弹起时按可视区收缩页面（RESIZE），底部【绑定】随键盘上移、输入区在 Scroll 内滚动，
     // 不再整页上推把按钮压在键盘后。只在本页生效，离页恢复原方式。
     try {
@@ -468,6 +482,8 @@ export struct BindPhoneView {
     const identity: BindPhoneIdentity = b.identity;
     const model: BindPhoneModel = this.model;
     model.submitting = true;
+    model.endedText = '';
+    model.endedCs = false;
     let outcome: BindOutcome | null;
     try {
       outcome = await form.submit(b);
@@ -546,6 +562,31 @@ export struct BindPhoneView {
     if (p === null && was !== null) {
       this.model.pendingVersion++;
     }
+    if (p !== null) {
+      this.model.endedText = '';
+      this.model.endedCs = false;
+    }
+    this.refreshGuide();
+  }
+
+  /** R1-04：只显示本页正显示的这个键上保存着的补办入口（离页、换代、键变了由 Core 作废）；R2-01 入口晚于卡片保存时也经这里。 */
+  private refreshGuide(): void {
+    const p: AccountPendingView | null = this.model.pending;
+    const g: BindPendingGuide | null = this.form === null ? null : this.form.pendingGuide(p === null ? null : p.key);
+    this.model.guideText = g === null ? '' : this.t(g.textKey);
+  }
+
+  /** 补办的手动入口（R1-04）：经 Router 打开补办页；回来记录仍待确认，不自动提交。 */
+  private openGuide(b: PendingBinding): void {
+    const form: BindPhoneForm | null = this.form;
+    if (form === null || b.identity !== this.identity || b.version !== this.model.pendingVersion) {
+      return;
+    }
+    const route: string | null = form.takeGuide(b.key);
+    this.model.guideText = '';
+    if (route !== null) {
+      this.config.onNavigate(route);
+    }
   }
 
   private pendingDesc(p: AccountPendingView): string {
@@ -588,6 +629,9 @@ export struct BindPhoneView {
     const model: BindPhoneModel = this.model;
     model.pendingBusy = true;
     model.pendingWarning = '';
+    model.guideText = '';
+    model.endedText = '';
+    model.endedCs = false;
     let outcome: BindOutcome | null;
     try {
       // R1-01：渲染时捕获的身份，执行时服务端只比较。
@@ -683,7 +727,9 @@ export struct BindPhoneView {
         this.refreshPending();
         const vars: Map<string, string> = new Map<string, string>();
         vars.set('trace6', outcome.trace6);
-        this.model.pendingWarning = this.fmt(outcome.textKey ?? 'pending_confirm.retry_later', vars);
+        // FU-HM-0722（APP-13a 共性 41）：先格式化，再用统一错误格式化函数独立附加 trace6。
+        this.model.pendingWarning = BindOutcome.pendingText(this.fmt(outcome.textKey ?? 'pending_confirm.retry_later', vars),
+          outcome);
         CouliAnnounce.say(this.getUIContext(), this.model.pendingWarning);
         if (outcome.route !== null) {
           this.config.onNavigate(outcome.route);
@@ -692,31 +738,117 @@ export struct BindPhoneView {
       }
       default:
         this.refreshPending();
-        this.toast(outcome.textKey, outcome.trace6);
+        if (outcome.ended) {
+          this.pendingEnded(outcome);
+          return;
+        }
+        this.pendingToast(outcome);
+    }
+  }
+
+  /**
+   * 待确认的键因终结业务错误结束（R1-01，共性 47；本页发起与别处结算同一口径，与换号页第 2 步一致）：卡片已消失、表单恢复可用；按结局的
+   * 保留策略处理手机号 / 验证码；原结果错误显示在字段旁或页内提示（trace6 独立附加），30414 给【联系客服】，completed 另给已处理完轻提示。
+   */
+  private pendingEnded(outcome: BindOutcome): void {
+    if (!outcome.keepsPhone) {
+      this.model.phoneText = '';
+    }
+    if (outcome.clearsCode) {
+      this.model.codeText = '';
+      if (this.form !== null) {
+        this.form.codeReset();
+      }
+    }
+    const vars: Map<string, string> = new Map<string, string>();
+    vars.set('trace6', outcome.trace6);
+    vars.set('provider_name', this.config.providerName);
+    const text: string = outcome.rawText.length > 0 ? outcome.rawText
+      : BindOutcome.pendingText(this.fmt(outcome.textKey ?? BindPhoneKeys.GENERIC, vars), outcome);
+    if (outcome.fieldError === 'phone') {
+      this.fieldError(true, text);
+    } else if (outcome.fieldError === 'code') {
+      this.fieldError(false, text);
+    } else {
+      this.model.endedText = text;
+      CouliAnnounce.say(this.getUIContext(), text);
+    }
+    this.model.endedCs = outcome.customerService;
+    if (outcome.noticeKey !== null) {
+      CouliToast.show(this.getUIContext(), this.t(outcome.noticeKey));
+    }
+  }
+
+  /** 待确认结局的轻提示（3xxxx 等）：同 toast，另经统一错误格式化函数独立附加 trace6（FU-HM-0722，共性 41）。 */
+  private pendingToast(outcome: BindOutcome): void {
+    const vars: Map<string, string> = new Map<string, string>();
+    vars.set('trace6', outcome.trace6);
+    vars.set('provider_name', this.config.providerName);
+    const text: string = BindOutcome.pendingText(this.fmt(outcome.textKey ?? BindPhoneKeys.GENERIC, vars), outcome);
+    if (text.length > 0) {
+      CouliToast.show(this.getUIContext(), text);
     }
   }
 
   @Builder
   pendingCard() {
     ForEach(this.pendingBindings(), (b: PendingBinding) => {
-      PendingConfirmCard({
-        title: this.t('pending_confirm.title'),
-        desc: this.pendingDesc(this.model.pending as AccountPendingView),
-        rows: this.pendingRows(this.model.pending as AccountPendingView),
-        abandonLabel: this.t('pending_confirm.abandon'),
-        confirmLabel: this.t('pending_confirm.phone_change.action'),
-        busy: this.model.pendingBusy,
-        busyText: this.t('error.40901'),
-        warning: this.model.pendingWarning,
-        hint: this.t('bind_phone.pending_hint'),
-        disabled: (this.model.pending as AccountPendingView).inFlight || this.model.gateActive,
-        idPrefix: 'bind_phone_pending',
-        onAbandon: () => this.confirmAbandon(b),
-        onConfirm: () => {
-          this.confirmPending(b);
+      Column({ space: CouliSpacing.space2 }) {
+        PendingConfirmCard({
+          title: this.t('pending_confirm.title'),
+          desc: this.pendingDesc(this.model.pending as AccountPendingView),
+          rows: this.pendingRows(this.model.pending as AccountPendingView),
+          abandonLabel: this.t('pending_confirm.abandon'),
+          confirmLabel: this.t('pending_confirm.phone_change.action'),
+          busy: this.model.pendingBusy,
+          busyText: this.t('error.40901'),
+          warning: this.model.pendingWarning,
+          hint: this.t('bind_phone.pending_hint'),
+          disabled: (this.model.pending as AccountPendingView).inFlight || this.model.gateActive,
+          idPrefix: 'bind_phone_pending',
+          onAbandon: () => this.confirmAbandon(b),
+          onConfirm: () => {
+            this.confirmPending(b);
+          }
+        })
+        if (this.model.guideText.length > 0) {
+          CouliButton({
+            text: this.model.guideText,
+            variant: CouliButtonVariant.TEXT,
+            buttonId: 'bind_phone_pending_guide',
+            onTap: () => {
+              this.openGuide(b);
+            }
+          })
         }
-      })
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
     }, (b: PendingBinding) => 'bind_pending_' + b.key + '_' + b.version)
+  }
+
+  /** 待确认结束后的原结果提示与 30414【联系客服】（R1-01）。 */
+  @Builder
+  endedNotice() {
+    Column({ space: CouliSpacing.space2 }) {
+      Text(this.model.endedText)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText))
+        .id('bind_phone_ended')
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+      if (this.model.endedCs) {
+        CouliButton({
+          text: this.t('deletion.contact_cs'),
+          variant: CouliButtonVariant.SECONDARY,
+          buttonId: 'bind_phone_ended_cs',
+          onTap: () => {
+            this.config.onCustomerService();
+          }
+        })
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
   }
 
   // ---------------------------------------------------------------- 界面
@@ -937,6 +1069,8 @@ export struct BindPhoneView {
         Column({ space: CouliSpacing.space3 }) {
           if (this.model.pending !== null) {
             this.pendingCard()
+          } else if (this.model.endedText.length > 0) {
+            this.endedNotice()
           }
           this.note()
           ForEach(this.formBindings(), (b: BindPhoneFormBinding) => {

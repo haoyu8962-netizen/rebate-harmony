@@ -6,6 +6,7 @@
 // - 进入时本账号 bindPhone 有结果未知的未决记录（首次绑定留下的也算，G07）：直接显示待确认，跳过第 1 步。
 // - 成功：结果页显示本次实际发出请求的固定脱敏摘要（harmony-review-r2 R2-03）；立即刷新 GET /v1/me、丢弃全部 action 的 token；不清会话、不强制重新登录（G04）。
 // - 身份固定（S0）：构造时一次性取得身份；输入、发码、验证、生成键、读凭据、发包只用这份身份，对当前会话只比较。
+import { PhoneNumber } from '../../login/LoginFlow';
 import { ApiRequest, ApiResult } from '../../network/ApiClient';
 import { RetryAfterGate } from '../../network/RetryAfterGate';
 import { StepUpController, StepUpSnapshot } from '../../stepup/StepUpController';
@@ -129,6 +130,11 @@ export class PhoneChangeController implements AccountSessionAware {
    * 发码结果许可。发码回调捕获世代与号码；迟到的结果只结算共享倒计时 / 限流，不把错误、提示、已发码写进换代后的表单。
    */
   private step2Gen: number = 0;
+  /**
+   * 第 2 步新号输入的修订号（FU-HM-0722，F-X-13 / APP-05b 共性 34）：新号内容每变一次加 1（清空再粘回、改成等价写法都算）。发码回调捕获它；
+   * 对不上时旧结果的提示 / 字段错误 / 已发码标记丢弃，但共享倒计时 / 限流照常按当前规范化号码重算并启动计时器。
+   */
+  private phoneRev: number = 0;
   /**
    * R1-06：页面不可见或导航世代已变时到达的 44001：只存结局（登记时的页面实例、会话世代与归属键），回到有效页面再弹；
    * 出栈、会话变化时作废（同 APP-09 R3-04 的延后浮层）。
@@ -287,6 +293,9 @@ export class PhoneChangeController implements AccountSessionAware {
     if (!this.alive || renderVersion !== s.version || s.step !== PhoneChangeStep.STEP2 || s.submitting) {
       return false;
     }
+    if (text !== s.newPhone) {
+      this.phoneRev++;
+    }
     s.newPhone = text;
     s.phoneError = null;
     this.refreshCountdown();
@@ -307,8 +316,26 @@ export class PhoneChangeController implements AccountSessionAware {
     return true;
   }
 
+  /**
+   * bind 发码的倒计时 / 限流键（FU-HM-0722，APP-13a 共性 30，Android R1-13）：账号 + 规范化新号（国家码、空格、连字符、全角统一，
+   * PhoneNumber.normalize）+ bind。规范化不了的输入按去首尾空白的原文。请求体仍按原始输入提交（G33）。
+   */
+  static bindKeyPhone(raw: string): string {
+    const trimmed: string = raw.trim();
+    return PhoneNumber.normalize(trimmed).normalized ?? trimmed;
+  }
+
+  /**
+   * 归属于提交时那个新号 / 验证码的字段反馈（FU-HM-0722 R1-05，F-X-15 的过滤范围）：20001 号码错误、20002 / 20003 验证码、304xx 号码已被
+   * 占用等、44001 风控弹窗，以及策略标了字段错误的结局。5xxxx、42901 限流、10xxx 补办等不属于字段反馈，held 重发时照常显示。
+   */
+  static fieldFeedback(o: AccountOutcome, code: number): boolean {
+    return o.fieldError !== 'none' || o.nextState === PhoneChangeOutcomePolicy.BLOCKED || code === 20001 || code === 20002
+      || code === 20003 || code === 44001 || (code >= 30000 && code <= 39999);
+  }
+
   private bindKey(): string {
-    return KeyedDeadlines.key(this.identity.account ?? '', this.state.newPhone.trim(), 'bind');
+    return KeyedDeadlines.key(this.identity.account ?? '', PhoneChangeController.bindKeyPhone(this.state.newPhone), 'bind');
   }
 
   get canSendBind(): boolean {
@@ -328,6 +355,7 @@ export class PhoneChangeController implements AccountSessionAware {
     const identity: AccountIdentity = this.identity;
     const phone: string = s.newPhone.trim();
     const gen: number = this.step2Gen;
+    const rev: number = this.phoneRev;
     const key: string = this.bindKey();
     const deadlines: KeyedDeadlines = this.d.session.bindSms;
     const ticket: number = deadlines.begin(key, this.d.clock());
@@ -369,8 +397,9 @@ export class PhoneChangeController implements AccountSessionAware {
       if (!this.alive || s !== this.state) {
         return;
       }
-      if (gen !== this.step2Gen || phone !== s.newPhone.trim()) {
+      if (gen !== this.step2Gen || rev !== this.phoneRev || phone !== s.newPhone.trim()) {
         // F-HM-32：表单已换代（返回过第 1 步）或号码已改：只按共享截止时间刷新当前表单的倒计时 / 限流，不写错误与提示。
+        // FU-HM-0722（共性 34）：在途时改过号码（含清空再粘回、等价写法）同样只刷新计时器——按当前规范化号码的共享截止时间重算并启动。
         if (s.step === PhoneChangeStep.STEP2) {
           this.refreshCountdown();
           this.emit();
@@ -614,6 +643,12 @@ export class PhoneChangeController implements AccountSessionAware {
     if (step.toast !== null) {
       s.notice = step.toast;
     }
+    // FU-HM-0722（F-X-15）：held 原键原体重发的是旧号码、用户之后改了新号：号码类反馈（20001 字段错误、30411 / 30414 横幅、44001 弹窗）
+    // 与验证码错误都属于原提交，不落到当前输入上，也不按结局清空当前输入（键已结束，下一次提交按当前输入用新键）。
+    // FU-HM-0722 R1-05（APP-05b 共性 36）：只过滤号码类 / 验证码类字段反馈；5xxxx、限流等非字段结局（横幅、trace6）照常显示。
+    const foreign: boolean = step.phase === AccountPhase.SUBMIT && step.sentPhone !== null
+      && PhoneChangeController.fieldFeedback(o, step.result.code)
+      && PhoneChangeController.bindKeyPhone(step.sentPhone) !== PhoneChangeController.bindKeyPhone(s.newPhone);
     switch (o.nextState) {
       case PhoneChangeOutcomePolicy.DONE: {
         // R2-03：结果页只用这次实际发出的请求的固定脱敏摘要（提交 / held 重提 / 10003 重放取提交开始时固定的那份，确认 / 放弃取
@@ -641,6 +676,9 @@ export class PhoneChangeController implements AccountSessionAware {
         break;
       case PhoneChangeOutcomePolicy.BLOCKED: {
         s.step = PhoneChangeStep.STEP2;
+        if (foreign) {
+          break;
+        }
         s.code = '';
         this.blockedSeq++;
         const title: string = AccountMessages.of(o.dialogTitleKey ?? 'error.44001').text;
@@ -673,6 +711,9 @@ export class PhoneChangeController implements AccountSessionAware {
         if (s.step === PhoneChangeStep.PENDING) {
           // 待确认的键因 3xxxx 结束：回第 2 步（新号来自本机摘要以外的输入，不预填原文）。
           s.step = PhoneChangeStep.STEP2;
+        }
+        if (foreign) {
+          break;
         }
         if (!o.keepsNewPhone) {
           s.newPhone = '';
@@ -849,6 +890,36 @@ export class PhoneChangeController implements AccountSessionAware {
       }
       this.step1Ctl?.close();
       this.step1Ctl = null;
+      return true;
+    }
+    const o: AccountOutcome | null = settled.outcome;
+    if (o !== null && o.keyEnds && settled.nextState === PhoneChangeOutcomePolicy.STEP2) {
+      // FU-HM-0722（共性 44、47，Android RC-01）：别处确认 30411 / 30414、放弃 completed 原 3xxxx 等终结业务错误：恢复第 2 步与提交入口，
+      // 错误提示（字段 / 横幅、trace6、30414【联系客服】、已处理完轻提示）按结局；新号、验证码、token 按结局的保留策略（本实例从未填过的
+      // 字段本来就是空，G03）。不回第 1 步、不重新验证。
+      s.step = PhoneChangeStep.STEP2;
+      if (!o.keepsNewPhone) {
+        s.newPhone = '';
+      }
+      if (o.clearsCode) {
+        s.code = '';
+      }
+      if (!o.keepsToken) {
+        this.d.session.tokens.on10003('phone_change');
+      }
+      s.showCustomerService = o.showCustomerService;
+      const message: AccountMessage | null = settled.message();
+      if (o.fieldError === 'phone') {
+        s.phoneError = message;
+      } else if (o.fieldError === 'code') {
+        s.codeError = message;
+      } else {
+        s.banner = message;
+      }
+      if (o.toastKey !== null) {
+        s.notice = AccountMessages.polite(o.toastKey);
+      }
+      this.refreshCountdown();
       return true;
     }
     return false;

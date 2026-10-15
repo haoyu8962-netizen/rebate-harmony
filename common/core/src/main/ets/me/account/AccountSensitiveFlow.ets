@@ -51,6 +51,11 @@ export class AccountStep {
    * 记录摘要；取不到为 null。结果页只用它，不从可编辑表单推断成功号码。
    */
   readonly sentSummary: string | null;
+  /**
+   * 换号提交实际发出的新号原文（FU-HM-0722，F-X-15）：复用 held 原键原体时是原请求体里的号码；确认 / 放弃与注销为 null。
+   * 页面按它核对号码类反馈是否仍属于当前输入。
+   */
+  sentPhone: string | null = null;
 
   constructor(outcome: AccountOutcome, phase: string, result: ApiResult, key: string | null,
     message: AccountMessage | null, toast: AccountMessage | null, sentSummary: string | null = null) {
@@ -195,8 +200,24 @@ export class AccountSensitiveFlow {
       if (fixed.key === null) {
         fixed.key = key;
       }
-      return this.judge(phase, false, result, key, source, click, fixed.summary);
+      const step: AccountStep = this.judge(phase, false, result, key, source, click, fixed.summary);
+      step.sentPhone = AccountSensitiveFlow.phoneOf(fixed.body);
+      return step;
     });
+  }
+
+  /** 请求体里的 phone（换号；读不出或没有为 null）。 */
+  private static phoneOf(body: string): string | null {
+    if (body.length === 0) {
+      return null;
+    }
+    try {
+      const parsed: Record<string, Object> = JSON.parse(body) as Record<string, Object>;
+      const phone: Object | undefined = parsed['phone'];
+      return typeof phone === 'string' ? phone as string : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   /** 点击时这个键的未决记录摘要（确认 / 放弃的结果页用，R2-03）。 */
@@ -272,12 +293,15 @@ export class AccountSensitiveFlow {
     if (succeeded) {
       if (this.kind === AccountSensitiveFlow.PHONE) {
         // G04 / R1-04：bindPhone 成功的共享结算（与 BindPhone 页同一处）：核对原身份后丢弃全部 action 的 step_up_token。
-        AccountSettle.bindPhoneSucceeded(this.d.session.tokens, click.valid(this.d));
+        // FU-HM-0722（共性 48）：已写出的请求按「同账号 + 同登录会话」结算，作用域在途中换代也照常作废 token。
+        AccountSettle.bindPhoneSucceeded(this.d.session.tokens, click.identity.writeAlive(this.d));
       } else {
         this.d.session.tokens.onSuccess(this.stepUpAction);
       }
     }
-    if (outcome.disableMs > 0 && !outcome.blockedLocally) {
+    // FU-HM-0722 R3-02：限流写入前复核发起时的完整身份（账号 + 登录世代 + 作用域 + AccountSession 世代）。作用域换代后 gate 已 reset，
+    // start 会按当前作用域记归属，迟到的旧作用域 42901 不能写进去；网络结算与成功分支的 writeAlive 结算不受影响。
+    if (outcome.disableMs > 0 && !outcome.blockedLocally && click.valid(this.d)) {
       this.gate.start(outcome.disableMs);
     }
     if (outcome.nextState === DeletionOutcomePolicy.FORCE_UPDATE && AccountSettle.forcesUpdate(result)) {
@@ -288,8 +312,10 @@ export class AccountSensitiveFlow {
       this.replayedKey = null;
     }
     // R3-02：键终结时把终结结果随通知带给其他发起页（abandoned / 20903 回第 1 步，已完成进结果页）。
+    // FU-HM-0722（共性 47）：带上完整结局与 trace_id / 服务端 msg，终结业务错误（落第 2 步）在别的实例上同样恢复第 2 步与错误提示。
     this.d.session.notifyPending(this.operationId, this, outcome.keyEnds && key !== null
-      ? new PendingSettlement(key, click.identity.account, outcome.nextState, outcome.textKey, sentSummary) : null);
+      ? new PendingSettlement(key, click.identity.account, outcome.nextState, outcome.textKey, sentSummary, outcome,
+        result.traceId, result.msg) : null);
     return new AccountStep(outcome, phase, result, key, this.message(outcome, phase, result),
       outcome.toastKey === null ? null : AccountMessages.polite(outcome.toastKey), sentSummary);
   }

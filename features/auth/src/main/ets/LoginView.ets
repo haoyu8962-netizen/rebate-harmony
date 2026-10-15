@@ -444,6 +444,10 @@ export struct LoginView {
         this.toast(outcome.textKey, outcome.trace6);
         return;
       case LoginOutcome.STALE:
+        // FU-HM-0722（F-X-13 / APP-05b 共性 34）：在途时改过号码的旧结果不提示、不改字段，但服务里可能已按规范化号码记下截止时间
+        // （传输取消前已到达的成功 / 42901）：按当前号码重算倒计时 / 限流并在需要时启动计时器，到期自动恢复。
+        this.refreshTimers();
+        return;
       case LoginOutcome.BUSY:
         return;
       default:
