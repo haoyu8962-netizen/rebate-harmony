@@ -12,7 +12,8 @@ import { StepUpPanelFit } from 'designsystem';
 import { RouteSpec } from 'generated';
 import { Deferred, envelope, header } from './NetworkTestRig';
 import {
-  AccountFixture, cooling, fillStep2, FakePush, NEW_PHONE, openDeletion, PHONE, RestrictedPushState, settle, stateOf, toStep2
+  AccountFixture, applyWithStepUp, cooling, fillStep2, FakePush, NEW_PHONE, openDeletion, PHONE, RestrictedPushState, settle,
+  stateOf, toStep2
 } from './AccountIntegration.test';
 
 export default function accountFlowsTest() {
@@ -288,18 +289,9 @@ export default function accountFlowsTest() {
       c.exitToForceUpdate = (): void => {
         exitForce++;
       };
-      const panel = await (async (): Promise<StepUpController | null> => {
-        c.setChecked(c.snapshot.version, true);
-        c.apply(c.snapshot.version);
-        await settle();
-        const s: StepUpController | null = c.createStepUp();
-        s?.send();
-        await settle();
-        s?.setCode('123456');
-        s?.verify();
-        await settle();
-        return s;
-      })();
+      // FU-HM-0721（对照 Android FU-AND-0716 R2-01）：原来是固定 settle 轮次后 s?. 静默跳过面板的内联写法，改用等面板出现或明确终态的
+      // applyWithStepUp。
+      const panel: StepUpController | null = await applyWithStepUp(c);
       expect(panel !== null).assertTrue();
       expect(stateOf(c)).assertEqual(DeletionPresentation.COOLING);
       expect(exitForce).assertEqual(1);

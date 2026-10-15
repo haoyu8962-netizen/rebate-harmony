@@ -1,5 +1,6 @@
 import {
-  AgreementState, AuthFeedback, CodeInput, InviteDecision, InviteField, LoginOutcome, LoginRateLimits, LoginService, OAuthLoginErrorAction,
+  AgreementState, AuthFeedback, CodeInput, CodeRevision, CodeStamp, InviteDecision, InviteField, LoginOutcome, LoginPageEntries, LoginRateLimits, LoginService,
+  OAuthLoginErrorAction,
   OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, PhoneResult, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
@@ -88,7 +89,10 @@ export class LoginInvitePasteUi {
 export class LoginPageConfig {
   readonly service: LoginService;
   readonly texts: LoginTexts;
-  /** 从强更页进入的受限登录（APP-02c 内部来源标记）：不显示设置、登录遇到问题、邀请码与第三方登录。 */
+  /**
+   * 从强更页进入的受限登录（APP-02c 内部来源标记）：不显示设置、登录遇到问题、邀请码；第三方登录仍按适配器可用性显示
+   * （FU-HM-0721，APP-05b 共性 28：仅第三方身份的已有账号要能登录取得 deletion_only 去注销），见 Core LoginPageEntries。
+   */
   restricted: boolean = false;
   /** 刷新失败清会话后进入（LoginSessionExpired）：进入时提示 error.10404。 */
   sessionExpired: boolean = false;
@@ -209,6 +213,8 @@ export struct LoginView {
   private limits: LoginRateLimits = new LoginRateLimits();
   /** 第三方登录收到 42901 的禁用截止时刻（只禁第三方按钮，与短信发码 / 登录分开）。 */
   private oauthUntil: number = 0;
+  /** 验证码修订号（FU-HM-0721，APP-05b 共性 29）：提交时捕获，迟到的 20002 / 20003 只落到仍是提交时那串码的输入框上。 */
+  private readonly codeRev: CodeRevision = new CodeRevision();
   private timer: number = -1;
 
   aboutToAppear(): void {
@@ -463,6 +469,7 @@ export struct LoginView {
 
   private async login(): Promise<void> {
     this.model.submitting = true;
+    const stamp: CodeStamp = this.codeRev.capture(this.model.codeText);
     let outcome: LoginOutcome;
     try {
       outcome = await this.config.service.login(this.model.phoneText, this.model.codeText,
@@ -481,11 +488,19 @@ export struct LoginView {
       case LoginOutcome.CODE_INCOMPLETE:
         return;
       case 'code_error':
+        if (!this.codeRev.current(stamp, this.model.codeText)) {
+          // 共性 29：提交期间改了验证码，旧码的错误不显示在新码上。
+          return;
+        }
         this.model.codeError = this.t(outcome.textKey ?? 'error.20002');
         return;
       case 'code_expired':
+        if (!this.codeRev.current(stamp, this.model.codeText)) {
+          // 共性 29：旧码过期不清空用户新输入的码。
+          return;
+        }
         this.model.codeError = this.t(outcome.textKey ?? 'error.20003');
-        this.model.codeText = '';
+        this.model.codeText = this.codeRev.change(this.model.codeText, '');
         return;
       case 'rate_limited':
         this.disableLogin(outcome);
@@ -556,9 +571,13 @@ export struct LoginView {
 
   // ---------------------------------------------------------------- 第三方登录（APP-05b）
 
+  /** 入口显示（FU-HM-0721，共性 28：受限只隐藏业务入口，第三方按适配器可用性）。 */
+  private entries(): LoginPageEntries {
+    return LoginPageEntries.of(this.config.oauth, this.config.restricted, this.config.showThirdPartySlot);
+  }
+
   private providers(): string[] {
-    const oauth: OAuthLoginService | null = this.config.oauth;
-    return oauth === null || this.config.restricted ? [] : oauth.visibleProviders();
+    return this.entries().providers;
   }
 
   private oauthBlocked(): boolean {
@@ -587,7 +606,7 @@ export struct LoginView {
     this.model.oauthBusy = true;
     let outcome: OAuthLoginOutcome;
     try {
-      outcome = await oauth.loginWith(provider, this.agreement.consentAtMillis);
+      outcome = await oauth.loginWith(provider, this.agreement.consentAtMillis, this.config.restricted);
     } finally {
       this.model.oauthBusy = false;
     }
@@ -681,7 +700,7 @@ export struct LoginView {
         }
       })
       Blank()
-      if (!this.config.restricted) {
+      if (this.entries().settings) {
         Text(this.t(LoginKeys.SETTINGS))
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis, CouliFontWeight.medium))
           .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
@@ -960,7 +979,7 @@ export struct LoginView {
         .justifyContent(FlexAlign.Center)
         .width('100%')
       }
-      if (this.config.showThirdPartySlot) {
+      if (this.entries().huaweiPlaceholder) {
         CouliButton({ text: this.t(LoginKeys.HUAWEI), variant: CouliButtonVariant.SECONDARY, fullWidth: true, disabled: false })
       }
     }
@@ -969,7 +988,7 @@ export struct LoginView {
 
   @Builder
   helpEntry() {
-    if (!this.config.restricted) {
+    if (this.entries().help) {
       Text(this.t(LoginKeys.HELP))
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis, CouliFontWeight.medium))
         .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
@@ -1035,7 +1054,7 @@ export struct LoginView {
             }
           })
       }
-      if (!this.config.restricted) {
+      if (this.entries().invite) {
         if (this.model.inviteOpen) {
           this.inviteField()
         } else {
@@ -1053,7 +1072,7 @@ export struct LoginView {
         }
       }
       Blank().layoutWeight(1)
-      if (!this.config.restricted && (this.config.showThirdPartySlot || this.providers().length > 0)) {
+      if (this.entries().thirdPartySlot) {
         this.thirdPartySlot()
       }
       this.helpEntry()
@@ -1109,7 +1128,7 @@ export struct LoginView {
         .defaultFocus(true)
         .onChange((value: string) => {
           const clean: string = CodeInput.sanitize(value);
-          this.model.codeText = clean;
+          this.model.codeText = this.codeRev.change(this.model.codeText, clean);
           this.model.codeError = '';
         })
     }
@@ -1161,7 +1180,7 @@ export struct LoginView {
         }
       }
       .width('100%')
-      if (!this.config.restricted) {
+      if (this.entries().invite) {
         this.inviteField()
       }
       this.agreementRow()

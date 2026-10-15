@@ -668,6 +668,10 @@ export struct BindPhoneView {
       case BindOutcome.ABANDONED:
         this.refreshPending();
         this.model.codeText = '';
+        // FU-HM-0721（共性 29）：不经 setCode 的清码也推进验证码修订号。
+        if (this.form !== null) {
+          this.form.codeReset();
+        }
         CouliToast.show(this.getUIContext(), this.t(outcome.textKey ?? 'pending_confirm.abandoned'));
         CouliAnnounce.say(this.getUIContext(), this.t(outcome.textKey ?? 'pending_confirm.abandoned'));
         return;

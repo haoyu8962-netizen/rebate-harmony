@@ -1,6 +1,6 @@
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult, ClientScope } from '../network/ApiClient';
 import { ErrorEffect } from '../network/ErrorActionMapper';
-import { LocalRejectReason } from '../network/NetworkPolicy';
+import { LocalRejectReason, SessionScope } from '../network/NetworkPolicy';
 import { LegalVersions, PhoneNumber, PhoneResult } from './LoginFlow';
 import { AttemptTicket, LoginOutcome, LoginService } from './LoginService';
 import {
@@ -194,6 +194,38 @@ export class OAuthLoginOutcome {
 }
 
 /**
+ * 登录页入口的显示（FU-HM-0721，APP-05b 共性 28，iOS R2-01；LoginView 按它渲染）。从强更页进入的受限登录（restricted）只隐藏
+ * 业务入口：设置、登录遇到问题、邀请码；第三方登录不因受限隐藏，仍按适配器可用性显示（visibleProviders）——仅第三方身份、未绑手机的
+ * 已有账号要能登录原账号取得 deletion_only 去注销（BR-ID-01）。协议校验与 deletion_only 分流照旧（执行器负责）。
+ * 华为账号登录占位（Debug 版式比对用、点了不做事）不是可用的登录方式，受限时不显示。
+ */
+export class LoginPageEntries {
+  readonly providers: string[];
+  readonly settings: boolean;
+  readonly help: boolean;
+  readonly invite: boolean;
+  readonly huaweiPlaceholder: boolean;
+
+  constructor(providers: string[], settings: boolean, help: boolean, invite: boolean, huaweiPlaceholder: boolean) {
+    this.providers = providers;
+    this.settings = settings;
+    this.help = help;
+    this.invite = invite;
+    this.huaweiPlaceholder = huaweiPlaceholder;
+  }
+
+  /** 「其他登录方式」区是否出现（有可用的第三方按钮或占位）。 */
+  get thirdPartySlot(): boolean {
+    return this.providers.length > 0 || this.huaweiPlaceholder;
+  }
+
+  static of(oauth: OAuthLoginService | null, restricted: boolean, placeholder: boolean): LoginPageEntries {
+    const providers: string[] = oauth === null ? [] : oauth.visibleProviders();
+    return new LoginPageEntries(providers, !restricted, !restricted, !restricted, placeholder && !restricted);
+  }
+}
+
+/**
  * 第三方登录的执行器（APP-05b；BR-ID-04 细则；03 §4.2、§4.4）：
  * createOauthAttempt → 拉起第三方（nonce 作 state）→ 拿到授权凭证 → loginByWechat / loginByApple；只上送 attempt_id 与授权
  * 凭证（加协议版本与同意时刻），不在客户端换 token。
@@ -283,8 +315,12 @@ export class OAuthLoginService {
     }
   }
 
-  /** consentAtMillis：勾选或确认框同意的时刻（同短信登录，BR-ID-04）。 */
-  async loginWith(provider: string, consentAtMillis: number | null): Promise<OAuthLoginOutcome> {
+  /**
+   * consentAtMillis：勾选或确认框同意的时刻（同短信登录，BR-ID-04）。restricted：从强更页进入的受限登录（FU-HM-0721，共性 28）——
+   * 第三方请求体本来就不带邀请码；登录后按 APP-05a 计划分流（见 run 里的 usesLoginPlan）。
+   */
+  async loginWith(provider: string, consentAtMillis: number | null,
+    restricted: boolean = false): Promise<OAuthLoginOutcome> {
     const adapter: ThirdPartyAuthAdapter | undefined = this.adapters.get(provider);
     const operationId: string | null = OAuthProvider.loginOperation(provider);
     if (adapter === undefined || operationId === null || !OAuthLoginService.safeAvailable(adapter)) {
@@ -299,7 +335,7 @@ export class OAuthLoginService {
     this.running = true;
     const ticket: AttemptTicket = this.login.attemptTicket();
     try {
-      return await this.run(provider, operationId, adapter, consentAtMillis, ticket);
+      return await this.run(provider, operationId, adapter, consentAtMillis, ticket, restricted);
     } finally {
       this.running = false;
       this.login.releaseTicket(ticket);
@@ -307,7 +343,7 @@ export class OAuthLoginService {
   }
 
   private async run(provider: string, operationId: string, adapter: ThirdPartyAuthAdapter, consentAtMillis: number,
-    ticket: AttemptTicket): Promise<OAuthLoginOutcome> {
+    ticket: AttemptTicket, restricted: boolean): Promise<OAuthLoginOutcome> {
     // R1-01（APP-05b 共性 1）：开始时固定会话、登录、隐私、环境归属；每次异步返回后、提交凭证前复核，变了就终止整个尝试，
     // 后续请求不在新上下文里重新绑定（等待授权期间保存了另一账号的会话 → 不提交、不覆盖）。
     const scope: ClientScope = this.client.captureScope();
@@ -413,6 +449,21 @@ export class OAuthLoginService {
     const route: OAuthRouteResult = OAuthLoginRoute.ofData(result.data);
     const account: string | null = this.client.sessionAccount();
     const isNew: boolean = result.data['is_new_user'] === true;
+    if (this.login.usesLoginPlan(result)) {
+      // FU-HM-0721（APP-05b 共性 28，iOS R2-01）：拿到 deletion_only（如仅第三方身份、注销中的老账号从强更页登录），或 full 但强更低于——
+      // 走 APP-05a 登录后计划（丢弃待办、进强更页 / 受限复查）：不暂缓待办、不弹绑手机引导、不查 getMe。新号先记未绑，老用户按待查
+      // （未知不当已绑；deletion_only 会话下状态同步也不补查，见 verifyPhoneBinding）。
+      if (isNew) {
+        this.phoneBinding.set(account, false);
+      } else {
+        this.phoneBinding.markUnverified(account);
+      }
+      const planned: LoginOutcome = await this.login.finishSessionLogin(result, ticket, false, restricted);
+      if (planned.stateRaw !== LoginOutcome.LOGGED_IN) {
+        return new OAuthLoginOutcome(planned.stateRaw, null, planned.textKey, planned.trace6, 0, planned);
+      }
+      return new OAuthLoginOutcome(OAuthLoginOutcome.LOGGED_IN, OAuthLoginRoute.DONE, null, '', 0, planned);
+    }
     if (isNew) {
       // 第三方新号没有手机号（BR-ID-04：第三方首次登录即注册、不强制绑手机）。
       this.phoneBinding.set(account, false);
@@ -452,6 +503,10 @@ export class OAuthLoginService {
   async verifyPhoneBinding(): Promise<boolean> {
     const account: string | null = this.client.sessionAccount();
     if (account === null || this.phoneBinding.get(account) !== null) {
+      return false;
+    }
+    if (this.client.sessionScope() === SessionScope.DELETION_ONLY) {
+      // FU-HM-0721（共性 28）：受限会话下守卫一律按 RESTRICTED，phone_bound 不参与，不补查 getMe；作用域恢复 full 后的状态同步再查。
       return false;
     }
     const joined: boolean = this.meInFlight !== null;

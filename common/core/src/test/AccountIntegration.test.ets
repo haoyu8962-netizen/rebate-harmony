@@ -15,7 +15,7 @@ import {
 } from '../../Index';
 import { CouliFormat, StepUpPanelFit } from 'designsystem';
 import { RouteSpec } from 'generated';
-import { Deferred, envelope, flush, header, Rig } from './NetworkTestRig';
+import { Deferred, envelope, flush, header, Rig, waitUntil } from './NetworkTestRig';
 import { ParamStack, TAB_ROOTS } from './OrderIntegration.test';
 
 export const NOW: number = Date.parse('2026-10-14T10:00:00+08:00');
@@ -212,18 +212,28 @@ export async function openDeletion(f: AccountFixture, source: string = DeletionS
 }
 
 /** 勾选 → 申请 → 10003 → 面板发码 → 123456 → 验证 → 沿用原键重放。 */
+/**
+ * 申请注销并走完二次验证。FU-HM-0721（对照 Android FU-AND-0716 R2-01）：原来固定 settle 轮次后看面板有没有出来、没出来就静默返回 null，
+ * 响应晚于固定轮次时会跳过面板。改为等到「面板要打开」或本次申请的明确终态（不再提交中且已离开初始态 / 有错误条 / 不支持提示）；
+ * 发码、验证同样等到明确结果。等不到按失败退出（上限只用于失败）。
+ */
 export async function applyWithStepUp(c: DeleteAccountController): Promise<StepUpController | null> {
   c.setChecked(c.snapshot.version, true);
   c.apply(c.snapshot.version);
-  await settle();
+  const decided: boolean = await waitUntil((): boolean => c.snapshot.stepUpAction !== null || (!c.snapshot.submitting
+    && (stateOf(c) !== DeletionPresentation.INITIAL || c.snapshot.banner !== null || c.snapshot.unsupportedShown)));
+  expect(decided).assertTrue();
   const s: StepUpController | null = c.createStepUp();
   if (s === null) {
     return null;
   }
   s.send();
-  await settle();
+  expect(await waitUntil((): boolean => !s.snapshot.sending && (s.snapshot.sent || s.snapshot.error !== null
+    || s.snapshot.sendBlocked || s.snapshot.noPhone || s.snapshot.scopeDenied))).assertTrue();
   s.setCode('123456');
   s.verify();
+  expect(await waitUntil((): boolean => (c.snapshot.stepUpAction === null && !c.snapshot.submitting)
+    || (!s.snapshot.verifying && s.snapshot.error !== null))).assertTrue();
   await settle();
   return s;
 }

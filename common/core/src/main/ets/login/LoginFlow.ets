@@ -223,6 +223,49 @@ export class CodeInput {
   }
 }
 
+/** 提交时捕获的验证码（CodeRevision.capture）。 */
+export class CodeStamp {
+  readonly revision: number;
+  readonly code: string;
+
+  constructor(revision: number, code: string) {
+    this.revision = revision;
+    this.code = code;
+  }
+}
+
+/**
+ * 验证码修订号（FU-HM-0721，APP-05b 共性 29，iOS R2-03 修法）：验证码内容每变一次 +1（输入、清码、重置都算）。提交时 capture，
+ * 回来时 current 核对——修订号没变、输入框仍是提交时那串码，才把 20002（显示错误）/ 20003（显示错误或清码）落到输入框上；同号码提交
+ * 旧码 A、未返回时改成 B，A 迟到的 20002 / 20003 丢弃，不清空 B、不显示在 B 上。号码类错误、并号等不看它（号码变化另有作废）。
+ * 不锁输入。每个页面实例一份（BindPhoneForm、LoginView）。
+ */
+export class CodeRevision {
+  private revision: number = 0;
+
+  /** 验证码内容可能变了：before / after 不同才 +1。返回 after。 */
+  change(before: string, after: string): string {
+    if (before !== after) {
+      this.revision++;
+    }
+    return after;
+  }
+
+  /** 页面直接清空或重置了验证码（不经 change 的写入）：+1。 */
+  bump(): void {
+    this.revision++;
+  }
+
+  capture(code: string): CodeStamp {
+    return new CodeStamp(this.revision, code);
+  }
+
+  /** 提交时的那串码仍是输入框里的当前内容（修订号未变且内容一致）。 */
+  current(stamp: CodeStamp, codeNow: string): boolean {
+    return stamp.revision === this.revision && stamp.code === codeNow;
+  }
+}
+
 /** 登录相关错误码在页面上的状态与文案（经 ErrorActionMapper，不另造码表）。 */
 export class LoginErrorResult {
   /**

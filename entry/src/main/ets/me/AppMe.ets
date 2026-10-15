@@ -7,7 +7,7 @@ import {
   ApiClient, ApiClientMePort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AppealController, AppVersion, CacheClear, CacheFs,
   ClipboardController, ConfigStore, CustomerServiceEntry, CustomerServicePorts, Diagnostics, FileSlot, MeApiPort,
   MeClearMark, MeDeps, MeLevel, MeLocalBackend, MeLocalStore, MeMessage, MePlatform, MeRecord,
-  MeSession, MeTabController, NicknameController, NotifyGuideBar, NotifySettingsController, PermissionStatusRaw,
+  MeSession, MeTabController, MeTabSync, NicknameController, NotifyGuideBar, NotifySettingsController, PermissionStatusRaw,
   PermissionTypeRaw, PrivacyCenterController, PrivacyCenterPorts, PrivacyState, PrivacyWithdrawOutcomes, PushReportState,
   PushSessionTracker,
   PushTokenReporter, PushTokenSource, ResetTipRunner, RiskNoticeController, Route10006, RouteDestination, RoutePolicy,
@@ -187,7 +187,9 @@ export class AppMe {
   private csEntry: CustomerServiceEntry | null = null;
   private tipRunner: ResetTipRunner | null = null;
   private ui: UIContext | null = null;
-  private lastLevel: string = '';
+  /** 状态同步时「我的」Tab 的自动读取（Core MeTabSync：deletion_only 不读 /v1/me，FU-HM-0721 R1-01）。 */
+  private readonly tabSync: MeTabSync = new MeTabSync((): string => AppMe.level(),
+    (): MeTabController | null => this.tabInstance);
   /** 进后台的次数（导航标记的一部分：进后台即作废等待中的导航许可，APP-09 共性第 57 条同类）。 */
   private backgrounds: number = 0;
   private foreground: boolean = true;
@@ -241,7 +243,7 @@ export class AppMe {
     ShellState.onRootShown = (destination: RouteDestination): void => {
       previous(destination);
       if (destination.route === 'Me') {
-        this.tab().load();
+        this.tab().autoLoad();
       }
     };
     const source: PushTokenSource = BuildVariant.pushTokenSource();
@@ -341,12 +343,8 @@ export class AppMe {
   sync(): void {
     const changed: boolean = this.session.sync();
     this.syncPush();
-    const level: string = AppMe.level();
-    if (level !== this.lastLevel || changed) {
-      this.lastLevel = level;
-      if (this.tabInstance !== null) {
-        this.tabInstance.load();
-      }
+    // 已创建的「我的」Tab 按新身份自动读取；受限会话（deletion_only）不读 /v1/me（FU-HM-0721 R1-01），会话清理照常（上面的 session.sync）。
+    if (this.tabSync.sync(changed)) {
       // 可见的「我的」类页面按新身份重画（设置页条目、隐私中心身份档）。
       const v: (() => void) | null = this.visible;
       if (v !== null) {
@@ -367,6 +365,7 @@ export class AppMe {
     d.scope = (): string => AppMe.scopeKey();
     d.account = (): string | null => AppMe.account();
     d.level = (): string => AppMe.level();
+    d.sessionScope = (): string => AppAccount.sessionScope();
     d.contract = BuildVariant.meContract();
     // 10405：服务端已判定强更（进强更闸门本身并持久化；没有检查结果时立即补查）。
     d.forceUpdate = (): void => AppUpdate.shared.onServerForced();
@@ -826,14 +825,14 @@ export class AppMe {
       v();
     } else if (ShellState.shared.selected === ShellState.indexOf('Me')
       && AppRouting.shared.navigator.pathNames().length === 0) {
-      this.tab().load();
+      this.tab().autoLoad();
     }
   }
 
   /** 导航栈显示变化：回到导航根且「我的」Tab 选中（从子页返回）时取一次 /v1/me（G36）。 */
   navigationShown(names: string[]): void {
     if (names.length === 0 && ShellState.shared.selected === ShellState.indexOf('Me') && this.tabInstance !== null) {
-      this.tabInstance.load();
+      this.tabInstance.autoLoad();
     }
   }
 

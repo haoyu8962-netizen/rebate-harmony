@@ -1,6 +1,6 @@
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { ErrorEffect } from '../network/ErrorActionMapper';
-import { LocalRejectReason } from '../network/NetworkPolicy';
+import { LocalRejectReason, SessionScope } from '../network/NetworkPolicy';
 import { TransportFailure } from '../network/HttpTransport';
 import { SessionTokens } from '../session/SessionTokens';
 import {
@@ -426,8 +426,26 @@ export class LoginService {
    * holdPending：第三方新号要先弹绑手机引导（BR-INV-03 细则 ①「用户点【暂不】或完成绑定后继续执行 pending_action」）——
    * 这次不恢复待办，由引导结束时调 resumeHeldPending。
    */
-  finishSessionLogin(result: ApiResult, ticket: AttemptTicket, holdPending: boolean): Promise<LoginOutcome> {
-    return this.loggedIn(result, ticket.issued, false, holdPending);
+  finishSessionLogin(result: ApiResult, ticket: AttemptTicket, holdPending: boolean,
+    restricted: boolean = false): Promise<LoginOutcome> {
+    return this.loggedIn(result, ticket.issued, restricted, holdPending);
+  }
+
+  /**
+   * 第三方登录成功后是否直接走 APP-05a 登录后计划（FU-HM-0721，APP-05b 共性 28，iOS R2-01 修法）：拿到 deletion_only，或 full 但
+   * 登录后计划要进强更页（强更低于）——此时不暂缓待办、不弹绑手机引导、不查 getMe，按计划丢弃待办 / 进强更页（受限会话与强更「不低于」
+   * 并存时由计划做受限会话复查）。只判定、不执行。
+   */
+  usesLoginPlan(result: ApiResult): boolean {
+    const tokens: Object | undefined = result.data['tokens'];
+    const scope: Object | undefined = tokens !== undefined && tokens !== null && typeof tokens === 'object' ?
+      (tokens as Record<string, Object>)['session_scope'] : undefined;
+    if (scope === SessionScope.DELETION_ONLY) {
+      return true;
+    }
+    const actions: string[] = AfterLogin.plan(LoginService.projection(typeof scope === 'string' ? scope as string :
+      SessionScope.FULL, result.data['is_new_user'] === true), this.planState());
+    return actions.indexOf(AfterLoginAction.ENTER_FORCE_UPDATE) >= 0;
   }
 
   /** 绑手机引导结束（【暂不】、绑定完成）：把登录时保留的待办交给 Router 守卫恢复（敏感操作由守卫与 BR-ID-10 规则把关）。 */

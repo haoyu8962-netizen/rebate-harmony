@@ -173,6 +173,9 @@ export class OAuthFixture {
   readonly backend: MemoryPendingBackend;
   /** 状态同步前补查 phone_bound（与 AppRouting.syncSession → AppLogin.ensurePhoneBindingKnown 同义，R2-01）。 */
   verifyOnSync: boolean = false;
+  /** 每次状态同步之后调用（与 AppRouting.stateChanged → syncMe → AppMe.sync 同义，FU-HM-0721 R1-01）；缺省什么都不做。 */
+  syncMe: () => void = () => {
+  };
 
   constructor(tokens: MemorySessionTokens | null = null, backend: MemoryPendingBackend | null = null) {
     const port: UpdateNetworkPort = new UpdateNetworkPort((): UpdateState => this.status.result ?? UpdateState.UNKNOWN,
@@ -277,6 +280,7 @@ export class OAuthFixture {
       this.oauth.verifyPhoneBinding();
     }
     this.sync.sync(this.readiness(), this.rig.nowMillis, resumePending);
+    this.syncMe();
   }
 
   openInApp(route: string): GuardDecision {

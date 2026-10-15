@@ -9,6 +9,7 @@
 //   个人数据在撤回同意后仍可达。已发出的写请求只留结算所需的数据。
 // - 页面可见性与导航世代（MePageLife，R1-07、R1-08）：读请求与写请求带发起页面的导航许可，10006 的统一落点据此不覆盖用户后续导航。
 import { ApiRequest, ApiResult } from '../network/ApiClient';
+import { SessionScope } from '../network/NetworkPolicy';
 import { AppealListParse, MeJson, MeRecord } from './MeJson';
 import {
   AppealForm, AppealOutcome, AppealView, MeLevel, NicknameInput, NicknameOutcome, Personalization, PrivacyWithdrawFlow,
@@ -32,6 +33,8 @@ export class MeDeps {
   account: () => string | null = () => null;
   /** 身份档：basic（未同意 / 基本模式）/ guest / member。 */
   level: () => string = () => MeLevel.GUEST;
+  /** 会话作用域（full / deletion_only；读不出按 full）：deletion_only 时「我的」Tab 不自动读 /v1/me（FU-HM-0721 R1-01）。 */
+  sessionScope: () => string = () => SessionScope.FULL;
   /** G01、G02 的待定接口（Release 为 null）。 */
   contract: MeContractPort | null = null;
   /** 10405：服务端已判定强更（进已有强更分流）。 */
@@ -198,6 +201,34 @@ export class MeTabSnapshot {
  * 「我的」Tab 执行器（Tab 根，整个进程一份）：进入 Tab、下拉、回前台、登录成功、从子页返回各取一次 GET /v1/me（G36）；游客与基本模式不请求。
  * 资料加载失败显示错误态与【重试】，不回落到游客态；昵称保存成功后推进读取世代，保存前发出的 getMe 不覆盖新昵称。
  */
+/**
+ * 「我的」Tab 随状态同步的自动读取（AppMe.sync 与登录集成测试共用一份，FU-HM-0721 R1-01）：会话归属（MeSession.sync 的结果）或身份档变了
+ * 才按新身份处理——已创建的 Tab 走 autoLoad（deletion_only 不读 /v1/me）。返回 true 表示可见的「我的」类页面要按新身份重画。
+ */
+export class MeTabSync {
+  private readonly level: () => string;
+  private readonly tab: () => MeTabController | null;
+  private lastLevel: string = '';
+
+  constructor(level: () => string, tab: () => MeTabController | null) {
+    this.level = level;
+    this.tab = tab;
+  }
+
+  sync(sessionChanged: boolean): boolean {
+    const level: string = this.level();
+    if (level === this.lastLevel && !sessionChanged) {
+      return false;
+    }
+    this.lastLevel = level;
+    const t: MeTabController | null = this.tab();
+    if (t !== null) {
+      t.autoLoad();
+    }
+    return true;
+  }
+}
+
 export class MeTabController implements MeSessionAware {
   static readonly OPERATION: string = 'getMe';
   private readonly d: MeDeps;
@@ -281,6 +312,25 @@ export class MeTabController implements MeSessionAware {
   /** 进入 Tab、回前台、登录成功、从子页返回（不受闸门短路：被限流拦下时进入限流错误状态）。 */
   load(): void {
     this.run(true);
+  }
+
+  /**
+   * 自动读取（状态同步时会话 / 身份档变了、进入 Tab、回前台、从子页返回）：受限会话（deletion_only）不读 /v1/me（FU-HM-0721 R1-01）——
+   * 受限登录只为办理注销，登录流程与登录后的自动同步都不查 getMe；会话换代的清理（resetForSession）照常。页面主动读取仍走 load()
+   * （设置页补昵称 / 手机号行；注销页按 APP-13a 自己读 getDeletion，不经这里）。返回是否发起了读取流程。
+   */
+  autoLoad(): boolean {
+    let scope: string;
+    try {
+      scope = this.d.sessionScope();
+    } catch (e) {
+      scope = SessionScope.FULL;
+    }
+    if (scope === SessionScope.DELETION_ONLY) {
+      return false;
+    }
+    this.load();
+    return true;
   }
 
   /** 下拉刷新：42901 禁用中不发（结束刷新态）。 */

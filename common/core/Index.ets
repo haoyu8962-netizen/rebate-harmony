@@ -105,8 +105,8 @@ export {
 export { DeviceRegistry, DeviceIdentityCleaner } from './src/main/ets/device/DeviceRegistry';
 // login（APP-05a）：短信登录纯逻辑（向量 specs/login-vectors.json）与执行器（页面在 features/auth）。
 export {
-  PhoneResult, PhoneNumber, AgreementState, SmsCountdownResult, SmsCountdown, CodeShape, CodeInput, LoginErrorResult,
-  LoginErrorMapper, InviteDecision, InviteField, AfterLoginAction, AfterLoginUpdate, AfterLogin, LegalVersions
+  PhoneResult, PhoneNumber, AgreementState, SmsCountdownResult, SmsCountdown, CodeShape, CodeInput, CodeRevision, CodeStamp,
+  LoginErrorResult, LoginErrorMapper, InviteDecision, InviteField, AfterLoginAction, AfterLoginUpdate, AfterLogin, LegalVersions
 } from './src/main/ets/login/LoginFlow';
 export {
   LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry, LoginSendState,
@@ -119,7 +119,7 @@ export {
 } from './src/main/ets/login/OAuthLoginFlow';
 export {
   ThirdPartyAuthKind, ThirdPartyAuthResult, ThirdPartyAuthAdapter, UnavailableWechatAdapter, PhoneBindingState,
-  OAuthLoginOutcome, OAuthLoginService
+  LoginPageEntries, OAuthLoginOutcome, OAuthLoginService
 } from './src/main/ets/login/OAuthLoginService';
 export {
   BindOutcome, BindPhoneFields, BindPhoneForm, BindPhoneFormBinding, BindPhoneHost, BindPhoneIdentity, BindPhonePagePermit,
@@ -277,7 +277,7 @@ export {
   MePageLife, IdentityBoundPage, IdentityBoundSlot
 } from './src/main/ets/me/MeSession';
 export {
-  MeDeps, MePhase, MeTabSnapshot, MeTabController, NicknameSnapshot, NicknameController, NotifySnapshot,
+  MeDeps, MePhase, MeTabSnapshot, MeTabController, MeTabSync, NicknameSnapshot, NicknameController, NotifySnapshot,
   NotifySettingsController, PrivacyCenterPorts, PrivacyCenterSnapshot, PrivacyCenterController, RiskNoticeSnapshot,
   RiskNoticeController, AppealSnapshot, AppealController, ResetTipRunner, PrivacyWithdrawOutcomes, memberSubPageAllowed
 } from './src/main/ets/me/MeControllers';

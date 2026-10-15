@@ -1,7 +1,7 @@
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { EffectKind, ErrorEffect } from '../network/ErrorActionMapper';
 import { LocalRejectReason } from '../network/NetworkPolicy';
-import { CodeInput, LoginErrorMapper, PhoneNumber, PhoneResult, SmsCountdown, SmsCountdownResult } from './LoginFlow';
+import { CodeInput, CodeRevision, CodeStamp, LoginErrorMapper, PhoneNumber, PhoneResult, SmsCountdown, SmsCountdownResult } from './LoginFlow';
 import { LoginSendState, SendCodeOutcome, SendDeadline, SmsSendDeadlines } from './LoginService';
 import { BindActionResult, BindPhoneAction, MergeDecision, MergeResult } from './OAuthLoginFlow';
 import { PhoneBindingState } from './OAuthLoginService';
@@ -38,6 +38,13 @@ export class BindOutcome {
   readonly maskedPhone: string;
   /** navigate 时要经 Router 打开的路由；其余为 null。 */
   readonly route: string | null;
+  /**
+   * 本次实际发出的请求体里的验证码（FU-HM-0721 R2-01，APP-05b 共性 35）：复用 held 键时是原请求体里的码，不是调用时传入的码；
+   * 没走到发包（本地拦截、忙、码不完整等）为 null。由 BindPhoneService.bind 填写。
+   */
+  sentCode: string | null = null;
+  /** 本次沿用了保留着的（held）原键与原请求体（R1-02）；由 BindPhoneService.bind 填写。 */
+  reusedHeld: boolean = false;
 
   constructor(actionRaw: string, textKey: string | null = null, trace6: string = '', disableMillis: number = 0,
     maskedPhone: string = '', route: string | null = null) {
@@ -49,12 +56,37 @@ export class BindOutcome {
     this.route = route;
   }
 
+  /**
+   * 验证码类字段错误（20002 验证码错误、20003 验证码过期；页面落到验证码输入框，AuthFeedback.CODE_ERROR）。FU-HM-0721（共性 29）：
+   * 这类结果要核对提交时的验证码修订号。
+   */
+  static codeError(o: BindOutcome): boolean {
+    return o.actionRaw === BindPhoneAction.ERROR && (o.textKey === 'error.20002' || o.textKey === 'error.20003');
+  }
+
   /** 网络层 Effect 要求跳页（navigate 且给了路由）时的结果；否则 null（R2-03）。 */
   static navigation(effect: ErrorEffect, trace6: string): BindOutcome | null {
     if (effect.effectKindRaw !== EffectKind.NAVIGATE || effect.route === null) {
       return null;
     }
     return new BindOutcome(BindOutcome.NAVIGATE, effect.textKey, trace6, 0, '', effect.route);
+  }
+}
+
+/** BindPhoneService.bind 内部记录：本次实际发出的验证码与是否复用 held 原请求体（R2-01）。 */
+class BindSent {
+  code: string | null = null;
+  reusedHeld: boolean = false;
+
+  /** 原请求体里的验证码；读不出为 null（调用方按没有可核对的归属处理）。 */
+  static codeOf(body: string): string | null {
+    try {
+      const parsed: Record<string, Object> = JSON.parse(body) as Record<string, Object>;
+      const code: Object | undefined = parsed['code'];
+      return typeof code === 'string' ? code as string : null;
+    } catch (e) {
+      return null;
+    }
   }
 }
 
@@ -156,6 +188,16 @@ export class BindPhoneForm {
    */
   deadlinesChanged: () => void = () => {
   };
+  /**
+   * 验证码修订号（FU-HM-0721，APP-05b 共性 29，iOS R2-03）：setCode 内容变了、页面直接清码（codeReset）都 +1。【绑定】提交时捕获，
+   * 回来的 20002 / 20003 只在修订号未变、输入框仍是提交时那串码时交给页面；同号码改了码，旧请求的验证码错误丢弃（不清空、不显示在新码上）。
+   */
+  private readonly codeRev: CodeRevision = new CodeRevision();
+  /**
+   * 本页最近一次以新请求体实际发出的提交的验证码归属（FU-HM-0721 R2-01，共性 35）。之后服务复用 held 原键与原请求体重发时，
+   * 字段反馈按这次原提交的修订号核对，不按重发时捕获的当前输入。
+   */
+  private sentStamp: CodeStamp | null = null;
 
   constructor(service: BindPhoneService, fields: BindPhoneFields) {
     this.service = service;
@@ -310,9 +352,14 @@ export class BindPhoneForm {
     if (!this.live(b)) {
       return false;
     }
-    b.fields.codeText = CodeInput.sanitize(value);
+    b.fields.codeText = this.codeRev.change(b.fields.codeText, CodeInput.sanitize(value));
     b.fields.codeError = '';
     return true;
+  }
+
+  /** 页面不经 setCode 直接清空 / 重置了验证码（放弃后清表单等）：修订号 +1（共性 29）。 */
+  codeReset(): void {
+    this.codeRev.bump();
   }
 
   /**
@@ -347,8 +394,26 @@ export class BindPhoneForm {
       return Promise.resolve(null);
     }
     const permit: BindPhonePagePermit = new BindPhonePagePermit(this, b.identity, this.visibleSerial);
+    // 共性 29：捕获提交时的验证码修订号。
+    const stamp: CodeStamp = this.codeRev.capture(b.fields.codeText);
     return this.service.bind(b.fields.phoneText, b.fields.codeText, b.identity)
-      .then((o: BindOutcome): BindOutcome | null => this.gated(permit, o));
+      .then((o: BindOutcome): BindOutcome | null => {
+        // R2-01：验证码归属绑定到实际发送的提交。新请求体 → 就是这次捕获的 stamp（记下来，供之后原键重试核对）；
+        // 复用 held 原请求体 → 沿用原提交的 stamp，且它记录的码必须就是实际重发的那串码，否则没有可核对的归属。
+        let owner: CodeStamp | null = stamp;
+        if (o.reusedHeld) {
+          owner = this.sentStamp !== null && this.sentStamp.code === o.sentCode ? this.sentStamp : null;
+        } else if (o.sentCode !== null) {
+          this.sentStamp = stamp;
+        }
+        if (BindOutcome.codeError(o)
+          && (owner === null || !this.codeRev.current(owner, b.fields.codeText)
+            || (o.sentCode !== null && o.sentCode !== b.fields.codeText))) {
+          // 同号码提交期间改了验证码，或重发的是旧码：旧码的 20002 / 20003 不落到当前输入上（共享结算在服务里照常，这类错误本身没有共享结算）。
+          return null;
+        }
+        return this.gated(permit, o);
+      });
   }
 
   /**
@@ -768,6 +833,15 @@ export class BindPhoneService {
    * R1-02：本账号 bindPhone 有保留着的键（held）时沿用原键与原请求体，不生成新键。R1-03：phoneGate 禁用期内不发。
    */
   async bind(rawPhone: string, code: string, identity: BindPhoneIdentity | null = null): Promise<BindOutcome> {
+    const sent: BindSent = new BindSent();
+    const o: BindOutcome = await this.bindOnce(rawPhone, code, identity, sent);
+    o.sentCode = sent.code;
+    o.reusedHeld = sent.reusedHeld;
+    return o;
+  }
+
+  private async bindOnce(rawPhone: string, code: string, identity: BindPhoneIdentity | null,
+    sent: BindSent): Promise<BindOutcome> {
     if (identity !== null && !this.identityValid(identity)) {
       return new BindOutcome(BindOutcome.STALE);
     }
@@ -799,6 +873,9 @@ export class BindPhoneService {
     // G24：摘要由本机生成（11 位按 BR-ID-33 前 3 后 4；原文只在安全存储的请求体里），与换号共用同一格式（PhoneMask）。
     request.summary = held !== null ? held.summary : PhoneMask.pendingSummary(phone.normalized);
     request.idempotencyKey = held !== null ? held.key : null;
+    // R2-01：记下实际发出的验证码（held 时是原请求体里的码）。
+    sent.reusedHeld = held !== null;
+    sent.code = held !== null ? BindSent.codeOf(held.body) : code;
     // R2-07：B 类写请求不设 owner（离开页面不取消，flow-map §21）；固定身份与 phoneGate 在每次实际发包前核对。离页后结果只是
     // 不再改页面（serial），绑手机、token、phoneGate 与未决记录照常结算。
     request.sendAllowed = this.sendGuard(identity, account, generation);
