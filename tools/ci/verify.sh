@@ -4,11 +4,14 @@
 # 用法：
 #   tools/ci/verify.sh          全量：生成物检查 → lint（项目规则 + codelinter）→ 违反样例必须报错 → 桥启动脚本 node 执行测试 → 镜像 + ohpm install（锁文件不变）
 #                               → SDK 版本核对 → Debug / Staging / Release 三套 assembleHap（每套核对 API 版本、API 20 兼容告警、应用名）
-#                               → Hypium 本机单测（designsystem 另在 TZ=UTC / America/Los_Angeles 各跑一次）→ release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
+#                               → Hypium 本机单测（designsystem 另在 TZ=UTC / America/Los_Angeles 各跑一次）
+#                               → 设备测试（core 的 ohosTest，需已连接的鸿蒙模拟器 / 真机；没有就失败，不跳过）
+#                               → release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
 #   tools/ci/verify.sh --fast   只到生成物检查、项目 lint、SDK 版本核对与一次 Debug 构建
 #
 # 环境变量（都有默认值）：
 #   DEVECO_HOME           DevEco Studio 的 Contents 目录（默认 /Applications/DevEco-Studio.app/Contents）
+#   COULI_HM_DEVICE       设备测试用的 hdc 目标（默认先连 127.0.0.1:5557，再取第一个已连接的目标）
 #   COULI_HM_BUILD_DIR    构建镜像目录（默认 $HOME/couli-build/rebate-harmony/<仓库目录名>）。
 #                         必须是只含 ASCII 的绝对路径，且不能在 /tmp、/private/tmp、$TMPDIR 下（规划/11 §0：
 #                         那是 Codex 沙箱默认可写根，构建产物不放那里）。
@@ -263,6 +266,46 @@ record "lint-fixtures" PASS "HM-LINT-1…10 均被拦下"
 python3 "$ROOT/tools/ci/lint.py" --self-test-hm10 || fail_fast "lint-hm10-self-test" "HM-LINT-10 正反例自测失败"
 record "lint-hm10-self-test" PASS "HM-LINT-10 正反例全部符合"
 
+# FU-HM-0718 第 3 项：「扫不完 / 不支持」必须以 4 失败（不是 0，也不是表示「有违反」的 1）。
+step "lint-fixtures-exit4（不支持的文件、不可列举的源码子目录必须以 4 失败）"
+EXIT4_COUNT=0
+for dir in "$ROOT"/tools/ci/lint-fixtures-exit4/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    if output="$(python3 "$ROOT/tools/ci/lint.py" --root "$dir" 2>&1)"; then
+        code=0
+    else
+        code=$?
+    fi
+    if [ "$code" -eq 4 ]; then
+        echo "  ${name}：exit 4"
+        EXIT4_COUNT=$((EXIT4_COUNT + 1))
+    else
+        printf '%s\n' "$output" >&2
+        fail_fast "lint-fixtures-exit4" "${name} 应以 4 失败（exit ${code}）"
+    fi
+done
+[ "$EXIT4_COUNT" -eq 2 ] || fail_fast "lint-fixtures-exit4" "应有 2 个 exit 4 样例，实际 ${EXIT4_COUNT}"
+# 一个正常源码 + 一个不可列举的源码子目录（git 存不了权限，现造；跑完恢复权限再删）。
+EXIT4_TMP="$(mktemp -d "${TMPDIR:-/tmp}/couli-lint-exit4.XXXXXX")"
+mkdir -p "$EXIT4_TMP/entry/src/staging/ets/variant/hidden"
+cp "$ROOT/tools/ci/lint-fixtures-exit4/HM-LINT-10-js/entry/src/staging/ets/variant/Ok.ets" "$EXIT4_TMP/entry/src/staging/ets/variant/"
+printf 'export const fake = DebugFakeServer.enabled;\n' >"$EXIT4_TMP/entry/src/staging/ets/variant/hidden/Bad.ets"
+chmod 000 "$EXIT4_TMP/entry/src/staging/ets/variant/hidden"
+if output="$(python3 "$ROOT/tools/ci/lint.py" --root "$EXIT4_TMP" 2>&1)"; then
+    code=0
+else
+    code=$?
+fi
+chmod 755 "$EXIT4_TMP/entry/src/staging/ets/variant/hidden"
+rm -rf "$EXIT4_TMP"
+if [ "$code" -ne 4 ]; then
+    printf '%s\n' "$output" >&2
+    fail_fast "lint-fixtures-exit4" "不可列举的源码子目录应以 4 失败（exit ${code}）"
+fi
+echo "  不可列举的源码子目录：exit 4"
+record "lint-fixtures-exit4" PASS "js / c 不支持、不可列举的子目录均以 4 失败"
+
 step "一致性结果断言自测（APP-04 共性 44）"
 python3 "$ROOT/tools/ci/conformance-assert.py" --self-test || fail_fast "conformance-assert" "断言脚本自测失败"
 record "conformance-assert" PASS "逐条判定：未实现只豁免 normal；bad_params 回 90001、缺必测用例、空结果集都非零"
@@ -503,6 +546,46 @@ run_unit_tests designsystem common/designsystem
 # 格式向量的时区回归（BR-TEXT-11 固定 Asia/Shanghai，与设备时区无关）：Local Test 进程继承 TZ（已实测 getTimezoneOffset 随之变化）。
 run_unit_tests designsystem common/designsystem UTC
 run_unit_tests designsystem common/designsystem America/Los_Angeles
+
+# ---------------------------------------------------------------- 7b. 设备测试（ohosTest，鸿蒙模拟器 / 真机）
+# FU-HM-0718 第 1 轮修复 R1-01：Local Test 里 fileIo 是空实现，真实文件系统行为（statSync 的错误码、FileSlot 遇到查不了的路径）
+# 只能在设备上验。core 的 src/ohosTest 构建成测试包（target ohosTest，与 Release 同一套 src/release），由 device-test.sh 签名、
+# 安装、aa test 并解析结果。**没有已连接的设备 / 模拟器就失败，不跳过**（先启动 DevEco 模拟器，或设 COULI_HM_DEVICE）。
+# 注意：测试包与应用同包名（com.couli.hm），device-test.sh 会先卸掉设备上已装的应用，跑完再卸掉测试包。
+run_device_tests() {
+    # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name
+    local module="$1" dir="$2" test_module="$3" log="$LOG_DIR/device-test-build-$1.log" code
+    local hap="$BUILD_DIR/$dir/build/default/outputs/ohosTest/$module-ohosTest-unsigned.hap"
+    step "设备测试：${module}（ohosTest，${test_module}）"
+    rm -f "$hap"
+    if ! (cd "$BUILD_DIR" && "$HVIGORW" --mode module -p module="$module@ohosTest" -p isOhosTest=true -p product=default \
+        -p buildMode=debug genOnDeviceTestHap --no-daemon) >"$log" 2>&1; then
+        show_matches "ERROR|Error Message|error" "$log" 30
+        fail_fast "device-test $module" "测试包构建失败，见 $log"
+    fi
+    [ -f "$hap" ] || fail_fast "device-test $module" "构建成功但找不到 $hap"
+    grep -q "Finished :${module}:ohosTest@OhosTestCompileArkTS" "$log" \
+        || fail_fast "device-test $module" "日志里没有 ${module}:ohosTest@OhosTestCompileArkTS 的编译记录"
+    if api_compat_hits "$log"; then
+        show_matches "$API_COMPAT_PATTERN" "$log" 20
+        fail_fast "device-test $module" "测试包用到了高于 API 20 的接口，见 $log"
+    fi
+    local out="$OUT_DIR/device-test-$module.log"
+    if "$ROOT/tools/ci/device-test.sh" "$hap" "$test_module" "$OUT_DIR/device-test" >"$out" 2>&1; then
+        code=0
+    else
+        code=$?
+    fi
+    cat "$out"
+    if [ "$code" -ne 0 ]; then
+        fail_fast "device-test $module" "exit ${code}（没有设备、安装失败或有用例失败），见 $out"
+    fi
+    local pass
+    pass="$({ grep -E '^DEVICE_TEST_PASS' "$out" || true; } | tail -1)"
+    [ -n "$pass" ] || fail_fast "device-test $module" "device-test.sh 退出 0 但没有 DEVICE_TEST_PASS 行"
+    record "device-test $module" PASS "${pass#DEVICE_TEST_PASS }"
+}
+run_device_tests core common/core core_test
 
 # ---------------------------------------------------------------- 8. Release 制品扫描
 export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"

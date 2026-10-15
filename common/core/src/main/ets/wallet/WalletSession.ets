@@ -619,7 +619,11 @@ export class WalletLoadFailure {
         WalletMessages.of(ErrorActionMapper.textKey(code, null) ?? WalletMessages.GENERIC_KEY, result.traceId, true));
     }
     if (code === 10405) {
-      return new WalletLoadFailure(WalletLoadFailure.FORCE_UPDATE, code, WalletMessages.of(WalletMessages.GENERIC_KEY));
+      // FU-HM-0718 第 1 轮修复（G05，F-X-09 / Android G89）：只有网络层判定的强更（Effect = FORCE_UPDATE）才进强更、用 error.10405；
+      // REFRESH_ONLY 与刷新失败的 10405 是可重试的读取失败：error.50001，不调强更出口。
+      const key: string = ErrorActionMapper.pageTextKey(code, null, result.effect) ?? WalletMessages.GENERIC_KEY;
+      return new WalletLoadFailure(ErrorActionMapper.forcesUpdate(code, result.effect) ? WalletLoadFailure.FORCE_UPDATE
+        : WalletLoadFailure.CODE, code, WalletMessages.of(key));
     }
     return new WalletLoadFailure(WalletLoadFailure.CODE, code,
       WalletMessages.of(ErrorActionMapper.textKey(code, null) ?? WalletMessages.GENERIC_KEY));

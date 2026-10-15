@@ -1,0 +1,14 @@
+// core 的设备测试（ohosTest，FU-HM-0718 第 1 轮修复 R1-01）：在鸿蒙模拟器 / 真机上跑，用真实 fileIo。
+// 没有 abilities：TestAbility 与 TestRunner 由 hvigor 按模板生成（「源码迁移后」的 ohosTest 模板）。
+// 由 tools/ci/verify.sh 的「设备测试」步骤构建（-p module=core@ohosTest -p isOhosTest=true）、签名、安装并用 aa test 执行。
+{
+  "module": {
+    "name": "core_test",
+    "type": "feature",
+    "deviceTypes": [
+      "phone"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

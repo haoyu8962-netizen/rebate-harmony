@@ -8,7 +8,7 @@ import { ClientEvent, ClientEvents } from 'generated';
 import { ApiClient, ApiRequest, ApiResult, ApiOutcome } from '../network/ApiClient';
 import { TransportFailure } from '../network/HttpTransport';
 import { RetryAfterGate } from '../network/RetryAfterGate';
-import { ErrorEffect } from '../network/ErrorActionMapper';
+import { ErrorActionMapper, ErrorEffect } from '../network/ErrorActionMapper';
 import { disableMillisOf } from '../search/SearchController';
 import { HomeJson, HomeJsonRead } from './HomeJson';
 import {
@@ -593,7 +593,8 @@ export class HomeController {
     if (r.code === 42901) {
       return 'http_42901';
     }
-    if (r.code === 10405) {
+    if (ErrorActionMapper.forcesUpdate(r.code, r.effect)) {
+      // 只有网络层判定的强更（FU-HM-0718 第 1 轮修复 G05）；REFRESH_ONLY / 刷新失败的 10405 按下面的通用失败（下拉提示 error.50001、可再下拉）。
       return 'code_10405';
     }
     if (r.outcome === ApiOutcome.NETWORK_ERROR) {
@@ -797,14 +798,16 @@ export class HomeController {
       });
   }
 
-  /** 三个首页接口共用（brief §0）：42901 写共享闸门（页面与发包两处生效），10405 进强更。 */
+  /** 三个首页接口共用（brief §0）：42901 写共享闸门（页面与发包两处生效），网络层判定的强更 10405 进强更。 */
   private handleSharedErrors(r: ApiResult): void {
     if (r.ok) {
       return;
     }
     if (r.code === 42901) {
       this.deps.gate.start(disableMillisOf(r));
-    } else if (r.code === 10405) {
+    } else if (ErrorActionMapper.forcesUpdate(r.code, r.effect)) {
+      // FU-HM-0718 第 1 轮修复（G05）：公告（listArticles，作用域含 deletion_only）等读取只在网络层判强更时进强更；
+      // 非强更 10405 只是这次读取失败（公告卡隐藏、不提示，G10；下次刷新再取）。
       this.deps.forceUpdate();
     }
   }

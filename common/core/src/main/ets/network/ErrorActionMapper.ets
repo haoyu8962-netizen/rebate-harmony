@@ -378,6 +378,30 @@ export class ErrorActionMapper {
     return typeof minimum === 'string' ? minimum as string : null;
   }
 
+  /** 通用失败文案键（「出了点问题，请稍后再试」，BR-TEXT-14 兜底；搜索 / 详情页的 GENERIC 是同一个键）。 */
+  static readonly GENERIC_TEXT_KEY: string = 'error.50001';
+
+  /**
+   * 页面按错误码选文案时的 10405 口径（F-X-09 三端统一；APP-13a G62 / G89；FU-HM-0718 第 4 项，对应 Android FU-AND-0715 R1-03）：
+   * 只有网络层判定为 FORCE_UPDATE 的 10405 才用 error.10405（版本过低）；REFRESH_ONLY（遗留受限令牌只刷新）与刷新失败
+   * （Effect 已换成清会话 / 网络错误）的 10405 不是强更——用统一失败文案、可重试，页面不按错误码再判一次强更。其余同 textKey。
+   */
+  static pageTextKey(code: number, reason: string | null, effect: ErrorEffect | null): string | null {
+    if (code === 10405 && !ErrorActionMapper.forcesUpdate(code, effect)) {
+      return ErrorActionMapper.GENERIC_TEXT_KEY;
+    }
+    return ErrorActionMapper.textKey(code, reason);
+  }
+
+  /**
+   * 这个业务错误是不是强更（F-X-09 三端统一，Android G89；FU-HM-0718 第 1 轮修复并入 G05）：只认网络层结算的 Effect——10405 且
+   * Effect 为 FORCE_UPDATE。REFRESH_ONLY、刷新失败换成的清会话 / 网络错误、没有 Effect（G06）都不是：页面与读取结算不按错误码
+   * 再判一次强更（「我的」MeFailure.of、钱包 WalletLoadFailure.of、首页 HomeController 都走这里）。
+   */
+  static forcesUpdate(code: number, effect: ErrorEffect | null): boolean {
+    return code === 10405 && effect !== null && effect.effectKindRaw === EffectKind.FORCE_UPDATE;
+  }
+
   /** 先取 error.<code>.<reason>，未命中回落 error.<code>；都没有为 null（BR-TEXT-14）。 */
   static textKey(code: number, reason: string | null): string | null {
     if (reason !== null && /^[A-Za-z0-9_]+$/.test(reason)) {

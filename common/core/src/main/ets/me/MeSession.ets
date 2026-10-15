@@ -338,7 +338,11 @@ export class MeFailure {
       return new MeFailure(MeFailure.SERVER, code, MeMessages.of(serverErrorKey(code), result.traceId, true));
     }
     if (code === 10405) {
-      return new MeFailure(MeFailure.FORCE_UPDATE, code, MeMessages.of(MeMessages.GENERIC_KEY));
+      // FU-HM-0718 第 1 轮修复（G05，F-X-09 / Android G89）：只有网络层判定的强更（Effect = FORCE_UPDATE）才进强更、用 error.10405；
+      // REFRESH_ONLY（遗留受限令牌只刷新）与刷新失败的 10405 是可重试的读取失败：error.50001，不调强更出口。
+      const key: string = ErrorActionMapper.pageTextKey(code, null, result.effect) ?? MeMessages.GENERIC_KEY;
+      return new MeFailure(ErrorActionMapper.forcesUpdate(code, result.effect) ? MeFailure.FORCE_UPDATE : MeFailure.CODE,
+        code, MeMessages.of(key));
     }
     if (code === 10006) {
       return new MeFailure(MeFailure.RISK, code, MeMessages.of('error.10006'));

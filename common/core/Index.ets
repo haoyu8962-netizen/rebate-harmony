@@ -91,10 +91,10 @@ export {
   SessionTokenSet, SessionTokens, SessionReadStatus, MemorySessionTokens, SecureSessionTokens, SessionTokensCleaner,
   SessionLoginEpochs, LoginEpochIds, SessionRevocation
 } from './src/main/ets/session/SessionTokens';
-export { SecureEntry, SecureStore, MemorySecureStore, AssetSecureStore } from './src/main/ets/storage/SecureStore';
+export { SecureEntry, SecureStore, SecureValueCorruptError, MemorySecureStore, AssetSecureStore } from './src/main/ets/storage/SecureStore';
 // 纯 ArkTS 的 SHA-256（FU-CLIP：剪贴板加盐指纹的测试核对「不等于未加盐 SHA-256」用）。
 export { Sha256 } from './src/main/ets/clientcore/Sha256';
-export { FileOps, SystemFileOps, FileSlot } from './src/main/ets/storage/FileSlot';
+export { FileOps, FileProbe, SystemFileOps, FileSlot } from './src/main/ets/storage/FileSlot';
 // clientcore（APP-03b）：设备标识判定、配置与 LKG、埋点队列、权限申请；设备注册（device）。
 export * from './src/main/ets/clientcore/ClientCore';
 export { ApiConfigFetcher } from './src/main/ets/clientcore/ApiConfigFetcher';

@@ -203,6 +203,20 @@ function envelopeOf(result: ApiResult): Record<string, Object> | null {
   return envelope;
 }
 
+/**
+ * 有外壳的结果 → 结果态（SearchResultState.map），10405 的文案只认网络层 Effect（F-X-09，FU-HM-0718 第 4 项）：非强更的 10405
+ * （REFRESH_ONLY / 刷新失败）用统一失败文案、照常给【重试】，不显示「版本过低」；真正强更（FORCE_UPDATE）仍是 error.10405，
+ * 强更页由网络层（UpdatePort.on10405）打开。
+ */
+function envelopeView(result: ApiResult, envelope: Record<string, Object>): SearchResultView {
+  const view: SearchResultView = SearchResultState.map(envelope);
+  if (view.stateRaw !== SearchStateRaw.ERROR || view.code !== 10405) {
+    return view;
+  }
+  return new SearchResultView(view.stateRaw, ErrorActionMapper.pageTextKey(view.code, null, result.effect), view.code,
+    view.platform, view.traceId);
+}
+
 /** 没有外壳的失败：错误态，文案键取网络层给的（没有为 null，页面用通用失败兜底）。 */
 function transportError(result: ApiResult): SearchResultView {
   const key: string | null = result.effect === null ? null : result.effect.textKey;
@@ -531,7 +545,7 @@ export class SearchController {
       }
       if (envelope === null || result.outcome !== ApiOutcome.SUCCESS) {
         // TODO(N-27)：翻页失败的保留 / 重试策略未规定：保留已展示的结果；底部先给错误文案（带 trace6，03 §4.2），再给【重试】。
-        const view: SearchResultView = envelope === null ? transportError(result) : SearchResultState.map(envelope);
+        const view: SearchResultView = envelope === null ? transportError(result) : envelopeView(result, envelope);
         s.loadMoreFailed = true;
         s.loadMoreError = new SearchResultView(SearchStateRaw.ERROR, view.textKey, view.code, view.platform ?? requested,
           view.traceId);
@@ -852,7 +866,7 @@ export class SearchController {
       }
       this.release();
       const envelope: Record<string, Object> | null = envelopeOf(result);
-      const view: SearchResultView = envelope === null ? transportError(result) : SearchResultState.map(envelope);
+      const view: SearchResultView = envelope === null ? transportError(result) : envelopeView(result, envelope);
       if (envelope !== null && SearchController.isSearchDisabled(result)) {
         this.searchDisabled(view, requested);
         return;
@@ -1162,7 +1176,9 @@ export class ProductDetailController {
       } else if (result.outcome === ApiOutcome.BUSINESS_ERROR) {
         const reasonRaw: Object | undefined = result.data['reason'];
         s.errorCode = result.code;
-        s.errorTextKey = ErrorActionMapper.textKey(result.code, typeof reasonRaw === 'string' ? reasonRaw as string : null);
+        // 10405 只认网络层 Effect（F-X-09，FU-HM-0718 第 4 项）：非强更的用统一失败文案，页面照常给【重试】。
+        s.errorTextKey = ErrorActionMapper.pageTextKey(result.code, typeof reasonRaw === 'string' ? reasonRaw as string : null,
+          result.effect);
         s.phase = ProductPhase.ERROR;
       } else {
         s.errorCode = -1;

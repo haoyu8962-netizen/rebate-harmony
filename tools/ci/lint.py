@@ -8,8 +8,11 @@
     python3 tools/ci/lint.py --hm10-toolchain # 打印 HM-LINT-10 扫描器所用的 node 与 typescript（找不到以 3 退出）
 
 退出码：0 = 无违反；1 = 有违反；2 = 参数不对（自测：失败用例 1、扫描器不可用 2）；3 = HM-LINT-10 找不到 node / typescript
-（或扫描器出错）；4 = HM-LINT-10 无法保证扫完某个文件：该文件有语法错误，且退回扫描时遇到未闭合的模板 / 字符串 / 正则 /
-块注释，或模板插值的花括号无法配对（FU-HM-0716 R3-01，fail-closed；修好该文件的语法错误后重跑）。
+（或扫描器出错）；4 = 无法保证扫完（fail-closed）：① HM-LINT-10 某个文件有语法错误，且退回扫描时遇到未闭合的模板 /
+字符串 / 正则 / 块注释，或模板插值的花括号无法配对（FU-HM-0716 R3-01；修好该文件的语法错误后重跑）；② 扫描范围里某个目录
+无法列举、某个条目无法确认类型、某个源码文件读不出（FU-HM-0718 第 3 项 ①：不静默跳过子树）；③ HM-LINT-10 的范围
+（entry/src/staging）里出现不支持的文件——除 .ets / .ts 源码与资源数据文件（.json / .json5 / 图片）以外的任何文件（.js、.c 等
+其他语言不套 TS 词法）、符号链接或特殊文件（FU-HM-0718 第 3 项 ②）。
 
 规则（命中任一即退出 1，每行输出带规则号）：
     HM-LINT-1 no-cjk-in-features   features/ 下 .ets 的字符串字面量含中日韩字符（BR-TEXT-12：文案经字典取键）
@@ -35,6 +38,8 @@
                                    TypeScript 解析器判定（tools/ci/hm10-scan.js，node + 鸿蒙 SDK 的 ohos-typescript，推导顺序见
                                    hm10_toolchain），代替原来手写的 HM10Lexer；找不到 node / typescript 时 lint 以 3 退出，不退化。
                                    文件有语法错误时退回扫描器逐记号判定；扫描器无法保证扫完该文件时 lint 以 4 退出（R3-01）。
+                                   FU-HM-0718：范围内逐层显式列举（不套 SKIP_DIRS，staging 下名为 mock 的目录照扫），目录列举
+                                   失败、不支持的文件类型、符号链接都以 4 退出。
                                    `--self-test-hm10` 跑正反例，`--hm10-toolchain` 打印所用的 node 与 typescript
 """
 
@@ -72,6 +77,13 @@ NAVBAR_BUILDER_RE = re.compile(r"(?<![A-Za-z0-9_.])navBar\s*\(\s*\)\s*\{")
 NAVBAR_FORBIDDEN_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(Image\s*\(|\.\s*height\s*\(\s*['\"]\s*[0-9.]+\s*%\s*['\"]\s*\))")
 FAKE_FLAG_OWNER = "entry/src/staging/ets/variant/DebugFakeServer.ets"
+# HM-LINT-10 的范围（FU-HM-0718 第 3 项）：这个目录下每个文件都要有归属——源码交给 TypeScript 解析器（.ets 按 ArkTS、.ts 按 TS，
+# hm10-scan.js 按扩展名选 ScriptKind），资源数据文件不含可执行代码、不扫描，其余一律「不支持」→ exit 4。
+HM10_SCOPE = "entry/src/staging"
+HM10_SOURCE_SUFFIXES = (".ets", ".ts")
+HM10_DATA_SUFFIXES = (".json", ".json5", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
+# Finder 元数据（不含代码；镜像同步也排除它），不算不支持的文件。
+HM10_IGNORED_NAMES = {".DS_Store"}
 IMPORT_FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
@@ -436,6 +448,57 @@ HM10_LINT_CASES = [
     ("语法错误但能扫完的文件没有读取 → 0", "const = ;\nconst s = `${a}`;", 0),
 ]
 
+# FU-HM-0718 第 3 项：整条 lint 在一棵目录树上的退出码。(说明, {相对路径: 内容}, 不可列举的子目录, [(符号链接, 指向)], 应有退出码)。
+# 不可列举用 chmod 000 造（以 root 运行时列举照样成功，这几例会失败——本机 CI 不以 root 跑）。
+HM10_READ = "const a = DebugFakeServer.enabled;\n"
+HM10_OK = "const a = 1;\n"
+HM10_TREE_CASES = [
+    ("一个正常源码 + 一个不可列举的 staging 源码子目录 → 4（不静默跳过子树）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "entry/src/staging/ets/hidden/Bad.ets": HM10_READ},
+     ["entry/src/staging/ets/hidden"], [], 4),
+    ("不可列举的子目录在 HM-LINT-1…9 的范围（common）→ 4",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "common/core/src/main/ets/Ok.ets": HM10_OK,
+      "common/core/src/main/ets/locked/X.ets": HM10_OK},
+     ["common/core/src/main/ets/locked"], [], 4),
+    ("staging 里的 .js 读取 → 4（其他语言不套 TS 词法）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "entry/src/staging/ets/Legacy.js": HM10_READ}, [], [], 4),
+    ("staging 里的 .js 不含读取也 → 4（不支持即失败）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "entry/src/staging/ets/util.mjs": HM10_OK}, [], [], 4),
+    ("staging 里的 .c → 4", {"entry/src/staging/ets/Ok.ets": HM10_OK,
+                            "entry/src/staging/cpp/native.c": "int f(void) { return 0; }\n"}, [], [], 4),
+    ("staging 里的源码子目录是符号链接 → 4（不跟随）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "outside/Bad.ets": HM10_READ}, [],
+     [("entry/src/staging/ets/linked", "outside")], 4),
+    ("staging 资源 json / json5 / png 与正常源码 → 0",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "entry/src/staging/resources/base/element/string.json": '{"string": []}\n',
+      "entry/src/staging/resources/base/profile/x.json5": "{}\n", "entry/src/staging/resources/base/media/i.png": "png"},
+     [], [], 0),
+    ("staging/ets/mock 目录里的读取 → 1（HM-LINT-10 不套 SKIP_DIRS）",
+     {"entry/src/staging/ets/mock/Fake.ets": HM10_READ}, [], [], 1),
+    ("staging 里的 .ts 读取 → 1（.ts 按 TS 解析）", {"entry/src/staging/ets/Plain.ts": HM10_READ}, [], [], 1),
+]
+
+
+def run_tree_case(files, unreadable, links):
+    """在临时目录里搭一棵树跑整条 lint，返回退出码（跑完恢复权限再删）。"""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="hm10-tree-") as tmp:
+        for rel, text in files.items():
+            path = os.path.join(tmp, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+        for rel, target in links:
+            os.symlink(os.path.join(tmp, *target.split("/")), os.path.join(tmp, *rel.split("/")))
+        locked = [os.path.join(tmp, *rel.split("/")) for rel in unreadable]
+        try:
+            for path in locked:
+                os.chmod(path, 0)
+            return main(["lint.py", "--root", tmp])
+        finally:
+            for path in locked:
+                os.chmod(path, 0o755)
+
 
 def self_test_hm10():
     """HM-LINT-10 正反例：(说明, 源码, 应报个数[, 应有的判定方式])。没给判定方式的用例必须由 AST 完整解析（语法诊断为 0）；
@@ -473,22 +536,98 @@ def self_test_hm10():
         ok = got_exit == want_exit
         failed += 0 if ok else 1
         print("  %s lint 退出码：%s：应为 %d，实为 %d" % ("PASS" if ok else "FAIL", title, want_exit, got_exit))
-    total = len(HM10_CASES) + len(HM10_LINT_CASES)
-    print("HM-LINT-10 自测：%d 例（扫描 %d 例 + lint 退出码 %d 例），%d 例失败"
-          % (total, len(HM10_CASES), len(HM10_LINT_CASES), failed))
+    for title, files, unreadable, links, want_exit in HM10_TREE_CASES:
+        got_exit = run_tree_case(files, unreadable, links)
+        ok = got_exit == want_exit
+        failed += 0 if ok else 1
+        print("  %s lint 目录树：%s：应为 %d，实为 %d" % ("PASS" if ok else "FAIL", title, want_exit, got_exit))
+    total = len(HM10_CASES) + len(HM10_LINT_CASES) + len(HM10_TREE_CASES)
+    print("HM-LINT-10 自测：%d 例（扫描 %d 例 + lint 退出码 %d 例 + 目录树 %d 例），%d 例失败"
+          % (total, len(HM10_CASES), len(HM10_LINT_CASES), len(HM10_TREE_CASES), failed))
     return 1 if failed else 0
 
 
-def ets_files(root):
+def ets_files(root, incomplete):
+    """HM-LINT-1…9 的扫描范围（SCAN_DIRS 下的 .ets / .ts，跳过 SKIP_DIRS）。FU-HM-0718 第 3 项 ①：某个子目录无法列举时
+    os.walk 默认静默跳过整棵子树——现在经 onerror 记进 incomplete（lint 以 4 退出），不再当成扫完。"""
+    def walk_failed(err):
+        incomplete.append("%s: 扫描目录无法列举（%s），该子树没有扫到，无法保证扫完"
+                          % (os.path.relpath(err.filename or root, root), err.strerror or err))
+
     for top in SCAN_DIRS:
         base = os.path.join(root, top)
-        if not os.path.isdir(base):
+        try:
+            os.lstat(base)
+        except FileNotFoundError:
             continue
-        for dirpath, dirnames, names in os.walk(base):
+        except OSError as e:
+            incomplete.append("%s: 扫描目录无法查询（%s），无法保证扫完" % (top, e.strerror or e))
+            continue
+        for dirpath, dirnames, names in os.walk(base, onerror=walk_failed):
             dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
             for name in names:
                 if name.endswith(".ets") or name.endswith(".ts"):
                     yield os.path.join(dirpath, name)
+
+
+def hm10_scope_files(root, incomplete):
+    """HM-LINT-10 范围（entry/src/staging）里要交给解析器的源码文件（FU-HM-0718 第 3 项）。逐层用 scandir 显式列举，不套
+    SKIP_DIRS（staging 下的 mock / build 目录同样是会进 Debug / Staging 制品的源码），也不跟随符号链接。以下情形记进 incomplete
+    （lint 以 4 退出），不静默跳过：范围目录或其中任一子目录无法列举；某个条目无法确认类型；符号链接、特殊文件；
+    不支持的文件类型（只认 .ets / .ts 源码与资源数据文件，.js / .c 等其他语言不套 TS 词法）。范围目录明确不存在时没有要查的文件。"""
+    base = os.path.join(root, *HM10_SCOPE.split("/"))
+
+    def fail(path, why):
+        incomplete.append("%s: HM-LINT-10 %s，无法保证扫完" % (os.path.relpath(path, root), why))
+
+    try:
+        os.lstat(base)
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        fail(base, "范围目录无法查询（%s）" % (e.strerror or e))
+        return []
+    out = []
+    stack = [base]
+    while stack:
+        directory = stack.pop()
+        try:
+            with os.scandir(directory) as it:
+                entries = sorted(it, key=lambda entry: entry.name)
+        except OSError as e:
+            fail(directory, "目录无法列举（%s），该子树没有扫到" % (e.strerror or e))
+            continue
+        for entry in entries:
+            try:
+                link = entry.is_symlink()
+                is_dir = entry.is_dir(follow_symlinks=False)
+                is_file = entry.is_file(follow_symlinks=False)
+            except OSError as e:
+                fail(entry.path, "无法确认条目类型（%s）" % (e.strerror or e))
+                continue
+            if link:
+                fail(entry.path, "是符号链接（不跟随；按不支持处理）")
+            elif is_dir:
+                stack.append(entry.path)
+            elif not is_file:
+                fail(entry.path, "不是普通文件（按不支持处理）")
+            elif entry.name.endswith(HM10_SOURCE_SUFFIXES):
+                out.append(entry.path)
+            elif entry.name.lower().endswith(HM10_DATA_SUFFIXES) or entry.name in HM10_IGNORED_NAMES:
+                continue
+            else:
+                fail(entry.path, "是不支持的文件类型（只认 .ets / .ts 源码与资源数据文件；其他语言不套 TS 词法）")
+    return sorted(out)
+
+
+def read_source(path, root, incomplete):
+    """读源码；读不出（权限、I/O、不是 UTF-8）记进 incomplete 并返回 None（FU-HM-0718：不以 Python 崩溃的 1 冒充「有违反」）。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        incomplete.append("%s: 源码文件读不出（%s），无法保证扫完" % (os.path.relpath(path, root), e))
+        return None
 
 
 def line_of(code, pos):
@@ -531,14 +670,16 @@ def lint(root):
         problems.append("%s:%d: %s %s" % (os.path.relpath(path, root), line, rule, msg))
 
     # HM-LINT-10：entry/src/staging 下除 DebugFakeServer.ets 外的文件，一次交给 TypeScript 解析器（F-HM-33）。
-    hm10_files = []
-    for path in ets_files(root):
-        rel = os.path.relpath(path, root).replace(os.sep, "/")
-        if rel.startswith("entry/src/staging/") and rel != FAKE_FLAG_OWNER:
-            with open(path, encoding="utf-8") as f:
-                hm10_files.append((path, f.read()))
-    hm10_hits = {}
+    # 范围单独显式列举（FU-HM-0718 第 3 项）：列举失败、不支持的文件都进 incomplete（exit 4）。
     hm10_incomplete = []
+    hm10_files = []
+    for path in hm10_scope_files(root, hm10_incomplete):
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+        if rel != FAKE_FLAG_OWNER:
+            text = read_source(path, root, hm10_incomplete)
+            if text is not None:
+                hm10_files.append((path, text))
+    hm10_hits = {}
     hm10_toolchain()  # 没有要查的文件也先确认工具链可用：找不到就失败，不因目录里碰巧没有 staging 源码而放行
     if hm10_files:
         _, results = fake_flag_scan([(os.path.basename(p), text) for p, text in hm10_files])
@@ -552,10 +693,16 @@ def lint(root):
             elif res["diagnostics"]:
                 print("lint.py：HM-LINT-10 提示：%s 有 %d 处语法诊断，按扫描器 + AST 可用部分判定"
                       % (os.path.relpath(p, root), res["diagnostics"]), file=sys.stderr)
+    # 命中按 HM-LINT-10 自己的范围报（FU-HM-0718：不经 ets_files，SKIP_DIRS 里的 mock 等目录也报）。
+    for path, _ in hm10_files:
+        for h in hm10_hits.get(path, []):
+            report("HM-LINT-10", path, h["line"],
+                   "调试替身直接读了 DebugFakeServer.enabled；改用 DebugFakeServer.mockGate（含当前环境 MOCK_DATA 闸门，F-X-02）")
 
-    for path in ets_files(root):
-        with open(path, encoding="utf-8") as f:
-            src = f.read()
+    for path in ets_files(root, hm10_incomplete):
+        src = read_source(path, root, hm10_incomplete)
+        if src is None:
+            continue
         code, strings = strip_comments_keep_strings(src)
         rel = os.path.relpath(path, root).replace(os.sep, "/")
         in_feature = rel.startswith("features/")
@@ -614,11 +761,6 @@ def lint(root):
                        "承载 WebView 容器的页面要用 NavDestination.onBackPressed 把系统返回交给容器（%d 个容器、%d 处 onBackPressed，R1-11）"
                        % (uses, backs))
 
-        if path in hm10_hits:
-            for h in hm10_hits[path]:
-                report("HM-LINT-10", path, h["line"],
-                       "调试替身直接读了 DebugFakeServer.enabled；改用 DebugFakeServer.mockGate（含当前环境 MOCK_DATA 闸门，F-X-02）")
-
         if in_feature:
             own = rel.split("/")[1]
             for m in IMPORT_FROM_RE.finditer(code):
@@ -668,10 +810,10 @@ def main(argv):
     for p in problems:
         print(p)
     if incomplete:
-        for p in incomplete:
+        for p in dict.fromkeys(incomplete):
             print(p)
-        print("lint.py：HM-LINT-10 无法保证扫完 %d 个有语法错误的文件，lint 失败（exit 4）；修好语法错误后重跑"
-              % len(incomplete), file=sys.stderr)
+        print("lint.py：有 %d 处无法保证扫完（语法错误的文件、无法列举的目录、读不出的文件或 HM-LINT-10 范围内不支持的文件），"
+              "lint 失败（exit 4）；处理后重跑" % len(incomplete), file=sys.stderr)
         return 4
     if problems:
         print("lint.py：%d 处违反项目规则" % len(problems), file=sys.stderr)

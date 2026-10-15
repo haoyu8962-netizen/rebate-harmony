@@ -1,6 +1,6 @@
 import { LocalDataCleaner, LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { PrivacyWithdrawalCleaners } from '../privacy/PrivacyWithdrawal';
-import { SecureStore } from '../storage/SecureStore';
+import { SecureStore, SecureValueCorruptError } from '../storage/SecureStore';
 import { FileSlot } from '../storage/FileSlot';
 
 /** 会话作用域取值（04 §2.5 session_scope）。 */
@@ -271,6 +271,10 @@ export class SessionRevocation {
  * ③ 冷启动第一次读取：读到令牌后核对两处标记（含 FileSlot 临时文件），任一撤销这份会话、或存在但不完整（空、截断、损坏，R1-03）
  *    → 按没有会话（世代 null），进入隔离并重试删除；任一标记此刻读不出 → 按读不出（unreadable，世代 null，不缓存，下次再读）。
  *    确认删除成功、或新会话整组写入成功后尽力删掉两处标记。
+ *    「存在但损坏」不等于「不存在」（FU-HM-0718，cross-platform-lessons 17）：Asset 标记项值类型损坏（SecureValueCorruptError）按
+ *    任何会话阻断；沙盒文件只有明确不存在（ENOENT）才算没有标记，目录不可查询 / 路径结构损坏 / I/O 错误按读不出。鸿蒙没有
+ *    Android 那种「整组提交失败后回滚」的路径：标记只在 clear 时被覆盖成这次清除的撤销目标（令牌项里那一份，仍阻断旧会话），
+ *    只在令牌确认删除或新会话整组写入成功后才删，所以损坏的标记不会被抹成「没有」而旧令牌还在。
  * 登录世代与整份会话同口径（F-HM-34 ①）：loginEpoch() 与 accessToken() 走同一个 load——令牌项或任一标记读不出、内容损坏（含令牌为空、
  * 作用域不在合法取值内、字段类型不对，R1-01）、隔离中、损坏清理失败、已撤销，一律为 null。
  */
@@ -529,11 +533,24 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
     this.marksMaybePresent = this.assetMarkLeft || this.fileMarkLeft;
   }
 
-  /** 两处撤销标记是否阻断这份会话（不完整的标记按撤销，R1-03）；任一标记此刻读不出抛出（调用方按读不出处理）。 */
+  /**
+   * 两处撤销标记是否阻断这份会话（不完整的标记按撤销，R1-03）；任一标记此刻读不出抛出（调用方按读不出处理，不缓存结论）。
+   * FU-HM-0718 第 1 项：Asset 标记项存在但值类型损坏（SecureValueCorruptError）不是「没有标记」，按存在且不完整（任何会话）阻断；
+   * 沙盒文件标记只有明确不存在才算没有（FileSlot / SystemFileOps.existsVia，第 2 项），其余查询失败照抛。
+   */
   private revokedByMarks(tokens: SessionTokenSet): boolean {
-    const assetMark: string | null = this.store.get(SecureSessionTokens.REVOKED_ALIAS);
-    let revoked: boolean = SessionRevocation.blocks(assetMark, tokens);
-    let present: boolean = assetMark !== null;
+    let assetMark: string | null = null;
+    let assetCorrupt: boolean = false;
+    try {
+      assetMark = this.store.get(SecureSessionTokens.REVOKED_ALIAS);
+    } catch (e) {
+      if (!(e instanceof SecureValueCorruptError)) {
+        throw e as Error;
+      }
+      assetCorrupt = true;
+    }
+    let revoked: boolean = assetCorrupt || SessionRevocation.blocks(assetMark, tokens);
+    let present: boolean = assetCorrupt || assetMark !== null;
     const mark: FileSlot | null = this.revokedMark;
     if (mark !== null) {
       // 正式文件与 FileSlot 临时文件（已写入、改名前失败或写到一半）都算（与订单缓存待清理标记同口径，FU-HM-0709 R1-01）。
@@ -566,12 +583,18 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
       return this.current;
     }
     let text: string | null = null;
+    let corruptValue: boolean = false;
     try {
       text = this.store.get(SecureSessionTokens.ALIAS);
     } catch (e) {
-      // 读取失败：不是「没有会话」，不缓存、不删除，下次再读（session_unreadable）。
-      this.readFailed = true;
-      return null;
+      if (e instanceof SecureValueCorruptError) {
+        // FU-HM-0718 第 1 项：令牌项存在但值类型损坏——与内容损坏同口径（按没有会话、隔离并删除），不当成「不存在」。
+        corruptValue = true;
+      } else {
+        // 读取失败：不是「没有会话」，不缓存、不删除，下次再读（session_unreadable）。
+        this.readFailed = true;
+        return null;
+      }
     }
     const decoded: SessionTokenSet | null = text === null ? null : SecureSessionTokens.decode(text);
     // 令牌项里是哪一份已经知道了（损坏内容冷启动照样按没有，撤销目标为 null）。
@@ -608,8 +631,8 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
     this.readFailed = false;
     this.loaded = true;
     this.current = decoded;
-    if (text !== null && this.current === null) {
-      // 内容损坏：按没有会话，进入隔离并尽力删除（删不掉的下次读写再删）。
+    if ((text !== null || corruptValue) && this.current === null) {
+      // 内容损坏（含值类型损坏）：按没有会话，进入隔离并尽力删除（删不掉的下次读写再删）。
       this.removalPending = true;
       try {
         this.store.remove(SecureSessionTokens.ALIAS);

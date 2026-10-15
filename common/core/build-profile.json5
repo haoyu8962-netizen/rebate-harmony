@@ -17,6 +17,12 @@
     {
       "name": "staging",
       "source": { "sourceRoots": ["./src/staging"] }
+    },
+    // 设备测试（src/ohosTest，FU-HM-0718 第 1 轮修复）：只在 -p isOhosTest=true 时构建（verify.sh「设备测试」步骤），
+    // 与 Release 同一套 src/release；不进三套产物。
+    {
+      "name": "ohosTest",
+      "source": { "sourceRoots": ["./src/release"] }
     }
   ]
 }

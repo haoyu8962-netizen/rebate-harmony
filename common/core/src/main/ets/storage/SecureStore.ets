@@ -14,12 +14,29 @@ export class SecureEntry {
 }
 
 /**
+ * 安全存储里这一项**存在**、但存的值类型或编码不对（FU-HM-0718 第 1 项，对应 Android FU-AND-0715 R1-01）：不是「没有」。
+ * 调用方按「内容损坏」处理——令牌项按损坏会话隔离并删除，撤销标记按「任何会话」阻断；绝不能当成不存在而放行旧会话。
+ */
+export class SecureValueCorruptError extends Error {
+  readonly alias: string;
+
+  constructor(alias: string) {
+    super('secure store value is not text: ' + alias);
+    this.name = 'SecureValueCorruptError';
+    this.alias = alias;
+  }
+}
+
+/**
  * 系统密钥库保护的键值存储（03 §3.3「敏感数据走 Asset」）：令牌、未决请求体等。一个实例是一个命名空间，
  * entries / clear 只涉及本命名空间。同步接口；出错抛异常（调用方决定失败语义，清理器据此报告失败）。
  * 分组（harmony-review-r2 R2-07）：setGrouped 写入的项带一个分组标签，entriesInGroup 在存储查询层只取该组的项
  * （Asset 按标签查询），不先读出整个命名空间的秘密值再筛选。未决请求体按账号分组。
  */
 export interface SecureStore {
+  /**
+   * 不存在为 null（只有明确查不到才是 null）；存在但值不是文本（类型 / 编码损坏）抛 SecureValueCorruptError；其他读取失败照抛。
+   */
   get(alias: string): string | null;
 
   set(alias: string, value: string): void;
@@ -91,7 +108,7 @@ export class MemorySecureStore implements SecureStore {
  * - 别名 = 命名空间 + ':' + alias；DATA_LABEL_NORMAL_1 记命名空间，entries / clear 按它查询。
  * - 分组：DATA_LABEL_NORMAL_2 记分组（如账号），entriesInGroup 以命名空间 + 分组为查询条件，系统只返回该组的项（R2-07）。
  * - 首次解锁后可读（DEVICE_FIRST_UNLOCKED）；不持久到卸载之后（IS_PERSISTENT 缺省 false）；不跨设备同步（SYNC_TYPE 缺省 NEVER）。
- * - 查不到（NOT_FOUND）按空处理；其他错误抛出。
+ * - 查不到（NOT_FOUND）按空处理；查到但值不是字节抛 SecureValueCorruptError（FU-HM-0718）；其他错误抛出。
  */
 export class AssetSecureStore implements SecureStore {
   private readonly namespace: string;
@@ -105,11 +122,27 @@ export class AssetSecureStore implements SecureStore {
     query.set(asset.Tag.ALIAS, AssetSecureStore.bytes(this.fullAlias(alias)));
     query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL);
     const found: asset.AssetMap[] = this.query(query);
-    if (found.length === 0) {
+    return AssetSecureStore.firstSecret(found.map((item: asset.AssetMap): asset.Value | undefined =>
+    item.get(asset.Tag.SECRET)), alias);
+  }
+
+  /** 查询结果（各项的 SECRET）→ 值：没有查到为 null；查到了就按 secretText 解析（类型损坏抛出，不回成 null）。 */
+  static firstSecret(secrets: (asset.Value | undefined)[], alias: string): string | null {
+    if (secrets.length === 0) {
       return null;
     }
-    const secret: asset.Value | undefined = found[0].get(asset.Tag.SECRET);
-    return secret instanceof Uint8Array ? AssetSecureStore.text(secret as Uint8Array) : null;
+    return AssetSecureStore.secretText(secrets[0], alias);
+  }
+
+  /**
+   * 查到的那一项的值（FU-HM-0718 第 1 项）：SECRET 不是字节（缺失、布尔、数字）= 存在但类型损坏，抛 SecureValueCorruptError，
+   * 不回落成 null（以前回落成 null，撤销标记损坏时会被当成「没有标记」放行旧会话）。
+   */
+  static secretText(secret: asset.Value | undefined, alias: string): string {
+    if (!(secret instanceof Uint8Array)) {
+      throw new SecureValueCorruptError(alias);
+    }
+    return AssetSecureStore.text(secret as Uint8Array);
   }
 
   set(alias: string, value: string): void {

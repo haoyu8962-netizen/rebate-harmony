@@ -17,14 +17,14 @@ import { envelope, FakeContext, flush, Rig, tokenPair } from './NetworkTestRig';
 import { OrderFixture } from './OrderIntegration.test';
 import { summaryJson } from './WalletIntegration.test';
 
-const TOKENS_ALIAS: string = 'session_tokens';
-const REVOKED_ALIAS: string = 'session_revoked';
-const MARK_PATH: string = '/sandbox/files/couli_session.revoked';
+export const TOKENS_ALIAS: string = 'session_tokens';
+export const REVOKED_ALIAS: string = 'session_revoked';
+export const MARK_PATH: string = '/sandbox/files/couli_session.revoked';
 const PAGE_KEY: string = 'orders.page_state';
 const OLD_QUERY: string = '3741234567890123456';
 
 /** 按项注入失败的安全存储（同一实例跨「进程」保留内容 = 落盘）。 */
-class AliasFlakyStore implements SecureStore {
+export class AliasFlakyStore implements SecureStore {
   readonly values: Map<string, string> = new Map<string, string>();
   failGet: string[] = [];
   failSet: string[] = [];
@@ -102,7 +102,7 @@ class AliasFlakyStore implements SecureStore {
 }
 
 /** 可注入失败的沙盒文件（FileSlot 的底层）。 */
-class SandboxFiles implements FileOps {
+export class SandboxFiles implements FileOps {
   readonly files: Map<string, string> = new Map<string, string>();
   failRead: boolean = false;
   failWrite: boolean = false;
@@ -177,7 +177,7 @@ class SandboxFiles implements FileOps {
 }
 
 /** 一个「进程」：同一份存储上新建的令牌存储与 ApiClient（与 AppNetwork 同一接线：Asset + 沙盒文件撤销标记）。 */
-class Proc {
+export class Proc {
   readonly tokens: SecureSessionTokens;
   readonly rig: Rig;
 
@@ -215,7 +215,7 @@ class Proc {
 }
 
 /** 订单恢复记录的偏好命名空间（memory 即落盘；failPut / failDelete 模拟写不进、删不掉）。 */
-class Prefs {
+export class Prefs {
   readonly values: Map<string, string> = new Map<string, string>();
   failPut: boolean = false;
   failDelete: boolean = false;
@@ -238,7 +238,7 @@ class Prefs {
 }
 
 /** 与 AppOrders / AppWallet 同一接线的三类按世代分区的数据（账号走 ApiClient，世代走 ApiClient.sessionLoginEpoch）。 */
-class Caches {
+export class Caches {
   readonly orders: OrderStaleCache;
   readonly wallet: WalletStaleCache;
   readonly restorer: OrderPageRestorer;
@@ -276,7 +276,7 @@ function summary(): WalletRecord {
 }
 
 /** 进程 1：登录 user-1，订单列表、钱包摘要、订单恢复记录各存一份。 */
-async function seeded(p: Proc, c: Caches, f: OrderFixture): Promise<void> {
+export async function seeded(p: Proc, c: Caches, f: OrderFixture): Promise<void> {
   await p.login('user-1');
   c.orders.saveList('self', listData());
   c.wallet.save(summary());
