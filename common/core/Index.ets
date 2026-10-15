@@ -123,7 +123,7 @@ export {
 } from './src/main/ets/login/OAuthLoginService';
 export {
   BindOutcome, BindPhoneFields, BindPhoneForm, BindPhoneFormBinding, BindPhoneHost, BindPhoneIdentity, BindPhonePagePermit,
-  BindPhoneRecheck, BindPhoneService
+  BindPhoneRecheck, BindPhoneService, BindPhoneTickScheduler, BindPhoneTicker, SystemBindPhoneTickScheduler
 } from './src/main/ets/login/BindPhoneService';
 export { AuthFeedback } from './src/main/ets/login/AuthFeedback';
 export { AuthAnnouncement, BindPhoneAnnouncer } from './src/main/ets/login/BindPhoneAnnouncer';
@@ -263,6 +263,7 @@ export {
 // me（APP-12）：「我的」、设置、隐私中心、关于、封禁说明与申诉、客服入口的纯规则（向量 specs/me-vectors.json）、草稿文案与执行层
 // （页面在 features/me，组合在 entry/me）；push：推送令牌上报（PushReportPolicy 纯策略 + 会话级 PushTokenReporter，G17、G18）。
 export { MeRecord, MeJson, AppealListParse } from './src/main/ets/me/MeJson';
+export { CacheFs, CacheClear } from './src/main/ets/me/CacheClear';
 export {
   MeLevel, MePlatform, futureTimeText, shanghaiIso, MeView, NotifyGuideBar, SettingsItems, PrivacyCenterView,
   Personalization, PrivacyWithdrawFlow, Graphemes, NicknameInput, serverErrorKey, codeTextKey, NicknameOutcome,

@@ -3,7 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AuthManageController, AuthSheetCounter, ConfigStore,
   ConsentResume,
-  HelpLink, JumpPorts, JumpTipService, LinkJumpSink, OpenPurchaseController, PlatformPurchase, PlatformStatusOverrides,
+  HelpLink, JumpPorts, JumpTipService, LinkJumpSink, LoginService, OpenPurchaseController, PlatformPurchase, PlatformStatusOverrides,
   PURCHASE_PENDING_ACTION, PurchaseDeps, PurchaseEnv, PurchasePending, SearchApiPort, TradeJson, TradeJumpExecutor,
   TransportFailure, UnavailableBaichuan
 } from 'core';
@@ -160,6 +160,11 @@ class RouterPurchasePending implements PurchasePending {
   clear(): void {
     AppRouting.shared.router.clearAction(PURCHASE_PENDING_ACTION);
   }
+
+  /** FU-HM-0720（共性 19）：与 Router 自动恢复入口同一个暂缓（LoginService.pendingHeld，绑定在当前会话世代上）。 */
+  held(): boolean {
+    return AppRouting.shared.router.pendingHold();
+  }
 }
 
 /** 一个活着的发起页执行器与它的页面可见状态。 */
@@ -236,7 +241,36 @@ export class AppTrade {
     deps.browserNoticeMillis = BuildVariant.browserNoticeMillis(OpenPurchaseController.BROWSER_NOTICE_MILLIS);
     const controller: OpenPurchaseController = new OpenPurchaseController(deps);
     this.live.push(new LiveController(controller));
+    this.hookHoldRelease();
     return controller;
+  }
+
+  /** 已向 LoginService 登记「待办暂缓释放」通知（FU-HM-0720，APP-05b 共性 19）。 */
+  private holdHooked: boolean = false;
+
+  /** 登记一次「待办暂缓释放」通知：网络组合之后才有 LoginService，第一次建执行器 / 页面可见时登记。 */
+  private hookHoldRelease(): void {
+    if (this.holdHooked) {
+      return;
+    }
+    const service: LoginService | null = AppLogin.shared.loginService();
+    if (service === null) {
+      return;
+    }
+    this.holdHooked = true;
+    service.onHoldReleased((): void => this.loginHoldReleased());
+  }
+
+  /**
+   * 第三方登录后的待办暂缓释放（引导【暂不】/ 关闭、绑定完成、老用户 phone_bound 查清或查询失败交守卫）：显式通知仍可见的发起页再恢复一次
+   * ——归属、待办类型、link_id、原键、前台与可购买状态照旧由执行器核对（iOS R1-01 修法）。被盖住的页面回到可见时经 pageVisible 走同一入口。
+   */
+  private loginHoldReleased(): void {
+    for (const l of this.live.slice()) {
+      if (l.visible) {
+        l.controller.resumeAfterLogin();
+      }
+    }
   }
 
   /** 页面出栈：作废执行器；补同意导致的清栈保留补同意待办（H01）。 */

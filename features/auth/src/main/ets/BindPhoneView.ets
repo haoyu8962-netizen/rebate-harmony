@@ -2,7 +2,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI';
 import {
   AccountPendingView, AuthAnnouncement, AuthFeedback, BindOutcome, BindPhoneAction, BindPhoneAnnouncer, BindPhoneFields, BindPhoneForm,
   BindPhoneFormBinding, BindPhoneIdentity, BindPhonePagePermit, BindPhoneService, CodeInput, LoginSendState, MergeDecision, MergeResult, PhoneNumber, PhoneResult,
-  SendCodeOutcome, SmsCountdown
+  BindPhoneTicker, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
   CouliAnnounce, CouliButton, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon,
@@ -66,6 +66,12 @@ export class BindPhonePageConfig {
   };
   /** 页面回到可见（entry 的 NavDestination.onShown 调）：按未决记录恢复待确认。由视图设置。 */
   pageShown: () => void = () => {
+  };
+  /**
+   * 页面被盖住 / 进后台（entry 的 NavDestination.onHidden 调，FU-HM-0720，APP-05b 共性 22）：之前发起的写请求结果不再弹窗、提示、改页面。
+   * 由视图设置。
+   */
+  pageHidden: () => void = () => {
   };
   /**
    * 页面确定出栈（entry 的 NavDestination.onWillDisappear 调，早于 aboutToDisappear）：同步作废本页实例的页面许可（R3-01、R3-03）。
@@ -147,7 +153,8 @@ const KEYBOARD_THRESHOLD_VP: number = 120;
 export struct BindPhoneView {
   @Param @Require config: BindPhonePageConfig;
   @Local model: BindPhoneModel = new BindPhoneModel();
-  private timer: number = -1;
+  /** 倒计时 / 限流每秒刷新（FU-HM-0720 R2-01：Core BindPhoneTicker，aboutToAppear 里建）。 */
+  private ticker: BindPhoneTicker | null = null;
   /** 进页前的键盘避让方式（离页时恢复）。 */
   private savedAvoidMode: KeyboardAvoidMode | null = null;
   /** 页面出现以来的最大高度（判断键盘是否弹起）。 */
@@ -174,8 +181,12 @@ export struct BindPhoneView {
 
   aboutToAppear(): void {
     this.model.now = this.config.clock();
+    this.ticker = new BindPhoneTicker((): void => this.tick(), (): boolean => this.timerNeeded());
     const form: BindPhoneForm = new BindPhoneForm(this.config.service, this.model);
     this.form = form;
+    // FU-HM-0720 R2-01：发码结果因发起时的许可失效被丢弃、但页面此刻可见且身份未变（先回可见、后成功 / 42901）——按共享截止时间
+    // 重算倒计时并启动每秒刷新，到期自动恢复【获取验证码】；不补弹窗、提示、播报。
+    form.deadlinesChanged = (): void => this.refreshTimers();
     this.identity = form.pageIdentity;
     // R3-01：同步离页出口（onWillDisappear）作废本实例的页面许可；aboutToDisappear 里再调一次。
     this.config.pageLeft = (): void => form.leave();
@@ -183,20 +194,31 @@ export struct BindPhoneView {
     this.config.recheck(form);
     this.model.gateActive = this.config.service.phoneGateActive;
     this.refreshPending();
+    this.config.pageHidden = (): void => form.pageHidden();
     this.config.pageShown = (): void => {
+      // FU-HM-0720（共性 22）：被盖住期间绑定已成功——回到栈顶再退出自己的导航实例并恢复待办（不补弹旧结果）。
+      if (form.pageShown()) {
+        this.stopTimer();
+        CouliToast.show(this.getUIContext(), this.t(BindPhoneKeys.DONE));
+        this.config.onBound();
+        return;
+      }
       // 回到可见：身份已不是当前会话（换代通知若没送到）也在这里重建。
       if (this.identity === null || !this.config.service.identityValid(this.identity)) {
         this.resetForSession();
         return;
       }
       this.refreshPending();
+      // FU-HM-0720 R1-03：被盖住期间到达的发码结果不交给页面，但截止时间已在共享状态里记下——回到可见按它重算倒计时 / 限流显示。
+      this.refreshTimers();
     };
     this.unsubscribers.push(this.config.service.subscribeSession((): void => this.resetForSession()));
     this.unsubscribers.push(this.config.service.subscribeGate((): void => {
       this.model.gateActive = this.config.service.phoneGateActive;
     }));
     // R2-04：bindPhone 未决记录有结论了（本页、别的实例或换号页发起的）：从存储重新同步待确认（inFlight 不残留）。
-    this.unsubscribers.push(this.config.service.subscribePending((): void => this.refreshPending()));
+    // FU-HM-0720 R3-01：经本页表单订阅——被盖住、进后台、已离页未退订、身份已换代时不更新、不提示、不播报；回到可见由 onShown 重读。
+    this.unsubscribers.push(form.subscribePending((): void => this.refreshPending()));
     // R1-07（APP-05b 共性 7）：键盘弹起时按可视区收缩页面（RESIZE），底部【绑定】随键盘上移、输入区在 Scroll 内滚动，
     // 不再整页上推把按钮压在键盘后。只在本页生效，离页恢复原方式。
     try {
@@ -242,7 +264,10 @@ export struct BindPhoneView {
     // R2-01：新身份与新模型一起换上，之前渲染出的全部表单回调失效。
     this.identity = form !== null ? form.reset(this.model) : this.config.service.capturePage();
     this.model.gateActive = this.config.service.phoneGateActive;
-    this.refreshPending();
+    // FU-HM-0720 R3-01：被盖住 / 进后台期间换代时不读待确认（不播报），回到可见由 onShown 按新身份读一次。
+    if (form === null || form.presentable()) {
+      this.refreshPending();
+    }
   }
 
   private openDialog(options: CouliDialogOptions): void {
@@ -274,10 +299,7 @@ export struct BindPhoneView {
 
   /** 页面重新出现、发码结果、换号时调：按号码的截止时间现算，还有没到期的就（重新）启动每秒刷新。 */
   refreshTimers(): void {
-    this.tick();
-    if (this.timer < 0 && this.timerNeeded()) {
-      this.timer = setInterval(() => this.tick(), 1000);
-    }
+    this.ticker?.refresh();
   }
 
   private timerNeeded(): boolean {
@@ -290,16 +312,10 @@ export struct BindPhoneView {
     // R2-04：等待由有效变为可重发时播报一次（不逐秒播报；换号只记状态）。
     const state: LoginSendState = this.config.service.sendState(this.model.phoneText);
     this.announce(this.announcer.tick(this.model.phoneText, state.countdownSec + state.rateLimitedSec));
-    if (!this.timerNeeded()) {
-      this.stopTimer();
-    }
   }
 
   private stopTimer(): void {
-    if (this.timer >= 0) {
-      clearInterval(this.timer);
-      this.timer = -1;
-    }
+    this.ticker?.stop();
   }
 
   private countdown(): number {
@@ -359,6 +375,7 @@ export struct BindPhoneView {
     } finally {
       model.sending = false;
     }
+    // FU-HM-0720 R1-03：null 含「发起后页面被盖住 / 进后台」（Core 按发起时的页面许可核对）——不弹框、不提示、不播报、不改字段。
     if (outcome === null || !form.live(b)) {
       return;
     }

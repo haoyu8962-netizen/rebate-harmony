@@ -1569,6 +1569,10 @@ export class OpenPurchaseController {
     if (this.left) {
       return;
     }
+    if (this.pendingHeld()) {
+      // FU-HM-0720（APP-05b 共性 19）：第三方登录后的待办暂缓中——不读、不删、不重放，也不登记回前台补做；释放后由 App 显式再通知一次。
+      return;
+    }
     if (!this.foreground) {
       this.deferredLogin = (): void => this.resumeAfterLogin();
       return;
@@ -1600,12 +1604,25 @@ export class OpenPurchaseController {
     this.send(replay);
   }
 
+  /** 购买待办此刻是否处于登录后的暂缓中（读不出按暂缓，不消费待办）。 */
+  private pendingHeld(): boolean {
+    try {
+      return this.d.pending.held();
+    } catch (e) {
+      return true;
+    }
+  }
+
   /**
    * 补同意完成（隐私变为已同意时调）：本页登记的购买待办仍有效 → 删除并按那张卡执行一次购买（还没发过请求，新键）；不在前台时等回到前台。
    * 仍不同意时 Router 删除待办，这里什么都不做（BR-ID-11、03 §4.1）。
    */
   resumeAfterConsent(): void {
     if (this.left) {
+      return;
+    }
+    if (this.pendingHeld()) {
+      // FU-HM-0720（共性 19）：暂缓挡住所有自动恢复入口。
       return;
     }
     if (!this.foreground) {

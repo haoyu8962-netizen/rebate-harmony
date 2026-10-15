@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientMePort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AppealController, AppVersion,
+  ApiClient, ApiClientMePort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AppealController, AppVersion, CacheClear, CacheFs,
   ClipboardController, ConfigStore, CustomerServiceEntry, CustomerServicePorts, Diagnostics, FileSlot, MeApiPort,
   MeClearMark, MeDeps, MeLevel, MeLocalBackend, MeLocalStore, MeMessage, MePlatform, MeRecord,
   MeSession, MeTabController, NicknameController, NotifyGuideBar, NotifySettingsController, PermissionStatusRaw,
@@ -261,6 +261,14 @@ export class AppMe {
       });
     // R1-03：真实登录成功只认 LoginService 的完成通知（会话世代）。
     AppLogin.loginCompleted = (generation: number): void => this.pushTracker?.loginCompleted(generation);
+    // FU-HM-0720（APP-05b 共性 20）：绑手机成功后的那一轮 getMe——发出前推进读取世代，成功且仍是这个账号时写进「我的」快照。
+    AppLogin.meReadAdvance = (): number => this.session.advanceRead();
+    AppLogin.meLoaded = (account: string, me: Record<string, Object>, generation: number): void => {
+      if (AppMe.account() !== account) {
+        return;
+      }
+      this.session.offerMe(account, me, generation);
+    };
     this.csEntry = new CustomerServiceEntry(new AppCsPorts());
     // 统一客服出口：AppLogin.openCustomerService（授权管理、钱包、订单、登录页等已有调用方不改）委托到这里。
     AppLogin.customerServiceHandler = (): void => this.openCustomerService();
@@ -651,32 +659,19 @@ export class AppMe {
 
   /**
    * 只清图片与 WebView 缓存（cacheDir 下的内容）；不清会话、设备注册、配置 LKG、未决记录、pending_action、本机偏好（它们都不在 cacheDir）。
-   * 删完核对：目录不存在算已清；枚举失败按失败（APP-08 第 20 条）。
+   * FU-HM-0720（APP-12 共性 39）：成败看清理动作是否没有 I/O 错误地完成（CacheClear.run），不再要求删完后目录为空——WebView / 图片加载
+   * 在途时会立刻重建缓存文件；显示大小由页面随后 reload 重算。目录不存在算已清；枚举失败、删除失败按失败（APP-08 第 20 条）。
    */
   async clearCache(): Promise<boolean> {
     const context: common.UIAbilityContext | null = this.context;
     if (context === null) {
       return false;
     }
-    const dir: string = context.cacheDir;
-    try {
-      if (!fileIo.accessSync(dir)) {
-        return true;
-      }
-      for (const name of fileIo.listFileSync(dir)) {
-        const path: string = dir + '/' + name;
-        const st: fileIo.Stat = fileIo.statSync(path);
-        if (st.isDirectory()) {
-          fileIo.rmdirSync(path);
-        } else {
-          fileIo.unlinkSync(path);
-        }
-      }
-      return fileIo.listFileSync(dir).length === 0;
-    } catch (e) {
+    const ok: boolean = CacheClear.run(new SystemCacheFs(), context.cacheDir);
+    if (!ok) {
       hilog.warn(DOMAIN, TAG, '%{public}s', 'clear cache failed');
-      return false;
     }
+    return ok;
   }
 
   // ---------------------------------------------------------------- 设置页的写操作
@@ -930,5 +925,28 @@ class AppCsPorts implements CustomerServicePorts {
 
   dismiss(): void {
     AppCsSheet.shared.hide();
+  }
+}
+
+/** 清除缓存用的系统文件操作（@kit.CoreFileKit fileIo，同步；出错抛出）。 */
+class SystemCacheFs implements CacheFs {
+  exists(path: string): boolean {
+    return fileIo.accessSync(path);
+  }
+
+  list(dir: string): string[] {
+    return fileIo.listFileSync(dir);
+  }
+
+  isDirectory(path: string): boolean {
+    return fileIo.statSync(path).isDirectory();
+  }
+
+  removeDirectory(path: string): void {
+    fileIo.rmdirSync(path);
+  }
+
+  removeFile(path: string): void {
+    fileIo.unlinkSync(path);
   }
 }

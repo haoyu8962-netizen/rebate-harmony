@@ -96,6 +96,8 @@ export struct AppBindPhonePage {
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     // APP-13a G07：回到可见（从客服、协议返回）时按未决记录恢复待确认。
     .onShown(() => this.config?.pageShown())
+    // FU-HM-0720（APP-05b 共性 22）：被盖住（客服、协议页）/ 进后台同步推进可见世代：之前发起的写请求结果只做共享结算。
+    .onHidden(() => this.config?.pageHidden())
     .onReady((ctx: NavDestinationContext) => {
       this.ownId = ctx.navDestinationId ?? null;
       this.ownStack = ctx.pathStack;

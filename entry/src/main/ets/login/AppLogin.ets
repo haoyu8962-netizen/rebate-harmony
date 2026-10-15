@@ -101,6 +101,14 @@ export class AppLogin {
     return service;
   }
 
+  /**
+   * FU-HM-0720（APP-05b 共性 20）：绑手机成功后的那一轮 getMe 交给「我的」共享资料（AppMe 组合时接上 MeSession；之前不推进、不写）。
+   */
+  static meReadAdvance: () => number = (): number => -1;
+  static meLoaded: (account: string, me: Record<string, Object>, generation: number) => void =
+    (_a: string, _m: Record<string, Object>, _g: number): void => {
+    };
+
   /** APP-12：登录完成（会话世代）的接收方（AppMe 组合时接上；之前什么都不做）。 */
   static loginCompleted: (generation: number) => void = (_g: number) => {
   };
@@ -141,6 +149,10 @@ export class AppLogin {
     // APP-13a harmony-review-r1 R1-03、R1-04、R1-08：与换号共用 phoneGate、getMe 读取闸门与内存 token（AccountSession 一份）。
     service.accountPort = AppAccount.shared.session;
     service.forceUpdate = (): void => AppUpdate.shared.onServerForced();
+    // FU-HM-0720（共性 20）：绑定成功后的 getMe 推进并写入「我的」共享资料（设置页、Agent 读同一份 phone_bound）。
+    service.meReadAdvance = (): number => AppLogin.meReadAdvance();
+    service.meLoaded = (account: string, me: Record<string, Object>, generation: number): void =>
+      AppLogin.meLoaded(account, me, generation);
     service.syncSession();
     this.bindService = service;
     return this.bindService;

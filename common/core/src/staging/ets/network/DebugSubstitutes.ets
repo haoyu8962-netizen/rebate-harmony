@@ -33,6 +33,17 @@ export class DebugSubstitutes {
     };
   }
 
+  /**
+   * 只看环境的闸门（FU-HM-0720，APP-05b 共性 24，iOS R1-06）：当前环境允许 MOCK_DATA（环境已定且不是 prod）即放行，不要求本机假服务打开。
+   * 只给第三方登录的假授权器用：Debug / Staging 默认显示第三方按钮并走假授权（凭证只交给当前非 prod 环境，本机假服务没开时由该环境按错误表拒绝）；
+   * prod、环境未定照旧关闭（F-X-02）。
+   */
+  static environmentGate(
+    environment: () => AppEnvironment | undefined = (): AppEnvironment | undefined => DebugMockGate.currentEnvironment()):
+    () => boolean {
+    return DebugSubstitutes.gate((): boolean => true, environment);
+  }
+
   /** 闸门放行时取替身值，否则取真实值（与 Release 相同；没有真实实现的为 null）。 */
   static choose<T>(gate: () => boolean, fake: T, real: T): T {
     return gate() ? fake : real;

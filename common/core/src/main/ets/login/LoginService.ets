@@ -312,6 +312,8 @@ export class LoginService {
   private loggingOut: boolean = false;
   private invalidationListeners: (() => void)[] = [];
   private completionListeners: ((sessionGeneration: number) => void)[] = [];
+  /** 待办暂缓释放（FU-HM-0720，APP-05b 共性 19）：释放后显式通知原页（购买页）重新核对归属与前置再恢复一次。 */
+  private holdReleaseListeners: (() => void)[] = [];
   /**
    * 登出收尾遇到「原会话已被别处清除」时的 Router 清理（APP-05a 共性 25）：只清原会话归属的待办（RouterLoginHost.watchLoginPage
    * 接到 Router.sessionEndedOriginal：现存待办是清除之后新建的就保留并返回 true）。没接或返回 false 时按 host.sessionEnded。
@@ -365,6 +367,27 @@ export class LoginService {
     }
   }
 
+  /**
+   * 待办暂缓释放时同步通知（FU-HM-0720，共性 19：iOS R1-01 修法）：resumeHeldPending（引导【暂不】/ 关闭 / 离开绑手机页）与 endHold
+   * （绑定完成、老用户 getMe 失败交守卫）之后调用。购买页等不经 Router 的自动恢复入口据此再核对一次。返回取消登记的函数。
+   */
+  onHoldReleased(listener: () => void): () => void {
+    this.holdReleaseListeners.push(listener);
+    return (): void => {
+      this.holdReleaseListeners = this.holdReleaseListeners.filter((l: () => void): boolean => l !== listener);
+    };
+  }
+
+  private notifyHoldReleased(): void {
+    for (const listener of this.holdReleaseListeners.slice()) {
+      try {
+        listener();
+      } catch (e) {
+        // 监听方出错不影响释放。
+      }
+    }
+  }
+
   /** 尝试作废时同步通知（第三方登录 OAuthLoginService 据此把授权尝试按「离开」作废，APP-05b）。 */
   onAttemptInvalidated(listener: () => void): void {
     this.invalidationListeners.push(listener);
@@ -410,14 +433,18 @@ export class LoginService {
   /** 绑手机引导结束（【暂不】、绑定完成）：把登录时保留的待办交给 Router 守卫恢复（敏感操作由守卫与 BR-ID-10 规则把关）。 */
   resumeHeldPending(): void {
     // R2-02：先明确释放暂缓，再恢复。
+    const wasHeld: boolean = this.heldGeneration >= 0;
     this.heldGeneration = -1;
     // R1-03：计时已在登录成功时重置；这里只恢复（经 Router 守卫），不再重置，已过期的待办随读取删除、不复活。
     const resume: (() => void) | null = this.onResumeHeld;
     if (resume !== null) {
       resume();
-      return;
+    } else {
+      this.host.resumePending();
     }
-    this.host.resumePending();
+    if (wasHeld) {
+      this.notifyHoldReleased();
+    }
   }
 
   /**
@@ -431,7 +458,11 @@ export class LoginService {
 
   /** 只释放暂缓、不恢复（绑定完成时由 Router.prerequisiteCompleted 接着恢复；老用户 phone_bound 没查清时交给守卫）。 */
   endHold(): void {
+    const wasHeld: boolean = this.heldGeneration >= 0;
     this.heldGeneration = -1;
+    if (wasHeld) {
+      this.notifyHoldReleased();
+    }
   }
 
   /** 会话状态变了（phone_bound 查清等，R2-01）：守卫重算并按自动恢复的口径同步（冷启动语义：前置未满足只保留，不弹前置页）。 */

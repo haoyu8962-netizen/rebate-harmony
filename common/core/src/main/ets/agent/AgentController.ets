@@ -736,6 +736,16 @@ class Turn {
   reloadEntry: number = 0;
   /** 本轮重载最近一次带外壳的失败（完整结果：码、trace_id；退避用尽时 5xxxx 显示统一文案 + trace6，R1-13）。 */
   reloadError: AgentHttpResult | null = null;
+  /**
+   * 动作票据（FU-HM-0720，APP-10b 共性 40，Android R2-01）：历史替换 / 重载重置反馈与举报状态时 +1。反馈 / 举报发起时捕获，结果先按原归属
+   * 结算共享事实，再比它——旧票据的结果只结算（AI 10004、42901、10405、30501），不改重置后的新状态、不提示。
+   */
+  actionSeq: number = 0;
+  /**
+   * 用户已启动的恢复流程（断线【重试】的同键重发，FU-HM-0720，共性 42 / 43，Android R1-03 / R2-04）：这一轮之后的建会话、流的准入与
+   * 建会话返回都复核前后台；后台或被拦下（本地没发出）时保留原轮次与 client_msg_id，恢复成「连接中断」+【重试】，回前台不自动续发。
+   */
+  resumed: boolean = false;
 
   constructor(run: AgentRunTicket, userText: string, body: string) {
     this.run = run;
@@ -943,8 +953,8 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     // 进入页面只读（G39）：取当前会话，有会话再取历史首页；不建会话、不发消息。读取闸门在执行层核对（G24）。
     contract.currentSession(this.call((): boolean => this.phase === AgentPhase.LOADING, AgentOperation.CURRENT))
       .then((r: AgentHttpResult): void => {
-        // 先核对归属，再核对对话世代（切 Tab 期间到达的照常落到内存，回来一次性应用，G02）。
-        if (!this.alive()) {
+        // 先核对归属，再核对对话世代（切 Tab 期间到达的照常落到内存，回来一次性应用，G02）。FU-HM-0720：作废后按原归属先结算共享事实。
+        if (this.settleFirst(r, AgentOperation.CURRENT)) {
           return;
         }
         if (conversation !== this.conversation || serial !== this.historySerial || this.phase !== AgentPhase.LOADING) {
@@ -976,7 +986,7 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     const serial: number = this.historySerial;
     port.listMessages(sessionId, null, AgentHistory.LIMIT, this.call((): boolean => this.phase === AgentPhase.LOADING,
       AgentOperation.HISTORY), true).then((r: AgentHttpResult): void => {
-      if (!this.alive()) {
+      if (this.settleFirst(r, AgentOperation.HISTORY)) {
         return;
       }
       if (conversation !== this.conversation || serial !== this.historySerial || this.sessionId !== sessionId
@@ -1098,6 +1108,36 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
       return this.actionGate;
     }
     return this.deps.gate;
+  }
+
+  /**
+   * 每个 operation 回包的唯一收口（FU-HM-0720，APP-10b 共性 45，Android R3-01 settleFirst）：在判页面 alive / 对话 / 动作票据之前调用。
+   * - 控制器仍有效：返回 false，调用方照旧走 settleOnly / sharedError；
+   * - 已作废（页面实例销毁 / 以相同 ownerKey 重建）：本结果只按发起时不含页面实例的归属结算跨页面共享事实——10405 强更（应用级）；
+   *   归属仍是此刻归属时，AI 10004 交应用级「AI 同意失效」（由它同步停下此刻同归属的控制器）、42901 写 App 级三组闸门（同归属重建保留，R3-03）；
+   *   30501 只锁本次进入，随控制器结束（不跨页面实例）；不同归属整体丢弃。返回 true，调用方直接返回（不改页面、不提示、不导航）。
+   * 鸿蒙真实管线里回包到控制器之间只有微任务（ApiClient 回包后同步核对归属），这里是控制器层的防线：端口或替身晚一个宏任务交付时也不吞共享事实。
+   */
+  private settleFirst(r: AgentHttpResult, op: string): boolean {
+    if (this.alive()) {
+      return false;
+    }
+    if (r.notSent || r.ok) {
+      return true;
+    }
+    if (r.code === 10405) {
+      this.deps.forceUpdate();
+      return true;
+    }
+    if (!this.ownerStill()) {
+      return true;
+    }
+    if (AgentConsentPolicy.shows(r.code, r.consentType)) {
+      this.reportConsentLapse();
+    } else if (r.code === 42901) {
+      this.gateOf(op).start(AgentSendErrorPolicy.retryAfterMs(r.retryAfter));
+    }
+    return true;
   }
 
   /**
@@ -1456,17 +1496,29 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
       return;
     }
     // R2-02：只为这一轮、这一个 run 建会话（停止、新对话、重试换 run 之后都永久失效；切 Tab 不再撤销，G02）。
-    const call: AgentCall = this.call((): boolean => this.active === turn && turn.run === run && this.sessionId === null,
-      AgentOperation.CREATE);
+    // FU-HM-0720（共性 42）：恢复流程的建会话准入复核前后台。
+    const call: AgentCall = this.call((): boolean => this.active === turn && turn.run === run && this.sessionId === null
+      && (!turn.resumed || this.foregroundNow()), AgentOperation.CREATE);
     // R1-11：这一轮的建会话挂在 run 子归属下，【停止】在同步入口只取消它。
     call.scope = 'run:' + run.run;
     contract.createSession(call).then((r: AgentHttpResult): void => {
       // R2-03：先核对固定身份；旧 run 的结果只结算共享事实（42901、10405、AI 10004），再按票据决定是否改界面。
-      if (!this.alive()) {
+      if (this.settleFirst(r, AgentOperation.CREATE)) {
         return;
       }
       if (!this.runOk(run) || this.active !== turn) {
         this.settleOnly(r, AgentOperation.CREATE);
+        return;
+      }
+      if (r.ok && turn.resumed && !this.foregroundNow()) {
+        // FU-HM-0720（共性 42，Android R2-04）：恢复流程的建会话在后台返回——记下会话，不发流；原轮次与 client_msg_id 保留为可手动重试。
+        const created: AgentJsonObject | null = AgentJson.objectOf(r.data['session']) ?? r.data;
+        const createdId: string | null = created === null ? null
+          : AgentJson.stringOf(created['session_id']) ?? AgentJson.stringOf(created['id']);
+        if (createdId !== null) {
+          this.sessionId = createdId;
+        }
+        this.parkResumed(turn);
         return;
       }
       const session: AgentJsonObject | null = AgentJson.objectOf(r.data['session']) ?? (r.ok ? r.data : null);
@@ -1490,8 +1542,9 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     turn.limits = new AgentStreamLimits();
     const run: AgentRunTicket = turn.run;
     // R2-02：许可绑定这一轮、这个 run、这一个流客户端（停止、断线收尾、重试换 run 之后都永久失效）。
-    const call: AgentCall = this.call((): boolean => this.active === turn && turn.run === run && turn.client === client,
-      AgentOperation.SEND);
+    // FU-HM-0720（共性 42）：恢复流程的最终发送准入（实际写出前）复核前后台；不通过按本地没发出收口，由 jsonFailed 保留原轮次（parkResumed）。
+    const call: AgentCall = this.call((): boolean => this.active === turn && turn.run === run && turn.client === client
+      && (!turn.resumed || this.foregroundNow()), AgentOperation.SEND);
     // harmony-review-r2 R2-03：流挂在 stream 子归属下——【停止】同步取消除它以外的全部页面归属工作，流本身由停止流程关闭（meta 前最多等 30 秒）。
     call.scope = 'stream:' + run.run;
     client.start(sessionId, turn.body, call);
@@ -1501,7 +1554,9 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
   private onStream(ticket: AgentRunTicket, event: AgentStreamEvent): void {
     if (!this.runOk(ticket)) {
       // R2-03：同一身份的旧 run 迟到的 JSON 错误只结算共享事实（42901、10405、AI 10004），不改界面。
-      if (this.alive() && event.kind === AgentStreamEventKind.JSON && event.result !== null) {
+      // FU-HM-0720（共性 45）：控制器已作废时按原归属先结算（settleFirst）。
+      if (event.kind === AgentStreamEventKind.JSON && event.result !== null
+        && !this.settleFirst(event.result as AgentHttpResult, AgentOperation.SEND)) {
         this.settleOnly(event.result as AgentHttpResult);
       }
       // R3-01：旧 run 迟到的流内 error 10004 同样是同一身份的共享事实：只锁闸门、不弹框、不改界面（H27）。
@@ -1878,6 +1933,11 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     // R1-05：导航、提示、弹框只在这一次发出时的进入世代仍有效且可见时做；否则只结算共享事实、只改内存。
     const permit: boolean = this.current(turn.entry);
     turn.phase = AgentTurnPhase.FAILED;
+    if (r.notSent && turn.resumed && this.alive()) {
+      // FU-HM-0720（共性 42 / 43，Android R1-03）：用户已启动的恢复流程被拦下（后台、同意闸门、限流）也不删原轮次，恢复成可手动重试。
+      this.parkResumed(turn);
+      return;
+    }
     if (r.notSent) {
       // 本地没有发出（准入不通过：同意闸门、限流闸门、归属变化）：这一轮不留（APP-10 H11）。
       this.removeTurn(turn);
@@ -2001,6 +2061,26 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     }
     return new AgentErrorView(AgentController.errorText(30502, ''), null, null, search,
       AgentDraftTexts.text('agent.draft.search'), '', up, hint);
+  }
+
+  /**
+   * 恢复流程暂停（FU-HM-0720，共性 42 / 43）：关掉这一轮的连接（若有），保留原轮次、已收到的内容与 client_msg_id，恢复成「连接中断」+【重试】
+   * （有会话 → 先查历史再决定，没有 → 同键重发），发布快照；不自动续发。
+   */
+  private parkResumed(turn: Turn): void {
+    turn.client?.cancel();
+    turn.client = null;
+    turn.resend = false;
+    turn.phase = AgentTurnPhase.ENDED;
+    if (turn.state.status !== AgentStatus.DISCONNECTED) {
+      turn.state = AgentController.endedAs(turn.state, AgentStatus.DISCONNECTED);
+    }
+    turn.error = new AgentErrorView(AgentDraftTexts.text('agent.draft.disconnected'),
+      new AgentRetryTap(turn.run, this.canReload() ? AgentRetryMode.RECONNECT : AgentRetryMode.SAME), null, null);
+    if (this.active === turn) {
+      this.active = null;
+    }
+    this.publish();
   }
 
   private removeTurn(turn: Turn): void {
@@ -2139,7 +2219,7 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     const call: AgentCall = this.call((): boolean => turn.reload === machine && this.foregroundNow(), AgentOperation.HISTORY);
     call.scope = 'reload:' + turn.run.run;
     port.listMessages(sessionId, null, AgentHistory.LIMIT, call, false).then((r: AgentHttpResult): void => {
-      if (!this.alive()) {
+      if (this.settleFirst(r, AgentOperation.HISTORY)) {
         return;
       }
       if (conversation !== this.conversation || serial !== this.historySerial || this.sessionId !== sessionId
@@ -2244,6 +2324,8 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     turn.phase = AgentTurnPhase.ENDED;
     turn.feedback.reset();
     turn.report.reset();
+    // FU-HM-0720（共性 40）：重置只作废在途动作的票据——旧结果仍按原归属结算共享事实，只是不再改重置后的新状态。
+    turn.actionSeq++;
     if (reply !== null) {
       turn.state = AgentController.historyState(reply as AgentHistoryItem);
       turn.replyTrusted = true;
@@ -2315,6 +2397,7 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     }
     const clientMsgId: string = ClientMsgId.forRetry('retry_disconnected', turn.run.clientMsgId);
     turn.run = this.newRun(clientMsgId);
+    turn.resumed = true;
     turn.error = null;
     turn.phase = AgentTurnPhase.CONNECTING;
     turn.stopFlow = null;
@@ -2579,8 +2662,8 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     // R2-02：只为这一次新对话建会话（再点新对话、已有会话后永久失效）。
     const call: AgentCall = this.call((): boolean => this.sessionId === null, AgentOperation.CREATE);
     contract.createSession(call).then((r: AgentHttpResult): void => {
-      // R2-03：先核对固定身份，再结算共享事实；对话、之后是否又发起了 run 决定能不能改界面。
-      if (!this.alive()) {
+      // R2-03：先核对固定身份，再结算共享事实；对话、之后是否又发起了 run 决定能不能改界面。FU-HM-0720：作废后按原归属先结算。
+      if (this.settleFirst(r, AgentOperation.CREATE)) {
         return;
       }
       const own: boolean = conversation === this.conversation && this.sessionId === null;
@@ -2678,7 +2761,7 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     const entry: number = this.entry;
     (this.deps.conversation as AgentConversationPort).listMessages(sessionId, cursor, AgentHistory.LIMIT,
       this.call((): boolean => this.pager === pager, AgentOperation.HISTORY), true).then((r: AgentHttpResult): void => {
-      if (!this.alive()) {
+      if (this.settleFirst(r, AgentOperation.HISTORY)) {
         return;
       }
       if (conversation !== this.conversation || serial !== this.historySerial || this.sessionId !== sessionId
@@ -2791,15 +2874,17 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     const state: AgentFeedbackState = turn.feedback;
     const entry: number = this.entry;
     const work: number = this.workSerial;
+    const seq: number = turn.actionSeq;
     (this.deps.conversation as AgentConversationPort).setFeedback(t.messageId, send as string,
-      this.call((): boolean => this.replyTurn(t) === turn && turn.feedback === state && work === this.workSerial,
-        AgentOperation.FEEDBACK))
+      this.call((): boolean => this.replyTurn(t) === turn && turn.feedback === state && work === this.workSerial
+        && seq === turn.actionSeq, AgentOperation.FEEDBACK))
       .then((r: AgentHttpResult): void => {
-        if (!this.alive()) {
+        // FU-HM-0720（共性 40 / 45，Android R2-01 / R3-01）：结果分两层——先按原归属结算共享事实，再决定能不能改页面状态。
+        if (this.settleFirst(r, AgentOperation.FEEDBACK)) {
           return;
         }
-        if (this.replyTurn(t) !== turn || work !== this.workSerial) {
-          // 迟到（对话换代、归属变化、之后点过【停止】，R2-03）：丢弃，只结算共享事实（不提示、不导航）。
+        if (this.replyTurn(t) !== turn || work !== this.workSerial || seq !== turn.actionSeq || !state.inFlight) {
+          // 迟到（对话换代、归属变化、之后点过【停止】，R2-03；历史替换 / 重载重置过这一轮的动作状态）：只结算共享事实（不提示、不导航、不改新状态）。
           this.settleOnly(r, AgentOperation.FEEDBACK);
           return;
         }
@@ -2865,15 +2950,17 @@ export class AgentController implements AgentOwnershipTarget, AgentConsentLapseT
     const state: AgentReportState = turn.report;
     const entry: number = this.entry;
     const work: number = this.workSerial;
+    const seq: number = turn.actionSeq;
     (this.deps.conversation as AgentConversationPort).report(t.messageId, reason as string,
-      this.call((): boolean => this.replyTurn(t) === turn && turn.report === state && work === this.workSerial,
-        AgentOperation.REPORT))
+      this.call((): boolean => this.replyTurn(t) === turn && turn.report === state && work === this.workSerial
+        && seq === turn.actionSeq, AgentOperation.REPORT))
       .then((r: AgentHttpResult): void => {
-        if (!this.alive()) {
+        // FU-HM-0720（共性 40 / 45）：先按原归属结算共享事实，再决定能不能改页面状态。
+        if (this.settleFirst(r, AgentOperation.REPORT)) {
           return;
         }
-        if (this.replyTurn(t) !== turn || work !== this.workSerial) {
-          // 迟到（含之后点过【停止】，R2-03）：丢弃，只结算共享事实。
+        if (this.replyTurn(t) !== turn || work !== this.workSerial || seq !== turn.actionSeq || !state.inFlight) {
+          // 迟到（含之后点过【停止】，R2-03；历史替换 / 重载重置过动作状态）：只结算共享事实，不改新状态。
           this.settleOnly(r, AgentOperation.REPORT);
           return;
         }

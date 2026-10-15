@@ -476,6 +476,15 @@ export class MeSession {
     return true;
   }
 
+  /**
+   * 写操作改变了资料（FU-HM-0720，APP-05b 共性 20：绑手机成功）：推进读取世代、作废之前在途的 getMe（迟到的旧资料不再落地），返回新世代——
+   * 写操作随后发出的那一轮 getMe 按它 offerMe。快照不清（新一轮回来前照旧显示）。
+   */
+  advanceRead(): number {
+    this.readGeneration++;
+    return this.readGeneration;
+  }
+
   /** 昵称保存成功：推进读取世代（作废保存前发出的 getMe），并把快照里的昵称换成新值。 */
   nicknameSaved(account: string, nickname: string): void {
     this.readGeneration++;

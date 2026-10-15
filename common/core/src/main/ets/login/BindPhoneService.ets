@@ -104,10 +104,13 @@ export class BindPhoneFormBinding {
 export class BindPhonePagePermit {
   readonly form: BindPhoneForm;
   readonly identity: BindPhoneIdentity;
+  /** 发起时的可见世代（FU-HM-0720，APP-05b 共性 22：页面被盖住 / 进后台时 +1，之后到达的结果不弹窗、不提示、不改页面）。 */
+  readonly visible: number;
 
-  constructor(form: BindPhoneForm, identity: BindPhoneIdentity) {
+  constructor(form: BindPhoneForm, identity: BindPhoneIdentity, visible: number = 0) {
     this.form = form;
     this.identity = identity;
+    this.visible = visible;
   }
 }
 
@@ -133,6 +136,26 @@ export class BindPhoneForm {
   private current: BindPhoneFormBinding;
   /** 已走过同步离页出口（R3-01）：之后本实例的导航、弹窗、提示与页面更新都不再许可。 */
   private left: boolean = false;
+  /**
+   * 页面被盖住（客服、协议页）或进后台（FU-HM-0720，APP-05b 共性 22，iOS R1-04）：可见世代 +1，之前发起的写请求结果只做共享结算——
+   * 不弹并号 / 风控框、不提示、不改字段；并号凭据随之清除，回来也不补弹。唯一例外是绑定成功（DONE）：记下，回到可见时由页面退出自己的
+   * 导航实例并恢复待办（iOS I17 / APP-09 第 41 条：出栈延后到回到栈顶）。
+   */
+  private hidden: boolean = false;
+  private visibleSerial: number = 0;
+  /**
+   * 延后的绑定成功（FU-HM-0720 R1-02）：记的是发起时的页面许可（本实例 + 固定身份 + 可见世代），不是一个布尔标记。回到可见消费时核对
+   * 仍是本实例、没离页、身份仍是这个固定身份且仍是当前会话、共享状态已绑；reset（会话换代、同账号重新登录）与 leave 时清掉。
+   */
+  private deferredDone: BindPhonePagePermit | null = null;
+  /**
+   * 共享截止时间可能变了、但结果不交给页面时调（FU-HM-0720 R2-01）：发码结果因发起时的许可失效被丢弃（例如发起后被盖住、结果到达前
+   * 又回到可见——onShown 那次 refreshTimers 时还没有截止时间），而此刻本实例仍可见、原固定身份仍是本页当前身份且仍是当前会话。
+   * 页面据此按共享截止时间重算倒计时 / 限流并启动每秒刷新（BindPhoneTicker.refresh）；只显示当前状态，不补弹窗、提示、播报、字段错误。
+   * 由页面设置。
+   */
+  deadlinesChanged: () => void = () => {
+  };
 
   constructor(service: BindPhoneService, fields: BindPhoneFields) {
     this.service = service;
@@ -153,6 +176,8 @@ export class BindPhoneForm {
 
   /** 会话换代：按新会话取新身份、换上新模型；之前渲染出的全部绑定失效。 */
   reset(fields: BindPhoneFields): BindPhoneIdentity {
+    // R1-02：旧身份延后的绑定成功不交给新身份。
+    this.deferredDone = null;
     this.identity = this.service.capturePage();
     this.fields = fields;
     this.current = new BindPhoneFormBinding(this, this.identity, fields);
@@ -171,21 +196,92 @@ export class BindPhoneForm {
    */
   leave(): void {
     this.left = true;
+    this.deferredDone = null;
   }
 
-  /** 点击时取页面许可（页面实例 + 当时的固定身份）。 */
+  /** 点击时取页面许可（页面实例 + 当时的固定身份 + 可见世代）。 */
   permit(): BindPhonePagePermit {
-    return new BindPhonePagePermit(this, this.identity);
+    return new BindPhonePagePermit(this, this.identity, this.visibleSerial);
   }
 
-  /** 许可仍有效：同一实例、没离页、身份没换代且仍是当前会话（只比较）。 */
+  /** 许可仍有效：同一实例、没离页、身份没换代且仍是当前会话、发起后没被盖住过且此刻可见（只比较）。 */
   permitted(p: BindPhonePagePermit): boolean {
+    return this.sameInstance(p) && !this.hidden && p.visible === this.visibleSerial;
+  }
+
+  /** 页面实例与身份层面的许可（不看可见性）。 */
+  private sameInstance(p: BindPhonePagePermit): boolean {
     return p.form === this && !this.left && p.identity === this.identity && this.service.identityValid(p.identity);
   }
 
-  /** 许可失效时把结果换成 null（共享结算已在服务里完成）。 */
+  /**
+   * 页面此刻可以呈现（FU-HM-0720 R3-01，APP-05b 共性 22）：没走过离页出口、没被盖住 / 进后台、本页当前固定身份仍是当前会话。
+   * 不带发起时的许可，只用于「共享记录变了」这类通知（未决记录结算、会话换代后的重读）：决定页面此刻要不要更新、提示、播报。
+   * 不满足时页面什么都不做，回到可见（onShown）时再按共享记录刷新一次。
+   */
+  presentable(): boolean {
+    return !this.left && !this.hidden && this.service.identityValid(this.identity);
+  }
+
+  /**
+   * 订阅 bindPhone 未决记录的结算（FU-HM-0720 R3-01）：共享记录照常由服务结算（BindPhoneService.bind 在结果经 gated 之前就
+   * notifyPending）；通知到达时本页此刻不可呈现（被盖住、进后台、已走过离页出口但还没退订、身份已换代）就不交给页面——不更新待确认卡、
+   * 不提示、不播报。回到可见时页面在 onShown 里重新读取共享记录刷新一次。请求自身的结果仍按发起时的许可（gated）核对。
+   */
+  subscribePending(listener: () => void): () => void {
+    return this.service.subscribePending((): void => {
+      if (this.presentable()) {
+        listener();
+      }
+    });
+  }
+
+  /** 页面被盖住 / 进后台（NavDestination.onHidden 同步调用）：可见世代 +1。 */
+  pageHidden(): void {
+    this.hidden = true;
+    this.visibleSerial++;
+  }
+
+  /**
+   * 回到可见（NavDestination.onShown）：返回被盖住期间是否有绑定成功被延后（页面此刻应退出自己的导航实例并按「完成前置」恢复待办）。
+   * 只取一次；离页、换代后为 false。
+   */
+  pageShown(): boolean {
+    this.hidden = false;
+    const d: BindPhonePagePermit | null = this.deferredDone;
+    this.deferredDone = null;
+    return d !== null && this.doneOwned(d);
+  }
+
+  /**
+   * 绑定成功仍归本页这一次出栈（R1-01 / R1-02）：原页面实例、没离页、原固定身份仍是本页当前身份且仍是当前会话、共享状态里这个账号已绑。
+   * 不看可见世代（成功本身已在服务里结算，这里只决定本实例要不要退出自己）。
+   */
+  private doneOwned(p: BindPhonePagePermit): boolean {
+    return this.sameInstance(p) && this.service.boundShared(p.identity);
+  }
+
+  /**
+   * 许可失效时把结果换成 null（共享结算已在服务里完成）。绑定成功例外（FU-HM-0720）：
+   * - 结果到达时页面仍被盖住：记下发起时的许可，回到可见（pageShown）时核对原归属后补做一次出栈；
+   * - 页面已先回到可见（R1-01：不会再有 onShown）：按原实例 + 固定身份 + 共享已绑立即交给页面出栈一次。
+   */
   private gated(p: BindPhonePagePermit, o: BindOutcome): BindOutcome | null {
-    return this.permitted(p) ? o : null;
+    if (this.permitted(p)) {
+      return o;
+    }
+    if (this.sameInstance(p)) {
+      if (o.actionRaw === BindPhoneAction.DONE) {
+        if (!this.hidden) {
+          return this.doneOwned(p) ? o : null;
+        }
+        this.deferredDone = p;
+      } else if (o.actionRaw === BindPhoneAction.MERGE_CONFIRM) {
+        // 不保存旧 merge_ticket 补弹（共性 22）。
+        this.service.discardMerge();
+      }
+    }
+    return null;
   }
 
   /** 手机号输入：写捕获的模型；号码变了作废在途结果（不取消传输）。返回是否写入。 */
@@ -219,12 +315,27 @@ export class BindPhoneForm {
     return true;
   }
 
-  /** 【获取验证码】：按捕获的号码与身份发码；绑定已失效为 null（零请求）。 */
+  /**
+   * 【获取验证码】：按捕获的号码与身份发码；绑定已失效为 null（零请求）。FU-HM-0720 R1-03（APP-05b 共性 22 / 27）：发起时取页面许可
+   * （实例 + 固定身份 + 可见世代）；截止时间（成功 60 秒、42901 Retry-After）在服务里照常记下（共享结算），结果回来时许可已失效（被盖住、
+   * 进后台，含之后又回到可见）为 null——页面不弹风控框、不提示、不播报、不改字段。
+   */
   sendCode(b: BindPhoneFormBinding): Promise<SendCodeOutcome | null> {
     if (!this.live(b)) {
       return Promise.resolve(null);
     }
-    return this.service.sendCode(b.fields.phoneText, b.identity);
+    const permit: BindPhonePagePermit = new BindPhonePagePermit(this, b.identity, this.visibleSerial);
+    return this.service.sendCode(b.fields.phoneText, b.identity)
+      .then((o: SendCodeOutcome): SendCodeOutcome | null => {
+        if (this.permitted(permit)) {
+          return o;
+        }
+        // R2-01：结果丢弃，但页面此刻可见且身份未变——按共享截止时间重算计时（被盖住时由回到可见的 refreshTimers 兜）。
+        if (this.sameInstance(permit) && !this.hidden) {
+          this.deadlinesChanged();
+        }
+        return null;
+      });
   }
 
   /**
@@ -235,7 +346,7 @@ export class BindPhoneForm {
     if (!this.live(b)) {
       return Promise.resolve(null);
     }
-    const permit: BindPhonePagePermit = new BindPhonePagePermit(this, b.identity);
+    const permit: BindPhonePagePermit = new BindPhonePagePermit(this, b.identity, this.visibleSerial);
     return this.service.bind(b.fields.phoneText, b.fields.codeText, b.identity)
       .then((o: BindOutcome): BindOutcome | null => this.gated(permit, o));
   }
@@ -250,7 +361,8 @@ export class BindPhoneForm {
       if (!bound) {
         return BindPhoneRecheck.UNBOUND;
       }
-      return this.permitted(permit) ? BindPhoneRecheck.BOUND_HERE : BindPhoneRecheck.BOUND_LEFT;
+      // 只退出自己的导航实例、不弹窗：按实例与身份核对（被盖住时按 navDestinationId 移除本实例，FU-HM-0720 的可见世代不参与）。
+      return this.sameInstance(permit) ? BindPhoneRecheck.BOUND_HERE : BindPhoneRecheck.BOUND_LEFT;
     });
   }
 
@@ -270,6 +382,69 @@ export class BindPhoneForm {
     }
     return this.service.abandonPending(key, permit.identity)
       .then((o: BindOutcome): BindOutcome | null => this.gated(permit, o));
+  }
+}
+
+/** 每秒刷新的调度器（生产 setInterval；测试注入假实现）。 */
+export interface BindPhoneTickScheduler {
+  start(millis: number, fn: () => void): number;
+
+  stop(id: number): void;
+}
+
+export class SystemBindPhoneTickScheduler implements BindPhoneTickScheduler {
+  start(millis: number, fn: () => void): number {
+    return setInterval(fn, millis);
+  }
+
+  stop(id: number): void {
+    clearInterval(id);
+  }
+}
+
+/**
+ * 绑手机页的倒计时 / 限流每秒刷新（FU-HM-0720 R2-01，从 BindPhoneView 抽出以便单测）：refresh 先刷新一次显示，还需要等待（tick 后
+ * needed 为 true）且没在跑时启动每秒刷新；每次刷新后不再需要就停（到期自动恢复【获取验证码】）。页面在回到可见、发码结果、换号、
+ * BindPhoneForm.deadlinesChanged 时调 refresh；离页、换代、绑定成功时 stop。
+ */
+export class BindPhoneTicker {
+  static readonly PERIOD_MS: number = 1000;
+  private readonly tick: () => void;
+  private readonly needed: () => boolean;
+  private readonly scheduler: BindPhoneTickScheduler;
+  private handle: number = -1;
+
+  constructor(tick: () => void, needed: () => boolean,
+    scheduler: BindPhoneTickScheduler = new SystemBindPhoneTickScheduler()) {
+    this.tick = tick;
+    this.needed = needed;
+    this.scheduler = scheduler;
+  }
+
+  /** 正在每秒刷新。 */
+  get running(): boolean {
+    return this.handle >= 0;
+  }
+
+  refresh(): void {
+    this.step();
+    if (this.handle < 0 && this.needed()) {
+      this.handle = this.scheduler.start(BindPhoneTicker.PERIOD_MS, (): void => this.step());
+    }
+  }
+
+  stop(): void {
+    if (this.handle >= 0) {
+      this.scheduler.stop(this.handle);
+      this.handle = -1;
+    }
+  }
+
+  private step(): void {
+    this.tick();
+    if (!this.needed()) {
+      this.stop();
+    }
   }
 }
 
@@ -325,6 +500,15 @@ export class BindPhoneService {
   /** 网络层判定 FORCE_UPDATE 时的强更出口（getMe 读取结算用；App 注入）。 */
   forceUpdate: () => void = () => {
   };
+  /**
+   * 绑定成功后那一轮 getMe 发出之前推进「我的」共享资料的读取世代（FU-HM-0720，APP-05b 共性 20，iOS R1-02）：作废绑定前在途的 getMe（迟到的
+   * phone_bound=false 不再覆盖），返回本轮的世代。App 接 MeSession.advanceRead；没接（单测装配）返回 -1。
+   */
+  meReadAdvance: () => number = (): number => -1;
+  /** 本轮 getMe 成功且归属未变：交给「我的」共享资料（App 接 MeSession.offerMe，按 meReadAdvance 给的世代采用）。没接什么都不做。 */
+  meLoaded: (account: string, me: Record<string, Object>, generation: number) => void =
+    (_a: string, _m: Record<string, Object>, _g: number): void => {
+    };
 
   constructor(client: ApiClient, deadlines: SmsSendDeadlines, phoneBinding: PhoneBindingState, host: BindPhoneHost,
     clock: () => number = () => Date.now()) {
@@ -385,6 +569,15 @@ export class BindPhoneService {
     this.pages++;
     return new BindPhoneIdentity(this.client.sessionAccount(), this.client.sessionGenerationId(),
       this.client.sessionScope(), this.pages);
+  }
+
+  /**
+   * 成功收尾的完整归属仍是当前会话（FU-HM-0720 RC-01）：账号、登录世代、作用域都相同（只比较）。与 identityValid 的区别只在不要求账号非空，
+   * 保持 identity 为 null 的旧装配（按发起时刻的会话）口径。
+   */
+  private ownerCurrent(owner: BindPhoneIdentity): boolean {
+    return this.client.sessionAccount() === owner.account && this.client.sessionGenerationId() === owner.generation
+      && this.client.sessionScope() === owner.scope;
   }
 
   /** 固定身份仍是当前会话（只比较）。 */
@@ -461,6 +654,16 @@ export class BindPhoneService {
 
   get busy(): boolean {
     return this.sending || this.binding;
+  }
+
+  /** 共享状态里这个固定身份的账号已绑手机（FU-HM-0720 R1-01：延后 / 先恢复后到达的绑定成功出栈前核对）。 */
+  boundShared(identity: BindPhoneIdentity): boolean {
+    return identity.account !== null && this.phoneBinding.get(identity.account) === true;
+  }
+
+  /** 页面许可失效时到达的并号结果（FU-HM-0720，共性 22）：清掉凭据，回来不补弹。 */
+  discardMerge(): void {
+    this.mergeTicket = null;
   }
 
   /** 有待确认的并号（30411 mergeable）。 */
@@ -585,6 +788,8 @@ export class BindPhoneService {
     const issued: number = this.serial;
     const generation: number = this.client.sessionGenerationId();
     const account: string | null = this.client.sessionAccount();
+    // FU-HM-0720 RC-01：发起时的完整归属（账号 + 登录世代 + 作用域 + 页面实例），成功收尾释放暂缓前按它核对。
+    const owner: BindPhoneIdentity = identity ?? new BindPhoneIdentity(account, generation, this.client.sessionScope(), -1);
     const body: Record<string, Object> = {};
     body['phone'] = phone.normalized;
     body['code'] = code;
@@ -608,7 +813,7 @@ export class BindPhoneService {
     this.notifyPending();
     if (result.ok) {
       // 绑定已在服务端完成：不论页面是否还在，这个会话已绑手机（会话换了就不记到别人身上）。
-      const done: boolean = await this.settleSucceeded(account, generation);
+      const done: boolean = await this.settleSucceeded(owner);
       if (!done || issued !== this.serial) {
         return new BindOutcome(BindOutcome.STALE);
       }
@@ -726,7 +931,7 @@ export class BindPhoneService {
       this.startGate(o.disableMs, this.identityValid(identity));
     }
     if (o.nextState === PhoneChangeOutcomePolicy.DONE) {
-      const done: boolean = await this.settleSucceeded(identity.account, identity.generation);
+      const done: boolean = await this.settleSucceeded(identity);
       if (!done || !this.identityValid(identity)) {
         return new BindOutcome(BindOutcome.STALE);
       }
@@ -759,8 +964,13 @@ export class BindPhoneService {
    * bindPhone 成功的共享结算（R1-04，与换号页 AccountSensitiveFlow 同一函数 AccountSettle.bindPhoneSucceeded）：核对原身份 →
    * 记绑手机、丢弃全部 action 的 step_up_token → getMe（统一读取结算，R1-08）→ 通知会话状态。原身份已不是当前会话返回 false。
    * R3-03：host.phoneBound 只是共享结算，不含页面导航；出栈与恢复待办由页面按原页面许可做。
+   * FU-HM-0720 RC-01（APP-05b 共性 31）：owner 是发起时的完整归属（账号 + 登录世代 + 作用域 + 页面实例）。记绑手机、丢 step-up、getMe
+   * 照旧按账号与登录世代结算；getMe 等待结束后、调用 host.phoneBound（释放暂缓）之前再核对完整归属——同账号刷新只把作用域从 full 变成
+   * deletion_only（登录世代不变）也算失效，不调用 phoneBound、返回 false。
    */
-  private async settleSucceeded(account: string | null, generation: number): Promise<boolean> {
+  private async settleSucceeded(owner: BindPhoneIdentity): Promise<boolean> {
+    const account: string | null = owner.account;
+    const generation: number = owner.generation;
     const same: boolean = account !== null && this.client.sessionAccount() === account
       && this.client.sessionGenerationId() === generation;
     if (same) {
@@ -770,7 +980,7 @@ export class BindPhoneService {
       }
     }
     await this.refreshMe(generation, account);
-    if (this.client.sessionGenerationId() !== generation || this.client.sessionAccount() !== account) {
+    if (!this.ownerCurrent(owner)) {
       return false;
     }
     this.host.phoneBound();
@@ -782,6 +992,13 @@ export class BindPhoneService {
    * 换号页共用 meReadGate（发包前核对；42901 写进去双向生效），身份变了不写；失败不重试，由受闸门约束的已有读取路径恢复。
    */
   private async refreshMe(generation: number, account: string | null): Promise<void> {
+    // FU-HM-0720（共性 20）：新一轮 getMe（不复用绑定前在途的查询）——先推进共享资料的读取世代，结果按本轮世代交给「我的」。
+    let readGeneration: number = -1;
+    try {
+      readGeneration = this.meReadAdvance();
+    } catch (e) {
+      readGeneration = -1;
+    }
     const request: ApiRequest = new ApiRequest(BindPhoneService.GET_ME_OPERATION);
     const port: BindPhoneAccountPort | null = this.accountPort;
     request.sendAllowed = (): boolean => (port === null || port.meReadGate.sendAllowed())
@@ -790,6 +1007,13 @@ export class BindPhoneService {
     const same: boolean = this.client.sessionGenerationId() === generation && this.client.sessionAccount() === account;
     if (result.ok && same) {
       this.phoneBinding.applyMe(account, result.data);
+      if (account !== null && readGeneration >= 0) {
+        try {
+          this.meLoaded(account, result.data as Record<string, Object>, readGeneration);
+        } catch (e) {
+          // 「我的」出错不影响绑定结算。
+        }
+      }
       return;
     }
     if (port !== null) {

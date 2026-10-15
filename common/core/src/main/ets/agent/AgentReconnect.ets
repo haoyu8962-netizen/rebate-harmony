@@ -206,6 +206,11 @@ export class AgentReconnect {
   }
 
   private decide(o: AgentReloadOutcome, sendGateOpen: boolean, consentOpen: boolean): AgentReloadStep {
+    if (o.matched && this.trigger === AgentReloadTrigger.CANCEL_30505 && o.finishReason === 'cancelled') {
+      // FU-HM-0720（APP-10b 共性 46，Android R3-02；G25 向量「30505历史只替换非cancelled的原轮」）：cancel 返回 30505 后匹配到的历史仍是
+      // cancelled——服务端也按停止收尾，保留本地已收到的正文、卡片与动作状态，不替换。
+      return AgentReloadStep.final(AgentReloadAction.KEEP);
+    }
     if (o.matched) {
       return AgentReloadStep.final(AgentReloadAction.REPLACE, AgentHistory.statusOf(o.finishReason));
     }

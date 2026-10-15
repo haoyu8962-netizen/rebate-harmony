@@ -110,11 +110,12 @@ export class BuildVariant {
   }
 
   /**
-   * 微信登录适配器（APP-05b）：Debug / Staging 用假适配器，只有替身闸门放行（本机假服务打开且当前环境允许 MOCK_DATA，F-X-02）时可用
-   * （按钮出现，供测试与截图）；否则与 Release 一样不可用、按钮不显示。Release 的同名函数恒为不可用实现。
+   * 微信登录适配器（APP-05b）：Debug / Staging 用假适配器。FU-HM-0720（APP-05b 共性 24，iOS R1-06）：默认显示第三方按钮并走假授权器，
+   * 不靠启动参数——闸门只看环境（当前环境允许 MOCK_DATA，F-X-02：prod / 环境未定照旧不可用、按钮不显示）；本机假服务没开时假凭证交给当前
+   * 非 prod 环境，由服务端按错误表拒绝。Release 的同名函数恒为不可用实现（开关恒关，rule-gaps G06）。
    */
   static wechatAdapter(): ThirdPartyAuthAdapter {
-    return new GatedAuthAdapter(new DebugWechatAdapter(), DebugFakeServer.mockGate);
+    return new GatedAuthAdapter(new DebugWechatAdapter(), DebugSubstitutes.environmentGate());
   }
 
   /**

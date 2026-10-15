@@ -37,6 +37,12 @@ export interface PurchasePending {
 
   /** 删除（执行前、放弃、页面出栈）。只删购买待办，别的动作的记录不动。 */
   clear(): void;
+
+  /**
+   * 登录后的待办暂缓中（FU-HM-0720，APP-05b 共性 19，iOS R1-01）：第三方登录成功后等绑手机引导结束 / 老用户 phone_bound 查清期间为 true。
+   * 为 true 时购买页的自动恢复入口（resumeAfterLogin、resumeAfterConsent）不读、不删、不执行购买待办；释放后由 App 显式通知原页再恢复一次。
+   */
+  held(): boolean;
 }
 
 export const PURCHASE_PENDING_ACTION: string = 'open_link';
@@ -46,6 +52,8 @@ export class MemoryPurchasePending implements PurchasePending {
   static readonly TTL_MILLIS: number = 600000;
   private params: Record<string, Object> | null = null;
   private startedAt: number = 0;
+  /** 测试可设的暂缓状态（held()）。 */
+  heldFlag: boolean = false;
   private readonly clock: () => number;
 
   constructor(clock: () => number = Date.now) {
@@ -73,6 +81,10 @@ export class MemoryPurchasePending implements PurchasePending {
 
   clear(): void {
     this.params = null;
+  }
+
+  held(): boolean {
+    return this.heldFlag;
   }
 }
 
