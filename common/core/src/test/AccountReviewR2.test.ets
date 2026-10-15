@@ -7,7 +7,7 @@ import {
   DeleteAccountController, DeletionSource, PhoneBindingState, PhoneChangeController, PhoneChangeStep, SendCodeOutcome, SmsSendDeadlines,
   StepUpController, TransportRequest
 } from '../../Index';
-import { envelope, header } from './NetworkTestRig';
+import { envelope, header, waitUntil } from './NetworkTestRig';
 import { AccountFixture, fillStep2, gateway, Host, NEW_PHONE, settle, toStep2 } from './AccountIntegration.test';
 
 const EDITED_PHONE: string = '13700009999';
@@ -188,7 +188,8 @@ export default function accountReviewR2Test() {
       const before: number = changes;
       // 到期：钱包读取闸门通知 → 注销页刷新快照，【重试】恢复。
       f.rig.nowMillis += 1500;
-      await sleep(1300);
+      // FU-HM-0719 第 3 项：等到期通知交回结论（注销页已刷新且【重试】恢复），不再固定睡 1.3 秒。
+      expect(await waitUntil((): boolean => changes > before && !c.snapshot.readBlocked)).assertTrue();
       expect(changes > before).assertTrue();
       expect(c.snapshot.readBlocked).assertFalse();
       c.leave();

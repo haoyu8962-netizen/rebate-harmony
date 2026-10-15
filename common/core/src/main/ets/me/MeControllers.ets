@@ -927,6 +927,18 @@ export class PrivacyWithdrawOutcomes {
     }
   }
 
+  /**
+   * 撤回清理当场失败（F-X-08 ①，FU-HM-0719）：用户【确认撤回】或【重试】发起的那次清理里，有本机偏好 / 草稿 / 凭据没确认删除落盘
+   * （清理报告失败）。撤回痕迹已保留（冷启动、回前台再清；凭据禁读）；这里在当前可见界面提示「撤回没有生效」并给【重试】。
+   */
+  cleanupFailed(): void {
+    if (this.pendingFlag) {
+      // 同一次撤回的写入也没落盘、已在提示（还没点【重试】）：不重复弹框。
+      return;
+    }
+    this.settle(false);
+  }
+
   /** 【重试】：没有待处理时直接返回 true。 */
   retry(): boolean {
     if (!this.pendingFlag) {

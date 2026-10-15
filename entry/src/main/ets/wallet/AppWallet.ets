@@ -8,7 +8,7 @@ import {
   OrderPendingMark, OrderStaleCache, PayoutAccountController, PendingKeyRecord, RealNameController, RouteDestination,
   RouteTable, TransportFailure, WalletApiPort, WalletCacheCleaner, WalletConfigPort, WalletController, WalletDeps,
   WalletHelpLink, WalletJson, WalletRecord, WalletSession, WalletStaleCache, WithdrawController,
-  WithdrawRecordsController
+  WithdrawInputBackend, WithdrawInputDraft, WithdrawRecordsController
 } from 'core';
 import { CouliAnnounce } from 'designsystem';
 import { EventRouteParamsDroppedRoute, Routes, RouteSpec } from 'generated';
@@ -27,6 +27,45 @@ const CACHE_DIR: string = 'couli_wallet_cache';
 const CACHE_PENDING_FILE: string = 'couli_wallet_cache.pending';
 /** 提现页已输入金额（进程回收后按账号归属恢复，不恢复估算；couli_app 命名空间，切换环境随业务数据清）。 */
 const WITHDRAW_INPUT_KEY: string = 'wallet.withdraw_input';
+
+/**
+ * 提现金额草稿的存储（F-X-08 ①，FU-HM-0719）：Preferences couli_app 的一个键，每次现取实例（切换环境的清理会删掉这个命名空间的文件与缓存）。
+ * write 只改内存缓存；flushSync 失败抛错（撤回同意 / 切换环境的删除据此判失败）；flushLater 是平常保存用的异步落盘。
+ */
+class PreferencesWithdrawInputBackend implements WithdrawInputBackend {
+  private readonly context: common.Context;
+
+  constructor(context: common.Context) {
+    this.context = context;
+  }
+
+  private prefs(): preferences.Preferences {
+    return preferences.getPreferencesSync(this.context, { name: CouliPreferences.APP_NAMESPACE });
+  }
+
+  read(): string | null {
+    const raw: preferences.ValueType = this.prefs().getSync(WITHDRAW_INPUT_KEY, '');
+    return typeof raw === 'string' && raw.length > 0 ? raw : null;
+  }
+
+  write(value: string | null): void {
+    const p: preferences.Preferences = this.prefs();
+    if (value === null) {
+      p.deleteSync(WITHDRAW_INPUT_KEY);
+    } else {
+      p.putSync(WITHDRAW_INPUT_KEY, value);
+    }
+  }
+
+  flushSync(): void {
+    this.prefs().flushSync();
+  }
+
+  flushLater(): void {
+    this.prefs().flush().catch((): void => {
+    });
+  }
+}
 
 /** 钱包缓存的文件实现：filesDir/couli_wallet_cache/<账号短标识>/summary.json，FileSlot 原子写（临时文件 + fsync + 改名）。 */
 class FileWalletCacheStore implements OrderCacheStore {
@@ -176,6 +215,8 @@ export class AppWallet {
   static readonly shared: AppWallet = new AppWallet();
   private context: common.Context | null = null;
   private cacheInstance: WalletStaleCache | null = null;
+  /** 提现金额草稿（compose 之后可用；F-X-08 ① 撤回同意时确认删除落盘）。 */
+  private draft: WithdrawInputDraft | null = null;
   readonly session: WalletSession = new WalletSession(Date.now, (): string => AppWallet.scopeKey());
   private readonly api: WalletApiPort = new LiveWalletPort();
   private readonly config: WalletConfigPort = new StoreWalletConfig();
@@ -203,8 +244,12 @@ export class AppWallet {
     }
     WalletCacheCleaner.install(AppConfig.cleaners, cache, (): void => {
       this.session.reset();
-      this.clearWithdrawInput();
     });
+    // F-X-08 ①（FU-HM-0719）：提现金额草稿单独登记清理前第一步——删除 + 同步落盘 + 读回核对，没确认就抛错（撤回清理不算完成、痕迹保留、
+    // 冷启动 / 回前台 / 【重试】再删）。原先放在上面的页面作废回调里，删除结果不看、异步 flush。
+    const draft: WithdrawInputDraft = new WithdrawInputDraft(new PreferencesWithdrawInputBackend(context));
+    this.draft = draft;
+    draft.installCleaner(AppConfig.cleaners);
     this.session.removePages = (route: string): void => AppRouting.shared.navigator.remove(route);
     this.session.realname.subscribe((): void => this.syncRealname());
     AppRouting.shared.syncWallet = (): void => this.sync();
@@ -385,39 +430,15 @@ export class AppWallet {
     }
   }
 
-  // ---------------------------------------------------------------- 已输入金额的持久化
-
-  private prefs(): preferences.Preferences | null {
-    const context: common.Context | null = this.context;
-    if (context === null) {
-      return null;
-    }
-    try {
-      return preferences.getPreferencesSync(context, { name: CouliPreferences.APP_NAMESPACE });
-    } catch (e) {
-      return null;
-    }
-  }
+  // ---------------------------------------------------------------- 已输入金额的持久化（Core WithdrawInputDraft）
 
   private readWithdrawInput(account: string | null): string | null {
-    const p: preferences.Preferences | null = this.prefs();
+    const draft: WithdrawInputDraft | null = this.draft;
     // 表单账号此刻仍是当前会话账号才恢复（当前会话只用于比较）。
-    if (p === null || account === null || AppWallet.account() !== account) {
+    if (draft === null || account === null || AppWallet.account() !== account) {
       return null;
     }
-    try {
-      const raw: preferences.ValueType = p.getSync(WITHDRAW_INPUT_KEY, '');
-      if (typeof raw !== 'string' || raw.length === 0) {
-        return null;
-      }
-      const r: WalletRecord | null = WalletJson.objectOf(JSON.parse(raw) as Object);
-      if (r === null || WalletJson.text(r, 'account') !== OrderStaleCache.accountTag(account)) {
-        return null;
-      }
-      return WalletJson.text(r, 'text');
-    } catch (e) {
-      return null;
-    }
+    return draft.read(OrderStaleCache.accountTag(account));
   }
 
   /**
@@ -432,32 +453,11 @@ export class AppWallet {
     if (account === null || AppWallet.scopeKey() !== scope || AppWallet.account() !== account) {
       return;
     }
-    this.writeWithdrawInputFor(account, text);
-  }
-
-  private writeWithdrawInputFor(account: string | null, text: string): void {
-    const p: preferences.Preferences | null = this.prefs();
-    if (p === null) {
-      return;
-    }
-    try {
-      if (account === null || text.length === 0) {
-        p.deleteSync(WITHDRAW_INPUT_KEY);
-      } else {
-        const r: Record<string, string> = {};
-        r['account'] = OrderStaleCache.accountTag(account);
-        r['text'] = text;
-        p.putSync(WITHDRAW_INPUT_KEY, JSON.stringify(r));
-      }
-      p.flush().catch((): void => {
-      });
-    } catch (e) {
-      // 写不进：不影响页面。
-    }
+    this.draft?.save(OrderStaleCache.accountTag(account), text);
   }
 
   private clearWithdrawInput(): void {
-    this.writeWithdrawInputFor(null, '');
+    this.draft?.clear();
   }
 
   /** 路由参数里的字符串（Router 已按 routes.json 校验）。 */

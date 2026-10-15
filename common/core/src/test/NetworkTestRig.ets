@@ -298,6 +298,24 @@ export function header(request: TransportRequest, name: string): string | undefi
   return request.headers[name];
 }
 
+/**
+ * 等流程交回结论（F-AND-36 同类，FU-HM-0719 第 3 项）：每 10 ms 查一次条件，满足即返回 true；超过 deadlineMs（真实时间）仍不满足返回 false。
+ * 给依赖真实计时器的用例用（如 RetryAfterGate 按 Retry-After 到期后通知页面）：不再「睡固定时长」赌计时器已经到期——高负载时计时器会晚到，
+ * 固定 1.3 秒只比 1 秒的 Retry-After 多 0.3 秒余量。条件写成最终结论（闸门已解除且页面已刷新），到期不来就超时失败，不会空过。
+ */
+export async function waitUntil(cond: () => boolean, deadlineMs: number = 10000): Promise<boolean> {
+  const start: number = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > deadlineMs) {
+      return false;
+    }
+    await new Promise<void>((resolve: () => void): void => {
+      setTimeout(resolve, 10);
+    });
+  }
+  return true;
+}
+
 export async function flush(): Promise<void> {
   for (let i: number = 0; i < 30; i++) {
     await Promise.resolve();

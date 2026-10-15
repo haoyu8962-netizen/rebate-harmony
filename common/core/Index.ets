@@ -21,7 +21,7 @@ export {
   RetryScheduler, TimerRetryScheduler, PrivacyInitSteps, PrivacyGate
 } from './src/main/ets/privacy/PrivacyGate';
 export { PrivacyStoreKeys, PreferencesPrivacyStore } from './src/main/ets/privacy/PreferencesPrivacyStore';
-export { PrivacyWithdrawalCleaners, PlaceholderCleaner } from './src/main/ets/privacy/PrivacyWithdrawal';
+export { PrivacyWithdrawalCleaners, PlaceholderCleaner, WithdrawalCleanupRun } from './src/main/ets/privacy/PrivacyWithdrawal';
 export { PrivacyPromptCover } from './src/main/ets/privacy/PrivacyPromptCover';
 export {
   RouteSource, parseRouteSource, entryOf, RouteRequest, emptyParams, paramCount
@@ -237,6 +237,7 @@ export {
 export {
   WalletCacheEntry, WalletStaleCache, WalletCacheCleaner
 } from './src/main/ets/wallet/WalletStaleCache';
+export { WithdrawInputBackend, WithdrawInputDraft } from './src/main/ets/wallet/WithdrawInputDraft';
 export {
   WalletApiPort, ApiClientWalletPort, WalletContractPort, WalletConfigPort, EmptyWalletConfig, WalletSessionAware,
   RealnameState, SmsResendClock, SmsSendOutcome, FundPageLayout, WalletSession, WalletMessage, WalletMessages,
@@ -303,7 +304,7 @@ export {
 export { ForceUpdateDeletionEntry, DeletionSourceHandoff, Deletion10007 } from './src/main/ets/me/account/AccountEntries';
 export {
   PushEvent, PushAction, PushReportPolicy, PushTokenSource, NoPushTokenSource, PushReportState, PushTokenReporter,
-  PushSessionTracker
+  PushSessionTracker, PushLimitTimer, SystemPushLimitTimer
 } from './src/main/ets/push/PushReport';
 // home（APP-11）：首页 SDUI 的纯规则（向量 specs/home-sdui-vectors.json）、本机数据（LKG、公告关闭、弹窗计数）与执行层（页面在 features/home，
 // 组合在 entry/home）。HomePreview 的策略只在 Debug / Staging（src/staging，经 DebugOnly 导出）。

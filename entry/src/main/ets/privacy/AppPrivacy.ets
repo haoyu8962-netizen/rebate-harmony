@@ -2,8 +2,8 @@ import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AppConfig, CleanReport, GuardDecision, GuardDecisionKind, parsePrivacyState, PreferencesPrivacyStore, PrivacyDecision,
-  PrivacyGate, PrivacyGateState, PrivacyInitSteps, PrivacyPromptCover, PrivacyPromptStage, PrivacyWithdrawalCleaners,
-  RouteDestination
+  PrivacyGate, PrivacyGateState, PrivacyInitSteps, PrivacyPromptCover, PrivacyPromptStage, RouteDestination,
+  WithdrawalCleanupRun
 } from 'core';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppNetwork } from '../network/AppNetwork';
@@ -75,6 +75,14 @@ export class AppPrivacy {
   @Trace loaded: boolean = false;
 
   private gate: PrivacyGate | null = null;
+  /** 撤回清理的运行与结果交付（F-X-08 ①）：随 Gate 一起创建、复用。 */
+  private cleanupRun: WithdrawalCleanupRun | null = null;
+  /**
+   * 用户发起的撤回清理当场失败（F-X-08 ①，FU-HM-0719）：AppMe 组合后接到 PrivacyWithdrawOutcomes.cleanupFailed（当前可见界面提示
+   * 「撤回没有生效」+【重试】）。缺省只记日志。
+   */
+  static withdrawCleanupFailed: () => void = () => {
+  };
   private environmentReady: boolean = false;
   /** 守卫（Router.requestConsent）发起的补同意正在等结论。 */
   private consentRequested: boolean = false;
@@ -96,7 +104,10 @@ export class AppPrivacy {
    * coldStart 会先重试写入再判定。
    */
   start(context: common.Context): void {
-    const gate: PrivacyGate = this.gate ?? AppPrivacy.createGate(context);
+    if (this.cleanupRun === null) {
+      this.cleanupRun = new WithdrawalCleanupRun(AppConfig.cleaners);
+    }
+    const gate: PrivacyGate = this.gate ?? AppPrivacy.createGate(context, this.cleanupRun);
     gate.coldStart(Date.now());
     gate.retryPendingWithdrawalCleanup();
     this.gate = gate;
@@ -115,21 +126,26 @@ export class AppPrivacy {
     this.publish(PrivacyEvent.NONE);
   }
 
-  private static createGate(context: common.Context): PrivacyGate {
+  private static createGate(context: common.Context, cleanup: WithdrawalCleanupRun): PrivacyGate {
     const gate: PrivacyGate = new PrivacyGate(new PreferencesPrivacyStore(context), (): number => Date.now(),
       BundledLegal.PRIVACY_POLICY_VERSION);
-    // 撤回同意：只跑令牌与设备身份的清理项（APP-01 清理器注册表里的占位，BR-ID-13）。全部成功才清除撤回痕迹；
-    // 失败则痕迹保留，下次冷启动重试，痕迹在时 gate.credentialsReadable() 为 false，会话层不得读凭据（TODO(APP-05)）。
+    // 撤回同意：跑撤回清理名单（清理前第一步里各模块的本机偏好 / 草稿删除 + 令牌、设备身份、埋点队列，BR-ID-13、G29）。全部成功才清除
+    // 撤回痕迹；失败则痕迹保留，冷启动 / 回前台重试，痕迹在时 gate.credentialsReadable() 为 false，会话层不得读凭据。
+    // F-X-08 ①：用户【确认撤回】/【重试】发起的这一次失败当场提示并给【重试】（WithdrawalCleanupRun.onFailed）。
+    cleanup.onSettled = (report: CleanReport, interactive: boolean): void => {
+      hilog.info(DOMAIN, TAG, 'withdrawal cleanup ok=%{public}s failed=%{public}s interactive=%{public}s',
+        String(report.ok), report.failed.join(','), String(interactive));
+    };
+    cleanup.onDone = (_report: CleanReport): void => {
+      gate.withdrawalCleanupDone();
+      // 撤回清理（含埋点队列）确认完成：埋点按当前结论恢复（之前一律按未同意，R1-06）。
+      AppClientCore.shared.privacyChanged(AppRouting.shared.privacyState, gate.credentialsReadable());
+    };
+    cleanup.onFailed = (_report: CleanReport): void => {
+      AppPrivacy.withdrawCleanupFailed();
+    };
     gate.withdrawalCleanup = (): void => {
-      PrivacyWithdrawalCleaners.run(AppConfig.cleaners).then((report: CleanReport) => {
-        hilog.info(DOMAIN, TAG, 'withdrawal cleanup ok=%{public}s failed=%{public}s', String(report.ok),
-          report.failed.join(','));
-        if (report.ok) {
-          gate.withdrawalCleanupDone();
-          // 撤回清理（含埋点队列）确认完成：埋点按当前结论恢复（之前一律按未同意，R1-06）。
-          AppClientCore.shared.privacyChanged(AppRouting.shared.privacyState, gate.credentialsReadable());
-        }
-      });
+      cleanup.run();
     };
     gate.registerSdkInitSteps();
     // 联盟 SDK（03 §3.5）：百川适配层（APP-06b；SDK 未引入、AppKey 未给，不可用实现初始化一律失败并上报 sdk_init_failed，
@@ -173,7 +189,13 @@ export class AppPrivacy {
     if (gate === null) {
       return false;
     }
-    gate.retryPendingWithdrawalCleanup();
+    // F-X-08 ①：【重试】发起的清理再失败照样当场提示。
+    const run: WithdrawalCleanupRun | null = this.cleanupRun;
+    if (run !== null) {
+      run.interactive((): boolean => gate.retryPendingWithdrawalCleanup());
+    } else {
+      gate.retryPendingWithdrawalCleanup();
+    }
     return !gate.withdrawalUnsaved;
   }
 
@@ -232,7 +254,10 @@ export class AppPrivacy {
     if (gate === null) {
       return false;
     }
-    const saved: boolean = gate.withdraw(gate.now());
+    // F-X-08 ①：【确认撤回】同步发起的这次清理失败时当场提示并给【重试】。
+    const run: WithdrawalCleanupRun | null = this.cleanupRun;
+    const saved: boolean = run !== null ? run.interactive((): boolean => gate.withdraw(gate.now()))
+      : gate.withdraw(gate.now());
     if (!saved) {
       hilog.error(DOMAIN, TAG, '%{public}s', 'withdraw not persisted; running in basic mode, will retry');
     }

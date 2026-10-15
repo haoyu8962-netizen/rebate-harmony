@@ -7,7 +7,7 @@ import {
   NicknameController, NotifySettingsController, PrivacyCenterController, PushSessionTracker, PushTokenReporter,
   ResetTipRunner, RiskLayout, RiskNoticeController, Route10006, SearchApiPort, TransportFailure, TransportRequest
 } from '../../Index';
-import { envelope } from './NetworkTestRig';
+import { envelope, waitUntil } from './NetworkTestRig';
 import { appealJson, FakePushSource, MeFixture, meJson, Ports, PushState, settle } from './MeIntegration.test';
 
 /** 撤回时把停报 / 停令牌来源接到真实的上报执行器（与 entry AppPrivacyPorts 同一接法）。 */
@@ -63,12 +63,6 @@ function store(): MeLocalStore {
   const s: MeLocalStore = new MeLocalStore();
   s.attach(new MemoryMeLocalBackend(), new MemoryMeClearMark());
   return s;
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise<void>((resolve: () => void) => {
-    setTimeout(() => resolve(), ms);
-  });
 }
 
 export default function meReviewR1Test() {
@@ -306,8 +300,9 @@ export default function meReviewR1Test() {
       expect(a.snapshot.readBlocked).assertTrue();
       expect(a.snapshot.blocked).assertFalse();
       expect(a.retry()).assertFalse();
-      await sleep(1300);
-      // 修复前：只订阅 appealGate，readGate 到期后 blocked 仍为 true，【重试】一直不可用。
+      // FU-HM-0719 第 3 项：等闸门到期通知交回结论（不再固定睡 1.3 秒）。修复前：只订阅 appealGate，readGate 到期后 blocked 仍为 true，
+      // 【重试】一直不可用——这里会等到超时失败。
+      expect(await waitUntil((): boolean => !session.readGate.active && !a.snapshot.readBlocked)).assertTrue();
       expect(session.readGate.active).assertFalse();
       expect(a.snapshot.readBlocked).assertFalse();
       f.reply('/v1/me', (_r: TransportRequest) => envelope(0, frozenMe()));

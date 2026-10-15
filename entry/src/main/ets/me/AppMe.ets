@@ -233,6 +233,8 @@ export class AppMe {
     this.withdrawOutcomes.present = (message: MeMessage, retry: () => void): void => this.presentWithdrawFailure(message,
       retry);
     this.withdrawOutcomes.retryPersist = (): boolean => AppPrivacy.shared.retryWithdrawPersist();
+    // F-X-08 ①（FU-HM-0719）：【确认撤回】/【重试】发起的撤回清理没确认删除落盘（本机偏好、草稿、凭据）也当场提示并给【重试】。
+    AppPrivacy.withdrawCleanupFailed = (): void => this.withdrawOutcomes.cleanupFailed();
     AppRouting.shared.syncMe = (): void => this.sync();
     // 进入「我的」Tab 取一次 /v1/me（G36）；保留 APP-08 已接的订单 Tab 回调。
     const previous: (destination: RouteDestination) => void = ShellState.onRootShown;

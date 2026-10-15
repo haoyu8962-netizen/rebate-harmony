@@ -46,3 +46,59 @@ export class PlaceholderCleaner implements LocalDataCleaner {
     return Promise.resolve();
   }
 }
+
+/**
+ * 撤回同意清理的一次运行与结果交付（F-X-08 ①，FU-HM-0719）。PrivacyGate.withdrawalCleanup 的生产实现：
+ * - 跑撤回清理名单（PrivacyWithdrawalCleaners.run：清理前第一步 + 令牌、设备身份、埋点队列；各模块的本机偏好 / 草稿删除登记在清理前第一步里，
+ *   删除没确认落盘就抛错 → 本次报告失败）；全部成功 → onDone（PrivacyGate.withdrawalCleanupDone 清撤回痕迹）。
+ * - 失败 → 撤回痕迹保留（冷启动、回前台、【重试】再跑；痕迹在时凭据不可读，各本机存储读前先补删）。
+ * - 由用户操作（【确认撤回】、失败提示的【重试】）同步发起的这一次失败，交 onFailed 当场提示并给【重试】；冷启动 / 回前台的自动重试
+ *   再失败不另弹框（保守、不打扰：基本模式照常、凭据禁读）。
+ */
+export class WithdrawalCleanupRun {
+  private readonly registry: LocalDataCleanerRegistry;
+  /** interactive() 执行期间同步发起的那一次清理按「当场」交付失败。 */
+  private interactiveNext: boolean = false;
+  /** 清理全部成功。 */
+  onDone: (report: CleanReport) => void = (_r: CleanReport) => {
+  };
+  /** 用户操作发起的清理失败（当场提示 + 【重试】）。 */
+  onFailed: (report: CleanReport) => void = (_r: CleanReport) => {
+  };
+  /** 每次结果（日志用；ok 与失败项名字，不含数据）。 */
+  onSettled: (report: CleanReport, interactive: boolean) => void = (_r: CleanReport, _i: boolean) => {
+  };
+
+  constructor(registry: LocalDataCleanerRegistry) {
+    this.registry = registry;
+  }
+
+  /** PrivacyGate.withdrawalCleanup：发起一次清理（清理前第一步同步执行完才返回）。 */
+  run(): Promise<CleanReport> {
+    const interactive: boolean = this.interactiveNext;
+    this.interactiveNext = false;
+    return PrivacyWithdrawalCleaners.run(this.registry).then((report: CleanReport): CleanReport => {
+      try {
+        this.onSettled(report, interactive);
+      } catch (e) {
+        // 日志出错不影响结果交付。
+      }
+      if (report.ok) {
+        this.onDone(report);
+      } else if (interactive) {
+        this.onFailed(report);
+      }
+      return report;
+    });
+  }
+
+  /** 用户操作：action 同步执行期间发起的清理（PrivacyGate.withdraw / retryPendingWithdrawalCleanup 里同步调 run）失败时当场交付。 */
+  interactive<T>(action: () => T): T {
+    this.interactiveNext = true;
+    try {
+      return action();
+    } finally {
+      this.interactiveNext = false;
+    }
+  }
+}
