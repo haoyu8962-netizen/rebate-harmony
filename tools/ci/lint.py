@@ -12,7 +12,9 @@
 字符串 / 正则 / 块注释，或模板插值的花括号无法配对（FU-HM-0716 R3-01；修好该文件的语法错误后重跑）；② 扫描范围里某个目录
 无法列举、某个条目无法确认类型、某个源码文件读不出（FU-HM-0718 第 3 项 ①：不静默跳过子树）；③ HM-LINT-10 的范围
 （entry/src/staging）里出现不支持的文件——除 .ets / .ts 源码与资源数据文件（.json / .json5 / 图片）以外的任何文件（.js、.c 等
-其他语言不套 TS 词法）、符号链接或特殊文件（FU-HM-0718 第 3 项 ②）。
+其他语言不套 TS 词法）、符号链接或特殊文件（FU-HM-0718 第 3 项 ②）；④ HM-LINT-1…9 扫的源码（含 oh-package.json5）解析器报语法错误、或扫描器与语法树对正则 / 模板的边界不一致（FU-HM-0723
+第 2 轮修复：注释 / 字符串 / 正则 / 导入一律由 TypeScript 解析器给出——hm10-scan.js --lex，与 HM-LINT-10 同一条解析链；lint.py 只消费
+它输出的 JSON，不再手写词法；字符串与模块名一律按解码后的值比较；解析链缺失或输出不完整按 3）。
 
 规则（命中任一即退出 1，每行输出带规则号）：
     HM-LINT-1 no-cjk-in-features   features/ 下 .ets 的字符串字面量含中日韩字符（BR-TEXT-12：文案经字典取键）
@@ -59,8 +61,6 @@ V1_DECORATORS = [
     "StorageLink", "StorageProp", "LocalStorageLink", "LocalStorageProp", "Watch", "Track",
 ]
 V1_RE = re.compile(r"@(%s)(?![A-Za-z0-9_])" % "|".join(V1_DECORATORS))
-ROUTER_MODULE_RE = re.compile(r"""(?:from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)['"]@ohos\.router['"]""")
-KIT_ARKUI_IMPORT_RE = re.compile(r"""import\s*\{([^}]*)\}\s*from\s*['"]@kit\.ArkUI['"]""", re.S)
 SDK_INIT_RE = re.compile(
     r"\b(MobPush\w*|AGConnect\w*|WXApi\w*|AlibcTrade\w*|Alibc\w*Sdk|Sentry\w*|JPush\w*|UMConfigure|UMeng\w*)"
     r"\s*\.\s*(init\w*|register\w*|setup\w*|start\w*|asyncInit\w*|configure\w*)\s*\(")
@@ -73,9 +73,6 @@ WEB_CONTAINER_FILES = {"features/web/src/main/ets/TrustedWebView.ets", "features
 EXTERNAL_LAUNCH_RE = re.compile(r"\b(openLink|startAbility\w*)\s*\(")
 WEB_CONTAINER_USE_RE = re.compile(r"(?<![A-Za-z0-9_.])(TrustedWebView|ExternalWebView)\s*\(\s*\{")
 BACK_PRESSED_RE = re.compile(r"\.onBackPressed\s*\(")
-NAVBAR_BUILDER_RE = re.compile(r"(?<![A-Za-z0-9_.])navBar\s*\(\s*\)\s*\{")
-NAVBAR_FORBIDDEN_RE = re.compile(
-    r"(?<![A-Za-z0-9_.])(Image\s*\(|\.\s*height\s*\(\s*['\"]\s*[0-9.]+\s*%\s*['\"]\s*\))")
 FAKE_FLAG_OWNER = "entry/src/staging/ets/variant/DebugFakeServer.ets"
 # HM-LINT-10 的范围（FU-HM-0718 第 3 项）：这个目录下每个文件都要有归属——源码交给 TypeScript 解析器（.ets 按 ArkTS、.ts 按 TS，
 # hm10-scan.js 按扩展名选 ScriptKind），资源数据文件不含可执行代码、不扫描，其余一律「不支持」→ exit 4。
@@ -84,50 +81,6 @@ HM10_SOURCE_SUFFIXES = (".ets", ".ts")
 HM10_DATA_SUFFIXES = (".json", ".json5", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
 # Finder 元数据（不含代码；镜像同步也排除它），不算不支持的文件。
 HM10_IGNORED_NAMES = {".DS_Store"}
-IMPORT_FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
-
-
-def strip_comments_keep_strings(src):
-    """去掉 // 与 /* */ 注释，保留字符串字面量；返回 (代码, [(行号, 引号, 内容)])。"""
-    out = []
-    strings = []
-    i, n, line = 0, len(src), 1
-    while i < n:
-        ch = src[i]
-        if ch == "\n":
-            line += 1
-            out.append(ch)
-            i += 1
-        elif src.startswith("//", i):
-            j = src.find("\n", i)
-            i = n if j < 0 else j
-        elif src.startswith("/*", i):
-            j = src.find("*/", i + 2)
-            j = n if j < 0 else j + 2
-            line += src.count("\n", i, j)
-            out.append("\n" * src.count("\n", i, j))
-            i = j
-        elif ch in ("'", '"', "`"):
-            start_line = line
-            j = i + 1
-            buf = []
-            while j < n and src[j] != ch:
-                if src[j] == "\\" and j + 1 < n:
-                    buf.append(src[j:j + 2])
-                    j += 2
-                    continue
-                if src[j] == "\n":
-                    line += 1
-                buf.append(src[j])
-                j += 1
-            content = "".join(buf)
-            strings.append((start_line, ch, content))
-            out.append(ch + content + ch)
-            i = j + 1
-        else:
-            out.append(ch)
-            i += 1
-    return "".join(out), strings
 
 
 HM10_SCANNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hm10-scan.js")
@@ -220,6 +173,39 @@ def fake_flag_scan(sources):
         raise HM10ToolchainError("hm10-scan.js 的结果缺少 incomplete 字段（扫描器与 lint.py 版本不一致）")
     tool.update(out.get("typescript") or {})
     return tool, results
+
+
+def lex_scan(sources):
+    """HM-LINT-1…9 的词法与导入（FU-HM-0723 第 2 轮修复：不再手写词法）：sources 为 [(文件名, 原始源码)]，一次调用
+    `hm10-scan.js --lex`（与 HM-LINT-10 同一条 node + 鸿蒙 SDK ohos-typescript 解析链）。每个 .ets / .ts 返回
+    {"code", "navbars": [{"line", "invalid", "hits": [{"line", "what"}]}], "strings": [{"line", "quote", "value"（解码后）}], "imports": [{"line", "kind", "module"（解码后）, "typeOnly",
+    "names"}], "diagnostics", "incomplete"}；.json5 返回 {"json", "incomplete"}。incomplete 非空（语法错误、扫描器与语法树不一致）
+    → 该文件 lint 以 4 失败；工具链不可用、输出缺失 / 不完整抛 HM10ToolchainError（lint 以 3 失败）。"""
+    tool = hm10_toolchain()
+    payload = json.dumps({"sources": [{"name": name, "text": text} for name, text in sources]}, ensure_ascii=False)
+    try:
+        proc = subprocess.run([tool["node"], HM10_SCANNER, tool["typescript"], "--lex"], input=payload.encode("utf-8"),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise HM10ToolchainError("运行 %s 失败：%s" % (tool["node"], e))
+    if proc.returncode != 0:
+        raise HM10ToolchainError("hm10-scan.js --lex 退出 %d：%s" % (proc.returncode,
+                                                                 proc.stderr.decode("utf-8", "replace").strip()))
+    try:
+        results = json.loads(proc.stdout.decode("utf-8"))["results"]
+    except (ValueError, KeyError) as e:
+        raise HM10ToolchainError("hm10-scan.js --lex 输出无法解析：%s" % e)
+    if len(results) != len(sources):
+        raise HM10ToolchainError("hm10-scan.js --lex 返回 %d 份结果，应为 %d" % (len(results), len(sources)))
+    for (name, _), r in zip(sources, results):
+        if not isinstance(r, dict) or "incomplete" not in r:
+            raise HM10ToolchainError("hm10-scan.js --lex 的结果缺少 incomplete 字段（%s）" % name)
+        if r["incomplete"] is None:
+            want = ("json",) if name.endswith(".json5") else ("code", "strings", "imports", "navbars")
+            missing = [k for k in want if k not in r]
+            if missing:
+                raise HM10ToolchainError("hm10-scan.js --lex 的结果不完整（%s 缺 %s）" % (name, ", ".join(missing)))
+    return results
 
 
 def describe_toolchain(tool):
@@ -436,16 +422,27 @@ HM10_CASES = [
     ("模板插值到文件末尾仍未闭合（扫不完全文）", "const s = `${ {k: 1}.k ;\nconst a = DebugFakeServer.enabled;", None,
      "incomplete"),
     ("未闭合的正则（扫不完全文）", "const = ;\nconst r = /abc\nconst a = DebugFakeServer.enabled;", None, "incomplete"),
+    # FU-HM-0723 第 3 项（F-X-07 补充，iOS FU-IOS-0712 R1-02 样例的 ArkTS 版本）：注释 / 字符串记号不改变边界
+    ("块注释里的记号之后跟真实读取、行注释里的 */（iOS R1-02 同构）",
+     "/* DebugFakeServer.enabled note */\nconst a = DebugFakeServer.enabled;\n// */", 1),
+    ("行内块注释之后接读取", "/* note */ const a = DebugFakeServer.enabled;", 1),
+    ("字符串里的 /* 与 */ 之间的读取", "const s = '/*';\nconst a = DebugFakeServer.enabled;\nconst t = '*/';", 1),
+    ("模板插值里的反引号字符串之后的读取", 'const t = `${"`"}`;\nconst s = "/*";\nconst a = DebugFakeServer.enabled;\n'
+     'const z = "*/";', 1),
+    ("正则里的引号之后的读取", "const re = /'/;\nconst s = '/*';\nconst a = DebugFakeServer.enabled;\nconst t = '*/';", 1),
 ]
 
 # R3-01：整条 lint 的退出码（把源码放进临时目录的 entry/src/staging 下跑 main）。复现例只要报出或非零失败二者之一，
 # 这里按实现要求更严：复现例必须报出（1），未闭合例必须以 4 失败。
 HM10_LINT_CASES = [
-    ("模板插值误加分号之后的读取 → 报出", "const s = `${value;}`;\nconst a = DebugFakeServer.enabled;", 1),
+    # FU-HM-0723 第 2 轮修复：HM-LINT-1…9 改由解析器给出词法与导入，有语法错误的文件判不了 → 整条 lint 以 4 失败（与「解析器报语法
+    # 错误 → 4」同口径）。下面两例原来分别是 1、0（只有 HM-LINT-10 的退回扫描参与），现在更严：4。HM-LINT-10 自己的退回扫描判定仍由
+    # 上面 HM10_CASES 的 ast+scanner 用例覆盖（「报出」那一例的 hits 仍为 1）。
+    ("模板插值误加分号之后的读取 → 4（语法错误的文件 HM-LINT-1…9 判不了）", "const s = `${value;}`;\nconst a = DebugFakeServer.enabled;", 4),
     ("未闭合的反引号 → 4", "const s = `abc;\nconst a = DebugFakeServer.enabled;", 4),
     ("未闭合的字符串 → 4", "const s = 'abc; const a = DebugFakeServer.enabled;\n", 4),
     ("未闭合的块注释 → 4", "const a = 1; /* abc\nconst b = DebugFakeServer.enabled;", 4),
-    ("语法错误但能扫完的文件没有读取 → 0", "const = ;\nconst s = `${a}`;", 0),
+    ("语法错误但 HM-LINT-10 能扫完的文件没有读取 → 4（HM-LINT-1…9 判不了）", "const = ;\nconst s = `${a}`;", 4),
 ]
 
 # FU-HM-0718 第 3 项：整条 lint 在一棵目录树上的退出码。(说明, {相对路径: 内容}, 不可列举的子目录, [(符号链接, 指向)], 应有退出码)。
@@ -476,6 +473,147 @@ HM10_TREE_CASES = [
     ("staging/ets/mock 目录里的读取 → 1（HM-LINT-10 不套 SKIP_DIRS）",
      {"entry/src/staging/ets/mock/Fake.ets": HM10_READ}, [], [], 1),
     ("staging 里的 .ts 读取 → 1（.ts 按 TS 解析）", {"entry/src/staging/ets/Plain.ts": HM10_READ}, [], [], 1),
+]
+
+# FU-HM-0723 第 3 项（F-X-07 补充，iOS FU-IOS-0712 R1-02 同类）：HM-LINT-1…9 的词法边界（第 2 轮修复起由解析器给出，lex_scan）。
+# iOS 样例的 ArkTS 版本：记号在注释 / 字符串 / 模板 / 正则里不得改变边界，真实指令照报（1）；解析器报语法错误一律 4。样例里的「指令」是 @ohos.router 导入（HM-LINT-3）。
+LEX_ROUTER = "import router from '@ohos.router';\n"
+TW = "features/web/src/main/ets/TrustedWebView.ets"
+NAVBAR_PLAIN = "@ComponentV2\nstruct TrustedWebView {\n  @Builder\n  navBar() {\n    %s\n  }\n\n  build() {\n    this.navBar()\n  }\n}\n"
+# 末轮窄修 R3-02 / R3-04：TrustedWebView.ets 的样例（navBar() 之前的方法里有 emoji，之后的方法里有 Image——只该检查 navBar 本身）。
+NAVBAR_EMOJI_BEFORE = ("@ComponentV2\nstruct TrustedWebView {\n  before(): void {\n    const s: string = '😀😀😀😀😀😀😀😀😀😀😀😀';\n  }\n"
+                       "\n  @Builder\n  navBar() {\n    %s\n  }\n\n  @Builder\n  after() {\n    Image('x.png')\n  }\n\n"
+                       "  build() {\n    this.navBar()\n  }\n}\n")
+LEX_MAIN = "entry/src/main/ets/Lex.ets"
+
+
+def _lex_case(title, src, want):
+    return (title, {"entry/src/staging/ets/Ok.ets": HM10_OK, LEX_MAIN: src}, [], [], want)
+
+
+LEX_TREE_CASES = [
+    _lex_case("块注释里的记号、之后的真实导入、行注释里的 */（iOS R1-02 原样例同构）→ 1",
+              "/* import router from '@ohos.router' note */\n" + LEX_ROUTER + "// */\n", 1),
+    _lex_case("行内 /* */ 之后接真实导入 → 1", "/* note */ " + LEX_ROUTER, 1),
+    _lex_case("字符串里的 /* 与 */ 夹着真实导入 → 1", "const a = '/*';\n" + LEX_ROUTER + "const b = '*/';\n", 1),
+    _lex_case("模板插值里的反引号字符串，之后字符串里的 /* */ 夹着真实导入 → 1",
+              'const t = `${"`"}`;\nconst s = "/*";\n' + LEX_ROUTER + 'const z = "*/";\n', 1),
+    _lex_case("嵌套模板文本里的 /*、插值里的 */ → 1",
+              "const t = `a${`/*`}b${'*/'}`;\n" + LEX_ROUTER, 1),
+    _lex_case("正则里的引号，之后字符串里的 /* */ 夹着真实导入 → 1",
+              "const re = /'/;\nconst s = '/*';\n" + LEX_ROUTER + "const t = '*/';\n", 1),
+    _lex_case("正则里的 // 之后同一行的真实导入 → 1",
+              "const ok = /^https?:\\/\\//.test(u); " + LEX_ROUTER, 1),
+    _lex_case("只在块注释里的导入 → 0", "/* " + LEX_ROUTER.strip() + " */\nconst a = 1;\n", 0),
+    _lex_case("除号（a / b / c）不当正则 → 0", "const v = (a + b) / 2 / c;\nconst w = x / y;\n", 0),
+    _lex_case("未闭合的块注释 → 4", "const a = 1; /* note\n" + LEX_ROUTER, 4),
+    _lex_case("字符串里未转义的换行（未闭合）→ 4", "const a = 'abc;\n" + LEX_ROUTER, 4),
+    _lex_case("未闭合的模板 → 4", "const t = `abc;\n" + LEX_ROUTER, 4),
+    _lex_case("模板插值到文件末尾仍未闭合 → 4", "const t = `${ {k: 1}.k ;\n" + LEX_ROUTER, 4),
+    _lex_case("未闭合的正则 → 4", "const r = /abc\n" + LEX_ROUTER, 4),
+    # 第 2 轮修复：手写词法里的「歧义」由解析器按语法决定（合法代码照常判定），下面三例原为 4。
+    _lex_case(") 之后的除号由解析器定为除号，字符串里的 /* */ 不影响，真实导入照报 → 1",
+              "const v = (a) / '/*' / 2;\n" + LEX_ROUTER + "const w = '*/';\n", 1),
+    # 第 1 轮修复 R1-04：上下文关键字（可作变量名）之后的 /——合法除法也不能静默放行（原实现把 of 当正则前关键字、吞掉中文字符串、退出 0）。
+    ("变量 of 之后的除号与中文字符串（合法代码，R1-04）→ 1：解析器认出中文字符串",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK,
+      "features/home/src/main/ets/Of.ets": "const of: number = 8;\nconst n: number = of / '中文'.length / 2;\n"}, [], [], 1),
+    _lex_case("for…of 之后的正则（合法代码）→ 0", "for (const x of /a/.exec('b') ?? []) {}\n", 0),
+    # 第 2 轮修复 R2-03 / R2-04 / R2-05 的反例（SDK 解析器零诊断的合法代码）：必须报出。
+    ("R2-03 非空断言之后的除号与中文字符串 → 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK,
+      "features/home/src/main/ets/Bang.ets": "const value: number = 8;\nconst n: number = value! / '中文'.length / 2;\n"},
+     [], [], 1),
+    _lex_case("R2-04 type 导入、注释夹在每个记号之间、无空白 from → 1",
+              "import/*c*/type/*d*/{ router/*e*/as r }from'@kit.ArkUI';\n", 1),
+    _lex_case("R2-04 模块名里的转义（'@ohos.\\u0072outer' 解码后是 @ohos.router）→ 1",
+              "import router from '@ohos.\\u0072outer';\n", 1),
+    _lex_case("R2-05 行注释之后的 U+2028 行终止符 → 1", "// note\u2028" + LEX_ROUTER, 1),
+    _lex_case("R2-05 行注释之后的 U+2029 段终止符 → 1", "// note\u2029" + LEX_ROUTER, 1),
+    ("字符串里转义的中文（'\\u4e2d\\u6587' 解码后比较）→ 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "features/home/src/main/ets/Esc.ets": "const s: string = '\\u4e2d\\u6587';\n"},
+     [], [], 1),
+    _lex_case("export … from 再导出 @ohos.router → 1", "export { default as R } from '@ohos.router';\n", 1),
+    ("oh-package.json5 不带引号的键依赖另一个 feature → 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK,
+      "features/home/oh-package.json5": "{ // c\n  name: 'home', dependencies: { search: 'file:../search', }, }\n"},
+     [], [], 1),
+    _lex_case("属性名 a.of 之后的除号照常 → 0", "const n: number = a.of / 2;\n", 0),
+    # 第 1 轮修复 R1-05：注释夹在导入记号之间——删注释保留分隔、导入按记号识别（不依赖特定空白）
+    _lex_case("from 与模块名之间的块注释 → 1", "import router from/* separator */'@ohos.router';\n", 1),
+    _lex_case("from 之前的块注释 → 1", "import router /* c */from '@ohos.router';\n", 1),
+    _lex_case("import 之后的块注释 → 1", "import/* c */router from '@ohos.router';\n", 1),
+    _lex_case("只有副作用导入、import 之后的块注释 → 1", "import/* c */'@ohos.router';\n", 1),
+    _lex_case("花括号内的块注释（@kit.ArkUI 导入 router）→ 1",
+              "import { /* c */ router /* d */ } from '@kit.ArkUI';\n", 1),
+    _lex_case("花括号内紧贴 as 的块注释（router/* c */as r）→ 1", "import { router/* c */as r } from '@kit.ArkUI';\n", 1),
+    _lex_case("from 与模块名之间没有空白（合法写法）→ 1", "import router from'@ohos.router';\n", 1),
+    _lex_case("副作用导入 import 与模块名之间没有空白 → 1", "import'@ohos.router';\n", 1),
+    _lex_case("花括号内的行注释与换行 as 别名 → 1", "import {\n  router // c\n  as r } from/*x*/'@kit.ArkUI';\n", 1),
+    ("features 里 import 之后的块注释导入另一个 feature → 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK,
+      "features/home/src/main/ets/X.ets": "import { SearchView } from/* c */'search';\nimport/* d */'orders';\n"},
+     [], [], 1),
+    # 末轮窄修 R3-02：navBar() 之前有非 BMP 字符（emoji）——原来两端位置单位不一致，范围截错漏报 / 误报。
+    ("R3-02 emoji 在 navBar() 之前、navBar 里的百分比高度（review 原样例，原实现范围收成空、漏报）→ 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK,
+      TW: "class X { before() { const s = '😀😀😀😀😀😀😀😀😀😀😀😀'; }\nnavBar() { Column().height('100%'); }\nafter(){} }\n"},
+     [], [], 1),
+    ("R3-02 emoji 在 navBar() 之前、navBar 里的百分比高度（struct 写法）→ 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: NAVBAR_EMOJI_BEFORE % "Column() {}.height('100%')"}, [], [], 1),
+    ("R3-02 emoji 在 navBar() 之前、navBar 干净、Image 在后面的方法里 → 0",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: NAVBAR_EMOJI_BEFORE % "Column() {}.height(56)"}, [], [], 0),
+    # 末轮窄修 R3-04：百分比高度按解码后的参数值判（转义的 % 与数字也算），数值高度不算。
+    ("R3-04 .height('100\\u0025')（转义百分号）→ 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: NAVBAR_PLAIN % "Column() {}.height('100\\u0025')"}, [], [], 1),
+    ("R3-04 .height('\\u0031\\u0030\\u0030%')（转义数字）→ 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: NAVBAR_PLAIN % "Column() {}.height('\\u0031\\u0030\\u0030%')"},
+     [], [], 1),
+    ("R3-04 .height(100)（数值高度）与 .height('100')（不是百分比）→ 0",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: NAVBAR_PLAIN % "Column() {}.height(100).width('100')"}, [], [], 0),
+    # 末轮窄修 R3-03：动态导入 / require 的模块名按可静态确定的值折叠；确定不了 → 4。
+    _lex_case("R3-03 import('@ohos.' + 'router') → 1", "const m = import('@ohos.' + 'router');\n", 1),
+    _lex_case("R3-03 import(('@ohos.router')) → 1", "const m = import(('@ohos.router'));\n", 1),
+    _lex_case("R3-03 常量插值模板 import(`@ohos.${P}`) → 1",
+              "const P: string = 'rou' + 'ter';\nconst m = import(`@ohos.${P}`);\n", 1),
+    _lex_case("R3-03 require('@ohos.' + 'router') → 1", "const m = require('@ohos.' + 'router');\n", 1),
+    ("R3-03 features/home 里 import('sea' + 'rch') → 1（HM-LINT-5）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "features/home/src/main/ets/Dyn.ets": "const m = import('sea' + 'rch');\n"},
+     [], [], 1),
+    _lex_case("R3-03 模块名是变量（确定不了）→ 4", "function f(name: string) { return import(name); }\n", 4),
+    # 末轮窄修二 RC-02：同名的其他绑定遮蔽外层安全的 const——不按名字误取外层值，按确定不了 → 4。
+    # 末轮窄修三 RC-03：navBar 的高度参数用到同名绑定冲突的常量——不跳过，以 4 失败；对照：单一 const '100%' 照报，数值常量不报。
+    ("RC-03 百分比常量 + 无关的同名参数，navBar 里 .height(H) → 4",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK,
+      TW: "const H: string = '100%';\nfunction f(H: string) { return H; }\n" + NAVBAR_PLAIN % "Column() {}.height(H)"}, [], [], 4),
+    ("RC-03 单一 const H = '100%'，navBar 里 .height(H) → 1（HM-LINT-9）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: "const H: string = '100%';\n" + NAVBAR_PLAIN % "Column() {}.height(H)"},
+     [], [], 1),
+    ("RC-03 数值高度常量 const H = 56，navBar 里 .height(H) → 0",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: "const H: number = 56;\n" + NAVBAR_PLAIN % "Column() {}.height(H)"},
+     [], [], 0),
+    ("RC-03 属性取值高度 .height(CouliInteraction.minTouchTarget) → 0（与生产写法一致，不在不确定之列）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, TW: NAVBAR_PLAIN % "Column() {}.height(CouliInteraction.minTouchTarget)"},
+     [], [], 0),
+    _lex_case("RC-02 参数 P 遮蔽外层 const P='safe'，import(P) → 4",
+              "const P: string = 'safe';\nfunction f(P: string) { return import(P); }\nf('@ohos.router');\n", 4),
+    _lex_case("RC-02 参数 P 遮蔽，require(P) → 4",
+              "const P: string = 'safe';\nfunction f(P: string) { return require(P); }\nf('@ohos.router');\n", 4),
+    _lex_case("RC-02 块内 let P 遮蔽，import(P) → 4",
+              "const P: string = 'safe';\nfunction f() {\n  let P: string = '@ohos.router';\n  return import(P);\n}\n", 4),
+    _lex_case("RC-02 解构出的同名绑定遮蔽，import(P) → 4",
+              "const P: string = 'safe';\nfunction f(o: Record<string, string>) {\n  const { P } = o;\n  return import(P);\n}\n", 4),
+    ("RC-02 features/home 里参数遮蔽、调用方传 'search' → 4（不按外层安全值放行）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "features/home/src/main/ets/Dyn.ets":
+      "const M: string = './local';\nfunction load(M: string) { return import(M); }\nload('search');\n"}, [], [], 4),
+    ("RC-02 对照：features/home 里只声明一次的 const M = 'search'，import(M) → 1（HM-LINT-5）",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "features/home/src/main/ets/Dyn.ets":
+      "const M: string = 'sea' + 'rch';\nconst m = import(M);\n"}, [], [], 1),
+    ("features 里模板文本的中文仍按 HM-LINT-1 报 → 1",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "features/home/src/main/ets/T.ets": "const t = `中文${x}`;\n"}, [], [], 1),
+    ("oh-package.json5 未闭合的块注释 → 4",
+     {"entry/src/staging/ets/Ok.ets": HM10_OK, "features/home/oh-package.json5": '{ /* x\n "dependencies": {} }\n'},
+     [], [], 4),
 ]
 
 
@@ -541,9 +679,14 @@ def self_test_hm10():
         ok = got_exit == want_exit
         failed += 0 if ok else 1
         print("  %s lint 目录树：%s：应为 %d，实为 %d" % ("PASS" if ok else "FAIL", title, want_exit, got_exit))
-    total = len(HM10_CASES) + len(HM10_LINT_CASES) + len(HM10_TREE_CASES)
-    print("HM-LINT-10 自测：%d 例（扫描 %d 例 + lint 退出码 %d 例 + 目录树 %d 例），%d 例失败"
-          % (total, len(HM10_CASES), len(HM10_LINT_CASES), len(HM10_TREE_CASES), failed))
+    for title, files, unreadable, links, want_exit in LEX_TREE_CASES:
+        got_exit = run_tree_case(files, unreadable, links)
+        ok = got_exit == want_exit
+        failed += 0 if ok else 1
+        print("  %s lint 词法边界：%s：应为 %d，实为 %d" % ("PASS" if ok else "FAIL", title, want_exit, got_exit))
+    total = len(HM10_CASES) + len(HM10_LINT_CASES) + len(HM10_TREE_CASES) + len(LEX_TREE_CASES)
+    print("HM-LINT-10 自测：%d 例（扫描 %d 例 + lint 退出码 %d 例 + 目录树 %d 例 + 词法边界 %d 例），%d 例失败"
+          % (total, len(HM10_CASES), len(HM10_LINT_CASES), len(HM10_TREE_CASES), len(LEX_TREE_CASES), failed))
     return 1 if failed else 0
 
 
@@ -634,35 +777,6 @@ def line_of(code, pos):
     return code.count("\n", 0, pos) + 1
 
 
-def block_end(code, start):
-    """start 是某个 { 之后的位置；返回与之配对的 } 的位置（字符串字面量里的括号不计，注释已去掉）。"""
-    depth, i, n = 1, start, len(code)
-    while i < n:
-        ch = code[i]
-        if ch in ("'", '"', "`"):
-            j = i + 1
-            while j < n and code[j] != ch:
-                j += 2 if code[j] == "\\" else 1
-            i = j + 1
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-    return n
-
-
-def load_json5(path):
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    code, _ = strip_comments_keep_strings(text)
-    code = re.sub(r",(\s*[}\]])", r"\1", code)
-    return json.loads(code)
-
-
 def lint(root):
     problems = []
 
@@ -699,15 +813,38 @@ def lint(root):
             report("HM-LINT-10", path, h["line"],
                    "调试替身直接读了 DebugFakeServer.enabled；改用 DebugFakeServer.mockGate（含当前环境 MOCK_DATA 闸门，F-X-02）")
 
+    # FU-HM-0723 第 2 轮修复：注释 / 字符串 / 正则 / 导入一律由 TypeScript 解析器决定（lex_scan → hm10-scan.js --lex），一次调用。
+    sources = []
     for path in ets_files(root, hm10_incomplete):
         src = read_source(path, root, hm10_incomplete)
-        if src is None:
-            continue
-        code, strings = strip_comments_keep_strings(src)
+        if src is not None:
+            sources.append((path, src))
+    pkgs = []
+    for feature in FEATURES:
+        pkg = os.path.join(root, "features", feature, "oh-package.json5")
+        if os.path.isfile(pkg):
+            src = read_source(pkg, root, hm10_incomplete)
+            if src is not None:
+                pkgs.append((feature, pkg, src))
+    lexed = lex_scan([(p, t) for p, t in sources] + [(p, t) for _, p, t in pkgs]) if (sources or pkgs) else []
+
+    for (path, _), res in zip(sources, lexed):
         rel = os.path.relpath(path, root).replace(os.sep, "/")
+        if res["incomplete"]:
+            # 解析器报语法错误（或扫描器与语法树不一致）：这个文件判不了，lint 以 4 失败，不猜。
+            hm10_incomplete.append("%s:%d: %s，无法保证扫完全文" % (rel, res["incomplete"]["line"], res["incomplete"]["reason"]))
+            continue
+        code = res["code"]
+        strings = [(x["line"], x["quote"], x["value"]) for x in res["strings"]]
+        imports = res["imports"]
         in_feature = rel.startswith("features/")
+        # 末轮窄修 R3-03：import() / require() 的模块名折叠后仍确定不了（变量、函数调用等）——判不了它是不是禁用模块，lint 以 4 失败。
+        for imp in imports:
+            if imp.get("unresolved"):
+                hm10_incomplete.append("%s:%d: 动态导入的模块名无法静态确定（%s），无法检查 HM-LINT-3 / 5" % (rel, imp["line"], imp["kind"]))
 
         if in_feature:
+            # 字符串按解码后的值比较（'\u4e2d' 这样的转义也算中文）。
             for line, _, content in strings:
                 if CJK.search(content):
                     report("HM-LINT-1", path, line, "features/ 的字符串字面量含中文，文案经字典取键（BR-TEXT-12）")
@@ -715,12 +852,13 @@ def lint(root):
         for m in V1_RE.finditer(code):
             report("HM-LINT-2", path, line_of(code, m.start()), "V1 装饰器 @%s；只用状态管理 V2" % m.group(1))
 
-        for m in ROUTER_MODULE_RE.finditer(code):
-            report("HM-LINT-3", path, line_of(code, m.start()), "使用 @ohos.router；导航只用 Navigation + NavPathStack")
-        for m in KIT_ARKUI_IMPORT_RE.finditer(code):
-            names = [x.strip().split(" as ")[0].strip() for x in m.group(1).split(",")]
-            if "router" in names:
-                report("HM-LINT-3", path, line_of(code, m.start()), "从 @kit.ArkUI 导入 router；导航只用 Navigation + NavPathStack")
+        # HM-LINT-3：按解析器给出的导入声明（模块名解码后比较；含 type 导入、副作用导入、export … from、import()、require()、
+        # import("…") 类型）。鸿蒙 SDK 解析器会把 @kit.ArkUI 的命名导入展开成底层模块（router → @ohos.router），两种形式都认。
+        for imp in imports:
+            if imp["module"] == "@ohos.router":
+                report("HM-LINT-3", path, imp["line"], "使用 @ohos.router；导航只用 Navigation + NavPathStack")
+            elif imp["module"] == "@kit.ArkUI" and any(n["name"] == "router" for n in imp["names"]):
+                report("HM-LINT-3", path, imp["line"], "从 @kit.ArkUI 导入 router；导航只用 Navigation + NavPathStack")
 
         if os.path.basename(path) != "PrivacyGate.ets":
             for m in SDK_INIT_RE.finditer(code):
@@ -742,16 +880,22 @@ def lint(root):
                        "WebView 容器与桥接线不得拉起外部应用或系统浏览器：%s（R1-09）" % m.group(1))
 
         if rel == "features/web/src/main/ets/TrustedWebView.ets":
-            m = NAVBAR_BUILDER_RE.search(code)
-            if m is None:
+            # FU-HM-0723 末轮窄修 R3-02 / R3-04：navBar() 的范围与禁用调用由解析器按语法树给出（不再用代码位置切片——两端位置单位曾不一致；
+            # 百分比高度按解码后的参数值判）。范围无效以 4 失败。
+            navbars = res["navbars"]
+            if not navbars:
                 report("HM-LINT-9", path, 1, "找不到标题栏 navBar() 构建函数，无法检查标题栏尺寸（R4-01）")
-            else:
-                body_start = m.end()
-                end = block_end(code, body_start)
-                for hit in NAVBAR_FORBIDDEN_RE.finditer(code, body_start, end):
-                    report("HM-LINT-9", path, line_of(code, hit.start()),
+            for nb in navbars:
+                if nb["invalid"]:
+                    hm10_incomplete.append("%s:%d: HM-LINT-9 navBar() 的方法体范围无效，无法保证扫完" % (rel, nb["line"]))
+                    continue
+                # 末轮窄修三 RC-03：navBar 里 .height(x) 的 x 折叠不出值（同名绑定冲突等）——判不了，以 4 失败（不静默放行）。
+                for u in nb.get("uncertain") or []:
+                    hm10_incomplete.append("%s:%d: HM-LINT-9 navBar() 里的高度参数无法静态确定（%s），无法保证检查完" % (rel, u["line"], u["reason"]))
+                for hit in nb["hits"]:
+                    report("HM-LINT-9", path, hit["line"],
                            "标题栏 navBar() 里出现 %s：百分比高度或 Image 会把标题栏撑满整页、挤掉网页；背景图用 backgroundImage（R4-01）"
-                           % hit.group(1).strip())
+                           % hit["what"])
 
         if rel.startswith("entry/src/main/"):
             uses = len(WEB_CONTAINER_USE_RE.findall(code))
@@ -763,17 +907,18 @@ def lint(root):
 
         if in_feature:
             own = rel.split("/")[1]
-            for m in IMPORT_FROM_RE.finditer(code):
-                spec = m.group(1) or m.group(2)
-                pkg = spec.split("/")[0]
+            for imp in imports:
+                spec = imp["module"]
+                pkg = spec.split("/")[0] if spec else None
                 if pkg in FEATURES and pkg != own:
-                    report("HM-LINT-5", path, line_of(code, m.start()), "feature %s import 了 feature %s" % (own, pkg))
+                    report("HM-LINT-5", path, imp["line"], "feature %s import 了 feature %s" % (own, pkg))
 
-    for feature in FEATURES:
-        pkg = os.path.join(root, "features", feature, "oh-package.json5")
-        if not os.path.isfile(pkg):
+    for (feature, pkg, _), res in zip(pkgs, lexed[len(sources):]):
+        if res["incomplete"]:
+            hm10_incomplete.append("%s:%d: %s，无法保证扫完" % (os.path.relpath(pkg, root), res["incomplete"]["line"],
+                                                      res["incomplete"]["reason"]))
             continue
-        data = load_json5(pkg)
+        data = res["json"] if isinstance(res["json"], dict) else {}
         for section in ("dependencies", "devDependencies", "dynamicDependencies"):
             for dep, value in (data.get(section) or {}).items():
                 target = str(value)

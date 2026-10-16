@@ -8,7 +8,7 @@ import {
   guardedOrder, OrderErrorView, OrderOutcome, OrderPhase, OrderRateGate
 } from './OrderListController';
 import { OrderErrorAction } from './OrderPresentation';
-import { OrderCacheEntry, OrderStaleCache } from './OrderStaleCache';
+import { CacheOwner, OrderCacheEntry, OrderStaleCache } from './OrderStaleCache';
 
 type JSONValue = Object | null;
 
@@ -186,6 +186,8 @@ export class OrderDetailController {
       return;
     }
     const seq: number = this.begin();
+    // F-X-17（FU-HM-0723）：缓存归属在请求开始时一次取得，随回调带到写入 / 读取点。
+    const cacheOwner: CacheOwner | null = this.d.cache === null ? null : this.d.cache.owner();
     const s: OrderDetailSnapshot = this.state;
     const held: OrderErrorView | null = this.gate.view;
     if (this.gate.active) {
@@ -241,7 +243,7 @@ export class OrderDetailController {
           s.staleFetchedAt = 0;
           const cache: OrderStaleCache | null = this.d.cache;
           if (cache !== null) {
-            cache.saveDetail(this.orderId, detail);
+            cache.saveDetailAs(cacheOwner, this.orderId, detail);
           }
           this.emit();
           this.onLoaded(detail);
@@ -250,7 +252,7 @@ export class OrderDetailController {
       }
       const cache: OrderStaleCache | null = this.d.cache;
       const cached: OrderCacheEntry | null = cache !== null && outcome.transport && !OrderOutcome.cancelled(result)
-        ? cache.loadDetail(this.orderId) : null;
+        ? cache.loadDetailAs(cacheOwner, this.orderId) : null;
       const cachedDetail: OrderRecord | null = cached === null ? null : OrderJson.detail(cached.data);
       const action: Record<string, JSONValue> = OrderErrorAction.map(OrderErrorAction.DETAIL,
         outcome.ok || outcome.transport ? (outcome.ok ? 50001 : null) : outcome.code, outcome.transport,

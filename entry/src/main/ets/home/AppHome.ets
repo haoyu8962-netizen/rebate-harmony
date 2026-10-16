@@ -6,6 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AgentEntryVisibility, ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
   HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeIdentity, HomeLevel,
+  HomeLkgReconciler,
   HomeLkgBackend, HomeLkgStore, HomeLocalStore, HomeNoticeCloseTicket, HomePendingLedger, HomePopupImageTicket,
   HomePopupTicket, HomePrefsBackend, HomeRenderTicket, HomeSectionTicket, HomeShowing, HomeSignalHub, HomeSnapshot,
   HomeTap, HomeTicketPort, HomeVersionInfo, HomeVisibilityHub, PopupBlocker, PrivacyDecision, PrivacyPromptStage, PrivacyState, RetryAfterGate,
@@ -284,7 +285,8 @@ export class AppHome {
   readonly local: HomeLocalStore = new HomeLocalStore();
   private lkgStore: HomeLkgStore | null = null;
   private current: HomeController | null = null;
-  private lastIdentity: HomeIdentity | null = null;
+  /** 首页会员 LKG 的会话对账（上次建控制器时的身份与登录世代；FU-HM-0723 R2-02）。 */
+  private readonly reconciler: HomeLkgReconciler = new HomeLkgReconciler();
   private gate: RetryAfterGate | null = null;
   private ui: UIContext | null = null;
   /**
@@ -429,17 +431,18 @@ export class AppHome {
     }
     const now: HomeIdentity = AppHome.identityNow();
     const old: HomeController | null = this.current;
-    if (old !== null && old.boundIdentity.key === now.key) {
+    // FU-HM-0723 末轮窄修 R3-01：身份键不含登录世代，同账号世代换了（计数没动）也不能留着旧控制器、要对账。
+    // 末轮窄修二 RC-01：留着时顺带记下「未知 → 已知」观察到的世代，之后换代才删得到旧分区。
+    if (this.reconciler.keepOrObserve(old === null ? null : old.boundIdentity.key, now, store.epochTicket())) {
       this.readFlags();
       return;
     }
-    const before: HomeIdentity | null = this.lastIdentity;
     this.invalidate();
-    // 退出登录、换账号、会话失效：清旧账号作用域的 LKG（同一环境内；切换环境与撤回同意由清理器全清）。
-    if (before !== null && before.level === HomeLevel.MEMBER && before.env === now.env
-      && (now.level !== HomeLevel.MEMBER || now.userId !== before.userId)) {
-      // 清理结果上抛给本协调器（R1-06）：没删完但有落盘记录 → 读取前补清；连落盘记录都没有 → 本进程阻断读取并在每次同步时重试。
-      const result: string = (this.lkgStore as HomeLkgStore).clearScopeResult(before.scope);
+    // 退出登录、换账号、会话失效、同账号重新登录（登录世代变了，FU-HM-0723 第 2 轮修复 R2-02）：清旧账号作用域的 LKG（同一环境内；
+    // 切换环境与撤回同意由清理器全清）。判定在 Core HomeLkgReconciler（测试走同一入口）。
+    // 清理结果上抛给本协调器（R1-06）：没删完但有落盘记录 → 读取前补清；连落盘记录都没有 → 本进程阻断读取并在每次同步时重试。
+    const result: string | null = this.reconciler.reconcile(now, store.epochTicket(), store);
+    if (result !== null) {
       if (result === HomeClearResult.PENDING) {
         hilog.warn(DOMAIN, TAG, '%{public}s', 'home lkg scope clear failed; pending');
       } else if (result === HomeClearResult.VOLATILE) {
@@ -485,7 +488,7 @@ export class AppHome {
       }
     };
     this.current = c;
-    this.lastIdentity = identity;
+    this.reconciler.built(identity, lkg.epochTicket());
     this.readFlags();
     c.start();
     hilog.info(DOMAIN, TAG, 'home controller level=%{public}s', identity.level);

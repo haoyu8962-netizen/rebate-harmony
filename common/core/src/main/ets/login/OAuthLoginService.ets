@@ -2,7 +2,7 @@ import { ApiClient, ApiOutcome, ApiRequest, ApiResult, ClientScope } from '../ne
 import { ErrorEffect } from '../network/ErrorActionMapper';
 import { LocalRejectReason, SessionScope } from '../network/NetworkPolicy';
 import { LegalVersions, PhoneNumber, PhoneResult } from './LoginFlow';
-import { AttemptTicket, LoginOutcome, LoginService } from './LoginService';
+import { AttemptTicket, LoginOutcome, LoginService, loginResponseAccount } from './LoginService';
 import {
   OAuthAttemptSession, OAuthErrorResult, OAuthLoginErrorAction, OAuthLoginRoute, OAuthProvider, OAuthRouteResult,
   ThirdPartyButtons
@@ -447,7 +447,8 @@ export class OAuthLoginService {
       return this.failure(provider, result);
     }
     const route: OAuthRouteResult = OAuthLoginRoute.ofData(result.data);
-    const account: string | null = this.client.sessionAccount();
+    // F-X-17（FU-HM-0723）：phone_bound 记到这次登录响应的账号名下，当前会话只比较（已不是它时不记）。
+    const account: string | null = loginResponseAccount(result.data, this.client.sessionAccount());
     const isNew: boolean = result.data['is_new_user'] === true;
     if (this.login.usesLoginPlan(result)) {
       // FU-HM-0721（APP-05b 共性 28，iOS R2-01）：拿到 deletion_only（如仅第三方身份、注销中的老账号从强更页登录），或 full 但强更低于——

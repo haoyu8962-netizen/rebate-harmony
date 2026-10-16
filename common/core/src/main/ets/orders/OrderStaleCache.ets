@@ -100,6 +100,94 @@ export class MemoryOrderCacheStore implements OrderCacheStore {
   }
 }
 
+/**
+ * 分区缓存的归属（FU-HM-0723 第 1 项，F-X-17，iOS FU-IOS-0712 R1-01 同类）：账号与持久化登录世代在请求开始 / 页面绑定时一次取得，
+ * 随回调带到写入点；写入与读取只按它打分区标签，当前会话只拿来比较（不一致就不读不写）——旧响应通过最后一次身份核对后、写盘前
+ * 同账号重新登录（新登录世代），恢复的旧回调既不会写进新世代的分区，也不会按新世代重新打标签。
+ */
+export class CacheOwner {
+  /** 账号原文（只在本进程内存里比较，不落盘）。 */
+  readonly account: string;
+  /** 分区标签（OrderStaleCache.partitionOf：没接登录世代为账号短标识，接了为账号 + 登录世代；不含原文）。 */
+  readonly tag: string;
+
+  private constructor(account: string, tag: string) {
+    this.account = account;
+    this.tag = tag;
+  }
+
+  /** 此刻一次取得：账号为空、接了登录世代但读不出（null、空串、抛错）都为 null（不读不写）。 */
+  static capture(account: string | null, loginEpoch: (() => string | null) | null): CacheOwner | null {
+    if (account === null || account.length === 0) {
+      return null;
+    }
+    const tag: string | null = OrderStaleCache.partitionOf(account, loginEpoch);
+    return tag === null ? null : new CacheOwner(account, tag);
+  }
+
+  /** 此刻的会话仍是这份归属（只比较，不重绑）：当前账号与当前登录世代重新算出的分区和固定时相同。读不出按不是。 */
+  current(account: () => string | null, loginEpoch: (() => string | null) | null): boolean {
+    let now: string | null = null;
+    try {
+      now = account();
+    } catch (e) {
+      return false;
+    }
+    if (now === null || now !== this.account) {
+      return false;
+    }
+    return OrderStaleCache.partitionOf(now, loginEpoch) === this.tag;
+  }
+}
+
+/**
+ * 会话变化对账（F-X-17，FU-HM-0723）：App 每次状态同步把此刻的账号与归属交给它，判断要不要删分区缓存。原来只在账号变了时删——同账号
+ * 重新登录（新登录世代）时旧登录的分区原样留在盘上；现在账号变了、或同一账号的分区标签（登录世代）变了都删，对账不保留旧登录的缓存。
+ * 第一次同步（还没记过）只按账号比较，与原来一致。
+ */
+export class CachePartitionTracker {
+  private lastAccount: string | null | undefined = undefined;
+  private lastTag: string | null | undefined = undefined;
+
+  /** 与上次同步相比要不要删缓存（不记录；记录用 observe）。 */
+  clears(account: string | null, owner: CacheOwner | null): boolean {
+    if (this.lastAccount !== account) {
+      return true;
+    }
+    const tag: string | null = owner === null ? null : owner.tag;
+    return this.lastTag !== undefined && this.lastTag !== null && this.lastTag !== tag;
+  }
+
+  /** 记下这次同步的账号与归属。 */
+  observe(account: string | null, owner: CacheOwner | null): void {
+    this.lastAccount = account;
+    this.lastTag = owner === null ? null : owner.tag;
+  }
+
+  /**
+   * 同一账号、已知的登录世代换成了另一个（FU-HM-0723 末轮窄修 R3-01）：会话归属键不含持久化登录世代，令牌被换掉而三个会话计数没动时
+   * 归属键不变——这一项独立于归属键判断。冷启动世代从未知到已知（上次标签为 null）、第一次同步都不算。不记录。
+   */
+  epochChanged(account: string | null, owner: CacheOwner | null): boolean {
+    if (this.lastAccount === undefined || this.lastAccount !== account || this.lastTag === undefined
+      || this.lastTag === null) {
+      return false;
+    }
+    const tag: string | null = owner === null ? null : owner.tag;
+    return this.lastTag !== tag;
+  }
+
+  /**
+   * 一次状态同步的清理判定（AppWallet.sync 与 OrderSessionReconciler 共用；R3-01）：会话归属变了且（账号或分区变了），或同账号的
+   * 登录世代换了，就要删分区缓存。先判定、后记录——判定完成前不覆盖上次的分区标签。
+   */
+  sessionSync(sessionChanged: boolean, account: string | null, owner: CacheOwner | null): boolean {
+    const clear: boolean = (sessionChanged && this.clears(account, owner)) || this.epochChanged(account, owner);
+    this.observe(account, owner);
+    return clear;
+  }
+}
+
 /** 一份缓存（数据 + 成功获取的时刻）。 */
 export class OrderCacheEntry {
   readonly data: OrderRecord;
@@ -201,9 +289,23 @@ export class OrderStaleCache {
     return 'u' + (hash >>> 0).toString(16);
   }
 
-  private tag(): string | null {
-    const account: string | null = this.account();
-    return account === null || account.length === 0 ? null : OrderStaleCache.partitionOf(account, this.loginEpoch);
+  /**
+   * 此刻的归属（F-X-17）：调用方在请求开始 / 页面绑定时取一次，随回调带到 saveListAs / loadListAs / saveDetailAs / loadDetailAs。
+   * 游客、会话读不出、登录世代读不出为 null（不读不写）。
+   */
+  owner(): CacheOwner | null {
+    let account: string | null = null;
+    try {
+      account = this.account();
+    } catch (e) {
+      return null;
+    }
+    return CacheOwner.capture(account, this.loginEpoch);
+  }
+
+  /** 读写用的分区标签：只取固定归属的标签；当前会话已不是这份归属（换号、同账号重新登录、会话被清）为 null（不读不写）。 */
+  private tagOf(owner: CacheOwner | null): string | null {
+    return owner !== null && owner.current(this.account, this.loginEpoch) ? owner.tag : null;
   }
 
   /** 清理没确认完成（标记在、或标记读不出）：不读不写。 */
@@ -226,8 +328,8 @@ export class OrderStaleCache {
     return !this.blocked || this.clear();
   }
 
-  private readJson(name: string): OrderRecord | null {
-    const tag: string | null = this.tag();
+  private readJson(owner: CacheOwner | null, name: string): OrderRecord | null {
+    const tag: string | null = this.tagOf(owner);
     if (tag === null || !this.settled()) {
       return null;
     }
@@ -243,8 +345,8 @@ export class OrderStaleCache {
     }
   }
 
-  private writeJson(name: string, value: OrderRecord): void {
-    const tag: string | null = this.tag();
+  private writeJson(owner: CacheOwner | null, name: string, value: OrderRecord): void {
+    const tag: string | null = this.tagOf(owner);
     if (tag === null || !this.settled()) {
       return;
     }
@@ -259,16 +361,25 @@ export class OrderStaleCache {
     return 'list_' + (scope === 'share' ? 'share' : 'self') + '.json';
   }
 
-  /** 列表第一页的成功响应（调用方已确认是默认视图）。 */
+  /** 列表第一页的成功响应（调用方已确认是默认视图）；归属按此刻（没有请求身份的直接调用，生产代码用 saveListAs）。 */
   saveList(scope: string, data: OrderRecord): void {
+    this.saveListAs(this.owner(), scope, data);
+  }
+
+  /** 列表第一页的成功响应，写进请求开始时固定的归属 owner 的分区（F-X-17）。 */
+  saveListAs(owner: CacheOwner | null, scope: string, data: OrderRecord): void {
     const record: OrderRecord = {};
     record['fetched_at'] = this.clock();
     record['data'] = data;
-    this.writeJson(OrderStaleCache.listName(scope), record);
+    this.writeJson(owner, OrderStaleCache.listName(scope), record);
   }
 
   loadList(scope: string): OrderCacheEntry | null {
-    return OrderStaleCache.entryOf(this.readJson(OrderStaleCache.listName(scope)));
+    return this.loadListAs(this.owner(), scope);
+  }
+
+  loadListAs(owner: CacheOwner | null, scope: string): OrderCacheEntry | null {
+    return OrderStaleCache.entryOf(this.readJson(owner, OrderStaleCache.listName(scope)));
   }
 
   private static entryOf(record: OrderRecord | null): OrderCacheEntry | null {
@@ -281,14 +392,19 @@ export class OrderStaleCache {
   }
 
   saveDetail(orderId: string, data: OrderRecord): void {
-    const all: OrderRecord = this.readJson('details.json') ?? {};
+    this.saveDetailAs(this.owner(), orderId, data);
+  }
+
+  /** 详情的成功响应，写进请求开始时固定的归属 owner 的分区（F-X-17）。 */
+  saveDetailAs(owner: CacheOwner | null, orderId: string, data: OrderRecord): void {
+    const all: OrderRecord = this.readJson(owner, 'details.json') ?? {};
     const now: number = this.clock();
     const entry: OrderRecord = {};
     entry['fetched_at'] = now;
     entry['used_at'] = now;
     entry['data'] = data;
     all[orderId] = entry;
-    this.writeJson('details.json', OrderStaleCache.trim(all));
+    this.writeJson(owner, 'details.json', OrderStaleCache.trim(all));
   }
 
   /** 最近使用淘汰：只留 used_at 最新的 30 条。 */
@@ -311,7 +427,12 @@ export class OrderStaleCache {
 
   /** 读一条详情缓存（读到即记为最近使用）。 */
   loadDetail(orderId: string): OrderCacheEntry | null {
-    const all: OrderRecord | null = this.readJson('details.json');
+    return this.loadDetailAs(this.owner(), orderId);
+  }
+
+  /** 读一条详情缓存（固定归属 owner 的分区；读到即记为最近使用，回写同一分区）。 */
+  loadDetailAs(owner: CacheOwner | null, orderId: string): OrderCacheEntry | null {
+    const all: OrderRecord | null = this.readJson(owner, 'details.json');
     if (all === null) {
       return null;
     }
@@ -319,13 +440,13 @@ export class OrderStaleCache {
     const entry: OrderCacheEntry | null = OrderStaleCache.entryOf(raw);
     if (entry !== null && raw !== null) {
       raw['used_at'] = this.clock();
-      this.writeJson('details.json', all);
+      this.writeJson(owner, 'details.json', all);
     }
     return entry;
   }
 
   detailCount(): number {
-    const all: OrderRecord | null = this.readJson('details.json');
+    const all: OrderRecord | null = this.readJson(this.owner(), 'details.json');
     return all === null ? 0 : Object.keys(all).length;
   }
 

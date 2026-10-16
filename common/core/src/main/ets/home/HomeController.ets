@@ -56,6 +56,73 @@ export class HomeIdentity {
 }
 
 /**
+ * 首页会员 LKG 的会话对账（FU-HM-0723 第 2 轮修复 R2-02，F-X-17 同口径）：AppHome 在建控制器时记下身份与当时的登录世代票据
+ * （built），身份变了（旧控制器已作废）时交此刻的身份与世代（reconcile）。同一环境里旧身份是会员，且「不再是会员 / 换了账号 /
+ * 同账号但登录世代变了（重新登录）」都删旧账号的整个作用域（含各世代子目录），返回 HomeClearResult；不删返回 null。
+ * 原来只比较会员状态与账号：同账号重新登录时旧世代的分区留在盘上（读不回，但还在）。建控制器时世代未知（null）说明那时没写过
+ * 会员 LKG（save 要求世代已知），不因世代从未知变已知而删（冷启动会话晚一步读出时不误删本世代的 LKG）。
+ */
+export class HomeLkgReconciler {
+  private before: HomeIdentity | null = null;
+  private beforeEpoch: string | null = null;
+
+  /** 建控制器时调：记下身份与此刻的登录世代票据（HomeLkgStore.epochTicket）。 */
+  built(identity: HomeIdentity, epoch: string | null): void {
+    this.before = identity;
+    this.beforeEpoch = epoch;
+  }
+
+  /**
+   * 现有控制器能不能留着（AppHome.syncInner；FU-HM-0723 末轮窄修 R3-01）：身份键相同，且没有发生「会员、建控制器时世代已知、此刻世代
+   * 不同」——身份键不含持久化登录世代，令牌被换而会话计数没动时键不变，这时也要作废、对账、重建。
+   */
+  keeps(oldKey: string | null, now: HomeIdentity, nowEpoch: string | null): boolean {
+    if (oldKey === null || oldKey !== now.key) {
+      return false;
+    }
+    const b: HomeIdentity | null = this.before;
+    return !(b !== null && b.level === HomeLevel.MEMBER && this.beforeEpoch !== null && this.beforeEpoch !== nowEpoch);
+  }
+
+  /**
+   * AppHome.syncInner 的入口（末轮窄修二 RC-01）：能留着旧控制器时返回 true，并在「建控制器时世代未知、此刻已知」时记下观察到的世代——
+   * 缓存照留（冷启动落定不删），之后同账号再换代就按已知换代删旧分区。只改本对账器记的世代，不改旧控制器请求固定的写入票据。
+   * 返回 false 时调用方作废旧控制器后调 reconcile。
+   */
+  keepOrObserve(oldKey: string | null, now: HomeIdentity, nowEpoch: string | null): boolean {
+    if (!this.keeps(oldKey, now, nowEpoch)) {
+      return false;
+    }
+    const b: HomeIdentity | null = this.before;
+    if (b !== null && b.level === HomeLevel.MEMBER && this.beforeEpoch === null && nowEpoch !== null) {
+      this.beforeEpoch = nowEpoch;
+    }
+    return true;
+  }
+
+  /** 这次身份变化要不要删旧作用域（不执行删除）。 */
+  clears(now: HomeIdentity, nowEpoch: string | null): boolean {
+    const b: HomeIdentity | null = this.before;
+    if (b === null || b.level !== HomeLevel.MEMBER || b.env !== now.env) {
+      return false;
+    }
+    if (now.level !== HomeLevel.MEMBER || now.userId !== b.userId) {
+      return true;
+    }
+    return this.beforeEpoch !== null && this.beforeEpoch !== nowEpoch;
+  }
+
+  /** 身份变了（旧控制器已作废）：要删就删旧作用域并返回结果（HomeClearResult），不删返回 null。 */
+  reconcile(now: HomeIdentity, nowEpoch: string | null, store: HomeLkgStore): string | null {
+    const b: HomeIdentity | null = this.before;
+    if (b === null || !this.clears(now, nowEpoch)) {
+      return null;
+    }
+    return store.clearScopeResult(b.scope);
+  }
+}
+
+/**
  * 契约还没有的两个接口（G02 getPage、G03 listSectionItems，标「需契约」）：手写的待定 operation，不进生成的 ApiOperations，
  * 只由 Debug / Staging 的本地假服务实现；Release 构建为 null（不发请求：首页只显示 LKG / 包内默认，商品池与物料卡隐藏）。
  * anonymous：基本模式（不带 Authorization、X-Device-Id、签名与任何设备标识）。sendAllowed：共享 42901 闸门（每次实际发包前核对）。

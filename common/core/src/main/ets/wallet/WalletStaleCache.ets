@@ -3,7 +3,7 @@
 // FileSlot 临时文件），清理完成前不读回任何旧数据（APP-03a 第 33、38 条，APP-03b 第 1、11 条，APP-07 第 14 条，APP-08 第 20、28 条）。
 // 落盘端口沿用订单缓存的 OrderCacheStore（同一套原子写、待清理标记与删除核验；目录不同）。
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
-import { OrderCacheStore, OrderStaleCache } from '../orders/OrderStaleCache';
+import { CacheOwner, OrderCacheStore, OrderStaleCache } from '../orders/OrderStaleCache';
 import { WalletJson, WalletRecord } from './WalletJson';
 
 /** 一份钱包摘要缓存（数据 + 成功获取的时刻）。 */
@@ -67,6 +67,19 @@ export class WalletStaleCache {
     return account === null || account.length === 0 ? null : OrderStaleCache.partitionOf(account, this.loginEpoch);
   }
 
+  /**
+   * 请求开始时固定的归属（F-X-17，FU-HM-0723）：account 是调用页固定的账号；登录世代此刻一次取得。账号已不是当前会话、世代读不出为 null。
+   * 之后 saveAs / loadAs 只按它的分区读写，当前会话只拿来比较——不在写入时再读当前登录世代（iOS FU-IOS-0712 R1-01 WalletStaleCache 同类）。
+   */
+  ownerOf(account: string | null): CacheOwner | null {
+    const owner: CacheOwner | null = CacheOwner.capture(account, this.loginEpoch);
+    return owner !== null && owner.current(this.account, this.loginEpoch) ? owner : null;
+  }
+
+  private ownedTag(owner: CacheOwner | null): string | null {
+    return owner !== null && owner.current(this.account, this.loginEpoch) ? owner.tag : null;
+  }
+
   /** 清理没确认完成（标记在、或标记读不出）：不读不写。 */
   get blocked(): boolean {
     if (this.pendingInMemory) {
@@ -83,9 +96,29 @@ export class WalletStaleCache {
     return !this.blocked || this.clear();
   }
 
-  /** 成功取得的摘要（调用方已校验字段）。 */
+  /** 成功取得的摘要（调用方已校验字段）。没有请求身份的直接调用（生产代码用 saveAs）。 */
   save(summary: WalletRecord, owner: string | null | undefined = undefined): void {
-    const tag: string | null = this.tag(owner);
+    this.write(this.tag(owner), summary);
+  }
+
+  /** 成功取得的摘要，写进请求开始时固定的归属 owner 的分区（F-X-17）。 */
+  saveAs(owner: CacheOwner | null, summary: WalletRecord): void {
+    const record: WalletRecord = {};
+    record['fetched_at'] = this.clock();
+    record['data'] = summary;
+    // 先取时刻、最后才核对归属并写：核对与写入之间不再有别的调用。
+    const tag: string | null = this.ownedTag(owner);
+    if (tag === null || !this.settled()) {
+      return;
+    }
+    try {
+      this.store.write(tag, WalletStaleCache.FILE, JSON.stringify(record));
+    } catch (e) {
+      // 写不进：这次不缓存，不影响页面。
+    }
+  }
+
+  private write(tag: string | null, summary: WalletRecord): void {
     if (tag === null || !this.settled()) {
       return;
     }
@@ -99,9 +132,17 @@ export class WalletStaleCache {
     }
   }
 
-  /** 读缓存（读不出、内容损坏、字段不全一律按没有）。 */
+  /** 读缓存（读不出、内容损坏、字段不全一律按没有）。没有请求身份的直接调用（生产代码用 loadAs）。 */
   load(owner: string | null | undefined = undefined): WalletCacheEntry | null {
-    const tag: string | null = this.tag(owner);
+    return this.read(this.tag(owner));
+  }
+
+  /** 读请求开始时固定的归属 owner 的分区（F-X-17）。 */
+  loadAs(owner: CacheOwner | null): WalletCacheEntry | null {
+    return this.read(this.ownedTag(owner));
+  }
+
+  private read(tag: string | null): WalletCacheEntry | null {
     if (tag === null || !this.settled()) {
       return null;
     }

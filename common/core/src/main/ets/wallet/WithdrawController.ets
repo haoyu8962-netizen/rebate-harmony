@@ -233,6 +233,11 @@ export class WithdrawController implements WalletSessionAware {
     return this.account;
   }
 
+  /** 本页表单构建时固定的会话归属键（F-X-17，FU-HM-0723：金额草稿的绑定按它比较）。只读。 */
+  get formScope(): string {
+    return this.boundScope;
+  }
+
   /** 进程回收后恢复的金额（App 已按账号归属校验）；不恢复估算结果。 */
   restoreInput(text: string): void {
     const accepted: string | null = WithdrawAmountInput.accept(text);

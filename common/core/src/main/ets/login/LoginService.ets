@@ -42,6 +42,19 @@ export interface LoginHost {
 }
 
 /** 其他登录方式（第三方登录）借用的尝试归属（LoginService.attemptTicket；APP-05b）。 */
+
+/**
+ * 登录响应的账号（F-X-17，FU-HM-0723）：登录后记 phone_bound 等按账号的本机状态时，账号取这次登录响应的 user_id（会话由 ApiClient 按它
+ * 保存），当前会话账号只拿来比较——此刻已不是它（这次登录的回调恢复前别的登录已经落地）就为 null，不按写入时另读的当前账号记。
+ */
+export function loginResponseAccount(data: Record<string, Object> | null, current: string | null): string | null {
+  const id: Object | undefined = data === null ? undefined : data['user_id'];
+  if (typeof id !== 'string') {
+    return null;
+  }
+  const text: string = id as string;
+  return text.length > 0 && text === current ? text : null;
+}
 export class AttemptTicket {
   readonly issued: number;
   /** 交给 ApiRequest.owner 的守卫（作废时 LoginService 经 cancelOwned 取消它的请求）。 */
@@ -723,7 +736,10 @@ export class LoginService {
       // R2-01：短信登录的会话一定有手机号（会话已由 ApiClient 保存，这里取的是它的账号）。
       const verified: ((account: string | null) => void) | null = this.onPhoneVerifiedSession;
       if (verified !== null && this.client.sessionReadable()) {
-        verified(this.client.sessionAccount());
+        const account: string | null = loginResponseAccount(result.data, this.client.sessionAccount());
+        if (account !== null) {
+          verified(account);
+        }
       }
       return this.loggedIn(result, issued, restricted);
     }

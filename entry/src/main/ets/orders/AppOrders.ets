@@ -10,7 +10,7 @@ import {
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
   OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPersistResult,
   FlushedPageStateKv, OrderPendingMark,
-  OrderRecord, OrderSessionHub, OrderStaleCache, PendingTrackController,
+  OrderRecord, OrderSessionHub, OrderSessionReconciler, OrderStaleCache, OrderSyncResult, PendingTrackController,
   PendingTrackDeps, PendingTrackJumpWatcher, PendingTrackPosition, PermissionResult, RouteDestination, SearchApiPort, SessionState,
   TransportFailure
 } from 'core';
@@ -158,8 +158,8 @@ export class AppOrders {
    * 已显示的详情快照并把旧会话的详情页移出导航栈（R1-01）。
    */
   private readonly hub: OrderSessionHub = new OrderSessionHub(Date.now, (): string => AppOrders.scopeKey());
-  /** 上次状态同步时的账号（undefined = 还没同步过）。 */
-  private lastAccount: string | null | undefined = undefined;
+  /** 订单的会话对账（compose 时建；FU-HM-0723 末轮窄修 R3-01）。 */
+  private reconciler: OrderSessionReconciler | null = null;
   /** 订单 Tab 显示过（之后会话变化时立即重新加载）。 */
   private tabShown: boolean = false;
   /** 进程回收后要恢复的条件与输入（只给第一次显示的列表；账号不同不恢复）。 */
@@ -189,6 +189,8 @@ export class AppOrders {
     const cache: OrderStaleCache = new OrderStaleCache(store, (): string | null => AppOrders.account(),
       (): number => AppOrders.serverNow(), (): string | null => AppNetwork.loginEpoch());
     this.cacheInstance = cache;
+    this.reconciler = new OrderSessionReconciler(this.hub, cache, this.restorer, (): string => AppOrders.scopeKey(),
+      (): string | null => AppOrders.account());
     // F-HM-18（APP-08 共性第 28 条）：启动时先核验落盘的「待清理」标记（在缓存目录之外），上次没删完就在任何读取之前补删。
     if (!cache.retryPendingClear()) {
       hilog.warn(DOMAIN, TAG, 'order cache pending clear not finished at launch');
@@ -252,24 +254,24 @@ export class AppOrders {
    * 失效）再删订单缓存（确认删除成功，失败保留待清理标记、之后每次同步重试）。
    */
   sync(): void {
-    const cache: OrderStaleCache | null = this.cacheInstance;
     const scope: string = AppOrders.scopeKey();
-    const account: string | null = AppOrders.account();
-    if (this.hub.sync()) {
-      if (this.lastAccount !== account && cache !== null && !cache.clear()) {
+    // FU-HM-0723 末轮窄修 R3-01：判定在 Core OrderSessionReconciler（缓存、恢复记录、同账号登录世代换代；测试走同一入口）。
+    const reconciler: OrderSessionReconciler | null = this.reconciler;
+    if (reconciler !== null) {
+      const result: OrderSyncResult = reconciler.sync();
+      if (result.clearFailed) {
         hilog.warn(DOMAIN, TAG, 'order cache clear failed; pending');
       }
-      // 会话变化：持久化的页面状态（条件、输入、锚点）、恢复锚点与待恢复输入一并清掉（共性第 19 条）。
-      this.restorer.reset();
-      this.restoreInput = '';
-      if (this.listConfigInstance !== null) {
-        this.listConfigInstance.initialInput = '';
+      if (result.wiped) {
+        // 会话变化：持久化的页面状态（条件、输入、锚点）、恢复锚点与待恢复输入一并清掉（共性第 19 条）。
+        this.restoreInput = '';
+        if (this.listConfigInstance !== null) {
+          this.listConfigInstance.initialInput = '';
+        }
       }
-      if (this.tabShown && ShellState.shared.selected === ShellState.indexOf(ORDER_LIST_ROUTE)) {
+      if (result.changed && this.tabShown && ShellState.shared.selected === ShellState.indexOf(ORDER_LIST_ROUTE)) {
         this.loadTab();
       }
-    } else if (cache !== null) {
-      cache.retryPendingClear();
     }
     // 订单 Tab 显示着、待跟单卡还没按当前会话拉成功过（登录完成后的第一次显示等）：补拉一次。
     const pending: PendingTrackHost | null = this.listPending;
@@ -277,7 +279,6 @@ export class AppOrders {
       && ShellState.shared.selected === ShellState.indexOf(ORDER_LIST_ROUTE)) {
       pending.controller.fetch(null);
     }
-    this.lastAccount = account;
   }
 
   // ---------------------------------------------------------------- 列表（订单 Tab 根）

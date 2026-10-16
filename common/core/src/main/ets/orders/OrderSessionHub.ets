@@ -4,7 +4,8 @@
 // 另持有会话级的待跟单卡关闭登记（PendingDismissals；R2-02、R2-03，共性第 14、15 条）：各卡片位置共用，任一位置关闭成功后其他位置
 // 此前发出的查询迟到也不复活同一尝试。
 import { OrderDetailController, OrderDetailDeps } from './OrderDetailController';
-import { OrderListController, OrderListDeps, OrderRateGate } from './OrderListController';
+import { OrderListController, OrderListDeps, OrderPageRestorer, OrderRateGate } from './OrderListController';
+import { CacheOwner, CachePartitionTracker, OrderStaleCache } from './OrderStaleCache';
 import {
   PendingDismissals, PendingPushRowSignal, PendingTrackController, PendingTrackDeps
 } from './PendingTrackController';
@@ -103,5 +104,72 @@ export class OrderSessionHub {
         // 导航出错：详情快照已清空，页面不再显示旧账号数据。
       }
     }
+  }
+}
+
+/** OrderSessionReconciler.sync 的结局（AppOrders 据此清待恢复输入、重载订单 Tab）。 */
+export class OrderSyncResult {
+  /** 会话归属变了，或同账号的持久化登录世代换了（页面要按新会话重载）。 */
+  readonly changed: boolean;
+  /** 恢复记录按会话变化删了（待恢复输入一并清掉）。 */
+  readonly wiped: boolean;
+  /** 要删订单缓存但没删干净（待清理标记保留，之后每次同步重试）。 */
+  readonly clearFailed: boolean;
+
+  constructor(changed: boolean, wiped: boolean, clearFailed: boolean) {
+    this.changed = changed;
+    this.wiped = wiped;
+    this.clearFailed = clearFailed;
+  }
+}
+
+/**
+ * 订单的会话对账（FU-HM-0723 末轮窄修 R3-01：AppOrders.sync 的判定挪进 Core，测试与生产同一入口）。每次状态同步调 sync：
+ * - 订单缓存：会话归属变了且（账号或分区变了），或同账号的登录世代换了（归属键不含世代，计数没动时也要删）→ 删；都没有 → 补清上次没删完的。
+ * - 恢复记录：会话归属按 wipesOnScopeChange 算会话变化，或同账号的已知登录世代换了 → 删；冷启动落定（含世代从未知到已知）→ 只重新固定
+ *   写盘归属，不删。
+ * - 先判定、后记录（上次的分区标签与归属键在判定完成后才更新）。
+ */
+export class OrderSessionReconciler {
+  private readonly hub: OrderSessionHub;
+  private readonly cache: OrderStaleCache | null;
+  private readonly restorer: OrderPageRestorer;
+  private readonly scope: () => string;
+  private readonly account: () => string | null;
+  private readonly partitions: CachePartitionTracker = new CachePartitionTracker();
+  private lastScope: string | undefined = undefined;
+
+  constructor(hub: OrderSessionHub, cache: OrderStaleCache | null, restorer: OrderPageRestorer, scope: () => string,
+    account: () => string | null) {
+    this.hub = hub;
+    this.cache = cache;
+    this.restorer = restorer;
+    this.scope = scope;
+    this.account = account;
+  }
+
+  sync(): OrderSyncResult {
+    const cache: OrderStaleCache | null = this.cache;
+    const scope: string = this.scope();
+    const account: string | null = this.account();
+    const owner: CacheOwner | null = cache === null ? null : cache.owner();
+    const hubChanged: boolean = this.hub.sync();
+    const epochChanged: boolean = this.partitions.epochChanged(account, owner);
+    const clear: boolean = this.partitions.sessionSync(hubChanged, account, owner);
+    let clearFailed: boolean = false;
+    if (clear) {
+      clearFailed = cache !== null && !cache.clear();
+    } else if (!hubChanged && cache !== null) {
+      cache.retryPendingClear();
+    }
+    let wiped: boolean = false;
+    if ((hubChanged && OrderPageRestorer.wipesOnScopeChange(this.lastScope, scope)) || epochChanged) {
+      this.restorer.reset();
+      wiped = true;
+    } else if (hubChanged) {
+      this.restorer.rebindOwner();
+    }
+    this.lastScope = scope;
+    return new OrderSyncResult(hubChanged || epochChanged, wiped, clearFailed);
   }
 }

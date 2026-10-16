@@ -1,6 +1,6 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
-  OrderAnchorKeeper, OrderInputHandlers, OrderInputModel, OrderListController, OrderListEntries, OrderListSnapshot,
+  OrderAnchorKeeper, OrderListScrollSync, OrderListViewport, OrderInputHandlers, OrderInputModel, OrderListController, OrderListEntries, OrderListSnapshot,
   OrderMonthOptions, OrderPhase, OrderListPage, OrderPlatformOptions, OrderRecord, OrderStatusGroup, OrderQuery
 } from 'core';
 import {
@@ -132,13 +132,25 @@ export struct OrderListView {
   private source: OrderCardSource = new OrderCardSource();
   private cards: OrderView[] = [];
   private scroller: Scroller = new Scroller();
-  /** 最近一次 onScrollIndex 给出的顶部订单（在顶部为空串；R1-04：onDidScroll 与延迟对齐复核用）。 */
-  private topOrderId: string = '';
+  /**
+   * 滚动回调与恢复任务的接线（FU-HM-0723 第 2 轮修复 R2-01：Core OrderListScrollSync；顶部订单按内容区与卡片矩形测量，测量无效不当证据）。
+   * sync.topOrderId 是最近一次确认过的顶部订单（R1-04：延迟对齐复核用）。
+   */
+  private sync: OrderListScrollSync | null = null;
   private shownFailure: number = 0;
   private shownRound: number = -1;
   private shownEpoch: number = 0;
   /** 待执行的锚点对齐回调（-1 = 没有；R3-02）。 */
   private alignTimer: number = -1;
+  /**
+   * 布局完成的回调（UIObserver didLayout；F-X-18，FU-HM-0723）：对齐已下发、列表布局滞后（还停在下发前的位置）时重新下发，直到目标真实
+   * 成为顶部可见项（OrderAnchorKeeper.observe 确认）。
+   */
+  private layoutListener: () => void = (): void => {
+    if (this.alive) {
+      this.sync?.rescrollIfLagging(this.model.phase === OrderPhase.CONTENT);
+    }
+  };
   private alive: boolean = true;
   /** 本页实例的守卫（FU-HM-0712 R1-01）：签发列表卡票据；视图销毁时关闭，旧回调零写入。 */
   private page: OrderListPage | null = null;
@@ -149,14 +161,34 @@ export struct OrderListView {
     this.model.inputText = this.config.initialInput;
     this.shownEpoch = this.config.controller.snapshot.sessionEpoch;
     this.config.controller.onChange = (s: OrderListSnapshot): void => this.apply(s);
+    this.sync = new OrderListScrollSync(this.config.anchor, new ListViewport(this.scroller, (i: number): string | null => {
+      const view: OrderView | undefined = this.cards[i - 1];
+      return view === undefined ? null : view.orderId;
+    }), (): void => this.config.onPersist(), (listIndex: number): void => {
+      try {
+        this.scroller.scrollToIndex(listIndex, false, ScrollAlign.START);
+      } catch (e) {
+        // 还没有布局：等下一次布局回调。
+      }
+    });
+    try {
+      this.getUIContext().getUIObserver().on('didLayout', this.layoutListener);
+    } catch (e) {
+      // 拿不到观察者时只靠列表的 onScrollIndex 推进。
+    }
     this.apply(this.config.controller.snapshot);
   }
 
   aboutToDisappear(): void {
     this.alive = false;
+    try {
+      this.getUIContext().getUIObserver().off('didLayout', this.layoutListener);
+    } catch (e) {
+      // 没注册成功，无需注销。
+    }
     this.page?.close();
-    if (this.alignTimer >= 0) {
-      // 页面没了：取消待执行的对齐并解冻（锚点保留原恢复目标，不滚动、不持久化）。
+    if (this.alignTimer >= 0 || this.config.anchor.verifyingLayout) {
+      // 页面没了：取消待执行的对齐 / 等布局确认并解冻（锚点保留原恢复目标，不滚动、不持久化）。
       this.cancelAlignTimer();
       this.config.anchor.aligned();
     }
@@ -276,8 +308,10 @@ export struct OrderListView {
       // R1-04（APP-08 共性第 39 条）：执行前再复核一次实际位置（顶部订单 + 滚动偏移）；等待期间用户已滚动则恢复已取消，
       // 只按用户此刻的位置持久化，不滚动。
       const before: string = keeper.anchor;
-      if (!keeper.commitAlign(ticket, now.round, this.config.controller.conditions().encode(), this.topOrderId,
-        this.scrollOffset())) {
+      // F-X-18：通过后进入「等布局确认」，目标真实成为顶部可见项（onScrollIndex → observe）才结束恢复。
+      const topNow: string = this.sync === null ? '' : this.sync.topOrderId;
+      if (!keeper.commitAlignAndVerify(ticket, now.round, this.config.controller.conditions().encode(), topNow,
+        this.scrollOffset(), index)) {
         if (keeper.anchor !== before) {
           this.config.onPersist();
         }
@@ -953,22 +987,20 @@ export struct OrderListView {
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       .onScrollIndex((start: number) => {
-        if (this.model.phase !== OrderPhase.CONTENT) {
-          return;
-        }
-        const view: OrderView | undefined = start >= 1 ? this.cards[start - 1] : undefined;
-        this.topOrderId = view === undefined ? '' : view.orderId;
-        if (this.config.anchor.observe(this.topOrderId, this.scrollOffset())) {
-          this.config.onPersist();
-        }
+        this.sync?.scrollIndex(start, this.model.phase === OrderPhase.CONTENT);
       })
       .onDidScroll((_offset: number, _state: ScrollState) => {
         // R1-04：顶部条目不变的滚动（同一卡片内的小幅滚动、惯性、无障碍滚动）同样交给锚点判定——恢复进行中偏移变化即取消恢复。
-        if (this.model.phase !== OrderPhase.CONTENT || !this.config.anchor.frozen) {
+        // FU-HM-0723 第 2 轮修复 R2-01：onDidScroll 先于 onScrollIndex；顶部订单按内容区与卡片矩形现量，测量无效不当证据。
+        this.sync?.didScroll(this.model.phase === OrderPhase.CONTENT);
+      })
+      .onTouch((event: TouchEvent) => {
+        // FU-HM-0723 第 1 轮修复 R1-02：用户触摸列表（哪怕没移动）即接管——取消恢复（含等布局确认），之后布局回调不再下发定位。
+        if (event.type !== TouchType.Down) {
           return;
         }
-        if (this.config.anchor.observe(this.topOrderId, this.scrollOffset())) {
-          this.config.onPersist();
+        if (this.sync !== null && this.sync.touchDown(this.model.phase === OrderPhase.CONTENT)) {
+          this.cancelAlignTimer();
         }
       })
       .onReachEnd(() => {
@@ -995,4 +1027,37 @@ export struct OrderListView {
 function emptySlot() {
 }
 
+/**
+ * OrderListScrollSync 的生产测量端口（FU-HM-0723 第 2 轮修复 R2-01）：List 的 Scroller。顶部内边距与 build() 里 List 的
+ * padding.top 同一个值（CouliSpacing.space2）。
+ */
+class ListViewport implements OrderListViewport {
+  private readonly scroller: Scroller;
+  private readonly idAt: (index: number) => string | null;
 
+  constructor(scroller: Scroller, idAt: (index: number) => string | null) {
+    this.scroller = scroller;
+    this.idAt = idAt;
+  }
+
+  paddingTop(): number {
+    return CouliSpacing.space2;
+  }
+
+  itemAt(x: number, y: number): number {
+    return this.scroller.getItemIndex(CouliSpacing.space4 + x, y);
+  }
+
+  itemRect(index: number): number[] | null {
+    const r: RectResult = this.scroller.getItemRect(index);
+    return [r.x, r.y, r.width, r.height];
+  }
+
+  offset(): number {
+    return this.scroller.currentOffset().yOffset;
+  }
+
+  orderIdAt(index: number): string | null {
+    return this.idAt(index);
+  }
+}

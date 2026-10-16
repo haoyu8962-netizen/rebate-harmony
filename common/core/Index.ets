@@ -146,7 +146,7 @@ export {
   SearchRoutes, SearchDraft, DetailIdentity, SearchPageRecord, PageStateStore, ScrollRestoreStep, ScrollRestore,
   ScrollAnchorTracker,
   PageRestorer, DetailNotes, SearchLayout, SearchRows, ViewportTop, ScrollKeeperHost, RestoreStage, ScrollRestoreJob,
-  SearchScrollKeeper, RestoreExpectation, SearchPageLife, SearchPageStates
+  SearchScrollKeeper, RestoreExpectation, RestoreEnd, SearchPageLife, SearchPageStates
 } from './src/main/ets/search/SearchPageState';
 // trade（APP-06b）：open 购买、外跳、授权的纯逻辑（向量 specs/open-trade-vectors.json）与执行器（页面与系统能力在 entry）。
 export {
@@ -206,17 +206,18 @@ export {
   OrderErrorAction, OrderMessages
 } from './src/main/ets/orders/OrderPresentation';
 export {
-  OrderCacheStore, MemoryOrderCacheStore, OrderPendingMark, OrderCacheEntry, OrderStaleCache, OrderCacheCleaner
+  OrderCacheStore, MemoryOrderCacheStore, OrderPendingMark, OrderCacheEntry, OrderStaleCache, OrderCacheCleaner,
+  CacheOwner, CachePartitionTracker
 } from './src/main/ets/orders/OrderStaleCache';
 export {
   OrderPhase, OrderErrorView, OrderOutcome, guardedOrder, OrderRateGate, OrderListSnapshot, OrderListDeps,
-  OrderListConditions, OrderListController, OrderScrollAnchor, OrderAnchorKeeper, OrderPageState,
+  OrderListConditions, OrderListController, OrderScrollAnchor, OrderAnchorKeeper, OrderListViewport, OrderListScrollSync, OrderPageState,
   OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderRestoreMarks, OrderRenderTicket, OrderListPage, OrderInputStamp,
   OrderInputModel, OrderInputHandlers, OrderPersistResult, FlushedPageStateKv
 } from './src/main/ets/orders/OrderListController';
 export { OrderListEntries, OrderDetailEntries } from './src/main/ets/orders/OrderEntries';
 export { OrderDetailSnapshot, OrderDetailDeps, OrderDetailController } from './src/main/ets/orders/OrderDetailController';
-export { OrderSessionHub } from './src/main/ets/orders/OrderSessionHub';
+export { OrderSessionHub, OrderSessionReconciler, OrderSyncResult } from './src/main/ets/orders/OrderSessionHub';
 export {
   PendingTrackCard, PendingTrackSnapshot, PendingTrackDeps, PendingTrackController, PendingTrackJumpWatcher, OrderCopy,
   PendingDismissals, PendingPushRowSignal, PendingTrackPosition, TabSwitchSignal
@@ -237,7 +238,7 @@ export {
 export {
   WalletCacheEntry, WalletStaleCache, WalletCacheCleaner
 } from './src/main/ets/wallet/WalletStaleCache';
-export { WithdrawInputBackend, WithdrawInputDraft } from './src/main/ets/wallet/WithdrawInputDraft';
+export { WithdrawInputBackend, WithdrawInputDraft, WithdrawDraftBinding } from './src/main/ets/wallet/WithdrawInputDraft';
 export {
   WalletApiPort, ApiClientWalletPort, WalletContractPort, WalletConfigPort, EmptyWalletConfig, WalletSessionAware,
   RealnameState, SmsResendClock, SmsSendOutcome, FundPageLayout, WalletSession, WalletMessage, WalletMessages,
@@ -323,7 +324,7 @@ export {
   MemoryHomeClearMark, HomeLocalStore, HomeDataCleaner, HomePendingLedger, MemoryHomePendingLedger, HomeClearResult
 } from './src/main/ets/home/HomeStorage';
 export {
-  HomeIdentity, HomeContractPort, HomeNoticePort, ApiClientHomeNoticePort, HomeTimer, SystemHomeTimer, HomeDeps,
+  HomeIdentity, HomeLkgReconciler, HomeContractPort, HomeNoticePort, ApiClientHomeNoticePort, HomeTimer, SystemHomeTimer, HomeDeps,
   HomeSectionData, HomeCardView, HomeSnapshot, HomeVersionInfo, HomeController, HomeNoticeContext, HomeTicketPort
 } from './src/main/ets/home/HomeController';
 export {

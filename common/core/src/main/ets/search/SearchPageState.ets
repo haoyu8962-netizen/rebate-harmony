@@ -683,6 +683,11 @@ export class ScrollRestoreJob {
   /** 目标卡（显示顺序）。 */
   target: number = -1;
   attempts: number = 0;
+  /**
+   * 布局滞后的次数（F-X-18，FU-HM-0723）：滚过之后的布局回调里量不到布局、或列表仍停在移动前的位置（目标卡还没进入已布局集合）——
+   * 这次回调不是目标的布局，不计入 attempts、不结束，重新下发定位等下一次布局。
+   */
+  lagged: number = 0;
 
   constructor(id: number, round: number, card: number, offset: number) {
     this.id = id;
@@ -690,6 +695,22 @@ export class ScrollRestoreJob {
     this.card = card;
     this.offset = offset;
   }
+}
+
+/** 恢复任务的结束原因（F-X-18，FU-HM-0723；Debug 与测试可读，SearchScrollKeeper.endReason）。 */
+export class RestoreEnd {
+  /** 还没有结束过。 */
+  static readonly NONE: string = '';
+  /** 滚后按实际视口确认到位（目标卡在视口顶部、偏移在容差内）。 */
+  static readonly ARRIVED: string = 'arrived';
+  /** 目标卡已进入已布局集合、偏移有上限的纠偏用完（按实际视口记）。 */
+  static readonly LAID_OUT_LIMIT: string = 'laid_out_limit';
+  /** 列表被别人移动（触摸、惯性、读屏、键盘）：让位。 */
+  static readonly TAKEOVER: string = 'takeover';
+  /** 用户拖动 / 触摸、新一轮查询、页面出栈。 */
+  static readonly CANCELLED: string = 'cancelled';
+  /** 没有结果、出错：不再恢复。 */
+  static readonly DROPPED: string = 'dropped';
 }
 
 /**
@@ -711,6 +732,8 @@ export class SearchScrollKeeper {
   private nextJobId: number = 1;
   private covered: boolean = false;
   private left: boolean = false;
+  /** 最近一次恢复任务的结束原因（RestoreEnd；F-X-18）。 */
+  private ended: string = RestoreEnd.NONE;
   /**
    * 恢复任务发现列表被别人移动（共性第 38 条）而让位、并已按实际视口重记锚点后调：页面据此持久化用户当前的位置。
    * 页面出栈后不再调。
@@ -744,6 +767,11 @@ export class SearchScrollKeeper {
   /** 正在恢复的任务（测试与页面判断用）；没有为 null。 */
   get restoring(): ScrollRestoreJob | null {
     return this.job;
+  }
+
+  /** 最近一次恢复任务的结束原因（RestoreEnd；还在进行或没有过为 NONE / 上一次的原因）。 */
+  get endReason(): string {
+    return this.ended;
   }
 
   get isCovered(): boolean {
@@ -794,7 +822,7 @@ export class SearchScrollKeeper {
       const top: ViewportTop | null = this.host.measure();
       const arrived: boolean = top !== null && top.card === job.target && Math.abs(-top.top - job.extra) <= 1;
       if (arrived) {
-        this.finish();
+        this.finish(RestoreEnd.ARRIVED);
         return;
       }
       // 没到位：先分清是任务自己的落点（移动还没生效、落在目标卡上但偏移差一点）还是别人移动了列表。
@@ -802,8 +830,16 @@ export class SearchScrollKeeper {
         this.takeover();
         return;
       }
+      // F-X-18（FU-HM-0723，iOS FU-IOS-0712 R1-06 同类）：结束条件是目标锚点真实布局就绪，不是回调轮次。这次布局回调里量不到布局、
+      // 或列表还停在移动前的位置（模型先就绪、列表布局滞后，定位没生效）：不计次数、不结束，重新下发定位，等下一次布局。
+      if (top === null || (top.card !== job.target && job.before !== null && job.before.matches(top))) {
+        job.lagged++;
+        this.host.scrollToRow(job.row, job.extra);
+        return;
+      }
       if (job.attempts >= SearchScrollKeeper.MAX_ATTEMPTS) {
-        this.finish();
+        // 目标卡已在已布局集合里、只是偏移差一点：有上限的纠偏用完后按实际视口记。
+        this.finish(RestoreEnd.LAID_OUT_LIMIT);
         return;
       }
       // 估算行高时一次可能没到位：再滚一次（次数有上限，之后按实际视口记）。
@@ -852,6 +888,7 @@ export class SearchScrollKeeper {
   /** 列表被别人移动：取消恢复，按实际视口记下用户当前的位置并通知页面持久化。 */
   private takeover(): void {
     this.job = null;
+    this.ended = RestoreEnd.TAKEOVER;
     this.syncFreeze();
     this.track();
     this.onTakeover();
@@ -955,12 +992,16 @@ export class SearchScrollKeeper {
   }
 
   private cancel(): void {
+    if (this.job !== null) {
+      this.ended = RestoreEnd.CANCELLED;
+    }
     this.job = null;
     this.syncFreeze();
   }
 
-  private finish(): void {
+  private finish(reason: string): void {
     this.job = null;
+    this.ended = reason;
     this.syncFreeze();
     this.track();
   }
@@ -996,6 +1037,7 @@ export class SearchScrollKeeper {
     if (step === ScrollRestoreStep.DROP) {
       // 没有结果、出错：不再恢复（锚点保留保存的值，直到新一轮查询）。
       this.job = null;
+      this.ended = RestoreEnd.DROPPED;
       this.syncFreeze();
       return;
     }

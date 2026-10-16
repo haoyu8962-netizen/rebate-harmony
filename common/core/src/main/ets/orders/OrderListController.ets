@@ -9,7 +9,7 @@ import { LocalRejectReason } from '../network/NetworkPolicy';
 import { SearchApiPort, trace6Of } from '../search/SearchController';
 import { OrderJson, OrderRecord } from './OrderJson';
 import { OrderErrorAction, OrderQuery, OrderStatusGroup } from './OrderPresentation';
-import { OrderCacheEntry, OrderStaleCache } from './OrderStaleCache';
+import { CacheOwner, OrderCacheEntry, OrderStaleCache } from './OrderStaleCache';
 import { preferences } from '@kit.ArkData';
 
 type JSONValue = Object | null;
@@ -894,6 +894,8 @@ export class OrderListController {
     }
     const seq: number = this.begin();
     const round: OrderQuery = this.query.copy();
+    // F-X-17（FU-HM-0723）：缓存归属（账号 + 登录世代）在请求开始时一次取得，随回调带到写入 / 读取点；之后只比较、不重读当前世代打标签。
+    const cacheOwner: CacheOwner | null = this.d.cache === null ? null : this.d.cache.owner();
     const s: OrderListSnapshot = this.state;
     s.round = round.round;
     s.loadingMore = false;
@@ -955,12 +957,12 @@ export class OrderListController {
         this.applyCursor(OrderJson.nextCursor(data));
         const cache: OrderStaleCache | null = this.d.cache;
         if (cache !== null && OrderStaleCache.isCacheable('list', round.params())) {
-          cache.saveList(round.scope, data);
+          cache.saveListAs(cacheOwner, round.scope, data);
         }
         this.emit();
         return;
       }
-      const cached: OrderCacheEntry | null = this.cachedFor(round, outcome, result);
+      const cached: OrderCacheEntry | null = this.cachedFor(round, outcome, result, cacheOwner);
       const view: OrderErrorView = this.errorView(OrderErrorAction.LIST_FIRST, result, outcome, cached !== null);
       s.shownSeq = seq;
       s.failureSeq++;
@@ -991,12 +993,13 @@ export class OrderListController {
   }
 
   /** 传输层失败、默认视图：读缓存（读不出、损坏按没有）。 */
-  private cachedFor(round: OrderQuery, outcome: OrderOutcome, result: ApiResult): OrderCacheEntry | null {
+  private cachedFor(round: OrderQuery, outcome: OrderOutcome, result: ApiResult,
+    owner: CacheOwner | null): OrderCacheEntry | null {
     const cache: OrderStaleCache | null = this.d.cache;
     if (cache === null || !outcome.transport || OrderOutcome.cancelled(result) || round.filtered) {
       return null;
     }
-    return cache.loadList(round.scope);
+    return cache.loadListAs(owner, round.scope);
   }
 
   private errorView(target: string, result: ApiResult, outcome: OrderOutcome, hasCache: boolean): OrderErrorView {
@@ -1111,6 +1114,132 @@ export class OrderScrollAnchor {
 }
 
 /**
+ * 订单列表视口的测量端口（FU-HM-0723 第 2 轮修复 R2-01；生产：OrderListView 的 List Scroller）。坐标都是相对 List 组件左上角的 vp，
+ * 列表第 0 项是页头，卡片从第 1 项起。
+ */
+export interface OrderListViewport {
+  /** List 顶部内边距（vp）：内容区从这里开始。 */
+  paddingTop(): number;
+
+  /** 坐标所在的列表项下标（Scroller.getItemIndex）；没有布局、落在项与项之间为 -1；没有布局时可抛错。 */
+  itemAt(x: number, y: number): number;
+
+  /** 列表项的矩形 [x, y, 宽, 高]（Scroller.getItemRect）；没有布局为 null 或抛错。 */
+  itemRect(index: number): number[] | null;
+
+  /** 实际滚动偏移（像素）；没有布局为 NaN。 */
+  offset(): number;
+
+  /** 第 index 项（≥1）对应的订单号；没有为 null。 */
+  orderIdAt(index: number): string | null;
+}
+
+/**
+ * 订单列表的滚动回调与恢复任务的接线（FU-HM-0723 第 2 轮修复 R2-01：从 OrderListView 挪到 Core，页面只转发回调，测试走同一份代码）。
+ * - 顶部订单按「内容区」测量：取点在顶部内边距之下 1vp，并用该项的矩形核对它确实覆盖取点；取不到或核对不过（没有布局、落在项间距里）
+ *   为「未知」——这次回调不当成任何证据（不把旧的顶部订单与新的偏移拼起来判用户接管），等下一次回调或 onScrollIndex。
+ * - 回调顺序与 ArkUI 一致：onDidScroll 先于 onScrollIndex（OpenHarmony 6.0 list_pattern）。程序定位生效时 onDidScroll 现量到的就是
+ *   目标，恢复按到位结束，不会被误判成用户接管。
+ */
+export class OrderListScrollSync {
+  /** 最近一次确认过的顶部订单（onScrollIndex 或有效测量；在顶部为空串）。 */
+  topOrderId: string = '';
+  private readonly keeper: OrderAnchorKeeper;
+  private readonly viewport: OrderListViewport;
+  private readonly persist: () => void;
+  private readonly rescroll: (listIndex: number) => void;
+
+  constructor(keeper: OrderAnchorKeeper, viewport: OrderListViewport, persist: () => void,
+    rescroll: (listIndex: number) => void) {
+    this.keeper = keeper;
+    this.viewport = viewport;
+    this.persist = persist;
+    this.rescroll = rescroll;
+  }
+
+  /** 此刻内容区最上面的订单（页头为空串）；测量无效为 null。 */
+  measuredTop(): string | null {
+    try {
+      const y: number = this.viewport.paddingTop() + 1;
+      const index: number = this.viewport.itemAt(1, y);
+      if (index < 0) {
+        return null;
+      }
+      const rect: number[] | null = this.viewport.itemRect(index);
+      if (rect === null || rect.length < 4 || !(rect[1] <= y && y < rect[1] + rect[3])) {
+        return null;
+      }
+      if (index === 0) {
+        return '';
+      }
+      return this.viewport.orderIdAt(index);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  private offset(): number {
+    try {
+      return this.viewport.offset();
+    } catch (e) {
+      return NaN;
+    }
+  }
+
+  /** List onScrollIndex(start)：content 为列表此刻是否在显示内容（phase = CONTENT）。 */
+  scrollIndex(start: number, content: boolean): void {
+    if (!content) {
+      return;
+    }
+    const id: string | null = start >= 1 ? this.viewport.orderIdAt(start) : '';
+    this.topOrderId = id ?? '';
+    if (this.keeper.observe(this.topOrderId, this.offset())) {
+      this.persist();
+    }
+    this.rescrollIfLagging(content);
+  }
+
+  /** List onDidScroll：恢复进行中才判（同一卡片内的小幅滚动、惯性、读屏滚动）；测量无效什么都不做。 */
+  didScroll(content: boolean): void {
+    if (!content || !this.keeper.frozen) {
+      return;
+    }
+    const top: string | null = this.measuredTop();
+    if (top === null) {
+      return;
+    }
+    this.topOrderId = top;
+    if (this.keeper.observe(top, this.offset())) {
+      this.persist();
+    }
+  }
+
+  /** List onTouch Down：用户接管（没移动也算）。返回是否取消了恢复（页面据此作废待执行的对齐回调）。 */
+  touchDown(content: boolean): boolean {
+    if (!content) {
+      return false;
+    }
+    const top: string | null = this.measuredTop();
+    if (this.keeper.userTouched(top ?? this.topOrderId)) {
+      this.persist();
+      return true;
+    }
+    return false;
+  }
+
+  /** 布局完成（UIObserver didLayout）与 onScrollIndex 之后：等布局确认、定位还没生效时重新下发。 */
+  rescrollIfLagging(content: boolean): void {
+    if (!content) {
+      return;
+    }
+    const index: number = this.keeper.rescrollIndex(this.topOrderId);
+    if (index >= 0) {
+      this.rescroll(index + 1);
+    }
+  }
+}
+
+/**
  * 滚动锚点的持久化（共性第 10、17 条；R2-05）：页面状态里存的锚点由它给出。
  * - 进程回收后恢复（begin）：恢复进行中保留原持久化锚点（目标 order_id），冻结普通滚动记录（首屏、加载中的滚动回调不覆盖它）；
  *   目标加载出来、页面完成一次顶对齐（aligned）后才解冻，之后按滚动照常更新。二次回收发生在恢复完成前时，下次仍按原锚点恢复。
@@ -1144,6 +1273,29 @@ export class OrderAnchorKeeper {
   /** 偏移变化超过这个值（像素）才算滚动（排除浮点误差）。 */
   static readonly SCROLL_EPSILON: number = 0.5;
 
+  /**
+   * 对齐已下发、等目标订单真实布局确认（F-X-18，FU-HM-0723；iOS FU-IOS-0712 R1-06 同类）：页面在 setTimeout 0 之后下发一次 scrollToIndex，
+   * 原来下发即结束恢复——模型先就绪、列表布局滞后时这次定位没生效，之后再也不恢复。现在下发后仍冻结，直到列表布局回报目标订单成为顶部
+   * 可见项（ARRIVED）；回报还停在下发前的位置（布局滞后）就重新下发（rescrollIndex），不按回调轮次结束；回报到别处（触摸、惯性、读屏、
+   * 列表到底放不到顶部）按此刻位置记锚点并结束。
+   */
+  private verifying: boolean = false;
+  private verifyTarget: string = '';
+  private verifyFrom: string | null = null;
+  private verifyIndex: number = -1;
+  /**
+   * 下发对齐时的实际滚动偏移（第 1 轮修复 R1-02）：等确认期间顶部仍是下发前的那张卡、偏移却变了（同一卡片内的触摸 / 惯性 / 读屏滚动），
+   * 不是本次定位造成的（定位生效时顶部直接换成目标）——按用户接管取消。NaN = 下发时没给偏移，第一次拿到时补上。
+   */
+  private verifyOffset: number = NaN;
+  /** 最近一次恢复任务的结束原因（OrderAnchorKeeper.END_*；Debug 与测试可读）。 */
+  private ended: string = '';
+  static readonly END_ARRIVED: string = 'arrived';
+  static readonly END_MOVED: string = 'moved';
+  static readonly END_CANCELLED: string = 'cancelled';
+  /** 用户接管（触摸、同一卡片内滚动、读屏滚动）：第 1 轮修复 R1-02。 */
+  static readonly END_USER: string = 'user';
+
   /** 要写进页面状态的锚点（稳定的 order_id；在顶部为空串）。 */
   get anchor(): string {
     return this.anchorId;
@@ -1151,7 +1303,75 @@ export class OrderAnchorKeeper {
 
   /** 恢复进行中（含等对齐）：普通滚动记录冻结。 */
   get frozen(): boolean {
-    return this.restore !== null || this.aligning;
+    return this.restore !== null || this.aligning || this.verifying;
+  }
+
+  /** 等目标真实布局确认中（F-X-18）。 */
+  get verifyingLayout(): boolean {
+    return this.verifying;
+  }
+
+  /** 最近一次恢复任务的结束原因（END_*；没有结束过为空串）。 */
+  get endReason(): string {
+    return this.ended;
+  }
+
+  /**
+   * 页面下发对齐之前调（生产页面用它代替 commitAlign；F-X-18）：commitAlign 通过（返回 true，页面随后 scrollToIndex(index + 1)）后
+   * 进入「等布局确认」：topId 为此刻顶部可见的订单（下发前的位置）。
+   */
+  commitAlignAndVerify(ticket: number, round: number, conditions: string, topId: string, offset: number,
+    index: number): boolean {
+    const target: string = this.anchorId;
+    if (!this.commitAlign(ticket, round, conditions, topId, offset)) {
+      return false;
+    }
+    // 目标此刻已经是顶部可见项：不必等。
+    this.verifying = target.length > 0 && target !== topId;
+    this.verifyTarget = target;
+    this.verifyFrom = topId;
+    this.verifyIndex = index;
+    this.verifyOffset = offset;
+    if (!this.verifying) {
+      this.ended = OrderAnchorKeeper.END_ARRIVED;
+    }
+    return true;
+  }
+
+  /**
+   * 用户触摸列表（第 1 轮修复 R1-02；OrderListView onTouch Down）：恢复进行中（等目标、等对齐、等布局确认）一律按用户接管取消——作废任务
+   * （待执行的对齐回调经 commitAlign 失效，之后的布局回调 rescrollIndex 不再下发），按此刻顶部订单记锚点；返回 true 时页面持久化。
+   * 没有恢复任务时什么都不做（普通滚动照常经 observe 记录）。
+   */
+  userTouched(topId: string): boolean {
+    if (!this.frozen) {
+      return false;
+    }
+    if (this.verifying) {
+      this.endVerify(OrderAnchorKeeper.END_USER);
+    } else {
+      this.ended = OrderAnchorKeeper.END_USER;
+    }
+    this.userScrolled(topId);
+    return true;
+  }
+
+  /**
+   * 列表布局回调（onScrollIndex、didLayout）：等布局确认时目标还没成为顶部、且列表仍停在下发前的位置（布局滞后，定位没生效）返回要重新
+   * 对齐的目标下标（页面 scrollToIndex(下标 + 1)）；其余为 -1。
+   */
+  rescrollIndex(topId: string): number {
+    return this.verifying && topId !== this.verifyTarget && topId === this.verifyFrom ? this.verifyIndex : -1;
+  }
+
+  private endVerify(reason: string): void {
+    if (this.verifying) {
+      this.ended = reason;
+    }
+    this.verifying = false;
+    this.verifyFrom = null;
+    this.verifyIndex = -1;
+    this.verifyOffset = NaN;
   }
 
   /** 当前恢复任务编号（页面排入布局等待回调时记下，回调执行前交给 commitAlign 复核）。 */
@@ -1165,6 +1385,7 @@ export class OrderAnchorKeeper {
   /** 进程回收后恢复：target 为持久化的锚点，conditions 为当时的条件（编码）。 */
   begin(target: string, conditions: string): void {
     this.task++;
+    this.endVerify(OrderAnchorKeeper.END_CANCELLED);
     this.anchorId = target;
     this.aligning = false;
     this.boundRound = -1;
@@ -1179,6 +1400,13 @@ export class OrderAnchorKeeper {
   resolve(items: OrderRecord[], conditions: string, phase: string, round: number = -1): number {
     const r: OrderScrollAnchor | null = this.restore;
     if (r === null) {
+      if (this.verifying && round >= 0 && round !== this.boundRound) {
+        // 等布局确认期间开了新一轮查询（F-X-18；第 1 轮修复 R1-03）：放弃确认、作废旧任务并清空锚点——随后的持久化是「新条件 + 空锚点」，
+        // 不把已取消的旧目标记到新查询名下（新一轮由页面回到顶部）。
+        this.endVerify(OrderAnchorKeeper.END_CANCELLED);
+        this.task++;
+        this.anchorId = '';
+      }
       if (this.aligning && round >= 0 && round !== this.boundRound) {
         // 目标已找到、等布局对齐期间开了新一轮查询（R3-02）：作废对齐任务，待执行的回调不得再滚动或持久化。
         this.cancelAlign();
@@ -1242,15 +1470,17 @@ export class OrderAnchorKeeper {
   /** 取消等待中的对齐（新一轮查询、条件变化）：任务作废、锚点清空并解冻。 */
   private cancelAlign(): void {
     this.task++;
+    this.endVerify(OrderAnchorKeeper.END_CANCELLED);
     this.aligning = false;
     this.anchorId = '';
     this.baselineTop = null;
     this.baselineOffset = NaN;
   }
 
-  /** 页面完成了顶对齐（或布局失败退回顶部）：解冻。 */
+  /** 页面完成了顶对齐（或布局失败退回顶部、页面没了）：解冻。 */
   aligned(): void {
     this.aligning = false;
+    this.endVerify(OrderAnchorKeeper.END_CANCELLED);
   }
 
   /**
@@ -1268,6 +1498,33 @@ export class OrderAnchorKeeper {
    * 没有恢复任务时：顶部订单变了才返回 true（要持久化）。
    */
   observe(orderId: string, offset: number): boolean {
+    if (this.verifying) {
+      if (orderId === this.verifyTarget) {
+        // 目标订单已在列表顶部（真实布局确认）：恢复完成，锚点就是目标。
+        this.endVerify(OrderAnchorKeeper.END_ARRIVED);
+        return false;
+      }
+      if (orderId === this.verifyFrom) {
+        if (!Number.isNaN(offset) && !Number.isNaN(this.verifyOffset)
+          && Math.abs(offset - this.verifyOffset) > OrderAnchorKeeper.SCROLL_EPSILON) {
+          // R1-02：顶部还是下发前那张卡、偏移变了——同一卡片内的用户 / 读屏滚动，不是本次定位造成的：按用户接管取消，之后不再下发。
+          this.endVerify(OrderAnchorKeeper.END_USER);
+          this.task++;
+          this.anchorId = orderId;
+          return true;
+        }
+        if (Number.isNaN(this.verifyOffset) && !Number.isNaN(offset)) {
+          this.verifyOffset = offset;
+        }
+        // 还停在下发前的位置：布局滞后，继续等（页面在布局回调里经 rescrollIndex 重新下发）。
+        return false;
+      }
+      // 停到了别处（别人移动了列表，或列表到底放不到顶部）：按此刻位置记锚点并结束。
+      this.endVerify(OrderAnchorKeeper.END_MOVED);
+      this.task++;
+      this.anchorId = orderId;
+      return true;
+    }
     if (this.frozen) {
       if (this.baselineTop === null) {
         this.baselineTop = orderId;
@@ -1321,6 +1578,7 @@ export class OrderAnchorKeeper {
   /** 会话变化：清空并解冻。 */
   reset(): void {
     this.task++;
+    this.endVerify(OrderAnchorKeeper.END_CANCELLED);
     this.anchorId = '';
     this.restore = null;
     this.aligning = false;
@@ -1620,6 +1878,36 @@ export class OrderPageRestorer {
   reset(): void {
     this.wipe();
     this.fixOwner();
+  }
+
+  /**
+   * 会话归属键变了但不算会话变化（冷启动落定，见 wipesOnScopeChange）：不删记录，只按此刻的会话重新固定写盘归属（FU-HM-0723 第 2 轮
+   * 修复，模拟器回收恢复实测发现）。
+   */
+  rebindOwner(): void {
+    this.fixOwner();
+  }
+
+  /**
+   * 会话归属键（ClipboardController.scopeKey：作废世代|登录序号|会话世代|凭据可读|隐私|环境端点|账号）的变化要不要按「会话变化」删
+   * 恢复记录（共性第 19 条）：前三段（作废世代、登录序号、会话世代）变了，或原来已有账号而账号变了，才算。冷启动期间只有凭据可读、隐私
+   * 规范值、环境端点与「账号从无到有」在落定——原来这也被当成会话变化，进程回收后的恢复记录在订单 Tab 第一次显示之前就被删掉了
+   * （FU-HM-0723 第 2 轮修复，模拟器实测）。撤回同意、切换环境另由清理器删除，不靠这里。键读不全按会话变化处理。
+   */
+  static wipesOnScopeChange(prev: string | undefined, now: string): boolean {
+    if (prev === undefined || prev === now) {
+      return false;
+    }
+    const a: string[] = prev.split('|');
+    const b: string[] = now.split('|');
+    if (a.length < 7 || b.length < 7) {
+      return true;
+    }
+    if (a.slice(0, 3).join('|') !== b.slice(0, 3).join('|')) {
+      return true;
+    }
+    const before: string = a[a.length - 1];
+    return before.length > 0 && before !== b[b.length - 1];
   }
 
   /**

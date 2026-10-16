@@ -267,7 +267,7 @@ python3 "$ROOT/tools/ci/lint.py" --self-test-hm10 || fail_fast "lint-hm10-self-t
 record "lint-hm10-self-test" PASS "HM-LINT-10 正反例全部符合"
 
 # FU-HM-0718 第 3 项：「扫不完 / 不支持」必须以 4 失败（不是 0，也不是表示「有违反」的 1）。
-step "lint-fixtures-exit4（不支持的文件、不可列举的源码子目录必须以 4 失败）"
+step "lint-fixtures-exit4（不支持的文件、词法边界无法确认、不可列举的源码子目录必须以 4 失败）"
 EXIT4_COUNT=0
 for dir in "$ROOT"/tools/ci/lint-fixtures-exit4/*/; do
     [ -d "$dir" ] || continue
@@ -285,7 +285,11 @@ for dir in "$ROOT"/tools/ci/lint-fixtures-exit4/*/; do
         fail_fast "lint-fixtures-exit4" "${name} 应以 4 失败（exit ${code}）"
     fi
 done
-[ "$EXIT4_COUNT" -eq 2 ] || fail_fast "lint-fixtures-exit4" "应有 2 个 exit 4 样例，实际 ${EXIT4_COUNT}"
+# FU-HM-0723：另加 2 个解析器判不了的样例（未闭合块注释、模板插值未闭合 → 语法错误）。第 2 轮修复起词法由 TypeScript 解析器决定，
+# 原来按「歧义」以 4 失败的两个合法样例（) 之后的 /、变量 of 之后的 /）移到 lint-fixtures-lex，必须报出（1）。
+# 末轮窄修 R3-03：再加 1 个（import() 的模块名静态确定不了）；末轮窄修二 RC-02 再加 1 个（同名参数遮蔽外层 const）。
+# 末轮窄修三 RC-03 再加 1 个（navBar 高度参数的同名绑定冲突）。
+[ "$EXIT4_COUNT" -eq 7 ] || fail_fast "lint-fixtures-exit4" "应有 7 个 exit 4 样例，实际 ${EXIT4_COUNT}"
 # 一个正常源码 + 一个不可列举的源码子目录（git 存不了权限，现造；跑完恢复权限再删）。
 EXIT4_TMP="$(mktemp -d "${TMPDIR:-/tmp}/couli-lint-exit4.XXXXXX")"
 mkdir -p "$EXIT4_TMP/entry/src/staging/ets/variant/hidden"
@@ -304,7 +308,32 @@ if [ "$code" -ne 4 ]; then
     fail_fast "lint-fixtures-exit4" "不可列举的源码子目录应以 4 失败（exit ${code}）"
 fi
 echo "  不可列举的源码子目录：exit 4"
-record "lint-fixtures-exit4" PASS "js / c 不支持、不可列举的子目录均以 4 失败"
+record "lint-fixtures-exit4" PASS "js / c 不支持、词法边界无法确认、不可列举的子目录均以 4 失败"
+
+# FU-HM-0723 第 2 轮修复：HM-LINT-1…9 的注释 / 字符串 / 正则 / 导入改由 TypeScript 解析器给出（hm10-scan.js --lex）。手写词法曾漏报的
+# 合法代码样例（非空断言后的除号、type 导入夹注释、转义模块名、U+2028 / U+2029 行终止符等）必须以 1 失败并报出 EXPECT 里的规则号。
+step "lint-fixtures-lex（解析器词法的违反样例必须被拦下）"
+LEX_COUNT=0
+for dir in "$ROOT"/tools/ci/lint-fixtures-lex/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    want="$(tr -d '[:space:]' < "$dir/EXPECT")"
+    if output="$(python3 "$ROOT/tools/ci/lint.py" --root "$dir" 2>&1)"; then
+        code=0
+    else
+        code=$?
+    fi
+    if [ "$code" -eq 1 ] && [ -n "$want" ] && printf '%s\n' "$output" | grep -q "$want "; then
+        echo "  ${name}：已拦下（${want}）"
+        LEX_COUNT=$((LEX_COUNT + 1))
+    else
+        printf '%s\n' "$output" >&2
+        fail_fast "lint-fixtures-lex" "${name} 应以 1 失败并报 ${want}（exit ${code}）"
+    fi
+done
+# 末轮窄修再加 4 个（R3-02 emoji、R3-03 两个动态导入拼接、R3-04 转义百分号）。
+[ "$LEX_COUNT" -eq 11 ] || fail_fast "lint-fixtures-lex" "应有 11 个解析器词法样例，实际 ${LEX_COUNT}"
+record "lint-fixtures-lex" PASS "11 个合法代码反例均被拦下"
 
 step "一致性结果断言自测（APP-04 共性 44）"
 python3 "$ROOT/tools/ci/conformance-assert.py" --self-test || fail_fast "conformance-assert" "断言脚本自测失败"

@@ -3,12 +3,13 @@ import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, ClientEvents, ClipboardController,
+  ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, CachePartitionTracker, ClientEvents,
+  ClipboardController,
   ConfigStore, CouliPreferences, FileSlot, LaborAgreementController, OrderCacheStore,
-  OrderPendingMark, OrderStaleCache, PayoutAccountController, PendingKeyRecord, RealNameController, RouteDestination,
+  OrderPendingMark, PayoutAccountController, PendingKeyRecord, RealNameController, RouteDestination,
   RouteTable, TransportFailure, WalletApiPort, WalletCacheCleaner, WalletConfigPort, WalletController, WalletDeps,
   WalletHelpLink, WalletJson, WalletRecord, WalletSession, WalletStaleCache, WithdrawController,
-  WithdrawInputBackend, WithdrawInputDraft, WithdrawRecordsController
+  WithdrawDraftBinding, WithdrawInputBackend, WithdrawInputDraft, WithdrawRecordsController
 } from 'core';
 import { CouliAnnounce } from 'designsystem';
 import { EventRouteParamsDroppedRoute, Routes, RouteSpec } from 'generated';
@@ -220,7 +221,8 @@ export class AppWallet {
   readonly session: WalletSession = new WalletSession(Date.now, (): string => AppWallet.scopeKey());
   private readonly api: WalletApiPort = new LiveWalletPort();
   private readonly config: WalletConfigPort = new StoreWalletConfig();
-  private lastAccount: string | null | undefined = undefined;
+  /** F-X-17（FU-HM-0723）：会话变化对账——账号变了、或同账号的登录世代分区变了都删钱包缓存与金额草稿。 */
+  private readonly partitions: CachePartitionTracker = new CachePartitionTracker();
   private ui: UIContext | null = null;
   /** 当前可见的钱包类页面（回到前台时重取，G05、flow-map §16）。 */
   private visible: (() => void) | null = null;
@@ -288,21 +290,20 @@ export class AppWallet {
     return client === null ? '' : ClipboardController.scopeKey(client.captureScope());
   }
 
-  /** 每次状态同步：会话归属变了就作废并清空；账号变了再删钱包缓存（失败保留待清理标记、之后每次同步重试）。 */
+  /** 每次状态同步：会话归属变了就作废并清空；账号或同账号的登录世代分区变了再删钱包缓存与金额草稿（失败保留待清理标记、之后每次同步重试）。 */
   sync(): void {
     const cache: WalletStaleCache | null = this.cacheInstance;
     const account: string | null = AppWallet.account();
-    if (this.session.sync()) {
-      if (this.lastAccount !== account) {
-        this.clearWithdrawInput();
-        if (cache !== null && !cache.clear()) {
-          hilog.warn(DOMAIN, TAG, 'wallet cache clear failed; pending');
-        }
+    const changed: boolean = this.session.sync();
+    // FU-HM-0723 末轮窄修 R3-01：同账号的登录世代换了（归属键不含世代、计数没动）也删；先判定、后记录（CachePartitionTracker.sessionSync）。
+    if (this.partitions.sessionSync(changed, account, cache === null ? null : cache.ownerOf(account))) {
+      this.clearWithdrawInput();
+      if (cache !== null && !cache.clear()) {
+        hilog.warn(DOMAIN, TAG, 'wallet cache clear failed; pending');
       }
-    } else if (cache !== null) {
+    } else if (!changed && cache !== null) {
       cache.retryPendingClear();
     }
-    this.lastAccount = account;
     this.syncRealname();
   }
 
@@ -387,13 +388,22 @@ export class AppWallet {
     const c: WithdrawController = new WithdrawController(this.deps());
     // 进程回收后恢复已输入金额（按账号归属校验，不恢复估算）。
     // FU-HM-0712（共性第 65 条）：恢复的金额按提现页表单构建时固定的账号核对，不在恢复时另读一次当前会话。
-    const saved: string | null = this.readWithdrawInput(c.formAccount);
+    // F-X-17（FU-HM-0723）：草稿归属 = 表单固定的账号 + 表单构建时一次取得的登录世代（WithdrawDraftBinding）；恢复、保存只按它打标签，
+    // 当前会话只比较——同账号重新登录后旧登录的金额读不回，也不会记到新登录名下。
+    const draft: WithdrawInputDraft | null = this.draft;
+    const binding: WithdrawDraftBinding | null = draft === null ? null : new WithdrawDraftBinding(draft, c.formAccount,
+      c.formScope, (): string | null => AppWallet.account(), (): string | null => AppNetwork.loginEpoch(),
+      (): string => AppWallet.scopeKey());
+    const saved: string | null = binding === null ? null : binding.restore();
     if (saved !== null) {
       c.restoreInput(saved);
     }
     // APP-09 共性第 59 条（S0）：按提现页表单固定的账号与归属键保存，写前核对当前会话；不按执行时的当前账号保存。
-    c.onInputChanged = (text: string, account: string | null, scope: string): void =>
-      this.saveWithdrawInput(text, account, scope);
+    c.onInputChanged = (text: string, account: string | null, scope: string): void => {
+      if (binding !== null) {
+        binding.save(text, account, scope);
+      }
+    };
     return c;
   }
 
@@ -431,30 +441,6 @@ export class AppWallet {
   }
 
   // ---------------------------------------------------------------- 已输入金额的持久化（Core WithdrawInputDraft）
-
-  private readWithdrawInput(account: string | null): string | null {
-    const draft: WithdrawInputDraft | null = this.draft;
-    // 表单账号此刻仍是当前会话账号才恢复（当前会话只用于比较）。
-    if (draft === null || account === null || AppWallet.account() !== account) {
-      return null;
-    }
-    return draft.read(OrderStaleCache.accountTag(account));
-  }
-
-  /**
-   * 提现页表单的金额保存（共性第 59 条）：清除（空文字）任何归属都执行；写入只用表单固定的账号打标签，且当前会话的归属键与账号都还是
-   * 这张表单的——会话已变（即使清空通知还没到）的旧回调不写，避免把旧表单的金额记到新账号名下。
-   */
-  private saveWithdrawInput(text: string, account: string | null, scope: string): void {
-    if (text.length === 0) {
-      this.clearWithdrawInput();
-      return;
-    }
-    if (account === null || AppWallet.scopeKey() !== scope || AppWallet.account() !== account) {
-      return;
-    }
-    this.draft?.save(OrderStaleCache.accountTag(account), text);
-  }
 
   private clearWithdrawInput(): void {
     this.draft?.clear();

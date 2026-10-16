@@ -3,6 +3,7 @@
 // 进入钱包时顺带查 GET /v1/me 的 realname_status（Router 守卫与以后的「我的」用）。
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { WalletCacheEntry, WalletStaleCache } from './WalletStaleCache';
+import { CacheOwner } from '../orders/OrderStaleCache';
 import { WalletJson, WalletRecord } from './WalletJson';
 import {
   WalletApiPort, WalletConfigPort, WalletContractPort, WalletLoadFailure, WalletMessage, WalletMessages,
@@ -411,6 +412,8 @@ export class WalletController implements WalletSessionAware {
     }
     this.emit();
     this.fetchRealname(seq);
+    // F-X-17（FU-HM-0723）：缓存归属 = 本页固定的账号 + 请求开始时一次取得的登录世代，随回调带到写入 / 读取点。
+    const cacheOwner: CacheOwner | null = this.d.cache === null ? null : this.d.cache.ownerOf(this.account);
     const request: ApiRequest = new ApiRequest(WalletController.SUMMARY_OPERATION);
     request.owner = (): boolean => this.alive2(seq);
     this.owners.push(request.owner);
@@ -437,7 +440,7 @@ export class WalletController implements WalletSessionAware {
         s.version++;
         this.lastGood = summary;
         this.lastGoodAt = this.d.clock();
-        this.d.cache?.save(summary, this.account);
+        this.d.cache?.saveAs(cacheOwner, summary);
         this.showRealnameError();
         this.emit();
         return;
@@ -446,7 +449,7 @@ export class WalletController implements WalletSessionAware {
       if (WalletLoadFailure.transport(result)) {
         // 断网（R2-08，共性第 32 条）：保留的旧摘要一律进 stale（更新时间、【提现】置灰）。时间与内容取内存里本页最近一次成功与
         // 磁盘缓存中较新的一份；磁盘写失败或被待清理阻断时仍用本页内存（本页已经显示的数据，不会把别的账号的数据带回来）。
-        const cached: WalletCacheEntry | null = this.d.cache === null ? null : this.d.cache.load(this.account);
+        const cached: WalletCacheEntry | null = this.d.cache === null ? null : this.d.cache.loadAs(cacheOwner);
         const memory: boolean = this.lastGood !== null && s.summary !== null
           && (cached === null || this.lastGoodAt >= cached.fetchedAt);
         if (memory || cached !== null) {

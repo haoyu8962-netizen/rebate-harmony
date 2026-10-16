@@ -24,6 +24,7 @@ if (!tsDir) {
   process.exit(2);
 }
 const ts = require(path.resolve(tsDir));
+const LEX_MODE = process.argv[3] === '--lex';
 
 // ohos-typescript 解析 .ets 的组件语法（Column() { ... }）要 ets 编译选项；SDK 的 ets-loader/tsconfig.json 里就有，
 // typescript 包在 ets-loader/node_modules/typescript 下时从那里读。普通 typescript 包没有这份配置，.ets 会出语法诊断 → 退回扫描器。
@@ -371,6 +372,341 @@ function scan(name, text) {
   return { hits: sorted, diagnostics, mode: diagnostics > 0 ? 'ast+scanner' : 'ast', incomplete };
 }
 
+// ---------------------------------------------------------------- --lex：lint.py HM-LINT-1…9 的词法 / 导入（FU-HM-0723 第 2 轮修复）
+// 用法：node hm10-scan.js <typescript 包目录> --lex；stdin 同上。每个文件输出（全部由解析器决定，lint.py 不再手写词法）：
+//   code：原文按解析器给出的记号重排——记号原样，记号之间的空白与注释逐字符换成空格，行终止符（LF、CR、CRLF、U+2028、U+2029）一律
+//         换成 LF（与 lint.py 的行号口径一致）；
+//   braces：code 里真正属于代码的 { } 的位置（模板的 ${ 与 } 是模板记号，不算）；
+//   strings：[{line, quote, value}]，value 是解码后的值（字符串字面量、模板文本段）；
+//   imports：[{line, kind, module, typeOnly, names: [{name, alias, typeOnly}]}]，module 是解码后的模块名（非字面量为 null），kind 为
+//            import / export / import-equals / dynamic / require / import-type；
+//   diagnostics：语法诊断数；incomplete：null 或 {line, reason}（语法错误、记号重叠——lint.py 据此以 4 失败）。
+// .json / .json5：用 TS 的 JSON 解析（容忍注释与尾逗号），输出 json（对象）或 incomplete。
+function isLineTerminator(c) {
+  return c === '\n' || c === '\r' || c === ' ' || c === ' ';
+}
+
+function flatten(raw) {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '\r' && raw[i + 1] === '\n') {
+      continue;
+    }
+    out += isLineTerminator(c) ? '\n' : c;
+  }
+  return out;
+}
+
+function jsonValue(node) {
+  const K = ts.SyntaxKind;
+  if (ts.isParenthesizedExpression(node)) {
+    return jsonValue(node.expression);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const out = {};
+    for (const p of node.properties) {
+      if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)
+        || ts.isNumericLiteral(p.name))) {
+        throw new Error('不支持的属性');
+      }
+      out[p.name.text] = jsonValue(p.initializer);
+    }
+    return out;
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.map(jsonValue);
+  }
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  if (ts.isNumericLiteral(node)) {
+    return Number(node.text);
+  }
+  if (ts.isPrefixUnaryExpression(node) && node.operator === K.MinusToken && ts.isNumericLiteral(node.operand)) {
+    return -Number(node.operand.text);
+  }
+  if (node.kind === K.TrueKeyword || node.kind === K.FalseKeyword) {
+    return node.kind === K.TrueKeyword;
+  }
+  if (node.kind === K.NullKeyword) {
+    return null;
+  }
+  throw new Error('不支持的值');
+}
+
+/** JSON5（oh-package.json5 等）：按 TS 表达式解析（注释、尾逗号、不带引号的键、单引号都由解析器处理），只接受纯数据。 */
+function lexJson(name, text) {
+  const sf = ts.createSourceFile(name + '.ts', '(\n' + text + '\n);', ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const diagnostics = (sf.parseDiagnostics || []).length;
+  const stmt = sf.statements.length === 1 && ts.isExpressionStatement(sf.statements[0]) ? sf.statements[0] : null;
+  if (diagnostics > 0 || stmt === null) {
+    const d = (sf.parseDiagnostics || [])[0];
+    return { diagnostics: Math.max(diagnostics, 1), incomplete: { line: d ? Math.max(1,
+      sf.getLineAndCharacterOfPosition(d.start || 0).line) : 1, reason: 'JSON5 语法错误' } };
+  }
+  try {
+    return { diagnostics: 0, incomplete: null, json: jsonValue(stmt.expression) };
+  } catch (e) {
+    return { diagnostics: 1, incomplete: { line: 1, reason: 'JSON5 含非数据内容：' + e.message } };
+  }
+}
+
+function moduleText(node) {
+  return node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
+}
+
+// FU-HM-0723 末轮窄修 R3-03 / R3-04：可静态确定的字符串值——剥掉括号、as / ! / 类型断言外壳，折叠字符串字面量、数字、+ 拼接、
+// 模板（插值也可确定时）、只声明一次的 const 常量。确定不了为 null。
+function constTable(sf) {
+  // 末轮窄修二 RC-02：不做作用域分析，所以只认「整个文件里这个名字只有一处绑定、而且是带初始值的 const」；同名的参数、let / var、
+  // 解构、函数 / 类名、导入名、catch 变量、枚举 / 命名空间任一存在，都按「确定不了」处理（之后 import() / require() 以 4 失败），
+  // 不按名字误取外层的安全值。
+  const counts = new Map();
+  const constInit = new Map();
+  const bind = (name) => {
+    if (name && ts.isIdentifier(name)) {
+      counts.set(name.text, (counts.get(name.text) || 0) + 1);
+    } else if (name && (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name))) {
+      for (const el of name.elements) {
+        if (!ts.isOmittedExpression(el)) {
+          bind(el.name);
+        }
+      }
+    }
+  };
+  (function visit(node) {
+    if (ts.isVariableDeclaration(node)) {
+      bind(node.name);
+      if (ts.isIdentifier(node.name) && node.initializer && node.parent && (node.parent.flags & ts.NodeFlags.Const)) {
+        constInit.set(node.name.text, node.initializer);
+      }
+    } else if (ts.isParameter(node)) {
+      bind(node.name);
+    } else if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isClassDeclaration(node)
+      || ts.isClassExpression(node) || ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node)
+      || ts.isImportEqualsDeclaration(node) || ts.isImportSpecifier(node) || ts.isNamespaceImport(node)
+      || ts.isImportClause(node)) && node.name) {
+      bind(node.name);
+    }
+    // catch (e) 的变量是 VariableDeclaration，由上面第一支计入。
+    ts.forEachChild(node, visit);
+  })(sf);
+  const decls = new Map();
+  for (const [name, init] of constInit) {
+    decls.set(name, counts.get(name) === 1 ? init : null);
+  }
+  for (const [name, n] of counts) {
+    if (!decls.has(name) && n > 0) {
+      decls.set(name, null);
+    }
+  }
+  return decls;
+}
+
+// 末轮窄修三 RC-03：flags（可选）回报「为什么确定不了」——flags.conflict：用到的标识符在本文件有绑定但不是唯一的带初始值 const
+// （同名参数 / let / 解构 / 导入等）；flags.unbound：用到的标识符本文件没有绑定。消费方据此把「确定不了」判成 4，而不是跳过。
+function staticString(expr, consts, seen, flags) {
+  const e = unwrap(expr);
+  if (!e) {
+    return null;
+  }
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) {
+    return e.text;
+  }
+  if (ts.isNumericLiteral(e)) {
+    return String(Number(e.text));
+  }
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const l = staticString(e.left, consts, seen, flags);
+    const r = l === null ? null : staticString(e.right, consts, seen, flags);
+    return l === null || r === null ? null : l + r;
+  }
+  if (ts.isTemplateExpression(e)) {
+    let out = e.head.text;
+    for (const span of e.templateSpans) {
+      const v = staticString(span.expression, consts, seen, flags);
+      if (v === null) {
+        return null;
+      }
+      out += v + span.literal.text;
+    }
+    return out;
+  }
+  if (ts.isIdentifier(e) && consts.get(e.text) && !seen.has(e.text)) {
+    seen.add(e.text);
+    const v = staticString(consts.get(e.text), consts, seen, flags);
+    seen.delete(e.text);
+    return v;
+  }
+  if (ts.isIdentifier(e) && flags) {
+    if (consts.has(e.text)) {
+      flags.conflict = true;
+    } else {
+      flags.unbound = true;
+    }
+  }
+  return null;
+}
+
+function lex(name, text) {
+  if (name.endsWith('.json') || name.endsWith('.json5')) {
+    return lexJson(name, text);
+  }
+  const K = ts.SyntaxKind;
+  const ets = name.endsWith('.ets') && ts.ScriptKind.ETS !== undefined;
+  const sf = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true,
+    ets ? ts.ScriptKind.ETS : ts.ScriptKind.TS, ets ? ETS_OPTIONS : undefined);
+  const lineOf = (pos) => sf.getLineAndCharacterOfPosition(pos).line + 1;
+  const diagnostics = (sf.parseDiagnostics || []).length;
+  if (diagnostics > 0) {
+    const d = sf.parseDiagnostics[0];
+    return { diagnostics, incomplete: { line: lineOf(d.start || 0),
+      reason: '语法错误：' + ts.flattenDiagnosticMessageText(d.messageText, ' ') } };
+  }
+  // 1. AST：字符串（解码后的值）、导入声明、正则与模板续段的位置（扫描器在这些位置按语法重扫）、navBar() 的结构化检查（R3-02 / R3-04）。
+  const consts = constTable(sf);
+  const navbars = [];
+  const strings = [];
+  const imports = [];
+  const regexAt = new Set();
+  const templateAt = new Set();
+  const bindings = (elements) => (elements || []).map((el) => ({
+    name: (el.propertyName || el.name).text, alias: el.name.text, typeOnly: !!el.isTypeOnly }));
+  (function visit(node) {
+    const k = node.kind;
+    if (k === K.StringLiteral || k === K.NoSubstitutionTemplateLiteral || k === K.TemplateHead
+      || k === K.TemplateMiddle || k === K.TemplateTail) {
+      const start = node.getStart(sf);
+      strings.push({ line: lineOf(start), quote: text[start],
+        value: node.text !== undefined ? node.text : (node.rawText || '') });
+      if (k === K.TemplateMiddle || k === K.TemplateTail) {
+        templateAt.add(start);
+      }
+    }
+    if (k === K.RegularExpressionLiteral) {
+      regexAt.add(node.getStart(sf));
+    }
+    if ((ts.isMethodDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name && ts.isIdentifier(node.name)
+      && node.name.text === 'navBar' && node.parameters.length === 0 && node.body) {
+      navbars.push(navBarCheck(node, sf, lineOf, consts));
+    }
+    if (ts.isImportDeclaration(node)) {
+      const clause = node.importClause;
+      const named = clause && clause.namedBindings && ts.isNamedImports(clause.namedBindings)
+        ? bindings(clause.namedBindings.elements) : [];
+      if (clause && clause.name) {
+        named.push({ name: 'default', alias: clause.name.text, typeOnly: false });
+      }
+      imports.push({ line: lineOf(node.getStart(sf)), kind: 'import', module: moduleText(node.moduleSpecifier),
+        typeOnly: !!(clause && clause.isTypeOnly), names: named });
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      const named = node.exportClause && ts.isNamedExports(node.exportClause) ? bindings(node.exportClause.elements) : [];
+      imports.push({ line: lineOf(node.getStart(sf)), kind: 'export', module: moduleText(node.moduleSpecifier),
+        typeOnly: !!node.isTypeOnly, names: named });
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      imports.push({ line: lineOf(node.getStart(sf)), kind: 'import-equals',
+        module: moduleText(node.moduleReference.expression), typeOnly: !!node.isTypeOnly, names: [] });
+    } else if (ts.isCallExpression(node) && (node.expression.kind === K.ImportKeyword
+      || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+      // R3-03：模块名按可静态确定的值折叠（括号、拼接、常量模板）；仍确定不了 → unresolved（lint 以 4 失败，不静默跳过）。
+      const module = node.arguments.length > 0 ? staticString(node.arguments[0], consts, new Set()) : null;
+      imports.push({ line: lineOf(node.getStart(sf)), kind: node.expression.kind === K.ImportKeyword ? 'dynamic' : 'require',
+        module, typeOnly: false, names: [], unresolved: module === null });
+    } else if (k === K.ImportType && node.argument && ts.isLiteralTypeNode(node.argument)) {
+      imports.push({ line: lineOf(node.getStart(sf)), kind: 'import-type', module: moduleText(node.argument.literal),
+        typeOnly: true, names: [] });
+    }
+    ts.forEachChild(node, visit);
+  })(sf);
+  // 2. 扫描器（不跳过空白与注释）：在 AST 认得的正则、模板续段位置重扫，得到注释与记号的边界。
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text);
+  let code = '';
+  const braces = [];
+  let regexSeen = 0;
+  let templateSeen = 0;
+  let prevEnd = 0;
+  // 记号之间没有被扫描器单独回报的字符（扫描器直接跳过的 U+2028 / U+2029 等）：按空白处理，行终止符照留。
+  const gap = (from, to) => {
+    for (let i = from; i < to; i++) {
+      if (text[i] === '\r' && text[i + 1] === '\n') {
+        continue;
+      }
+      code += isLineTerminator(text[i]) ? '\n' : ' ';
+    }
+  };
+  for (;;) {
+    let kind = scanner.scan();
+    const start = scanner.getTokenPos();
+    gap(prevEnd, Math.min(start, text.length));
+    if (kind === K.EndOfFileToken) {
+      break;
+    }
+    if ((kind === K.SlashToken || kind === K.SlashEqualsToken) && regexAt.has(start)) {
+      kind = scanner.reScanSlashToken();
+      regexSeen++;
+    } else if (kind === K.CloseBraceToken && templateAt.has(start)) {
+      kind = scanner.reScanTemplateToken(false);
+      templateSeen++;
+    }
+    const raw = text.slice(start, scanner.getTextPos());
+    prevEnd = scanner.getTextPos();
+    if (kind === K.SingleLineCommentTrivia || kind === K.MultiLineCommentTrivia || kind === K.ShebangTrivia) {
+      // 注释逐字符换成空格（保留分隔），行终止符照留。
+      for (let i = 0; i < raw.length; i++) {
+        if (raw[i] === '\r' && raw[i + 1] === '\n') {
+          continue;
+        }
+        code += isLineTerminator(raw[i]) ? '\n' : ' ';
+      }
+      continue;
+    }
+    if (kind === K.OpenBraceToken || kind === K.CloseBraceToken) {
+      braces.push([code.length, kind === K.OpenBraceToken ? '{' : '}']);
+    }
+    code += flatten(raw);
+  }
+  if (regexSeen !== regexAt.size || templateSeen !== templateAt.size) {
+    return { diagnostics, incomplete: { line: 1, reason: '扫描器与语法树对正则 / 模板的边界不一致，无法保证扫完' } };
+  }
+  return { diagnostics, incomplete: null, code, braces, strings, imports, navbars };
+}
+
+// HM-LINT-9（R3-02 / R3-04）：navBar() 方法体里的 Image(...) 组件与百分比高度 .height('…%')——按语法树的调用结构判，高度参数取可静态确定
+// 的解码后值（转义的 % 或数字也算）；数字高度不算。方法体范围无效（结束 ≤ 开始）给 invalid，lint 以 4 失败。
+function navBarCheck(method, sf, lineOf, consts) {
+  const body = method.body;
+  const start = body.getStart(sf);
+  const out = { line: lineOf(method.getStart(sf)), invalid: !(body.end > start), hits: [], uncertain: [] };
+  const PERCENT = /^\s*[0-9.]+\s*%\s*$/;
+  (function visit(node) {
+    const isCall = ts.isCallExpression(node)
+      || (ts.SyntaxKind.EtsComponentExpression !== undefined && node.kind === ts.SyntaxKind.EtsComponentExpression);
+    if (isCall && node.expression) {
+      const callee = unwrap(node.expression);
+      if (ts.isIdentifier(callee) && callee.text === 'Image') {
+        out.hits.push({ line: lineOf(node.getStart(sf)), what: 'Image(' });
+      } else if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'height' && node.arguments
+        && node.arguments.length > 0) {
+        const flags = {};
+        const v = staticString(node.arguments[0], consts, new Set(), flags);
+        const arg = unwrap(node.arguments[0]);
+        if (v !== null && arg && !ts.isNumericLiteral(arg) && PERCENT.test(v)) {
+          out.hits.push({ line: lineOf(callee.name.getStart(sf)), what: ".height('" + v + "')" });
+        } else if (v === null && arg && (flags.conflict || flags.unbound || ts.isIdentifier(arg)
+          || ts.isTemplateExpression(arg) || (ts.isBinaryExpression(arg) && arg.operatorToken.kind === ts.SyntaxKind.PlusToken))) {
+          // 末轮窄修三 RC-03：高度参数是标识符 / 模板 / 拼接却折叠不出值（同名绑定冲突、本文件没有绑定、插值不确定）——判不了是不是百分比，
+          // 交 lint 以 4 失败，不跳过。属性取值（CouliInteraction.minTouchTarget 等）、函数调用不在此列。
+          out.uncertain.push({ line: lineOf(callee.name.getStart(sf)), reason: flags.conflict ? '同名绑定冲突'
+            : (flags.unbound ? '标识符在本文件没有绑定' : '值无法静态确定') });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  })(body);
+  return out;
+}
+
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
@@ -379,7 +715,7 @@ process.stdin.on('end', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(path.resolve(tsDir), 'package.json'), 'utf8'));
   const out = {
     typescript: { name: pkg.name, version: pkg.version, path: path.resolve(tsDir), etsOptions: ETS_OPTIONS !== undefined },
-    results: req.sources.map((s) => scan(s.name, s.text)),
+    results: req.sources.map((s) => (LEX_MODE ? lex(s.name, s.text) : scan(s.name, s.text))),
   };
   process.stdout.write(JSON.stringify(out));
 });

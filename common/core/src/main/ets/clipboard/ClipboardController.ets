@@ -129,6 +129,17 @@ export class ParseInputService {
       return outcome;
     }
     if (result.outcome === ApiOutcome.BUSINESS_ERROR) {
+      if (result.code === ParseResultAction.FORCE_UPDATE_CODE && !ErrorActionMapper.forcesUpdate(result.code, result.effect)) {
+        // FU-HM-0723 第 4 项（iOS FU-IOS-0712 R1-03 同类，F-X-09）：整体 10405 但网络层没有判强更（REFRESH_ONLY、刷新失败换成的清会话 /
+        // 网络错误 Effect、没有 Effect）——在进按码分流表之前消费：统一失败文案 + trace6，粘贴入口照常可再点（可重试），不进强更、
+        // 不显示版本文案。原来按码映射成 force_update，网络层又没进强更，页面什么都不做（静默吞掉）。行内 10405 与真强更不变。
+        const generic: ParseAction = new ParseAction(ParseResultAction.ERROR);
+        generic.textKey = ErrorActionMapper.pageTextKey(result.code, null, result.effect) ?? ParseResultAction.GENERIC_KEY;
+        generic.traceId = result.traceId.length > 0 ? result.traceId : null;
+        generic.showTrace6 = generic.traceId !== null;
+        generic.errorCode = result.code;
+        return new ParseOutcome(generic);
+      }
       const mapped: ParseAction = ParseResultAction.map(null, result.code, null,
         result.traceId.length > 0 ? result.traceId : null);
       if (mapped.actionRaw === ParseResultAction.RETRY_AFTER) {
