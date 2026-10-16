@@ -113,6 +113,7 @@ const ID_PLATFORM: string = 'orders_filter_platform';
 const ID_MONTH: string = 'orders_filter_month';
 const GROUP_ID_PREFIX: string = 'orders_group_';
 const CHIP_HEIGHT: number = 32;
+const ORDER_THUMB_SIZE: number = 64;
 
 /**
  * 订单列表（OrderList 路由，订单 Tab 根；设计稿 Orders、OrdersShare、OrdersEmpty、OrdersShareEmpty、OrdersSearch、
@@ -137,6 +138,7 @@ export struct OrderListView {
    * sync.topOrderId 是最近一次确认过的顶部订单（R1-04：延迟对齐复核用）。
    */
   private sync: OrderListScrollSync | null = null;
+  private viewportHeight: number = 0;
   private shownFailure: number = 0;
   private shownRound: number = -1;
   private shownEpoch: number = 0;
@@ -148,6 +150,7 @@ export struct OrderListView {
    */
   private layoutListener: () => void = (): void => {
     if (this.alive) {
+      this.restoreScroll(this.config.controller.snapshot);
       this.sync?.rescrollIfLagging(this.model.phase === OrderPhase.CONTENT);
     }
   };
@@ -164,7 +167,7 @@ export struct OrderListView {
     this.sync = new OrderListScrollSync(this.config.anchor, new ListViewport(this.scroller, (i: number): string | null => {
       const view: OrderView | undefined = this.cards[i - 1];
       return view === undefined ? null : view.orderId;
-    }), (): void => this.config.onPersist(), (listIndex: number): void => {
+    }, (): number => this.viewportHeight), (): void => this.config.onPersist(), (listIndex: number): void => {
       try {
         this.scroller.scrollToIndex(listIndex, false, ScrollAlign.START);
       } catch (e) {
@@ -213,7 +216,8 @@ export struct OrderListView {
     if (s.sessionEpoch !== this.shownEpoch) {
       // 会话变化（共性第 19 条）：清空搜索框输入（可能是上一账号的订单号）并关闭筛选弹层。
       this.shownEpoch = s.sessionEpoch;
-      m.inputText = '';
+      // 真正换代时 q 已清空；未知身份重绑保留的用户查询也要留在输入框里。
+      m.inputText = s.q ?? '';
       m.platformSheet = false;
       m.monthSheet = false;
       // R2-01：按换代后的执行器重新签发输入回调的身份（旧回调手里的是旧值，核对不通过）。
@@ -288,7 +292,7 @@ export struct OrderListView {
       this.cancelAlignTimer();
       return;
     }
-    const index: number = keeper.resolve(s.items, this.config.controller.conditions().encode(), s.phase, s.round);
+    const index: number = this.sync === null ? -2 : this.sync.restoreStep(this.config.controller);
     if (index < 0) {
       if (!keeper.frozen) {
         // 对齐任务被新一轮查询取消：待执行的回调作废。
@@ -309,30 +313,14 @@ export struct OrderListView {
       // 只按用户此刻的位置持久化，不滚动。
       const before: string = keeper.anchor;
       // F-X-18：通过后进入「等布局确认」，目标真实成为顶部可见项（onScrollIndex → observe）才结束恢复。
-      const topNow: string = this.sync === null ? '' : this.sync.topOrderId;
-      if (!keeper.commitAlignAndVerify(ticket, now.round, this.config.controller.conditions().encode(), topNow,
-        this.scrollOffset(), index)) {
+      if (this.sync === null || !this.sync.align(ticket, this.config.controller, index)) {
         if (keeper.anchor !== before) {
           this.config.onPersist();
         }
         return;
       }
-      try {
-        this.scroller.scrollToIndex(index + 1, false, ScrollAlign.START);
-      } catch (e) {
-        // 没有布局时放弃（退回顶部）。
-      }
       this.config.onPersist();
     }, 0);
-  }
-
-  /** 列表此刻的实际滚动偏移（像素）；没有布局时 NaN（只按顶部订单判定）。 */
-  private scrollOffset(): number {
-    try {
-      return this.scroller.currentOffset().yOffset;
-    } catch (e) {
-      return NaN;
-    }
   }
 
   /** 翻页失败：底部错误文案 assertive 播报一次，焦点移到底部【重试】（整页失败由 ErrorState 负责）。 */
@@ -748,7 +736,7 @@ export struct OrderListView {
       }
       .width('100%')
       Row({ space: CouliSpacing.space3 }) {
-        OrderThumb({ url: view.imageUrl, placeholder: this.t(OrderKeys.IMAGE_PLACEHOLDER), thumbSize: 64 })
+        OrderThumb({ url: view.imageUrl, placeholder: this.t(OrderKeys.IMAGE_PLACEHOLDER), thumbSize: ORDER_THUMB_SIZE })
         Column({ space: CouliSpacing.space1 }) {
           if (view.title.length > 0) {
             Text(view.title)
@@ -981,6 +969,10 @@ export struct OrderListView {
       }
       .width('100%')
       .height('100%')
+      .onAreaChange((_old: Area, area: Area) => {
+        this.viewportHeight = Number(area.height);
+        this.restoreScroll(this.config.controller.snapshot);
+      })
       .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2 })
       .contentEndOffset(CouliSpacing.space8)
@@ -1005,7 +997,7 @@ export struct OrderListView {
       })
       .onReachEnd(() => {
         if (this.model.phase === OrderPhase.CONTENT && this.model.hasMore && this.model.loadMoreText.length === 0
-          && !this.model.blocked) {
+          && !this.model.blocked && !this.config.anchor.frozen) {
           this.config.controller.loadMore();
         }
       })
@@ -1034,10 +1026,20 @@ function emptySlot() {
 class ListViewport implements OrderListViewport {
   private readonly scroller: Scroller;
   private readonly idAt: (index: number) => string | null;
+  private readonly height: () => number;
 
-  constructor(scroller: Scroller, idAt: (index: number) => string | null) {
+  constructor(scroller: Scroller, idAt: (index: number) => string | null, height: () => number) {
     this.scroller = scroller;
     this.idAt = idAt;
+    this.height = height;
+  }
+
+  minimumItemHeight(): number {
+    return ORDER_THUMB_SIZE + 2 * CouliSpacing.space4;
+  }
+
+  viewportHeight(): number {
+    return Math.max(0, this.height() - this.paddingTop());
   }
 
   paddingTop(): number {

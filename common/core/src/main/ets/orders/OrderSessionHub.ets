@@ -3,6 +3,7 @@
 // 作废全部在途请求、清空列表与卡片、同步清空已显示的详情快照并通知视图、把旧会话的详情页移出导航栈、清掉闸门。
 // 另持有会话级的待跟单卡关闭登记（PendingDismissals；R2-02、R2-03，共性第 14、15 条）：各卡片位置共用，任一位置关闭成功后其他位置
 // 此前发出的查询迟到也不复活同一尝试。
+import { SessionIdentity } from '../session/SessionIdentity';
 import { OrderDetailController, OrderDetailDeps } from './OrderDetailController';
 import { OrderListController, OrderListDeps, OrderPageRestorer, OrderRateGate } from './OrderListController';
 import { CacheOwner, CachePartitionTracker, OrderStaleCache } from './OrderStaleCache';
@@ -85,10 +86,19 @@ export class OrderSessionHub {
   }
 
   /** 作废并清空全部订单页面（撤回同意、切换环境的清理前第一步也调）。 */
-  reset(): void {
+  /** 已确认身份先修复未知时建的页；不触碰同一会话的输入和共享禁用截止。 */
+  recoverIdentity(identity: SessionIdentity): boolean {
+    const recovered: boolean = this.list?.recoverIdentity(identity) ?? false;
+    for (const d of this.details) {
+      d.recoverIdentity(identity);
+    }
+    return recovered;
+  }
+
+  reset(scope: string | null = null): void {
     this.gate.reset();
     this.dismissals.reset();
-    this.list?.resetForSession();
+    this.list?.resetForSession(scope);
     const details: OrderDetailController[] = this.details;
     this.details = [];
     for (const d of details) {
@@ -138,17 +148,55 @@ export class OrderSessionReconciler {
   private readonly account: () => string | null;
   private readonly partitions: CachePartitionTracker = new CachePartitionTracker();
   private lastScope: string | undefined = undefined;
+  private readonly identity: (() => SessionIdentity) | null;
+  private confirmed: SessionIdentity | null = null;
+  currentIdentity: SessionIdentity | null = null;
 
   constructor(hub: OrderSessionHub, cache: OrderStaleCache | null, restorer: OrderPageRestorer, scope: () => string,
-    account: () => string | null) {
+    account: () => string | null, identity: (() => SessionIdentity) | null = null) {
     this.hub = hub;
     this.cache = cache;
     this.restorer = restorer;
     this.scope = scope;
     this.account = account;
+    this.identity = identity;
   }
 
   sync(): OrderSyncResult {
+    if (this.identity !== null) {
+      return this.syncIdentity(this.identity());
+    }
+    return this.syncLegacy();
+  }
+
+  private syncIdentity(now: SessionIdentity): OrderSyncResult {
+    this.currentIdentity = now;
+    // 已登记的清理不受本次身份读取结果影响。
+    let failed: boolean = this.cache !== null && !this.cache.retryPendingClear();
+    this.restorer.retryPendingClear();
+    if (!now.known) {
+      return new OrderSyncResult(false, false, failed);
+    }
+    // 旧令牌可能读不出世代，但页面已经显示过账号数据；首次确认登出也必须完整换代。
+    const changed: boolean = now.changedFrom(this.confirmed) || (now.account === null && this.confirmed === null);
+    const clear: boolean = changed;
+    let recovered: boolean = false;
+    if (changed) {
+      this.hub.reset(now.scope);
+    } else {
+      recovered = this.hub.recoverIdentity(now);
+    }
+    if (clear) {
+      failed = this.cache !== null && !this.cache.clear();
+      this.restorer.reset(now);
+    } else {
+      this.restorer.rebindOwner(now);
+    }
+    this.confirmed = now;
+    return new OrderSyncResult(changed || recovered, clear, failed);
+  }
+
+  private syncLegacy(): OrderSyncResult {
     const cache: OrderStaleCache | null = this.cache;
     const scope: string = this.scope();
     const account: string | null = this.account();
@@ -171,5 +219,52 @@ export class OrderSessionReconciler {
     }
     this.lastScope = scope;
     return new OrderSyncResult(hubChanged || epochChanged, wiped, clearFailed);
+  }
+}
+
+/** 订单 Tab 的正常入口：未决恢复由后续同步重试，禁止默认状态覆盖原记录。 */
+export class OrderTabCoordinator {
+  private readonly reconciler: OrderSessionReconciler;
+  private readonly restorer: OrderPageRestorer;
+  private readonly list: OrderListController;
+  private shown: boolean = false;
+  private routeScope: string | null = null;
+
+  constructor(reconciler: OrderSessionReconciler, restorer: OrderPageRestorer, list: OrderListController) {
+    this.reconciler = reconciler;
+    this.restorer = restorer;
+    this.list = list;
+  }
+
+  showTab(routeScope: string | null): void {
+    this.shown = true;
+    this.routeScope = routeScope;
+    if (!this.restorer.restoreDecided) {
+      this.restorer.restore(this.list, routeScope);
+    } else if (routeScope !== null) {
+      this.list.setScope(routeScope);
+    }
+    this.list.ensureLoaded();
+  }
+
+  sync(tabSelected: boolean): OrderSyncResult {
+    const result: OrderSyncResult = this.reconciler.sync();
+    const identity: SessionIdentity | null = this.reconciler.currentIdentity;
+    if (identity !== null && !identity.known) {
+      return result;
+    }
+    let restored: boolean = false;
+    if (this.shown && !this.restorer.restoreDecided) {
+      this.restorer.restore(this.list, this.routeScope, identity);
+      restored = this.restorer.restoreDecided;
+    }
+    if (this.shown && (restored || (result.changed && tabSelected))) {
+      this.list.ensureLoaded();
+    }
+    return result;
+  }
+
+  persist(): string {
+    return this.restorer.save(this.list);
   }
 }

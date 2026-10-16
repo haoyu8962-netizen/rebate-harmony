@@ -1,6 +1,7 @@
 // APP-09 钱包页执行器（Wallet 路由；brief §2.2、§2.11）。摘要 GET /v1/wallet/summary：成功写缓存；传输层失败用缓存（WalletStale，
 // 【提现】置灰）；5xxxx 不用缓存、带 trace6；42901 按 Retry-After 禁用刷新与【重试】（执行层 sendAllowed + 页面置灰）。
 // 进入钱包时顺带查 GET /v1/me 的 realname_status（Router 守卫与以后的「我的」用）。
+import { SessionIdentity } from '../session/SessionIdentity';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { WalletCacheEntry, WalletStaleCache } from './WalletStaleCache';
 import { CacheOwner } from '../orders/OrderStaleCache';
@@ -142,6 +143,7 @@ export class WalletController implements WalletSessionAware {
   /** 本实例已消费的钱包失效版本（共性第 58 条，R3-02）：小于会话版本即本实例待刷新；别的钱包实例刷新不改它。 */
   private seenDirty: number = 0;
   private left: boolean = false;
+  private loadRequested: boolean = false;
   private owners: (() => boolean)[] = [];
   private readonly unsubscribe: () => void;
   private readonly unsubscribeDirty: () => void;
@@ -164,6 +166,7 @@ export class WalletController implements WalletSessionAware {
     // 共性第 53 条：提现成功（同一会话）后通知本页——作废成功前发出的旧摘要请求并刷新。
     this.unsubscribeDirty = deps.session.subscribeWalletDirty((scope: string): void => this.walletDirty(scope));
     deps.session.add(this);
+    deps.session.addIdentityMember(this, (identity: SessionIdentity): void => this.recoverIdentity(identity));
   }
 
   /**
@@ -356,15 +359,30 @@ export class WalletController implements WalletSessionAware {
     this.d.session.remove(this);
   }
 
+  private recoverIdentity(identity: SessionIdentity): void {
+    if (!this.left && identity.scope.length > 0 && (this.account === null
+      || SessionIdentity.unresolvedScope(this.boundScope))
+      && (this.boundScope !== identity.scope || this.account !== identity.account)) {
+      this.resetIdentity(identity);
+      if (this.loadRequested) {
+        this.load();
+      }
+    }
+  }
+
   resetForSession(): void {
+    this.resetIdentity(this.d.session.currentIdentity);
+  }
+
+  private resetIdentity(identity: SessionIdentity | null): void {
     this.begin();
     const s: WalletSnapshot = new WalletSnapshot();
     s.sessionEpoch = this.d.session.epoch;
     s.version = this.state.version + 1;
     this.state = s;
     // 会话换代通知：随清空一起重建本页身份（A 类）；上一个会话的内存摘要不再作为断网时的旧数据。
-    this.boundScope = this.d.scope();
-    this.account = this.d.account();
+    this.boundScope = identity === null ? this.d.scope() : identity.scope;
+    this.account = identity === null ? this.d.account() : identity.account;
     this.lastGood = null;
     this.lastGoodAt = 0;
     this.emit();
@@ -374,6 +392,7 @@ export class WalletController implements WalletSessionAware {
     if (this.left) {
       return;
     }
+    this.loadRequested = true;
     if (!this.owns()) {
       // FU-HM-0712（共性第 65 条，Android FU R1-01 同类）：会话已变（新令牌已保存、清空通知还没到）时不经 begin() 把已显示的旧摘要
       // 重新绑定到当前会话、也不为它发新会话的请求；作废在途请求，等清空通知换代后重建。

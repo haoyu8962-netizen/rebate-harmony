@@ -15,3 +15,5 @@
 *.p7b
 .env*
 **/.test
+
+__pycache__/

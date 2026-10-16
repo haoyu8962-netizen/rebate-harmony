@@ -110,6 +110,8 @@ import followupHM0720Test from './FollowupHM0720.test';
 import followupHM0721Test from './FollowupHM0721.test';
 import followupHM0722Test from './FollowupHM0722.test';
 import followupHM0723Test from './FollowupHM0723.test';
+import followupHM0724Test from './FollowupHM0724.test';
+import followupHM0724ContractTest from './FollowupHM0724Contract.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -230,4 +232,6 @@ export default function testsuite() {
   followupHM0721Test();
   followupHM0722Test();
   followupHM0723Test();
+  followupHM0724Test();
+  followupHM0724ContractTest();
 }

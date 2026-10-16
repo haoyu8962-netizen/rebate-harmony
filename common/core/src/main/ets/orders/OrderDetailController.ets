@@ -1,6 +1,7 @@
 // APP-08 订单详情执行器（OrderDetail 路由；brief §2.5）。30701 显示空态（不重试）；42901 按 Retry-After 禁用【重试】；5xxxx 带 trace6；
 // 传输层失败时用最近 30 条详情缓存。详情页出栈的同步出口（onWillDisappear）调 leave：作废请求、取消传输，之后的响应不改任何状态
 // （APP-04 第 28、47 条，APP-06a 第 39 条）。
+import { SessionIdentity } from '../session/SessionIdentity';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { SearchApiPort } from '../search/SearchController';
 import { OrderJson, OrderRecord } from './OrderJson';
@@ -136,6 +137,20 @@ export class OrderDetailController {
    * 会话变化（换账号、登出、会话失效、撤回同意、切换环境；R1-01）：作废请求，并同步清空已显示的详情快照、通知视图（页面回到空白关闭态
    * phase=idle），之后不再加载；旧账号的订单号与金额不再留在页面上。App 另把旧会话的详情页移出导航栈。
    */
+  recoverIdentity(identity: SessionIdentity): void {
+    if (!this.left && identity.scope.length > 0 && this.boundScope !== identity.scope
+      && SessionIdentity.unresolvedScope(this.boundScope)) {
+      this.begin();
+      this.boundScope = identity.scope;
+      this.state = new OrderDetailSnapshot();
+      this.onChange(this.state);
+      // load 已记录订单号：页面持续可见时没有第二次 aboutToAppear，由恢复入口重取。
+      if (this.orderId.length > 0) {
+        this.fetch();
+      }
+    }
+  }
+
   resetForSession(): void {
     if (!this.left) {
       // 不经 leave() 的刷新态通知：下面立即换成空白快照并通知，不再把旧会话的内容多发一次。

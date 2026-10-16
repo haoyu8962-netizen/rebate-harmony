@@ -8,7 +8,7 @@
 // HomeLkgScope 向量不变）；世代未知不读不写；清作用域删整个作用域目录（含所有世代子目录与升级前写在作用域根下的旧页面）。
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { OrderStaleCache } from '../orders/OrderStaleCache';
-import { HomeLkgScope, HomeShanghai } from './HomePolicies';
+import { HomeLevel, HomeLkgScope, HomeShanghai } from './HomePolicies';
 
 /**
  * LKG 的落盘端口（生产：filesDir/couli_home_lkg/<存储标签>/page.json，FileSlot 原子写；单测：内存）。失败一律抛出。
@@ -24,6 +24,9 @@ export interface HomeLkgBackend {
 
   /** 删除整个 LKG 目录（含临时文件）；删完核对不存在，否则抛出。 */
   clearAll(): void;
+
+  /** 冷启动确认登出：删除其余作用域，保留指定的公共分区；旧适配器可不提供（清理保持待重试）。 */
+  clearExcept?: (keepTags: string[]) => void;
 
   /** 「待清理」标记（缓存目录之外）：内容为 * 或换行分隔的作用域标签；没有为 null；读失败抛出。 */
   readPending(): string | null;
@@ -74,6 +77,17 @@ export class MemoryHomeLkgBackend implements HomeLkgBackend {
       throw new Error('clear failed');
     }
     this.files.clear();
+  }
+
+  clearExcept(keepTags: string[]): void {
+    if (this.failClear) {
+      throw new Error('clear failed');
+    }
+    for (const key of Array.from(this.files.keys())) {
+      if (keepTags.indexOf(key.split('/')[0]) < 0) {
+        this.files.delete(key);
+      }
+    }
   }
 
   readPending(): string | null {
@@ -131,6 +145,7 @@ export class HomeClearResult {
 export class HomeLkgStore {
   static readonly CLEANER_NAME: string = 'home_lkg';
   private static readonly ALL: string = '*';
+  private static readonly EXCEPT: string = 'except|';
   /** 待清理记录的最长长度（超过收拢成 ALL）。 */
   static readonly PENDING_MAX_CHARS: number = 2048;
   /** 删不掉时就地覆盖的墓碑内容（读到按没有 LKG）。 */
@@ -292,7 +307,14 @@ export class HomeLkgStore {
         this.backend.clearAll();
       } else {
         for (const t of tags) {
-          this.backend.clearScope(t);
+          if (t.startsWith(HomeLkgStore.EXCEPT)) {
+            if (this.backend.clearExcept === undefined) {
+              throw new Error('selective lkg clear unavailable');
+            }
+            this.backend.clearExcept(t.substring(HomeLkgStore.EXCEPT.length).split('|'));
+          } else {
+            this.backend.clearScope(t);
+          }
         }
       }
       this.clearPendingRecords();
@@ -300,7 +322,7 @@ export class HomeLkgStore {
       this.ensureDurable(tags);
       return false;
     }
-    if (tags.indexOf(HomeLkgStore.ALL) >= 0) {
+    if (tags.indexOf(HomeLkgStore.ALL) >= 0 || tags.some((t: string): boolean => t.startsWith(HomeLkgStore.EXCEPT))) {
       this.partitions.clear();
     } else {
       for (const t of tags) {
@@ -322,7 +344,7 @@ export class HomeLkgStore {
       return;
     }
     for (const t of Array.from(this.volatileTags.values())) {
-      if (t === HomeLkgStore.ALL) {
+      if (t === HomeLkgStore.ALL || t.startsWith(HomeLkgStore.EXCEPT)) {
         continue;
       }
       try {
@@ -415,6 +437,14 @@ export class HomeLkgStore {
   /** 退出登录、换账号、会话失效：清旧账号作用域。返回是否确认清完。 */
   clearScope(scope: string): boolean {
     return this.clearScopeResult(scope) === HomeClearResult.DONE;
+  }
+
+  /** 冷启动确认无会话：不需要旧账号明文；公共 LKG 保留，清理范围随标记持久化并可重试。 */
+  clearMembersResult(env: string): string {
+    const guest: string = HomeLkgStore.tagOf(HomeLkgScope.of(HomeLevel.GUEST, null, env));
+    const basic: string = HomeLkgStore.tagOf(HomeLkgScope.of(HomeLevel.BASIC, null, env));
+    this.mark(HomeLkgStore.EXCEPT + guest + '|' + basic);
+    return this.finish();
   }
 
   /** 撤回同意、切换环境：全清（含临时文件）。返回 HomeClearResult。 */

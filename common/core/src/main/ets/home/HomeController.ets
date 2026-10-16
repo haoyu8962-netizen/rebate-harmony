@@ -4,6 +4,7 @@
 // 账号作用域」（HomeIdentity）；拉取、写 LKG、写关闭记录、写弹窗计数、渲染回调都只用这一份，读「当前身份」只用于比较。
 // 归属变化时 entry 作废旧控制器（dispose）并按新身份重建（不是只刷新展示）。
 // 每次异步等待（网络、读 LKG、读包内默认、图片加载、1.5 秒计时）结束后复核控制器仍在、身份仍一致（APP-04 第 30、60 条）。
+import { SessionIdentity } from '../session/SessionIdentity';
 import { ClientEvent, ClientEvents } from 'generated';
 import { ApiClient, ApiRequest, ApiResult, ApiOutcome } from '../network/ApiClient';
 import { TransportFailure } from '../network/HttpTransport';
@@ -62,7 +63,45 @@ export class HomeIdentity {
  * 原来只比较会员状态与账号：同账号重新登录时旧世代的分区留在盘上（读不回，但还在）。建控制器时世代未知（null）说明那时没写过
  * 会员 LKG（save 要求世代已知），不因世代从未知变已知而删（冷启动会话晚一步读出时不误删本世代的 LKG）。
  */
+export class HomeSyncOutcome {
+  readonly keep: boolean;
+  readonly cleared: string | null;
+
+  constructor(keep: boolean, cleared: string | null) {
+    this.keep = keep;
+    this.cleared = cleared;
+  }
+}
+
 export class HomeLkgReconciler {
+  private confirmed: SessionIdentity | null = null;
+  private confirmedHome: HomeIdentity | null = null;
+
+  syncWith(oldKey: string | null, now: HomeIdentity, identity: SessionIdentity, store: HomeLkgStore,
+    invalidate: () => void): HomeSyncOutcome {
+    store.retryPendingClear();
+    const previous: SessionIdentity | null = this.confirmed;
+    const member: HomeIdentity | null = this.confirmedHome;
+    const changed: boolean = identity.known && identity.changedFrom(previous);
+    const coldLogout: boolean = identity.known && identity.account === null && previous === null;
+    const keep: boolean = oldKey !== null && oldKey === now.key && !changed && !coldLogout;
+    if (!keep) {
+      invalidate();
+    }
+    let cleared: string | null = null;
+    if (identity.known) {
+      if (coldLogout) {
+        // 不需要知道上个进程的会员账号；保留当前环境公共分区，清掉其余残留。
+        cleared = store.clearMembersResult(now.env);
+      } else if (changed && member !== null && member.level === HomeLevel.MEMBER && member.env === now.env) {
+        cleared = store.clearScopeResult(member.scope);
+      }
+      this.confirmed = identity;
+      this.confirmedHome = now;
+    }
+    return new HomeSyncOutcome(keep, cleared);
+  }
+
   private before: HomeIdentity | null = null;
   private beforeEpoch: string | null = null;
 

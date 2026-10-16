@@ -3,6 +3,7 @@
 // 搜索、下拉刷新开新轮次，旧轮次的响应（含翻页）一律丢弃（APP-06a 第 33 条，APP-06b 第 20 条）；响应到达（await 之后）再复核。
 // 42901 按 Retry-After 在执行层禁用刷新、翻页、筛选与搜索提交（页面另外置灰）；5xxxx 带 trace6，不伪装成空结果；传输层失败且是默认视图时
 // 用缓存（OrderStaleCache），带筛选或搜索词的不用缓存。
+import { SessionIdentity } from '../session/SessionIdentity';
 import { ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { TransportFailure } from '../network/HttpTransport';
 import { LocalRejectReason } from '../network/NetworkPolicy';
@@ -536,6 +537,7 @@ export class OrderListConditions {
 export class OrderListController {
   private readonly d: OrderListDeps;
   private query: OrderQuery = OrderQuery.initial(null);
+  private userQueries: number = 0;
   private seq: number = 0;
   private current: number = 0;
   private owners: (() => boolean)[] = [];
@@ -607,11 +609,23 @@ export class OrderListController {
       q.month = conditions.month;
       q.q = conditions.q;
     }
+    // 未决恢复可能在默认列表已加载后才完成：作废旧请求与旧内容，让 ensureLoaded 按恢复条件重取。
+    this.begin();
     q.round = this.query.round;
     this.query = q;
-    this.state.round = q.round;
+    const state: OrderListSnapshot = new OrderListSnapshot();
+    state.sessionEpoch = this.state.sessionEpoch;
+    state.failureSeq = this.state.failureSeq;
+    state.round = q.round;
+    this.state = state;
+    this.resultVersion++;
     this.syncConditions();
     this.emit();
+  }
+
+  /** 用户推进的查询版本，身份重绑与自动加载不推进。 */
+  get userQueryVersion(): number {
+    return this.userQueries;
   }
 
   /** Tab 第一次显示（或换账号后再显示）：还没加载就加载第一页。 */
@@ -657,6 +671,7 @@ export class OrderListController {
       return false;
     }
     this.query.apply(op, value);
+    this.userQueries++;
     this.syncConditions();
     this.run(false);
     return true;
@@ -668,6 +683,7 @@ export class OrderListController {
       return false;
     }
     this.query.apply('refresh', null);
+    this.userQueries++;
     this.run(true);
     return true;
   }
@@ -679,6 +695,7 @@ export class OrderListController {
     }
     if (this.state.phase === OrderPhase.ERROR || this.state.stale) {
       this.query.apply('refresh', null);
+      this.userQueries++;
       this.run(false);
       return true;
     }
@@ -765,12 +782,24 @@ export class OrderListController {
   /**
    * 换账号、登出、会话失效、撤回同意（App 在状态同步的同步区里调）：作废全部在途请求，清掉结果与条件，回到未加载；不显示旧账号的数据。
    */
-  resetForSession(): void {
+  recoverIdentity(identity: SessionIdentity): boolean {
+    if (!this.left && identity.scope.length > 0 && this.boundScope !== identity.scope
+      && SessionIdentity.unresolvedScope(this.boundScope)) {
+      this.resetForSession(identity.scope, false);
+      return true;
+    }
+    return false;
+  }
+
+  resetForSession(scope: string | null = null, resetGate: boolean = true): void {
     this.begin();
-    this.gate.reset();
-    this.boundScope = this.d.scope();
+    if (resetGate) {
+      this.gate.reset();
+    }
+    this.boundScope = scope ?? this.d.scope();
     const round: number = this.query.round + 1;
-    this.query = OrderQuery.initial(null);
+    // 未知身份落定不等于换账号：保留用户已选条件，真正换代仍回到默认条件。
+    this.query = resetGate ? OrderQuery.initial(null) : this.query.copy();
     this.query.round = round;
     const s: OrderListSnapshot = new OrderListSnapshot();
     s.round = round;
@@ -1085,7 +1114,7 @@ export class OrderScrollAnchor {
     return this.target !== null;
   }
 
-  resolve(items: OrderRecord[], conditions: string, phase: string): number {
+  resolve(items: OrderRecord[], conditions: string, phase: string, deferFound: boolean = false): number {
     const target: string | null = this.target;
     if (target === null) {
       return OrderScrollAnchor.DROPPED;
@@ -1100,6 +1129,9 @@ export class OrderScrollAnchor {
     }
     for (let i = 0; i < items.length; i++) {
       if (OrderJson.text(items[i], 'order_id') === target) {
+        if (deferFound) {
+          return OrderScrollAnchor.WAIT;
+        }
         this.target = null;
         return i;
       }
@@ -1118,6 +1150,11 @@ export class OrderScrollAnchor {
  * 列表第 0 项是页头，卡片从第 1 项起。
  */
 export interface OrderListViewport {
+  /** 内容区高度（vp）；旧端口可不提供，布局尚未知时延后补页判定。 */
+  viewportHeight?: () => number;
+  /** 懒布局中卡片尚不可测时的保守高度下界（生产由卡片尺寸给出）。 */
+  minimumItemHeight?: () => number;
+
   /** List 顶部内边距（vp）：内容区从这里开始。 */
   paddingTop(): number;
 
@@ -1155,6 +1192,89 @@ export class OrderListScrollSync {
     this.viewport = viewport;
     this.persist = persist;
     this.rescroll = rescroll;
+  }
+
+  /** 快照入口：先为目标下方留够一屏，再进入延迟对齐；失败、限流、到底均收口。 */
+  restoreStep(list: OrderListController): number {
+    const s: OrderListSnapshot = list.snapshot;
+    const target: number = s.items.findIndex((r: OrderRecord): boolean =>
+      OrderJson.text(r, 'order_id') === this.keeper.anchor);
+    const canMore: boolean = s.hasMore && s.loadMoreError === null && !list.blocked;
+    const enough: boolean | null = target < 0 ? false : this.enoughTail(target, s.items.length);
+    const defer: boolean = s.phase === OrderPhase.CONTENT && canMore && enough !== true;
+    // resolve 同时核对任务、条件、查询轮次；取消后绝不能再启动翻页。
+    const result: number = this.keeper.resolve(s.items, list.conditions().encode(), s.phase, s.round, defer);
+    if (result !== OrderScrollAnchor.WAIT || s.phase !== OrderPhase.CONTENT) {
+      return result;
+    }
+    if (s.loadingMore) {
+      return OrderScrollAnchor.WAIT;
+    }
+    if (canMore) {
+      if (enough !== null) {
+        list.loadMore();
+      }
+      return OrderScrollAnchor.WAIT;
+    }
+    // 目标不存在且已无路可翻：保留原锚点、解冻；目标已在内容中会在上面直接给出下标。
+    return this.keeper.resolve(s.items, list.conditions().encode(), OrderPhase.ERROR, s.round);
+  }
+
+  private enoughTail(index: number, count: number): boolean | null {
+    try {
+      const height: number = this.viewport.viewportHeight === undefined ? NaN : this.viewport.viewportHeight();
+      if (!(height > 0)) {
+        return null;
+      }
+      const first: number[] | null = this.rect(index + 1);
+      const last: number[] | null = this.rect(count);
+      if (first !== null && last !== null && first[3] > 0 && last[3] > 0) {
+        return last[1] + last[3] - first[1] >= height;
+      }
+      // 不可见项测量可能抛错：先取已布局卡片的真实高度，全部不可测才用产品高度下界。
+      const measured: number = this.measuredCardHeight(count);
+      if (measured > 0) {
+        return (count - index - 1) * measured >= height;
+      }
+      const minimum: number = this.viewport.minimumItemHeight === undefined ? 0 : this.viewport.minimumItemHeight();
+      if (minimum > 0) {
+        return (count - index) * minimum >= height;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  private measuredCardHeight(count: number): number {
+    let height: number = 0;
+    for (let i: number = 1; i <= count; i++) {
+      const rect: number[] | null = this.rect(i);
+      if (rect !== null && (height === 0 || rect[3] < height)) {
+        height = rect[3];
+      }
+    }
+    return height;
+  }
+
+  private rect(index: number): number[] | null {
+    try {
+      const rect: number[] | null = this.viewport.itemRect(index);
+      return rect !== null && rect.length >= 4 && rect[3] > 0 ? rect : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** 延迟回调再核对任务与真实位置，通过后由同一滚动出口下发。 */
+  align(ticket: number, list: OrderListController, index: number): boolean {
+    const s: OrderListSnapshot = list.snapshot;
+    const top: string = this.measuredTop() ?? this.topOrderId;
+    if (!this.keeper.commitAlignAndVerify(ticket, s.round, list.conditions().encode(), top, this.offset(), index)) {
+      return false;
+    }
+    this.rescroll(index + 1);
+    return true;
   }
 
   /** 此刻内容区最上面的订单（页头为空串）；测量无效为 null。 */
@@ -1397,7 +1517,8 @@ export class OrderAnchorKeeper {
   /**
    * 每次快照调：返回目标下标（≥0：页面在布局就绪后顶对齐一次，然后调 aligned）、WAIT（继续等）或 DROPPED（没有恢复任务 / 已放弃）。
    */
-  resolve(items: OrderRecord[], conditions: string, phase: string, round: number = -1): number {
+  resolve(items: OrderRecord[], conditions: string, phase: string, round: number = -1,
+    deferFound: boolean = false): number {
     const r: OrderScrollAnchor | null = this.restore;
     if (r === null) {
       if (this.verifying && round >= 0 && round !== this.boundRound) {
@@ -1424,7 +1545,7 @@ export class OrderAnchorKeeper {
       this.anchorId = '';
       return OrderScrollAnchor.DROPPED;
     }
-    const index: number = r.resolve(items, conditions, phase);
+    const index: number = r.resolve(items, conditions, phase, deferFound);
     if (index === OrderScrollAnchor.WAIT) {
       return index;
     }
@@ -1647,6 +1768,8 @@ export class OrderPageRestorer {
   private readonly account: () => string | null;
   readonly keeper: OrderAnchorKeeper;
   private decided: boolean = false;
+  /** 只记用户推进的查询；自动加载、翻页、身份重绑不算用户接管。 */
+  private restoreUserVersion: number | null = null;
   /** 清理时没确认删掉恢复记录（共性第 36 条）：本进程内不再按落盘记录恢复，恢复时先重试删除。 */
   private wipePending: boolean = false;
   /** 恢复出的输入框文字（同一账号的记录才有）。 */
@@ -1672,15 +1795,18 @@ export class OrderPageRestorer {
    *   顺带落盘，读取时哈希对不上也不恢复；读不出世代按不恢复处理。
    */
   private readonly marks: OrderRestoreMarks | null;
+  private readonly identity: (() => SessionIdentity) | null;
 
   constructor(read: () => string | null, write: (value: string | null) => void, account: () => string | null,
-    keeper: OrderAnchorKeeper, marks: OrderRestoreMarks | null = null, loginEpoch: (() => string | null) | null = null) {
+    keeper: OrderAnchorKeeper, marks: OrderRestoreMarks | null = null, loginEpoch: (() => string | null) | null = null,
+    identity: (() => SessionIdentity) | null = null) {
     this.read = read;
     this.write = write;
     this.account = account;
     this.keeper = keeper;
     this.marks = marks;
     this.loginEpoch = loginEpoch;
+    this.identity = identity;
   }
 
   /**
@@ -1706,7 +1832,13 @@ export class OrderPageRestorer {
   }
 
   /** 固定写盘归属：账号与持久化登录世代同时取（账号为 null 时不读登录世代）。 */
-  private fixOwner(): void {
+  private fixOwner(identity: SessionIdentity | null = null): void {
+    const snapshot: SessionIdentity | null = identity ?? (this.identity === null ? null : this.identity());
+    if (snapshot !== null) {
+      this.owner = snapshot.account;
+      this.ownerEpoch = snapshot.loginEpoch;
+      return;
+    }
     const account: string | null = this.account();
     this.owner = account;
     this.ownerEpoch = account === null ? null : this.currentEpoch();
@@ -1729,8 +1861,8 @@ export class OrderPageRestorer {
     return OrderPageRestorer.generationHash(account, epoch, generation);
   }
 
-  /** 持久化的待清理标记（读不出按有标记处理）；没有持久化标记时为 false。 */
-  private persistedPending(): boolean {
+  /** 持久化待清理标记；读不出为未知，不能据此新发起删除。 */
+  private persistedPending(): boolean | null {
     const marks: OrderRestoreMarks | null = this.marks;
     if (marks === null) {
       return false;
@@ -1738,7 +1870,7 @@ export class OrderPageRestorer {
     try {
       return marks.pending();
     } catch (e) {
-      return true;
+      return null;
     }
   }
 
@@ -1768,50 +1900,67 @@ export class OrderPageRestorer {
     }
   }
 
-  /**
-   * 记录的归属世代哈希与当前账号、持久化登录世代、清理计数相符（都没接时不核对）。登录世代或清理计数读不出：不恢复。
-   */
-  private generationMatches(saved: OrderPageState, account: string, epoch: string | null): boolean {
-    if (this.marks === null && this.loginEpoch === null) {
-      return true;
-    }
-    if (epoch === null) {
-      return false;
-    }
-    const expected: string | null = this.bindingHash(account, epoch);
-    return expected !== null && expected.length > 0 && saved.generation === expected;
-  }
-
   /** 恢复决策已完成（之后才允许持久化）。 */
   get restoreDecided(): boolean {
     return this.decided;
+  }
+
+  /** 已登记的删除独立于身份重试；标记读失败仅延后。 */
+  retryPendingClear(): boolean {
+    const pending: boolean | null = this.persistedPending();
+    if (this.wipePending || pending === true) {
+      return this.wipe();
+    }
+    return pending !== null;
   }
 
   /**
    * Tab 第一次显示：读取并校验恢复记录（同一账号的才用；路由 scope 与记录不同则不恢复条件），先装锚点再装条件（list.restore 会同步通知
    * 页面并持久化，恢复进行中写的仍是原锚点，R2-05）；没有可恢复的条件时从顶部开始。
    */
-  restore(list: OrderListController, routeScope: string | null): void {
-    if (this.wipePending || this.persistedPending()) {
-      // 上次清理没删掉（本进程内存标记，或 F-HM-25 持久化的待清理标记）：先重试删除；无论结果都不按这份记录恢复（禁止恢复，共性第 36 条）。
-      this.wipePending = !this.wipe();
+  restore(list: OrderListController, routeScope: string | null, identity: SessionIdentity | null = null): void {
+    if (this.restoreUserVersion === null) {
+      this.restoreUserVersion = list.userQueryVersion;
     }
-    let saved: OrderPageState | null = null;
-    if (!this.wipePending) {
-      try {
-        saved = OrderPageState.decode(this.read());
-      } catch (e) {
-        // 存储打不开 / 读取失败（R2-01）：不恢复，从顶部开始。
-        saved = null;
-      }
+    if (!this.retryPendingClear()) {
+      return;
     }
-    this.fixOwner();
+    const snapshot: SessionIdentity | null = identity ?? (this.identity === null ? null : this.identity());
+    if (snapshot !== null && !snapshot.known) {
+      return;
+    }
+    this.fixOwner(snapshot);
     const account: string | null = this.owner;
+    // 即使记录不存在，也必须先确认 .gen 可读，才能完成决策并开放持久化。
+    let saved: OrderPageState | null = null;
+    let generation: string | null = '';
+    try {
+      if (this.marks !== null) {
+        this.marks.generation();
+      }
+      if (account !== null) {
+        if (this.ownerEpoch === null) {
+          return;
+        }
+        generation = this.bindingHash(account, this.ownerEpoch);
+        if (generation === null) {
+          return;
+        }
+      }
+      if (list.userQueryVersion !== this.restoreUserVersion) {
+        // 决策延后期间用户已操作：仅放开后续存盘，不装旧条件、不安装旧锚点。
+        this.decided = true;
+        return;
+      }
+      saved = OrderPageState.decode(this.read());
+    } catch (e) {
+      return;
+    }
     let conditions: OrderListConditions | null = null;
     let anchor: string = '';
     this.input = '';
     if (saved !== null && account !== null && saved.account === OrderStaleCache.accountTag(account)
-      && this.generationMatches(saved, account, this.ownerEpoch)) {
+      && (generation === '' || saved.generation === generation)) {
       conditions = OrderListConditions.decode(saved.conditions);
       this.input = saved.input;
       anchor = saved.anchor;
@@ -1875,17 +2024,18 @@ export class OrderPageRestorer {
    * 会话变化（共性第 19 条，状态同步的清空通知里调）：删记录、清锚点与待恢复输入，并按新会话重取固定账号（A 类）。
    * FU-HM-0712（APP-08 共性第 45 条）：删除没确认（写或读回失败）时与 wipe 一样记 wipePending——本进程内不再按落盘记录恢复。
    */
-  reset(): void {
+  reset(identity: SessionIdentity | null = null): void {
     this.wipe();
-    this.fixOwner();
+    this.restoreUserVersion = null;
+    this.fixOwner(identity);
   }
 
   /**
    * 会话归属键变了但不算会话变化（冷启动落定，见 wipesOnScopeChange）：不删记录，只按此刻的会话重新固定写盘归属（FU-HM-0723 第 2 轮
    * 修复，模拟器回收恢复实测发现）。
    */
-  rebindOwner(): void {
-    this.fixOwner();
+  rebindOwner(identity: SessionIdentity | null = null): void {
+    this.fixOwner(identity);
   }
 
   /**

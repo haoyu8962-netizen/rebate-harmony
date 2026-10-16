@@ -10,7 +10,7 @@ import {
   OrderDetailDeps, OrderDetailEntries, OrderDraftTexts, OrderJson, OrderListController,
   OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPersistResult,
   FlushedPageStateKv, OrderPendingMark,
-  OrderRecord, OrderSessionHub, OrderSessionReconciler, OrderStaleCache, OrderSyncResult, PendingTrackController,
+  OrderRecord, OrderSessionHub, OrderSessionReconciler, OrderStaleCache, OrderSyncResult, OrderTabCoordinator, SessionIdentity, PendingTrackController,
   PendingTrackDeps, PendingTrackJumpWatcher, PendingTrackPosition, PermissionResult, RouteDestination, SearchApiPort, SessionState,
   TransportFailure
 } from 'core';
@@ -159,7 +159,7 @@ export class AppOrders {
    */
   private readonly hub: OrderSessionHub = new OrderSessionHub(Date.now, (): string => AppOrders.scopeKey());
   /** 订单的会话对账（compose 时建；FU-HM-0723 末轮窄修 R3-01）。 */
-  private reconciler: OrderSessionReconciler | null = null;
+  private coordinator: OrderTabCoordinator | null = null;
   /** 订单 Tab 显示过（之后会话变化时立即重新加载）。 */
   private tabShown: boolean = false;
   /** 进程回收后要恢复的条件与输入（只给第一次显示的列表；账号不同不恢复）。 */
@@ -174,7 +174,8 @@ export class AppOrders {
    */
   private readonly restorer: OrderPageRestorer = new OrderPageRestorer((): string | null => this.readPageState(),
     (value: string | null): void => this.writePageState(value), (): string | null => AppOrders.account(),
-    this.anchorKeeper, this.pageStateStore().marks(), (): string | null => AppNetwork.loginEpoch());
+    this.anchorKeeper, this.pageStateStore().marks(), (): string | null => AppNetwork.loginEpoch(),
+    (): SessionIdentity => AppOrders.identity());
 
   attachUi(ui: UIContext): void {
     this.ui = ui;
@@ -189,8 +190,8 @@ export class AppOrders {
     const cache: OrderStaleCache = new OrderStaleCache(store, (): string | null => AppOrders.account(),
       (): number => AppOrders.serverNow(), (): string | null => AppNetwork.loginEpoch());
     this.cacheInstance = cache;
-    this.reconciler = new OrderSessionReconciler(this.hub, cache, this.restorer, (): string => AppOrders.scopeKey(),
-      (): string | null => AppOrders.account());
+    const reconciler: OrderSessionReconciler = new OrderSessionReconciler(this.hub, cache, this.restorer,
+      (): string => AppOrders.scopeKey(), (): string | null => AppOrders.account(), (): SessionIdentity => AppOrders.identity());
     // F-HM-18（APP-08 共性第 28 条）：启动时先核验落盘的「待清理」标记（在缓存目录之外），上次没删完就在任何读取之前补删。
     if (!cache.retryPendingClear()) {
       hilog.warn(DOMAIN, TAG, 'order cache pending clear not finished at launch');
@@ -206,6 +207,7 @@ export class AppOrders {
     this.hub.attachList(deps);
     this.listInstance = new OrderListController(deps);
     this.hub.setList(this.listInstance);
+    this.coordinator = new OrderTabCoordinator(reconciler, this.restorer, this.listInstance);
     ShellState.onRootShown = (destination: RouteDestination): void => {
       if (destination.route === ORDER_LIST_ROUTE) {
         this.showTab(destination);
@@ -214,7 +216,11 @@ export class AppOrders {
     AppRouting.shared.syncOrders = (): void => this.sync();
   }
 
-  /** 当前会话账号（经过会话隔离判断；游客、读不出为 null）。 */
+  /** 恢复与对账共用的完整身份快照。 */
+  private static identity(): SessionIdentity {
+    return AppNetwork.sessionIdentity();
+  }
+
   private static account(): string | null {
     const client: ApiClient | null = AppNetwork.client;
     return client === null ? null : client.sessionAccount();
@@ -256,9 +262,9 @@ export class AppOrders {
   sync(): void {
     const scope: string = AppOrders.scopeKey();
     // FU-HM-0723 末轮窄修 R3-01：判定在 Core OrderSessionReconciler（缓存、恢复记录、同账号登录世代换代；测试走同一入口）。
-    const reconciler: OrderSessionReconciler | null = this.reconciler;
-    if (reconciler !== null) {
-      const result: OrderSyncResult = reconciler.sync();
+    const coordinator: OrderTabCoordinator | null = this.coordinator;
+    if (coordinator !== null) {
+      const result: OrderSyncResult = coordinator.sync(ShellState.shared.selected === ShellState.indexOf(ORDER_LIST_ROUTE));
       if (result.clearFailed) {
         hilog.warn(DOMAIN, TAG, 'order cache clear failed; pending');
       }
@@ -269,9 +275,7 @@ export class AppOrders {
           this.listConfigInstance.initialInput = '';
         }
       }
-      if (result.changed && this.tabShown && ShellState.shared.selected === ShellState.indexOf(ORDER_LIST_ROUTE)) {
-        this.loadTab();
-      }
+      this.readRestoreInput();
     }
     // 订单 Tab 显示着、待跟单卡还没按当前会话拉成功过（登录完成后的第一次显示等）：补拉一次。
     const pending: PendingTrackHost | null = this.listPending;
@@ -289,30 +293,18 @@ export class AppOrders {
     if (list === null) {
       return;
     }
-    if (!this.tabShown) {
-      this.tabShown = true;
-      this.restoreConditions(list, routeString(destination, 'scope'));
-    } else {
-      const scope: string | null = routeString(destination, 'scope');
-      if (scope !== null) {
-        list.setScope(scope);
-      }
-    }
-    this.loadTab();
-  }
-
-  private loadTab(): void {
-    this.listInstance?.ensureLoaded();
+    this.tabShown = true;
+    this.coordinator?.showTab(routeString(destination, 'scope'));
+    this.readRestoreInput();
     this.listPending?.controller.fetch(null);
   }
 
-  /**
-   * 进程回收后恢复子 Tab、筛选与搜索词（同一账号的记录才恢复）；路由 scope 优先。恢复决策在这里完成之后页面持久化才写盘（R3-01）。
-   */
-  private restoreConditions(list: OrderListController, routeScope: string | null): void {
-    this.restorer.restore(list, routeScope);
-    if (this.restorer.input.length > 0) {
+  private readRestoreInput(): void {
+    if (this.restorer.restoreDecided) {
       this.restoreInput = this.restorer.input;
+      if (this.listConfigInstance !== null) {
+        this.listConfigInstance.initialInput = this.restoreInput;
+      }
     }
   }
 
@@ -329,7 +321,7 @@ export class AppOrders {
       AppRouting.shared.openInApp(route, params);
     });
     config.onCopy = (item: OrderRecord): void => this.copy(item);
-    config.onPersist = (): void => this.persistPage(list);
+    config.onPersist = (): void => this.persistPage();
     config.anchor = this.anchorKeeper;
     this.listConfigInstance = config;
     return config;
@@ -343,9 +335,9 @@ export class AppOrders {
   }
 
   /** 页面状态：账号短标识 + 条件 + 滚动锚点（稳定 order_id）；恢复决策完成前不写（R3-01）。 */
-  private persistPage(list: OrderListController): void {
+  private persistPage(): void {
     // R2-02（APP-08 共性第 40、48 条）：同步落盘并拿到明确结果；失败不算保存完成（restorer 已记待清理、本进程内不按记录恢复）。
-    if (this.restorer.save(list) === OrderPersistResult.FAILED) {
+    if (this.coordinator?.persist() === OrderPersistResult.FAILED) {
       hilog.warn(DOMAIN, TAG, 'order page state write failed; restore disabled');
     }
   }

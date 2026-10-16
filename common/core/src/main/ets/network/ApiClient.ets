@@ -1,3 +1,4 @@
+import { SessionIdentity } from '../session/SessionIdentity';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
 import { ApiOperation, ApiOperations } from 'generated';
@@ -1351,6 +1352,34 @@ export class ApiClient {
     }
     const failed: string | null = this.failedAccessToken;
     return failed !== null && this.deps.tokens.accessToken() === failed ? null : account;
+  }
+
+  /** 同步对账入口：读取状态、账号、持久化世代及页面归属作为同一份快照。 */
+  sessionIdentity(epochs: SessionLoginEpochs | null): SessionIdentity {
+    try {
+      // 未决隐私、基本模式、环境未定及撤回清理期间都不推断登出；明确清理由各清理器负责。
+      if (!this.credentialsAllowed()) {
+        return new SessionIdentity(false, null, null);
+      }
+      // 必须先判本次读取的状态；UNREADABLE 后不再读取账号，避免下一次成功拼出半份身份。
+      const status: string = this.deps.tokens.readStatus();
+      if (status === SessionReadStatus.UNREADABLE) {
+        return new SessionIdentity(false, null, null);
+      }
+      const access: string | null = status === SessionReadStatus.PRESENT ? this.deps.tokens.accessToken() : null;
+      const account: string | null = access !== null && access !== this.failedAccessToken ? this.deps.tokens.account() : null;
+      const epoch: string | null = account !== null && epochs !== null ? epochs.loginEpoch() : null;
+      if (account !== null && epochs !== null && (epoch === null || epoch.length === 0)) {
+        return new SessionIdentity(false, null, null);
+      }
+      const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
+      const scope: string = [String(this.epoch), String(this.loginSerial), String(this.sessionGeneration), 'true',
+        RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy()), endpoints === undefined ? '' : endpoints.apiBase,
+        account ?? ''].join('|');
+      return new SessionIdentity(true, account, epoch, scope);
+    } catch (e) {
+      return new SessionIdentity(false, null, null);
+    }
   }
 
   /**

@@ -4,7 +4,7 @@ import {
   ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner, FileSlot,
   DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, HttpTransport, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
   PendingKeyBackend, PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
-  SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionTokens, SessionTokensCleaner,
+  SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionIdentity, SessionTokens, SessionTokensCleaner,
   UpdateNetworkPort, UpdateState
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -97,6 +97,12 @@ export class AppNetwork {
   static loginEpoch(): string | null {
     const client: ApiClient | null = AppNetwork.instance;
     return client === null ? null : client.sessionLoginEpoch(AppNetwork.secureTokens);
+  }
+
+  /** 订单、钱包与首页共用的身份快照；未组合时保持未知，令牌存储仅在网络组合层内访问。 */
+  static sessionIdentity(): SessionIdentity {
+    const client: ApiClient | null = AppNetwork.instance;
+    return client === null ? new SessionIdentity(false, null, null) : client.sessionIdentity(AppNetwork.secureTokens);
   }
 
   /** X-App-Version 同一个版本号（埋点 app_version 用）。 */

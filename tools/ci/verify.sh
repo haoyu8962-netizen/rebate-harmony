@@ -266,6 +266,13 @@ record "lint-fixtures" PASS "HM-LINT-1…10 均被拦下"
 python3 "$ROOT/tools/ci/lint.py" --self-test-hm10 || fail_fast "lint-hm10-self-test" "HM-LINT-10 正反例自测失败"
 record "lint-hm10-self-test" PASS "HM-LINT-10 正反例全部符合"
 
+# FU-HM-0724 测试评审 T-04：产品接线检查——AppOrders / AppWallet / AppHome / OrderListView 必须调用 Core 新协调器并传身份快照，
+# 旧调度路径不得再被调用（单测只覆盖 Core 协调器本身）。先跑样例自测（漏接任一入口必须失败），再检查本仓库。
+step "接线检查（FU-HM-0724 E1–E4）"
+python3 "$ROOT/tools/ci/wiring-check.py" --self-test || fail_fast "wiring-check 自测" "样例与期望不符，见上方输出"
+python3 "$ROOT/tools/ci/wiring-check.py" --root "$ROOT" || fail_fast "wiring-check" "组合入口没有接上新协调器或仍走旧路径，见上方输出"
+record "wiring-check" PASS "E1–E4 接线满足，样例自测通过"
+
 # FU-HM-0718 第 3 项：「扫不完 / 不支持」必须以 4 失败（不是 0，也不是表示「有违反」的 1）。
 step "lint-fixtures-exit4（不支持的文件、词法边界无法确认、不可列举的源码子目录必须以 4 失败）"
 EXIT4_COUNT=0

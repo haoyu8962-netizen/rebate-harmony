@@ -6,7 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AgentEntryVisibility, ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
   HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeIdentity, HomeLevel,
-  HomeLkgReconciler,
+  HomeLkgReconciler, HomeSyncOutcome, SessionIdentity,
   HomeLkgBackend, HomeLkgStore, HomeLocalStore, HomeNoticeCloseTicket, HomePendingLedger, HomePopupImageTicket,
   HomePopupTicket, HomePrefsBackend, HomeRenderTicket, HomeSectionTicket, HomeShowing, HomeSignalHub, HomeSnapshot,
   HomeTap, HomeTicketPort, HomeVersionInfo, HomeVisibilityHub, PopupBlocker, PrivacyDecision, PrivacyPromptStage, PrivacyState, RetryAfterGate,
@@ -85,6 +85,18 @@ class FileHomeLkgBackend implements HomeLkgBackend {
     }
     if (fileIo.accessSync(this.root)) {
       throw new Error('home lkg dir still exists');
+    }
+  }
+
+  clearExcept(keepTags: string[]): void {
+    if (!fileIo.accessSync(this.root)) {
+      return;
+    }
+    // 枚举/删除失败必须抛出，由 HomeLkgStore 保留待清理；不能按“空目录”报成功。
+    for (const tag of fileIo.listFileSync(this.root)) {
+      if (keepTags.indexOf(tag) < 0) {
+        this.clearScope(tag);
+      }
     }
   }
 
@@ -384,7 +396,11 @@ export class AppHome {
   }
 
   /** 此刻的身份（构造控制器时取一次；之后只用来比较）。HomePreview 实例创建时同样取一次固定。 */
-  static identityNow(): HomeIdentity {
+  static identityNow(identity: SessionIdentity | null = null): HomeIdentity {
+    if (identity !== null && identity.known) {
+      return new HomeIdentity(AppHome.envName(), identity.account === null ? HomeLevel.GUEST : HomeLevel.MEMBER,
+        identity.account, identity.scope);
+    }
     const level: string = AppMe.level();
     const client: ApiClient | null = AppNetwork.client;
     const session: string = client === null ? '' : ClipboardController.scopeKey(client.captureScope());
@@ -392,7 +408,7 @@ export class AppHome {
   }
 
   private identityKey(): string {
-    return AppHome.identityNow().key;
+    return AppHome.identityNow(AppNetwork.sessionIdentity()).key;
   }
 
   /** 每次状态同步（AppRouting.stateChanged）：身份变了就作废旧控制器、清旧账号作用域的 LKG，并按新身份重建。 */
@@ -429,19 +445,16 @@ export class AppHome {
     if (!store.retryPendingClear() && store.hasVolatilePending) {
       hilog.error(DOMAIN, TAG, '%{public}s', 'home lkg clear pending without durable record');
     }
-    const now: HomeIdentity = AppHome.identityNow();
     const old: HomeController | null = this.current;
-    // FU-HM-0723 末轮窄修 R3-01：身份键不含登录世代，同账号世代换了（计数没动）也不能留着旧控制器、要对账。
-    // 末轮窄修二 RC-01：留着时顺带记下「未知 → 已知」观察到的世代，之后换代才删得到旧分区。
-    if (this.reconciler.keepOrObserve(old === null ? null : old.boundIdentity.key, now, store.epochTicket())) {
+    const identity: SessionIdentity = AppNetwork.sessionIdentity();
+    const now: HomeIdentity = AppHome.identityNow(identity);
+    const outcome: HomeSyncOutcome = this.reconciler.syncWith(old === null ? null : old.boundIdentity.key, now,
+      identity, store, (): void => this.invalidate());
+    if (outcome.keep) {
       this.readFlags();
       return;
     }
-    this.invalidate();
-    // 退出登录、换账号、会话失效、同账号重新登录（登录世代变了，FU-HM-0723 第 2 轮修复 R2-02）：清旧账号作用域的 LKG（同一环境内；
-    // 切换环境与撤回同意由清理器全清）。判定在 Core HomeLkgReconciler（测试走同一入口）。
-    // 清理结果上抛给本协调器（R1-06）：没删完但有落盘记录 → 读取前补清；连落盘记录都没有 → 本进程阻断读取并在每次同步时重试。
-    const result: string | null = this.reconciler.reconcile(now, store.epochTicket(), store);
+    const result: string | null = outcome.cleared;
     if (result !== null) {
       if (result === HomeClearResult.PENDING) {
         hilog.warn(DOMAIN, TAG, '%{public}s', 'home lkg scope clear failed; pending');

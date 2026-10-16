@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, CachePartitionTracker, ClientEvents,
+  ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, SessionIdentity, WalletSessionReconciler, ClientEvents,
   ClipboardController,
   ConfigStore, CouliPreferences, FileSlot, LaborAgreementController, OrderCacheStore,
   OrderPendingMark, PayoutAccountController, PendingKeyRecord, RealNameController, RouteDestination,
@@ -222,7 +222,7 @@ export class AppWallet {
   private readonly api: WalletApiPort = new LiveWalletPort();
   private readonly config: WalletConfigPort = new StoreWalletConfig();
   /** F-X-17（FU-HM-0723）：会话变化对账——账号变了、或同账号的登录世代分区变了都删钱包缓存与金额草稿。 */
-  private readonly partitions: CachePartitionTracker = new CachePartitionTracker();
+  private reconciler: WalletSessionReconciler | null = null;
   private ui: UIContext | null = null;
   /** 当前可见的钱包类页面（回到前台时重取，G05、flow-map §16）。 */
   private visible: (() => void) | null = null;
@@ -251,6 +251,9 @@ export class AppWallet {
     // 冷启动 / 回前台 / 【重试】再删）。原先放在上面的页面作废回调里，删除结果不看、异步 flush。
     const draft: WithdrawInputDraft = new WithdrawInputDraft(new PreferencesWithdrawInputBackend(context));
     this.draft = draft;
+    this.reconciler = new WalletSessionReconciler(this.session, cache, (): SessionIdentity => {
+      return AppNetwork.sessionIdentity();
+    }, (): void => this.clearWithdrawInput());
     draft.installCleaner(AppConfig.cleaners);
     this.session.removePages = (route: string): void => AppRouting.shared.navigator.remove(route);
     this.session.realname.subscribe((): void => this.syncRealname());
@@ -292,17 +295,9 @@ export class AppWallet {
 
   /** 每次状态同步：会话归属变了就作废并清空；账号或同账号的登录世代分区变了再删钱包缓存与金额草稿（失败保留待清理标记、之后每次同步重试）。 */
   sync(): void {
-    const cache: WalletStaleCache | null = this.cacheInstance;
-    const account: string | null = AppWallet.account();
-    const changed: boolean = this.session.sync();
-    // FU-HM-0723 末轮窄修 R3-01：同账号的登录世代换了（归属键不含世代、计数没动）也删；先判定、后记录（CachePartitionTracker.sessionSync）。
-    if (this.partitions.sessionSync(changed, account, cache === null ? null : cache.ownerOf(account))) {
-      this.clearWithdrawInput();
-      if (cache !== null && !cache.clear()) {
-        hilog.warn(DOMAIN, TAG, 'wallet cache clear failed; pending');
-      }
-    } else if (!changed && cache !== null) {
-      cache.retryPendingClear();
+    const result = this.reconciler?.sync();
+    if (result !== undefined && result.clearFailed) {
+      hilog.warn(DOMAIN, TAG, 'wallet cache clear failed; pending');
     }
     this.syncRealname();
   }

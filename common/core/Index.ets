@@ -217,7 +217,8 @@ export {
 } from './src/main/ets/orders/OrderListController';
 export { OrderListEntries, OrderDetailEntries } from './src/main/ets/orders/OrderEntries';
 export { OrderDetailSnapshot, OrderDetailDeps, OrderDetailController } from './src/main/ets/orders/OrderDetailController';
-export { OrderSessionHub, OrderSessionReconciler, OrderSyncResult } from './src/main/ets/orders/OrderSessionHub';
+export { SessionIdentity } from './src/main/ets/session/SessionIdentity';
+export { OrderSessionHub, OrderSessionReconciler, OrderSyncResult, OrderTabCoordinator } from './src/main/ets/orders/OrderSessionHub';
 export {
   PendingTrackCard, PendingTrackSnapshot, PendingTrackDeps, PendingTrackController, PendingTrackJumpWatcher, OrderCopy,
   PendingDismissals, PendingPushRowSignal, PendingTrackPosition, TabSwitchSignal
@@ -241,7 +242,8 @@ export {
 export { WithdrawInputBackend, WithdrawInputDraft, WithdrawDraftBinding } from './src/main/ets/wallet/WithdrawInputDraft';
 export {
   WalletApiPort, ApiClientWalletPort, WalletContractPort, WalletConfigPort, EmptyWalletConfig, WalletSessionAware,
-  RealnameState, SmsResendClock, SmsSendOutcome, FundPageLayout, WalletSession, WalletMessage, WalletMessages,
+  RealnameState, SmsResendClock, SmsSendOutcome, FundPageLayout, WalletSession, WalletSessionReconciler, WalletSyncResult,
+  WalletMessage, WalletMessages,
   WalletLoadFailure, SensitiveResultInput,
   PendingView
 } from './src/main/ets/wallet/WalletSession';
@@ -324,7 +326,8 @@ export {
   MemoryHomeClearMark, HomeLocalStore, HomeDataCleaner, HomePendingLedger, MemoryHomePendingLedger, HomeClearResult
 } from './src/main/ets/home/HomeStorage';
 export {
-  HomeIdentity, HomeLkgReconciler, HomeContractPort, HomeNoticePort, ApiClientHomeNoticePort, HomeTimer, SystemHomeTimer, HomeDeps,
+  HomeIdentity, HomeLkgReconciler, HomeSyncOutcome, HomeContractPort, HomeNoticePort, ApiClientHomeNoticePort, HomeTimer,
+  SystemHomeTimer, HomeDeps,
   HomeSectionData, HomeCardView, HomeSnapshot, HomeVersionInfo, HomeController, HomeNoticeContext, HomeTicketPort
 } from './src/main/ets/home/HomeController';
 export {

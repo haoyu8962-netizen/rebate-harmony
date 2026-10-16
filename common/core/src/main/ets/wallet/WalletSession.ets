@@ -3,6 +3,7 @@
 // 等待之后复核；会话换代（失效、登出、换账号、撤回同意、切换环境）时 WalletSession.reset 在状态同步的同步区里清空全部钱包页面
 // （已显示的摘要、金额输入与估算、收款账号与实名的已填内容、内存里的 step_up_token），并把旧会话的资金页面移出导航栈（APP-08 第 1、19 条）。
 // 未决记录本身按账号保留在 PendingKeyStore，不随换代删除（brief §0 第 3 条）。
+import { SessionIdentity } from '../session/SessionIdentity';
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { LocalRejectReason } from '../network/NetworkPolicy';
@@ -351,6 +352,9 @@ export class WalletSession implements StepUpSessionPort {
   };
   private readonly scope: () => string;
   private members: WalletSessionAware[] = [];
+  private identityMembers: Map<WalletSessionAware, (identity: SessionIdentity) => void> =
+    new Map<WalletSessionAware, (identity: SessionIdentity) => void>();
+  currentIdentity: SessionIdentity | null = null;
   private lastScope: string | undefined = undefined;
   private pendingListeners: Map<string, ((source: Object) => void)[]> = new Map<string, ((source: Object) => void)[]>();
   private dirtyListeners: ((scope: string) => void)[] = [];
@@ -371,7 +375,18 @@ export class WalletSession implements StepUpSessionPort {
     this.members.push(member);
   }
 
+  addIdentityMember(member: WalletSessionAware, recover: (identity: SessionIdentity) => void): void {
+    this.identityMembers.set(member, recover);
+  }
+
+  recoverIdentity(identity: SessionIdentity): void {
+    for (const recover of this.identityMembers.values()) {
+      recover(identity);
+    }
+  }
+
   remove(member: WalletSessionAware): void {
+    this.identityMembers.delete(member);
     this.members = this.members.filter((m: WalletSessionAware): boolean => m !== member);
   }
 
@@ -467,7 +482,8 @@ export class WalletSession implements StepUpSessionPort {
   }
 
   /** 作废并清空全部钱包页面（撤回同意、切换环境的清理前第一步也调）。 */
-  reset(): void {
+  reset(identity: SessionIdentity | null = null): void {
+    this.currentIdentity = identity;
     this.epoch++;
     for (const g of [this.readGate, this.withdrawGate, this.payoutGate, this.smsGate, this.verifyGate,
       this.realnameGate, this.laborGate]) {
@@ -479,6 +495,7 @@ export class WalletSession implements StepUpSessionPort {
     this.walletNeedsRefresh = false;
     const members: WalletSessionAware[] = this.members;
     this.members = [];
+    this.identityMembers.clear();
     for (const m of members) {
       try {
         m.resetForSession();
@@ -495,6 +512,7 @@ export class WalletSession implements StepUpSessionPort {
         }
       }
     }
+    this.currentIdentity = null;
   }
 }
 
@@ -721,5 +739,57 @@ export class PendingView {
     }
     this.summary = summary;
     this.createdAtMillis = record.createdAtMillis;
+  }
+}
+
+export class WalletSyncResult {
+  readonly changed: boolean;
+  readonly cleared: boolean;
+  readonly clearFailed: boolean;
+
+  constructor(changed: boolean, cleared: boolean, clearFailed: boolean) {
+    this.changed = changed;
+    this.cleared = cleared;
+    this.clearFailed = clearFailed;
+  }
+}
+
+/** 单快照判据与对账；未知仅延后新决策，已登记的补清先执行。 */
+export class WalletSessionReconciler {
+  private readonly session: WalletSession;
+  private readonly cache: WalletStaleCache | null;
+  private readonly identity: () => SessionIdentity;
+  private readonly clearDraft: () => void;
+  private confirmed: SessionIdentity | null = null;
+
+  constructor(session: WalletSession, cache: WalletStaleCache | null, identity: () => SessionIdentity,
+    clearDraft: () => void) {
+    this.session = session;
+    this.cache = cache;
+    this.identity = identity;
+    this.clearDraft = clearDraft;
+  }
+
+  sync(): WalletSyncResult {
+    let failed: boolean = this.cache !== null && !this.cache.retryPendingClear();
+    const now: SessionIdentity = this.identity();
+    if (!now.known) {
+      return new WalletSyncResult(false, false, failed);
+    }
+    // 首次确认无会话也作废已打开的资金页、step-up 与共享闸门。
+    const changed: boolean = now.changedFrom(this.confirmed) || (now.account === null && this.confirmed === null);
+    const clear: boolean = changed;
+    if (changed) {
+      this.session.reset(now);
+    } else {
+      // 即使判据没变，未知身份期间新建的钱包也必须恢复可用；不重置其他资金表单和共享闸门。
+      this.session.recoverIdentity(now);
+    }
+    if (clear) {
+      this.clearDraft();
+      failed = this.cache !== null && !this.cache.clear();
+    }
+    this.confirmed = now;
+    return new WalletSyncResult(changed, clear, failed);
   }
 }
