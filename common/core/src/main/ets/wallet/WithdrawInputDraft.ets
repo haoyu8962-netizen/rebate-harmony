@@ -1,6 +1,7 @@
 // 提现页已输入金额的本机草稿（APP-09 共性第 59 条：进程回收后按账号归属恢复，不恢复估算）。F-X-08 ①（FU-HM-0719）：撤回同意与切换环境
 // 的清理里必须确认删除已落盘——原先在钱包缓存清理的「页面作废」回调里 deleteSync + 异步 flush、结果不看，落盘失败时草稿在下次启动仍在。
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
+import { SessionIdentity } from '../session/SessionIdentity';
 import { CacheOwner } from '../orders/OrderStaleCache';
 
 /** 草稿的存储（生产：Preferences couli_app 里的一个键；测试：内存 + 可失败的落盘）。 */
@@ -136,13 +137,14 @@ export class WithdrawDraftBinding {
   private readonly scopeNow: () => string;
 
   constructor(draft: WithdrawInputDraft, formAccount: string | null, formScope: string, account: () => string | null,
-    loginEpoch: (() => string | null) | null, scopeNow: () => string) {
+    loginEpoch: (() => string | null) | null, scopeNow: () => string, identity: SessionIdentity | null = null) {
     this.draft = draft;
     this.formScope = formScope;
     this.account = account;
     this.loginEpoch = loginEpoch;
     this.scopeNow = scopeNow;
-    this.owner = CacheOwner.capture(formAccount, loginEpoch);
+    this.owner = identity === null ? CacheOwner.capture(formAccount, loginEpoch)
+      : CacheOwner.capture(identity.account, (): string | null => identity.loginEpoch);
   }
 
   /** 表单固定的归属此刻仍是当前会话。 */

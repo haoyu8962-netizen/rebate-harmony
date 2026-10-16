@@ -6,7 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AgentEntryVisibility, ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
   HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeIdentity, HomeLevel,
-  HomeLkgReconciler, HomeSyncOutcome, SessionIdentity,
+  HomeLkgReconciler, HomeSyncOutcome, SessionIdentity, HomeIdentityRead, HomeIdentitySource,
   HomeLkgBackend, HomeLkgStore, HomeLocalStore, HomeNoticeCloseTicket, HomePendingLedger, HomePopupImageTicket,
   HomePopupTicket, HomePrefsBackend, HomeRenderTicket, HomeSectionTicket, HomeShowing, HomeSignalHub, HomeSnapshot,
   HomeTap, HomeTicketPort, HomeVersionInfo, HomeVisibilityHub, PopupBlocker, PrivacyDecision, PrivacyPromptStage, PrivacyState, RetryAfterGate,
@@ -293,6 +293,8 @@ export class HomeControllerPort implements HomeScreenPort {
  */
 export class AppHome {
   static readonly shared: AppHome = new AppHome();
+  private readonly identity: HomeIdentitySource = new HomeIdentitySource((): string => AppHome.envName(),
+    (): SessionIdentity => AppNetwork.sessionIdentity(), (): HomeIdentity => AppHome.identityNow());
   readonly model: HomeScreenModel = HomeActions.model;
   readonly local: HomeLocalStore = new HomeLocalStore();
   private lkgStore: HomeLkgStore | null = null;
@@ -346,7 +348,7 @@ export class AppHome {
     }
     this.local.retryPendingClear();
     HomeDataCleaner.install(AppConfig.cleaners, lkg, this.local, (): void => this.invalidate());
-    this.gate = new RetryAfterGate(Date.now, (): string => this.identityKey());
+    this.gate = new RetryAfterGate(Date.now, (): string => this.identity.key());
     const core: HomeTicketPort = new HomeTicketPort((): HomeController | null => this.current, this.local,
       (): string => AppHome.envName());
     // 弹窗图片已就绪、或打开前复核没通过（被挡住）：每秒复核阻挡项（R2-03）。
@@ -407,10 +409,6 @@ export class AppHome {
     return new HomeIdentity(AppHome.envName(), level, level === HomeLevel.MEMBER ? AppMe.account() : null, session);
   }
 
-  private identityKey(): string {
-    return AppHome.identityNow(AppNetwork.sessionIdentity()).key;
-  }
-
   /** 每次状态同步（AppRouting.stateChanged）：身份变了就作废旧控制器、清旧账号作用域的 LKG，并按新身份重建。 */
   sync(): void {
     this.syncInner();
@@ -446,10 +444,9 @@ export class AppHome {
       hilog.error(DOMAIN, TAG, '%{public}s', 'home lkg clear pending without durable record');
     }
     const old: HomeController | null = this.current;
-    const identity: SessionIdentity = AppNetwork.sessionIdentity();
-    const now: HomeIdentity = AppHome.identityNow(identity);
-    const outcome: HomeSyncOutcome = this.reconciler.syncWith(old === null ? null : old.boundIdentity.key, now,
-      identity, store, (): void => this.invalidate());
+    const read: HomeIdentityRead = this.identity.now();
+    const outcome: HomeSyncOutcome = this.reconciler.syncWith(old === null ? null : old.boundIdentity.key, read.home,
+      read.identity, store, (): void => this.invalidate());
     if (outcome.keep) {
       this.readFlags();
       return;
@@ -465,13 +462,13 @@ export class AppHome {
     if (AppConfig.environment() === undefined) {
       return;
     }
-    this.build(now);
+    this.build(read.home);
   }
 
   private build(identity: HomeIdentity): void {
     const lkg: HomeLkgStore = this.lkgStore as HomeLkgStore;
     const gate: RetryAfterGate = this.gate as RetryAfterGate;
-    const deps: HomeDeps = new HomeDeps(identity, (): string => this.identityKey(), lkg, this.local, gate);
+    const deps: HomeDeps = new HomeDeps(identity, (): string => this.identity.key(), lkg, this.local, gate);
     deps.contract = BuildVariant.homeContract();
     deps.notices = new ApiClientHomeNoticePort((): ApiClient | null => AppNetwork.client);
     deps.defaultJson = (): string | null => BuildVariant.homeDefaultOverride() ?? DefaultHomePage.DATA_JSON;

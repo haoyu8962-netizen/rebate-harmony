@@ -4,6 +4,8 @@
 // - 保存：新键，savePayoutAccount，首次绑定也要二次验证；未决键规则与提现相同（SensitiveFlow，摘要按 G15 本机脱敏）。
 // - 成功：显示服务端返回的脱敏账号，清空表单与内存里的完整输入，然后出栈回发起页（onSaved）。
 // - 会话换代：清空已填内容（含姓名、卡号、登录号）。页面不进进程回收恢复（卡号、登录号、姓名不持久化）。
+import { SessionIdentity } from '../session/SessionIdentity';
+import { FundIdentityRecovery } from './FundIdentityRecovery';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
 import { StepUpController } from '../stepup/StepUpController';
@@ -89,8 +91,12 @@ export class PayoutAccountController implements WalletSessionAware {
   static readonly SAVE_OPERATION: string = 'savePayoutAccount';
   static readonly STEP_UP_ACTION: string = 'payout_account_change';
   private readonly d: WalletDeps;
-  readonly flow: SensitiveFlow;
+  private flowInstance: SensitiveFlow;
+
+  get flow(): SensitiveFlow { return this.flowInstance; }
   private boundScope: string;
+  private readonly recovery: FundIdentityRecovery;
+  private loadRequested: boolean = false;
   private left: boolean = false;
   private static instances: number = 0;
   /** 本页实例（延后结果按页面复核，F-HM-21）。 */
@@ -118,7 +124,7 @@ export class PayoutAccountController implements WalletSessionAware {
   /** 用户新保存的票据（每次新保存加 1；二次验证后的原键重放不变）：首次保存得到 10003 的延后面板按它复核（R1-01）。 */
   private submitTicket: number = 0;
   /** 本页绑定的账号（构建时；点击时核对，共性第 14 条）。 */
-  private readonly account: string | null;
+  private account: string | null;
   private lastBody: string = '';
   private lastSummary: string = '';
   private state: PayoutSnapshot = new PayoutSnapshot();
@@ -134,9 +140,10 @@ export class PayoutAccountController implements WalletSessionAware {
     PayoutAccountController.instances++;
     this.pageId = 'P' + PayoutAccountController.instances;
     this.boundScope = deps.scope();
+    this.recovery = new FundIdentityRecovery(this.boundScope, ['payout']);
     this.account = deps.account();
     this.state.sessionEpoch = deps.session.epoch;
-    this.flow = new SensitiveFlow(deps, SensitiveOutcome.OP_PAYOUT, PayoutAccountController.SAVE_OPERATION,
+    this.flowInstance = new SensitiveFlow(deps, SensitiveOutcome.OP_PAYOUT, PayoutAccountController.SAVE_OPERATION,
       PayoutAccountController.STEP_UP_ACTION, deps.session.payoutGate, this.account);
     const refresh: () => void = (): void => {
       if (!this.left) {
@@ -153,6 +160,24 @@ export class PayoutAccountController implements WalletSessionAware {
         }
       }));
     deps.session.add(this);
+    deps.session.addIdentityMember(this, (identity: SessionIdentity): void => this.recoverIdentity(identity));
+  }
+
+  private recoverIdentity(identity: SessionIdentity): void {
+    if (this.left) {
+      return;
+    }
+    if (this.recovery.bind(identity)) {
+      this.loadSeq++;
+      this.boundScope = identity.scope;
+      this.account = identity.account;
+      this.flowInstance = new SensitiveFlow(this.d, SensitiveOutcome.OP_PAYOUT, PayoutAccountController.SAVE_OPERATION,
+        PayoutAccountController.STEP_UP_ACTION, this.d.session.payoutGate, this.account);
+    }
+    if (this.loadRequested && this.recovery.needs('payout')) {
+      this.syncPending();
+      this.load();
+    }
   }
 
   /** 别处结算了未决记录：重新同步；待确认没了就回到当前账号显示（或表单）并重取服务端当前账号。 */
@@ -221,6 +246,10 @@ export class PayoutAccountController implements WalletSessionAware {
   }
 
   private load(): void {
+    this.loadRequested = true;
+    if (this.left || this.recovery.deferred) {
+      return;
+    }
     const s: PayoutSnapshot = this.state;
     const seq: number = ++this.loadSeq;
     if (s.account === null) {
@@ -242,12 +271,15 @@ export class PayoutAccountController implements WalletSessionAware {
     request.owner = owner;
     this.owners.push(owner);
     request.sendAllowed = this.d.session.readGate.sendAllowed;
+    this.recovery.start('payout', seq);
     this.d.api.request(request).then((result: ApiResult) => {
-      if (!this.alive || seq !== this.loadSeq) {
+      const current: boolean = this.alive;
+      const data: WalletRecord | null = result.ok ? WalletJson.payoutAccount(result.data) : null;
+      this.recovery.finish('payout', seq, current && seq === this.loadSeq && data !== null);
+      if (!current || seq !== this.loadSeq) {
         return;
       }
       this.owners = this.owners.filter((o: () => boolean): boolean => o !== owner);
-      const data: WalletRecord | null = result.ok ? WalletJson.payoutAccount(result.data) : null;
       if (data === null) {
         if (result.ok) {
           this.d.log('payout account dropped: bad fields');

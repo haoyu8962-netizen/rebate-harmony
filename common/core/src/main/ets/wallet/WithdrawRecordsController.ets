@@ -3,6 +3,8 @@
 // - 带 withdrawal_id 打开：另取 GET /v1/withdrawals/{id}，成功就把这张单放在列表最前、展开详情；30701 只显示列表，不提示。
 // - 展开某一单时取详情（channel_order_id 只在详情里）；交易流水号【复制】只在详情、只经统一写入口。
 // - 金额不受隐藏开关影响（G23）。42901 按 Retry-After 禁用刷新、翻页与【重试】；5xxxx 带 trace6。出栈（同步出口）作废请求。
+import { SessionIdentity } from '../session/SessionIdentity';
+import { FundIdentityRecovery } from './FundIdentityRecovery';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { ShanghaiClock } from '../orders/OrderPresentation';
 import { WalletDeps } from './WalletController';
@@ -75,6 +77,8 @@ export class WithdrawRecordsController implements WalletSessionAware {
   static readonly PAGE_SIZE: number = 20;
   private readonly d: WalletDeps;
   private boundScope: string;
+  private readonly recovery: FundIdentityRecovery;
+  private loadRequested: boolean = false;
   private left: boolean = false;
   private seq: number = 0;
   private current: number = 0;
@@ -99,6 +103,7 @@ export class WithdrawRecordsController implements WalletSessionAware {
   constructor(deps: WalletDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.recovery = new FundIdentityRecovery(this.boundScope, ['records']);
     this.state.sessionEpoch = deps.session.epoch;
     this.unsubscribe = deps.session.readGate.subscribe((): void => {
       if (!this.left) {
@@ -106,6 +111,20 @@ export class WithdrawRecordsController implements WalletSessionAware {
       }
     });
     deps.session.add(this);
+    deps.session.addIdentityMember(this, (identity: SessionIdentity): void => this.recoverIdentity(identity));
+  }
+
+  private recoverIdentity(identity: SessionIdentity): void {
+    if (this.left) {
+      return;
+    }
+    if (this.recovery.bind(identity)) {
+      this.begin();
+      this.boundScope = identity.scope;
+    }
+    if (this.loadRequested && this.recovery.needs('records')) {
+      this.run(false);
+    }
   }
 
   get snapshot(): RecordsSnapshot {
@@ -168,6 +187,10 @@ export class WithdrawRecordsController implements WalletSessionAware {
   }
 
   private run(keep: boolean): void {
+    this.loadRequested = true;
+    if (this.recovery.deferred) {
+      return;
+    }
     if (this.left) {
       return;
     }
@@ -234,12 +257,15 @@ export class WithdrawRecordsController implements WalletSessionAware {
     }
     this.emit();
     const focus: string | null = this.focusRequest ?? this.focusRetryId;
+    this.recovery.start('records', seq);
     this.listRequest(seq, null).then((result: ApiResult) => {
-      if (!this.accept(seq)) {
+      const accepted: boolean = this.accept(seq);
+      const page: WithdrawalPage | null = result.ok ? WalletJson.withdrawals(result.data) : null;
+      this.recovery.finish('records', seq, accepted && seq === this.current && page !== null);
+      if (!accepted) {
         return;
       }
       s.refreshing = false;
-      const page: WithdrawalPage | null = result.ok ? WalletJson.withdrawals(result.data) : null;
       if (page === null) {
         const failure: WalletLoadFailure = result.ok ? WalletLoadFailure.badData() : this.failure(result);
         if (keep && s.phase === RecordsPhase.CONTENT) {

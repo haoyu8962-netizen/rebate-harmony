@@ -1,6 +1,8 @@
 // APP-09 实名认证页与劳务协议签署页的执行器（RealName、LaborAgreement 路由；brief §2.8、§2.9；G01、G02）。
 // 两个接口契约都还没有（标「需契约」）：只经 WalletContractPort（Debug 假服务实现）；Release 构建 port 为 null，按钮置灰、显示草稿说明，
 // 不发任何请求。成功后出栈回发起页（G05），不连跳、不重放发起页的操作。
+import { SessionIdentity } from '../session/SessionIdentity';
+import { FundIdentityRecovery } from './FundIdentityRecovery';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { WalletDeps, WalletController } from './WalletController';
 import { WalletJson, WalletRecord } from './WalletJson';
@@ -33,9 +35,10 @@ export class RealNameSnapshot {
 
 export class RealNameController implements WalletSessionAware {
   private readonly d: WalletDeps;
-  private readonly boundScope: string;
+  private boundScope: string;
+  private readonly recovery: FundIdentityRecovery;
   /** 本页表单固定的账号（FU-HM-0712，共性第 65 条）：构造时与 boundScope 一起取得；实名成功的结论按它落地。 */
-  private readonly account: string | null;
+  private account: string | null;
   private left: boolean = false;
   private seq: number = 0;
   private state: RealNameSnapshot = new RealNameSnapshot();
@@ -49,6 +52,7 @@ export class RealNameController implements WalletSessionAware {
   constructor(deps: WalletDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.recovery = new FundIdentityRecovery(this.boundScope, []);
     this.account = deps.account();
     this.state.unavailable = deps.contract === null;
     this.state.sessionEpoch = deps.session.epoch;
@@ -58,6 +62,17 @@ export class RealNameController implements WalletSessionAware {
       }
     });
     deps.session.add(this);
+    deps.session.addIdentityMember(this, (identity: SessionIdentity): void => this.recoverIdentity(identity));
+  }
+
+  private recoverIdentity(identity: SessionIdentity): void {
+    if (!this.left && this.recovery.bind(identity)) {
+      this.seq++;
+      this.boundScope = identity.scope;
+      this.account = identity.account;
+      this.state.submitting = false;
+      this.emit();
+    }
   }
 
   get snapshot(): RealNameSnapshot {
@@ -289,9 +304,11 @@ export class LaborSnapshot {
 
 export class LaborAgreementController implements WalletSessionAware {
   private readonly d: WalletDeps;
-  private readonly boundScope: string;
+  private boundScope: string;
+  private readonly recovery: FundIdentityRecovery;
   private left: boolean = false;
   private seq: number = 0;
+  private loadRequested: boolean = false;
   private state: LaborSnapshot = new LaborSnapshot();
   private readonly unsubscribe: () => void;
   onChange: (snapshot: LaborSnapshot) => void = (_s: LaborSnapshot) => {
@@ -303,6 +320,7 @@ export class LaborAgreementController implements WalletSessionAware {
   constructor(deps: WalletDeps) {
     this.d = deps;
     this.boundScope = deps.scope();
+    this.recovery = new FundIdentityRecovery(this.boundScope, ['labor']);
     this.state.unavailable = deps.contract === null;
     this.state.sessionEpoch = deps.session.epoch;
     this.unsubscribe = deps.session.laborGate.subscribe((): void => {
@@ -311,6 +329,20 @@ export class LaborAgreementController implements WalletSessionAware {
       }
     });
     deps.session.add(this);
+    deps.session.addIdentityMember(this, (identity: SessionIdentity): void => this.recoverIdentity(identity));
+  }
+
+  private recoverIdentity(identity: SessionIdentity): void {
+    if (this.left) {
+      return;
+    }
+    if (this.recovery.bind(identity)) {
+      this.seq++;
+      this.boundScope = identity.scope;
+    }
+    if (this.loadRequested && this.recovery.needs('labor')) {
+      this.load();
+    }
   }
 
   get snapshot(): LaborSnapshot {
@@ -322,6 +354,10 @@ export class LaborAgreementController implements WalletSessionAware {
   }
 
   load(): void {
+    this.loadRequested = true;
+    if (this.recovery.deferred) {
+      return;
+    }
     const port: WalletContractPort | null = this.d.contract;
     const s: LaborSnapshot = this.state;
     if (this.left || port === null) {
@@ -332,14 +368,18 @@ export class LaborAgreementController implements WalletSessionAware {
     s.loading = true;
     s.error = null;
     this.emit();
+    this.recovery.start('labor', seq);
     port.getLaborAgreement().then((result: ApiResult) => {
-      if (!this.alive || seq !== this.seq) {
-        return;
-      }
-      s.loading = false;
+      const current: boolean = this.alive;
       const data: WalletRecord | null = result.ok ? WalletJson.objectOf(result.data) : null;
       const version: string | null = data === null ? null : WalletJson.text(data, 'version');
       const sha: string | null = data === null ? null : WalletJson.text(data, 'text_sha256');
+      this.recovery.finish('labor', seq, current && seq === this.seq && data !== null
+        && version !== null && sha !== null);
+      if (!current || seq !== this.seq) {
+        return;
+      }
+      s.loading = false;
       if (data === null || version === null || sha === null) {
         s.error = result.ok ? WalletMessages.of(WalletMessages.GENERIC_KEY) : this.d.readFailure(result).message;
         this.emit();

@@ -3,13 +3,13 @@ import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, SessionIdentity, WalletSessionReconciler, ClientEvents,
+  FundPageFactory, ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, SessionIdentity, WalletSessionReconciler, ClientEvents,
   ClipboardController,
-  ConfigStore, CouliPreferences, FileSlot, LaborAgreementController, OrderCacheStore,
-  OrderPendingMark, PayoutAccountController, PendingKeyRecord, RealNameController, RouteDestination,
+  ConfigStore, CouliPreferences, FileSlot, OrderCacheStore,
+  OrderPendingMark, PendingKeyRecord, RouteDestination,
   RouteTable, TransportFailure, WalletApiPort, WalletCacheCleaner, WalletConfigPort, WalletController, WalletDeps,
-  WalletHelpLink, WalletJson, WalletRecord, WalletSession, WalletStaleCache, WithdrawController,
-  WithdrawDraftBinding, WithdrawInputBackend, WithdrawInputDraft, WithdrawRecordsController
+  WalletHelpLink, WalletJson, WalletRecord, WalletSession, WalletStaleCache,
+  WithdrawInputBackend, WithdrawInputDraft
 } from 'core';
 import { CouliAnnounce } from 'designsystem';
 import { EventRouteParamsDroppedRoute, Routes, RouteSpec } from 'generated';
@@ -219,6 +219,8 @@ export class AppWallet {
   /** 提现金额草稿（compose 之后可用；F-X-08 ① 撤回同意时确认删除落盘）。 */
   private draft: WithdrawInputDraft | null = null;
   readonly session: WalletSession = new WalletSession(Date.now, (): string => AppWallet.scopeKey());
+  readonly pages: FundPageFactory = new FundPageFactory(this.session, (): WalletDeps => this.deps(),
+    (): WithdrawInputDraft | null => this.draft, (): string | null => AppNetwork.loginEpoch());
   private readonly api: WalletApiPort = new LiveWalletPort();
   private readonly config: WalletConfigPort = new StoreWalletConfig();
   /** F-X-17（FU-HM-0723）：会话变化对账——账号变了、或同账号的登录世代分区变了都删钱包缓存与金额草稿。 */
@@ -377,51 +379,6 @@ export class AppWallet {
 
   wallet(): WalletController {
     return new WalletController(this.deps());
-  }
-
-  withdraw(): WithdrawController {
-    const c: WithdrawController = new WithdrawController(this.deps());
-    // 进程回收后恢复已输入金额（按账号归属校验，不恢复估算）。
-    // FU-HM-0712（共性第 65 条）：恢复的金额按提现页表单构建时固定的账号核对，不在恢复时另读一次当前会话。
-    // F-X-17（FU-HM-0723）：草稿归属 = 表单固定的账号 + 表单构建时一次取得的登录世代（WithdrawDraftBinding）；恢复、保存只按它打标签，
-    // 当前会话只比较——同账号重新登录后旧登录的金额读不回，也不会记到新登录名下。
-    const draft: WithdrawInputDraft | null = this.draft;
-    const binding: WithdrawDraftBinding | null = draft === null ? null : new WithdrawDraftBinding(draft, c.formAccount,
-      c.formScope, (): string | null => AppWallet.account(), (): string | null => AppNetwork.loginEpoch(),
-      (): string => AppWallet.scopeKey());
-    const saved: string | null = binding === null ? null : binding.restore();
-    if (saved !== null) {
-      c.restoreInput(saved);
-    }
-    // APP-09 共性第 59 条（S0）：按提现页表单固定的账号与归属键保存，写前核对当前会话；不按执行时的当前账号保存。
-    c.onInputChanged = (text: string, account: string | null, scope: string): void => {
-      if (binding !== null) {
-        binding.save(text, account, scope);
-      }
-    };
-    return c;
-  }
-
-  /** 提现页正常出栈：清掉持久化的金额（只给进程回收后恢复用）。 */
-  withdrawLeft(c: WithdrawController): void {
-    c.leave();
-    this.clearWithdrawInput();
-  }
-
-  payout(): PayoutAccountController {
-    return new PayoutAccountController(this.deps());
-  }
-
-  realName(): RealNameController {
-    return new RealNameController(this.deps());
-  }
-
-  labor(): LaborAgreementController {
-    return new LaborAgreementController(this.deps());
-  }
-
-  records(): WithdrawRecordsController {
-    return new WithdrawRecordsController(this.deps());
   }
 
   slaText(): string | null {

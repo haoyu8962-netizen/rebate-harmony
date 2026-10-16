@@ -1,6 +1,6 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
-  OrderAnchorKeeper, OrderListScrollSync, OrderListViewport, OrderInputHandlers, OrderInputModel, OrderListController, OrderListEntries, OrderListSnapshot,
+  OrderInputMirror, OrderListViewEvents, OrderAnchorKeeper, OrderListScrollSync, OrderListViewport, OrderInputHandlers, OrderInputModel, OrderListController, OrderListEntries, OrderListSnapshot,
   OrderMonthOptions, OrderPhase, OrderListPage, OrderPlatformOptions, OrderRecord, OrderStatusGroup, OrderQuery
 } from 'core';
 import {
@@ -138,6 +138,8 @@ export struct OrderListView {
    * sync.topOrderId 是最近一次确认过的顶部订单（R1-04：延迟对齐复核用）。
    */
   private sync: OrderListScrollSync | null = null;
+  private events: OrderListViewEvents | null = null;
+  private inputMirror: OrderInputMirror | null = null;
   private viewportHeight: number = 0;
   private shownFailure: number = 0;
   private shownRound: number = -1;
@@ -160,6 +162,7 @@ export struct OrderListView {
 
   aboutToAppear(): void {
     this.page = new OrderListPage(this.config.controller);
+    this.inputMirror = new OrderInputMirror(this.config.controller.snapshot);
     this.model.inputs = this.page.inputs(this.model);
     this.model.inputText = this.config.initialInput;
     this.shownEpoch = this.config.controller.snapshot.sessionEpoch;
@@ -174,6 +177,7 @@ export struct OrderListView {
         // 还没有布局：等下一次布局回调。
       }
     });
+    this.events = new OrderListViewEvents(this.sync, this.config.controller, (): void => this.cancelAlignTimer());
     try {
       this.getUIContext().getUIObserver().on('didLayout', this.layoutListener);
     } catch (e) {
@@ -216,8 +220,6 @@ export struct OrderListView {
     if (s.sessionEpoch !== this.shownEpoch) {
       // 会话变化（共性第 19 条）：清空搜索框输入（可能是上一账号的订单号）并关闭筛选弹层。
       this.shownEpoch = s.sessionEpoch;
-      // 真正换代时 q 已清空；未知身份重绑保留的用户查询也要留在输入框里。
-      m.inputText = s.q ?? '';
       m.platformSheet = false;
       m.monthSheet = false;
       // R2-01：按换代后的执行器重新签发输入回调的身份（旧回调手里的是旧值，核对不通过）。
@@ -225,9 +227,7 @@ export struct OrderListView {
         m.inputs = this.page.inputs(m);
       }
     }
-    if (m.scope !== s.scope || m.q !== s.q) {
-      m.inputText = s.q ?? '';
-    }
+    m.inputText = this.inputMirror?.apply(s, m.inputText) ?? m.inputText;
     m.scope = s.scope;
     m.group = s.group;
     m.platform = s.platform;
@@ -978,23 +978,9 @@ export struct OrderListView {
       .contentEndOffset(CouliSpacing.space8)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-      .onScrollIndex((start: number) => {
-        this.sync?.scrollIndex(start, this.model.phase === OrderPhase.CONTENT);
-      })
-      .onDidScroll((_offset: number, _state: ScrollState) => {
-        // R1-04：顶部条目不变的滚动（同一卡片内的小幅滚动、惯性、无障碍滚动）同样交给锚点判定——恢复进行中偏移变化即取消恢复。
-        // FU-HM-0723 第 2 轮修复 R2-01：onDidScroll 先于 onScrollIndex；顶部订单按内容区与卡片矩形现量，测量无效不当证据。
-        this.sync?.didScroll(this.model.phase === OrderPhase.CONTENT);
-      })
-      .onTouch((event: TouchEvent) => {
-        // FU-HM-0723 第 1 轮修复 R1-02：用户触摸列表（哪怕没移动）即接管——取消恢复（含等布局确认），之后布局回调不再下发定位。
-        if (event.type !== TouchType.Down) {
-          return;
-        }
-        if (this.sync !== null && this.sync.touchDown(this.model.phase === OrderPhase.CONTENT)) {
-          this.cancelAlignTimer();
-        }
-      })
+      .onScrollIndex((start: number) => this.events?.onScrollIndex(start))
+      .onDidScroll(() => { this.events?.onDidScroll(); })
+      .onTouch((event: TouchEvent) => this.events?.onTouch(event.type === TouchType.Down))
       .onReachEnd(() => {
         if (this.model.phase === OrderPhase.CONTENT && this.model.hasMore && this.model.loadMoreText.length === 0
           && !this.model.blocked && !this.config.anchor.frozen) {

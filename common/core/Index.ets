@@ -403,3 +403,7 @@ export { AgentWithdrawOutcome, AgentWithdrawFlow } from './src/main/ets/agent/Ag
 // bridge（APP-04 / HM-03）：JSBridge 协议判定、宿主、外部页导航判定（容器在 features/web）。
 export * from './src/main/ets/bridge/Bridge';
 export * from 'core/ets/config/DebugOnly';
+
+export { FundPageFactory, FundRoutePage, WithdrawRoutePage, RecordsRoutePage, PayoutRoutePage, RealNameRoutePage, LaborRoutePage } from './src/main/ets/wallet/FundRoutePages';
+export { HomeIdentityRead, HomeIdentitySource } from './src/main/ets/home/HomeIdentitySource';
+export { OrderInputMirror, OrderListViewEvents } from './src/main/ets/orders/OrderViewAdapters';

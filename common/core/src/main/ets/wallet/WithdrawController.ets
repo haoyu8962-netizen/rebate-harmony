@@ -5,6 +5,8 @@
 // - 提交、二次验证、待确认（确认 / 放弃）经 SensitiveFlow；前置补办（10001、10004、10005、30304、30305、30307 与 block_code 引导）只回到本页，
 //   金额保留，不自动提交（brief §0 第 4 条）。
 // - 被前置页盖住不算出栈：保留金额与页面实例；出栈（同步出口）作废读请求，提交 / 确认 / 放弃不取消。
+import { SessionIdentity } from '../session/SessionIdentity';
+import { FundIdentityRecovery } from './FundIdentityRecovery';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
 import { StepUpController } from '../stepup/StepUpController';
@@ -102,9 +104,13 @@ export class WithdrawController implements WalletSessionAware {
   static readonly ESTIMATE_DELAY_MS: number = 500;
   private static instances: number = 0;
   private readonly d: WalletDeps;
-  readonly flow: SensitiveFlow;
-  private readonly account: string | null;
+  private flowInstance: SensitiveFlow;
+
+  get flow(): SensitiveFlow { return this.flowInstance; }
+  private account: string | null;
   private boundScope: string;
+  private readonly recovery: FundIdentityRecovery;
+  onIdentityBound: (identity: SessionIdentity) => void = (_identity: SessionIdentity): void => {};
   private left: boolean = false;
   private shownOnce: boolean = false;
   /**
@@ -168,7 +174,8 @@ export class WithdrawController implements WalletSessionAware {
     this.state.sessionEpoch = deps.session.epoch;
     this.account = deps.account();
     this.boundScope = deps.scope();
-    this.flow = new SensitiveFlow(deps, SensitiveOutcome.OP_WITHDRAW, WithdrawController.CREATE_OPERATION,
+    this.recovery = new FundIdentityRecovery(this.boundScope, ['rules', 'payout']);
+    this.flowInstance = new SensitiveFlow(deps, SensitiveOutcome.OP_WITHDRAW, WithdrawController.CREATE_OPERATION,
       WithdrawController.STEP_UP_ACTION, deps.session.withdrawGate, this.account);
     const refresh: () => void = (): void => {
       if (!this.left) {
@@ -184,6 +191,33 @@ export class WithdrawController implements WalletSessionAware {
       }
     }));
     deps.session.add(this);
+    deps.session.addIdentityMember(this, (identity: SessionIdentity): void => this.recoverIdentity(identity));
+  }
+
+  private recoverIdentity(identity: SessionIdentity): void {
+    if (this.left) {
+      return;
+    }
+    if (this.recovery.bind(identity)) {
+      this.cancelDebounce();
+      this.headerSeq = ++this.rulesSeq;
+      this.payoutSeq++;
+      this.boundScope = identity.scope;
+      this.account = identity.account;
+      this.flowInstance = new SensitiveFlow(this.d, SensitiveOutcome.OP_WITHDRAW, WithdrawController.CREATE_OPERATION,
+        WithdrawController.STEP_UP_ACTION, this.d.session.withdrawGate, this.account);
+      this.onIdentityBound(identity);
+    }
+    if (!this.shownOnce) {
+      return;
+    }
+    if (this.recovery.needs('rules')) {
+      this.syncPending();
+      this.fetchRules(this.state.inputFen, true);
+    }
+    if (this.recovery.needs('payout')) {
+      this.fetchPayout();
+    }
   }
 
   /** 别处结算了未决记录：重新同步待确认 / 在途；原先被别处挡住、现在没有待确认了，就重取 rules（余额与次数可能已变）。 */
@@ -379,7 +413,7 @@ export class WithdrawController implements WalletSessionAware {
 
   /** 取 rules（amountFen 为 null 时不带金额）。header：这次要不要更新页头（进入、回前台、重试；估算请求也会按序号更新页头）。 */
   private fetchRules(amountFen: number | null, header: boolean): void {
-    if (this.left) {
+    if (this.left || this.recovery.deferred) {
       return;
     }
     const seq: number = ++this.rulesSeq;
@@ -397,12 +431,15 @@ export class WithdrawController implements WalletSessionAware {
         amountFen, header);
       return;
     }
+    this.recovery.start('rules', seq);
     this.d.api.request(request).then((result: ApiResult) => {
-      if (!this.alive) {
+      const current: boolean = this.alive;
+      const rules: WalletRecord | null = result.ok ? WalletJson.rules(result.data) : null;
+      this.recovery.finish('rules', seq, current && seq === this.rulesSeq && rules !== null);
+      if (!current || seq <= this.headerSeq) {
         return;
       }
       this.owners = this.owners.filter((o: () => boolean): boolean => o !== owner);
-      const rules: WalletRecord | null = result.ok ? WalletJson.rules(result.data) : null;
       if (rules === null) {
         if (result.ok) {
           this.d.log('withdraw rules dropped: bad fields');
@@ -493,6 +530,9 @@ export class WithdrawController implements WalletSessionAware {
    * 断网 / 坏数据同样给出消息，页面在收款账号行的位置显示并可点重试；只有 30304（未实名，rules 会引导）静默。
    */
   private fetchPayout(): void {
+    if (this.left || this.recovery.deferred) {
+      return;
+    }
     const seq: number = ++this.payoutSeq;
     const s: WithdrawSnapshot = this.state;
     // 重读（回到本页、从收款账号页返回）期间读取未确认：不再把旧账号标作当前收款账号（R2-06），本轮成功后再显示。
@@ -507,12 +547,15 @@ export class WithdrawController implements WalletSessionAware {
     request.owner = owner;
     this.owners.push(owner);
     request.sendAllowed = this.d.session.readGate.sendAllowed;
+    this.recovery.start('payout', seq);
     this.d.api.request(request).then((result: ApiResult) => {
-      if (!this.alive || seq !== this.payoutSeq) {
+      const current: boolean = this.alive;
+      const data: WalletRecord | null = result.ok ? WalletJson.payoutAccount(result.data) : null;
+      this.recovery.finish('payout', seq, current && seq === this.payoutSeq && data !== null);
+      if (!current || seq !== this.payoutSeq) {
         return;
       }
       this.owners = this.owners.filter((o: () => boolean): boolean => o !== owner);
-      const data: WalletRecord | null = result.ok ? WalletJson.payoutAccount(result.data) : null;
       if (data === null) {
         if (!result.ok && result.code === 30304) {
           s.payoutLine = null;

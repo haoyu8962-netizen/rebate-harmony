@@ -1,4 +1,4 @@
-import { OwnPageExit, RouteDestination } from 'core';
+import { OwnPageExit, RouteDestination, WithdrawRoutePage, RecordsRoutePage, PayoutRoutePage, RealNameRoutePage, LaborRoutePage } from 'core';
 import { CouliColors } from 'designsystem';
 import {
   LaborAgreementPage, LaborPageConfig, PayoutAccountPage, PayoutPageConfig, RealNamePage, RealNamePageConfig,
@@ -108,13 +108,15 @@ export struct AppWalletPage {
 
 @ComponentV2
 export struct AppWithdrawPage {
+  private page: WithdrawRoutePage | null = null;
   private config: WithdrawPageConfig | null = null;
   /** 本页实例的导航身份（成功后以记录页替换只针对它，R2-04）。 */
   private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
-    const config: WithdrawPageConfig = new WithdrawPageConfig(AppWallet.shared.withdraw());
+    this.page = AppWallet.shared.pages.withdraw();
+    const config: WithdrawPageConfig = new WithdrawPageConfig(this.page.controller);
     config.stepUpViewport = BuildVariant.stepUpViewportOverride();
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
@@ -124,12 +126,11 @@ export struct AppWithdrawPage {
       replaceOwnInstance(this.own, route, params);
     };
     this.config = config;
+    this.page?.aboutToAppear();
   }
 
   aboutToDisappear(): void {
-    if (this.config !== null) {
-      AppWallet.shared.withdrawLeft(this.config.controller);
-    }
+    this.page?.onWillDisappear();
   }
 
   build() {
@@ -143,46 +144,37 @@ export struct AppWithdrawPage {
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onShown(() => {
-      const config: WithdrawPageConfig | null = this.config;
-      if (config !== null) {
-        // 每次进入与回到前台都取 rules，并按当前账号的未决记录恢复待确认（G05、brief §2.5）。
-        config.controller.onShown();
-        AppWallet.shared.setVisible((): void => config.controller.onShown(), (): void => config.controller.onHidden());
-      }
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
     })
     .onHidden(() => {
       AppWallet.shared.setVisible(null);
-      // 被覆盖：之后到达的结果不自动导航（成功替换推迟到回到本页，R2-07 同类）。
-      this.config?.controller.onHidden();
+      this.page?.onHidden();
     })
-    .onWillDisappear(() => {
-      if (this.config !== null) {
-        AppWallet.shared.withdrawLeft(this.config.controller);
-      }
-    })
+    .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }
 
 @ComponentV2
 export struct AppWithdrawRecordsPage {
   @Param param: Object = new RouteDestination('WithdrawRecords');
+  private page: RecordsRoutePage | null = null;
   private config: RecordsPageConfig | null = null;
-  private shown: boolean = false;
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
-    const config: RecordsPageConfig = new RecordsPageConfig(AppWallet.shared.records(),
-      AppWallet.routeString(this.param, 'withdrawal_id'));
+    this.page = AppWallet.shared.pages.records(AppWallet.routeString(this.param, 'withdrawal_id'));
+    const config: RecordsPageConfig = new RecordsPageConfig(this.page.controller, this.page.withdrawalId);
     config.slaText = (): string | null => AppWallet.shared.slaText();
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
     };
     this.config = config;
-    config.controller.open(config.withdrawalId);
+    this.page?.aboutToAppear();
   }
 
   aboutToDisappear(): void {
-    this.config?.controller.leave();
+    this.page?.onWillDisappear();
   }
 
   build() {
@@ -195,30 +187,28 @@ export struct AppWithdrawRecordsPage {
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onShown(() => {
-      const config: RecordsPageConfig | null = this.config;
-      if (config !== null) {
-        if (this.shown) {
-          // 从修改收款账号等页面返回：请求一次（不轮询，flow-map §16）。
-          config.controller.onShown();
-        }
-        this.shown = true;
-        AppWallet.shared.setVisible((): void => config.controller.onShown());
-      }
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
     })
-    .onHidden(() => AppWallet.shared.setVisible(null))
-    .onWillDisappear(() => this.config?.controller.leave())
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
+    .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }
 
 @ComponentV2
 export struct AppPayoutAccountPage {
+  private page: PayoutRoutePage | null = null;
   private config: PayoutPageConfig | null = null;
   /** 本页实例的导航身份（保存 / 完成后的出栈只针对它，R1-02）。 */
   private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
-    const config: PayoutPageConfig = new PayoutPageConfig(AppWallet.shared.payout());
+    this.page = AppWallet.shared.pages.payout();
+    const config: PayoutPageConfig = new PayoutPageConfig(this.page.controller);
     config.stepUpViewport = BuildVariant.stepUpViewportOverride();
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
@@ -228,10 +218,11 @@ export struct AppPayoutAccountPage {
       exitOwnInstance(this.own);
     };
     this.config = config;
+    this.page?.aboutToAppear();
   }
 
   aboutToDisappear(): void {
-    this.config?.controller.leave();
+    this.page?.onWillDisappear();
   }
 
   build() {
@@ -245,29 +236,28 @@ export struct AppPayoutAccountPage {
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
     .onShown(() => {
-      const config: PayoutPageConfig | null = this.config;
-      if (config !== null) {
-        config.controller.onShown();
-        AppWallet.shared.setVisible((): void => config.controller.onShown(), (): void => config.controller.onHidden());
-      }
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
     })
     .onHidden(() => {
       AppWallet.shared.setVisible(null);
-      this.config?.controller.onHidden();
+      this.page?.onHidden();
     })
-    .onWillDisappear(() => this.config?.controller.leave())
+    .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }
 
 @ComponentV2
 export struct AppRealNamePage {
+  private page: RealNameRoutePage | null = null;
   private config: RealNamePageConfig | null = null;
   /** 本页实例的导航身份（保存 / 完成后的出栈只针对它，R1-02）。 */
   private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
-    const config: RealNamePageConfig = new RealNamePageConfig(AppWallet.shared.realName());
+    this.page = AppWallet.shared.pages.realName();
+    const config: RealNamePageConfig = new RealNamePageConfig(this.page.controller);
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
     };
@@ -277,10 +267,11 @@ export struct AppRealNamePage {
       AppRouting.shared.stateChanged();
     };
     this.config = config;
+    this.page?.aboutToAppear();
   }
 
   aboutToDisappear(): void {
-    this.config?.controller.leave();
+    this.page?.onWillDisappear();
   }
 
   build() {
@@ -293,19 +284,23 @@ export struct AppRealNamePage {
     .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
-    .onWillDisappear(() => this.config?.controller.leave())
+    .onShown(() => this.page?.onShown())
+    .onHidden(() => this.page?.onHidden())
+    .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }
 
 @ComponentV2
 export struct AppLaborAgreementPage {
+  private page: LaborRoutePage | null = null;
   private config: LaborPageConfig | null = null;
   /** 本页实例的导航身份（保存 / 完成后的出栈只针对它，R1-02）。 */
   private readonly own: OwnNavInstance = new OwnNavInstance();
 
   aboutToAppear(): void {
     AppWallet.shared.attachUi(this.getUIContext());
-    const config: LaborPageConfig = new LaborPageConfig(AppWallet.shared.labor());
+    this.page = AppWallet.shared.pages.labor();
+    const config: LaborPageConfig = new LaborPageConfig(this.page.controller);
     config.onBack = (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
     };
@@ -314,11 +309,11 @@ export struct AppLaborAgreementPage {
       exitOwnInstance(this.own);
     };
     this.config = config;
-    config.controller.load();
+    this.page?.aboutToAppear();
   }
 
   aboutToDisappear(): void {
-    this.config?.controller.leave();
+    this.page?.onWillDisappear();
   }
 
   build() {
@@ -331,6 +326,8 @@ export struct AppLaborAgreementPage {
     .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
-    .onWillDisappear(() => this.config?.controller.leave())
+    .onShown(() => this.page?.onShown())
+    .onHidden(() => this.page?.onHidden())
+    .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }

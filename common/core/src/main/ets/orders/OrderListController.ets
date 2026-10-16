@@ -1319,9 +1319,9 @@ export class OrderListScrollSync {
     this.rescrollIfLagging(content);
   }
 
-  /** List onDidScroll：恢复进行中才判（同一卡片内的小幅滚动、惯性、读屏滚动）；测量无效什么都不做。 */
+  /** List onDidScroll：记录延后决策期间的接管，也处理进行中的对齐；测量无效什么都不做。 */
   didScroll(content: boolean): void {
-    if (!content || !this.keeper.frozen) {
+    if (!content) {
       return;
     }
     const top: string | null = this.measuredTop();
@@ -1369,6 +1369,12 @@ export class OrderListScrollSync {
  */
 export class OrderAnchorKeeper {
   private anchorId: string = '';
+  /** 延后决策也观察接管；位置基线取首次有效布局，不把程序对齐当作用户滚动。 */
+  private takeover: number = 0;
+  private observedTop: string | null = null;
+  private observedOffset: number = NaN;
+
+  get userTakeoverVersion(): number { return this.takeover; }
   private restore: OrderScrollAnchor | null = null;
   /** 已找到目标、等页面布局就绪后对齐（这段时间同样冻结）。 */
   private aligning: boolean = false;
@@ -1461,10 +1467,12 @@ export class OrderAnchorKeeper {
   /**
    * 用户触摸列表（第 1 轮修复 R1-02；OrderListView onTouch Down）：恢复进行中（等目标、等对齐、等布局确认）一律按用户接管取消——作废任务
    * （待执行的对齐回调经 commitAlign 失效，之后的布局回调 rescrollIndex 不再下发），按此刻顶部订单记锚点；返回 true 时页面持久化。
-   * 没有恢复任务时什么都不做（普通滚动照常经 observe 记录）。
+   * 没有恢复任务时只推进接管版本供延后决策使用，返回 false（没有需要取消的对齐）。
    */
   userTouched(topId: string): boolean {
+    this.takeover++;
     if (!this.frozen) {
+      this.anchorId = topId;
       return false;
     }
     if (this.verifying) {
@@ -1619,6 +1627,17 @@ export class OrderAnchorKeeper {
    * 没有恢复任务时：顶部订单变了才返回 true（要持久化）。
    */
   observe(orderId: string, offset: number): boolean {
+    if (!this.frozen && this.observedTop !== null && (orderId !== this.observedTop
+      || (!Number.isNaN(offset) && !Number.isNaN(this.observedOffset)
+        && Math.abs(offset - this.observedOffset) > OrderAnchorKeeper.SCROLL_EPSILON))) {
+      this.takeover++;
+    }
+    if (this.observedTop === null) {
+      this.observedTop = orderId;
+    }
+    if (Number.isNaN(this.observedOffset) && !Number.isNaN(offset)) {
+      this.observedOffset = offset;
+    }
     if (this.verifying) {
       if (orderId === this.verifyTarget) {
         // 目标订单已在列表顶部（真实布局确认）：恢复完成，锚点就是目标。
@@ -1698,6 +1717,8 @@ export class OrderAnchorKeeper {
 
   /** 会话变化：清空并解冻。 */
   reset(): void {
+    this.observedTop = null;
+    this.observedOffset = NaN;
     this.task++;
     this.endVerify(OrderAnchorKeeper.END_CANCELLED);
     this.anchorId = '';
@@ -1770,6 +1791,7 @@ export class OrderPageRestorer {
   private decided: boolean = false;
   /** 只记用户推进的查询；自动加载、翻页、身份重绑不算用户接管。 */
   private restoreUserVersion: number | null = null;
+  private restoreTakeoverVersion: number = 0;
   /** 清理时没确认删掉恢复记录（共性第 36 条）：本进程内不再按落盘记录恢复，恢复时先重试删除。 */
   private wipePending: boolean = false;
   /** 恢复出的输入框文字（同一账号的记录才有）。 */
@@ -1921,6 +1943,7 @@ export class OrderPageRestorer {
   restore(list: OrderListController, routeScope: string | null, identity: SessionIdentity | null = null): void {
     if (this.restoreUserVersion === null) {
       this.restoreUserVersion = list.userQueryVersion;
+      this.restoreTakeoverVersion = this.keeper.userTakeoverVersion;
     }
     if (!this.retryPendingClear()) {
       return;
@@ -1947,7 +1970,8 @@ export class OrderPageRestorer {
           return;
         }
       }
-      if (list.userQueryVersion !== this.restoreUserVersion) {
+      if (list.userQueryVersion !== this.restoreUserVersion
+        || this.keeper.userTakeoverVersion !== this.restoreTakeoverVersion) {
         // 决策延后期间用户已操作：仅放开后续存盘，不装旧条件、不安装旧锚点。
         this.decided = true;
         return;
@@ -1967,6 +1991,13 @@ export class OrderPageRestorer {
     }
     if (conditions !== null && routeScope !== null && routeScope !== conditions.scope) {
       conditions = null;
+    }
+    const target: OrderListConditions = new OrderListConditions();
+    target.scope = routeScope === 'share' ? 'share' : 'self';
+    if (conditions === null && list.snapshot.phase === OrderPhase.CONTENT
+      && target.encode() === list.conditions().encode()) {
+      this.decided = true;
+      return;
     }
     this.keeper.begin(conditions !== null ? anchor : '', conditions !== null ? conditions.encode() : '');
     this.decided = true;

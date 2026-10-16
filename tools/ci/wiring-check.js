@@ -28,6 +28,23 @@
 //     E4-identity      syncWith 第 3 个参数同 R1-07 口径（变量 / 调用能到达 sessionIdentity）
 //     E4-rebuild       syncWith 的作废回调非空；同一函数里读 .keep 并调用 this.build(…)
 //     E4-old           不得再调用 .keepOrObserve(…)、.keeps(…)、<…reconciler>.reconcile(…)
+//
+//   FU-HM-0725 第 2 版（F-HM-39 / 40 / 41；逻辑下沉 Core，entry / 视图只做一行转发——这里只守「转发存在且参数未被替换」，
+//   附恒值、死代码、丢弃结果后二次读取、后续覆盖、错误接收者样例，见 wiring-fixtures/README.md）：
+//   E2-pages   AppWallet.ets 只有一处 new FundPageFactory(this.session, …) 赋给字段 P（之后不再赋值）；WalletPages.ets 的
+//              AppWithdrawPage / AppWithdrawRecordsPage：aboutToAppear 顶层语句 this.G = AppWallet.shared.P.withdraw() /
+//              .records(<读 this.param>)，随后顶层 this.G.aboutToAppear()；aboutToDisappear 顶层 this.G.onWillDisappear()；
+//              build 里 .onShown / .onHidden / .onWillDisappear 回调的顶层语句（或表达式体）含 this.G.<同名>()；G 在本 struct 只赋值一次
+//   E3-input   OrderListView.apply(P) 里对 *.inputText 的赋值有且只有一处，是 apply 体的顶层语句：L = this.I.apply(P, L)（右边可写成
+//              「… ?? L」）；I 是唯一一处 new OrderInputMirror(…) 赋的字段且不再赋值
+//   E3-takeover new OrderListViewEvents(this.S, this.config.controller, …) 只有一处、赋给字段 E（不再赋值），S 是唯一一处
+//              new OrderListScrollSync(…) 赋的字段；build 里 .onScrollIndex((p) => this.E.onScrollIndex(p))、
+//              .onDidScroll(() => this.E.onDidScroll())、.onTouch((ev) => this.E.onTouch(ev.type === TouchType.Down)) 都在，
+//              且同名属性回调全部是这种一行转发
+//   E4-source  只有一处 new HomeIdentitySource(env, snapshot, fallback) 赋给字段 F（不再赋值），snapshot 读真实快照（R1-07 口径）
+//   E4-key     每个 new RetryAfterGate(…) 与 new HomeDeps(…) 的第 2 个参数是 () => this.F.key()（两种构造都必须存在）
+//   E4-same-source syncWith(old, R.home, R.identity, …)：R 是同一函数体顶层 const R = this.F.now()；syncWith 与 this.build(R.home)
+//              都是函数体的顶层语句（不在分支 / 回调里），函数里所有 this.build(…) 都传 R.home
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -362,6 +379,296 @@ if (h !== null) {
   }
   if (has(h, (c) => c.kind === 'call' && c.name === 'reconcile' && /reconciler/i.test(c.receiver))) {
     fail('E4-old', HOME, '仍直接调用 reconciler.reconcile(…)（应经 syncWith）');
+  }
+}
+
+// ---------------------------------------------------------------- FU-HM-0725 第 2 版：一行转发（E2-pages / E3-input / E3-takeover / E4-*）
+
+/** 被 new ctor(…) 赋值的 this 字段名（属性初值或 this.X = new …）。 */
+function newFields(info, ctor) {
+  const news = info.calls.filter((c) => c.kind === 'new' && c.name === ctor);
+  const fields = new Set(news.map((c) => c.target).filter((t) => t.startsWith('this.')).map((t) => t.slice(5)));
+  return { news, fields };
+}
+
+/** this.field 的赋值次数（属性初值不计 null / undefined，加上所有 this.field = …）；scope 为 null 时查整个文件。 */
+function assignCount(sf, field, scope) {
+  let n = 0;
+  const walk = (x) => {
+    if (ts.isPropertyDeclaration(x) && x.name && ts.isIdentifier(x.name) && x.name.text === field && x.initializer
+      && !/^(null|undefined)$/.test(x.initializer.getText(sf).trim())) {
+      n++;
+    }
+    if (ts.isBinaryExpression(x) && x.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && norm(x.left.getText(sf)) === 'this.' + field) {
+      n++;
+    }
+    ts.forEachChild(x, walk);
+  };
+  walk(scope || sf);
+  return n;
+}
+
+/** node 是 this.<field>.<method>(…) 调用（可带 ?.）。 */
+function isThisCall(node, sf, field, method) {
+  return !!node && ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+    && node.expression.name.text === method && norm(node.expression.expression.getText(sf)) === 'this.' + field;
+}
+
+/** 箭头函数的「唯一动作」：表达式体，或块体里每条顶层语句的表达式（返回数组）。 */
+function arrowStatements(node) {
+  if (!node || !(ts.isArrowFunction(node) || ts.isFunctionExpression(node))) {
+    return null;
+  }
+  if (!ts.isBlock(node.body)) {
+    return [node.body];
+  }
+  return node.body.statements.map((st) => (ts.isExpressionStatement(st) ? st.expression
+    : (ts.isReturnStatement(st) ? st.expression : null))).filter((e) => !!e);
+}
+
+/** node 所在语句是 body 的直接子语句，途中没有分支、短路、条件、循环、嵌套函数（防死代码 / 条件执行）。 */
+function topLevelIn(node, body) {
+  let p = node;
+  while (p && p.parent && p.parent !== body) {
+    const q = p.parent;
+    if (ts.isIfStatement(q) || ts.isConditionalExpression(q) || ts.isFunctionLike(q) || ts.isIterationStatement(q, false)
+      || ts.isSwitchStatement(q) || ts.isTryStatement(q) || ts.isBlock(q)
+      || (ts.isBinaryExpression(q) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken,
+        ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.CommaToken].indexOf(q.operatorToken.kind) >= 0)) {
+      return false;
+    }
+    p = q;
+  }
+  return !!p && p.parent === body;
+}
+
+/** 名为 name 的类 / struct 声明（ETS 的 struct 也有 name 与 members）。 */
+function findType(sf, name) {
+  let out = null;
+  const walk = (x) => {
+    if (!out && x.name && ts.isIdentifier(x.name) && x.name.text === name && x.members) {
+      out = x;
+      return;
+    }
+    ts.forEachChild(x, walk);
+  };
+  walk(sf);
+  return out;
+}
+
+function findMethod(type, name) {
+  return type ? type.members.find((m) => m.name && ts.isIdentifier(m.name) && m.name.text === name && m.body) || null : null;
+}
+
+/** 类型里属性链调用 .<attr>(回调)：返回所有回调参数节点。 */
+function attributeCallbacks(scope, attr) {
+  const out = [];
+  const walk = (x) => {
+    if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && x.expression.name.text === attr
+      && x.arguments.length >= 1 && (ts.isArrowFunction(x.arguments[0]) || ts.isFunctionExpression(x.arguments[0]))) {
+      out.push(x.arguments[0]);
+    }
+    ts.forEachChild(x, walk);
+  };
+  if (scope) {
+    walk(scope);
+  }
+  return out;
+}
+
+// E4（AppHome）
+if (h !== null) {
+  const src = newFields(h, 'HomeIdentitySource');
+  const F = src.fields.size === 1 ? Array.from(src.fields)[0] : '';
+  if (src.news.length !== 1 || F.length === 0 || assignCount(h.sf, F, null) !== 1
+    || !(src.news[0].argNodes.length >= 3 && reachesSessionIdentity(h, src.news[0].argNodes[1], 0, new Set()))) {
+    fail('E4-source', HOME, '应只有一处 new HomeIdentitySource(env, snapshot, fallback) 赋给字段且不再赋值，snapshot 读真实快照（sessionIdentity）');
+  }
+  for (const ctor of ['RetryAfterGate', 'HomeDeps']) {
+    const built = h.calls.filter((c) => c.kind === 'new' && c.name === ctor);
+    if (built.length === 0) {
+      fail('E4-key', HOME, '没有 new ' + ctor + '(…)');
+    }
+    for (const c of built) {
+      const acts = c.argNodes.length >= 2 ? arrowStatements(c.argNodes[1]) : null;
+      if (F.length === 0 || acts === null || acts.length !== 1 || !isThisCall(acts[0], h.sf, F, 'key')
+        || acts[0].arguments.length !== 0) {
+        fail('E4-key', HOME, 'new ' + ctor + ' 的第 2 个参数不是 () => this.' + (F || '<HomeIdentitySource 字段>') + '.key()');
+      }
+    }
+  }
+  const syncs = h.calls.filter((x) => x.kind === 'call' && x.name === 'syncWith' && x.args.length === 5);
+  if (syncs.length === 0) {
+    fail('E4-same-source', HOME, '没有 syncWith(old, R.home, R.identity, store, invalidate)');
+  }
+  for (const c of syncs) {
+    const fn = c.fn;
+    const body = fn && fn.body && ts.isBlock(fn.body) ? fn.body : null;
+    const a1 = c.argNodes[1];
+    const a2 = c.argNodes[2];
+    let ok = !!body && F.length > 0 && ts.isPropertyAccessExpression(a1) && ts.isPropertyAccessExpression(a2)
+      && a1.name.text === 'home' && a2.name.text === 'identity' && ts.isIdentifier(a1.expression)
+      && ts.isIdentifier(a2.expression) && a1.expression.text === a2.expression.text && topLevelIn(c.node, body);
+    const R = ok ? a1.expression.text : '';
+    if (ok) {
+      const decl = body.statements.filter((st) => ts.isVariableStatement(st)
+        && (st.declarationList.flags & ts.NodeFlags.Const) !== 0)
+        .map((st) => st.declarationList.declarations.find((d) => ts.isIdentifier(d.name) && d.name.text === R))
+        .find((d) => !!d);
+      ok = !!decl && isThisCall(decl.initializer, h.sf, F, 'now') && decl.initializer.arguments.length === 0;
+    }
+    if (ok) {
+      let builds = 0;
+      const walk = (x) => {
+        if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && x.expression.name.text === 'build'
+          && x.expression.expression.kind === ts.SyntaxKind.ThisKeyword) {
+          builds++;
+          if (!(x.arguments.length === 1 && norm(x.arguments[0].getText(h.sf)) === R + '.home' && topLevelIn(x, body))) {
+            ok = false;
+          }
+        }
+        ts.forEachChild(x, walk);
+      };
+      walk(body);
+      ok = ok && builds > 0;
+    }
+    if (!ok) {
+      fail('E4-same-source', HOME, 'syncWith / build 的身份不是同一函数体顶层 const R = this.' + (F || '<字段>')
+        + '.now() 的 R.home / R.identity（或调用在分支里、被替换）');
+    }
+  }
+}
+
+// E3（OrderListView）
+if (v !== null) {
+  const mirror = newFields(v, 'OrderInputMirror');
+  const I = mirror.fields.size === 1 ? Array.from(mirror.fields)[0] : '';
+  const apply = (() => {
+    let m = null;
+    const walk = (x) => {
+      if (!m && ts.isMethodDeclaration(x) && x.name && ts.isIdentifier(x.name) && x.name.text === 'apply' && x.body
+        && x.parameters.length >= 1 && ts.isIdentifier(x.parameters[0].name)) {
+        m = x;
+        return;
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(v.sf);
+    return m;
+  })();
+  let inputOk = mirror.news.length === 1 && I.length > 0 && assignCount(v.sf, I, null) === 1 && apply !== null;
+  if (inputOk) {
+    const P = apply.parameters[0].name.text;
+    const assigns = [];
+    const walk = (x) => {
+      if (ts.isBinaryExpression(x) && x.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        && ts.isPropertyAccessExpression(x.left) && x.left.name.text === 'inputText') {
+        assigns.push(x);
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(apply.body);
+    inputOk = assigns.length === 1 && ts.isExpressionStatement(assigns[0].parent) && assigns[0].parent.parent === apply.body;
+    if (inputOk) {
+      const L = norm(assigns[0].left.getText(v.sf));
+      let rhs = assigns[0].right;
+      if (ts.isBinaryExpression(rhs) && rhs.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+        && norm(rhs.right.getText(v.sf)) === L) {
+        rhs = rhs.left;
+      }
+      inputOk = isThisCall(rhs, v.sf, I, 'apply') && rhs.arguments.length === 2 && ts.isIdentifier(rhs.arguments[0])
+        && rhs.arguments[0].text === P && norm(rhs.arguments[1].getText(v.sf)) === L;
+    }
+  }
+  if (!inputOk) {
+    fail('E3-input', VIEW, 'apply(P) 里输入框只能有一处顶层赋值 L = this.<OrderInputMirror 字段>.apply(P, L)（不得删除、改常量、放进分支、后续覆盖、换参数）');
+  }
+  const syncF = newFields(v, 'OrderListScrollSync');
+  const evF = newFields(v, 'OrderListViewEvents');
+  const S = syncF.fields.size === 1 ? Array.from(syncF.fields)[0] : '';
+  const E = evF.fields.size === 1 ? Array.from(evF.fields)[0] : '';
+  let evOk = syncF.news.length === 1 && evF.news.length === 1 && S.length > 0 && E.length > 0
+    && assignCount(v.sf, E, null) === 1 && assignCount(v.sf, S, null) === 1 && evF.news[0].args.length >= 2
+    && norm(evF.news[0].args[0]) === 'this.' + S && norm(evF.news[0].args[1]) === 'this.config.controller';
+  const view = (() => {
+    let t = null;
+    const walk = (x) => {
+      if (!t && x.members && findMethod(x, 'build') && findMethod(x, 'apply')) {
+        t = x;
+        return;
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(v.sf);
+    return t;
+  })();
+  const build = findMethod(view, 'build');
+  const check = (attr, method, args) => {
+    const cbs = attributeCallbacks(build, attr);
+    return cbs.length > 0 && cbs.every((cb) => {
+      const acts = arrowStatements(cb);
+      return acts !== null && acts.length === 1 && isThisCall(acts[0], v.sf, E, method) && args(cb, acts[0]);
+    });
+  };
+  evOk = evOk && build !== null
+    && check('onScrollIndex', 'onScrollIndex', (cb, call) => call.arguments.length === 1 && cb.parameters.length >= 1
+      && ts.isIdentifier(call.arguments[0]) && call.arguments[0].text === cb.parameters[0].name.getText(v.sf))
+    && check('onDidScroll', 'onDidScroll', (cb, call) => call.arguments.length === 0)
+    && check('onTouch', 'onTouch', (cb, call) => call.arguments.length === 1 && cb.parameters.length >= 1
+      && norm(call.arguments[0].getText(v.sf)) === cb.parameters[0].name.getText(v.sf) + '.type===TouchType.Down');
+  if (!evOk) {
+    fail('E3-takeover', VIEW, 'build 的 onScrollIndex / onDidScroll / onTouch 必须一行转发到 new OrderListViewEvents(this.<同步器>, '
+      + 'this.config.controller, …) 的同名方法，参数为回调的索引 / 是否按下（不得恒值、换接收者、挪出 build）');
+  }
+}
+
+// E2-pages（AppWallet + WalletPages）
+const PAGES = 'entry/src/main/ets/wallet/WalletPages.ets';
+const pgs = load(PAGES);
+if (w !== null && pgs !== null) {
+  const fac = newFields(w, 'FundPageFactory');
+  const P = fac.fields.size === 1 ? Array.from(fac.fields)[0] : '';
+  if (fac.news.length !== 1 || P.length === 0 || assignCount(w.sf, P, null) !== 1 || fac.news[0].args.length < 4
+    || norm(fac.news[0].args[0]) !== 'this.session') {
+    fail('E2-pages', WALLET, '应只有一处 new FundPageFactory(this.session, deps, draft, loginEpoch) 赋给字段且不再赋值');
+  }
+  for (const spec of [['AppWithdrawPage', 'withdraw'], ['AppWithdrawRecordsPage', 'records']]) {
+    const type = findType(pgs.sf, spec[0]);
+    const appear = findMethod(type, 'aboutToAppear');
+    const disappear = findMethod(type, 'aboutToDisappear');
+    const build = findMethod(type, 'build');
+    let G = '';
+    let ok = type !== null && appear !== null && disappear !== null && build !== null && P.length > 0;
+    if (ok) {
+      const st = appear.body.statements.find((x) => ts.isExpressionStatement(x) && ts.isBinaryExpression(x.expression)
+        && x.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isCallExpression(x.expression.right)
+        && ts.isPropertyAccessExpression(x.expression.right.expression)
+        && x.expression.right.expression.name.text === spec[1]
+        && norm(x.expression.right.expression.expression.getText(pgs.sf)) === 'AppWallet.shared.' + P);
+      ok = !!st && norm(st.expression.left.getText(pgs.sf)).startsWith('this.');
+      if (ok) {
+        G = norm(st.expression.left.getText(pgs.sf)).slice(5);
+        const call = st.expression.right;
+        ok = spec[1] === 'withdraw' ? call.arguments.length === 0
+          : (call.arguments.length === 1 && call.arguments[0].getText(pgs.sf).indexOf('this.param') >= 0);
+        ok = ok && assignCount(pgs.sf, G, type) === 1;
+      }
+    }
+    const topCall = (m, method) => !!m && m.body.statements.some((x) => ts.isExpressionStatement(x)
+      && isThisCall(x.expression, pgs.sf, G, method) && x.expression.arguments.length === 0);
+    ok = ok && topCall(appear, 'aboutToAppear') && topCall(disappear, 'onWillDisappear');
+    for (const attr of ['onShown', 'onHidden', 'onWillDisappear']) {
+      const cbs = attributeCallbacks(build, attr);
+      ok = ok && cbs.length > 0 && cbs.every((cb) => {
+        const acts = arrowStatements(cb);
+        return acts !== null && acts.some((e) => isThisCall(e, pgs.sf, G, attr) && e.arguments.length === 0);
+      });
+    }
+    if (!ok) {
+      fail('E2-pages', PAGES, spec[0] + ' 没有经 AppWallet.shared.<工厂>.' + spec[1] + '(…) 建页并把 aboutToAppear / onShown / onHidden / '
+        + 'onWillDisappear / aboutToDisappear 一行转发给同一个 FundRoutePage');
+    }
   }
 }
 
