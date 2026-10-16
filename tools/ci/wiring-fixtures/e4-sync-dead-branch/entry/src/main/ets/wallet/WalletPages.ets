@@ -17,7 +17,7 @@ export struct AppWithdrawPage {
     }
     .onShown(() => {
       this.page?.onShown();
-      AppWallet.shared.setVisible(null);
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
     })
     .onHidden(() => {
       AppWallet.shared.setVisible(null);
@@ -44,8 +44,99 @@ export struct AppWithdrawRecordsPage {
   build() {
     NavDestination() {
     }
-    .onShown(() => this.page?.onShown())
-    .onHidden(() => this.page?.onHidden())
+    .onShown(() => {
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
+    })
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
+    .onWillDisappear(() => this.page?.onWillDisappear())
+  }
+}
+
+// FU-HM-0726（R1-06 / T-17）：收款账号 / 实名 / 劳务协议三页同样经工厂建页、一行转发生命周期。
+@ComponentV2
+export struct AppPayoutAccountPage {
+  private page: PayoutRoutePage | null = null;
+
+  aboutToAppear(): void {
+    this.page = AppWallet.shared.pages.payout();
+    this.page?.aboutToAppear();
+  }
+
+  aboutToDisappear(): void {
+    this.page?.onWillDisappear();
+  }
+
+  build() {
+    NavDestination() {
+    }
+    .onShown(() => {
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
+    })
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
+    .onWillDisappear(() => this.page?.onWillDisappear())
+  }
+}
+
+@ComponentV2
+export struct AppRealNamePage {
+  private page: RealNameRoutePage | null = null;
+
+  aboutToAppear(): void {
+    this.page = AppWallet.shared.pages.realName();
+    this.page?.aboutToAppear();
+  }
+
+  aboutToDisappear(): void {
+    this.page?.onWillDisappear();
+  }
+
+  build() {
+    NavDestination() {
+    }
+    .onShown(() => {
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
+    })
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
+    .onWillDisappear(() => this.page?.onWillDisappear())
+  }
+}
+
+@ComponentV2
+export struct AppLaborAgreementPage {
+  private page: LaborRoutePage | null = null;
+
+  aboutToAppear(): void {
+    this.page = AppWallet.shared.pages.labor();
+    this.page?.aboutToAppear();
+  }
+
+  aboutToDisappear(): void {
+    this.page?.onWillDisappear();
+  }
+
+  build() {
+    NavDestination() {
+    }
+    .onShown(() => {
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
+    })
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
     .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }

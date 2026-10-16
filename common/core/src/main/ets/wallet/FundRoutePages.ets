@@ -51,9 +51,7 @@ export class RecordsRoutePage implements FundRoutePage {
 
   aboutToAppear(): void { this.controller.open(this.withdrawalId); }
   onShown(): void {
-    if (this.shown) {
-      this.controller.onShown();
-    }
+    this.controller.onShown(this.shown);
     this.shown = true;
   }
   onHidden(): void {}
@@ -75,7 +73,7 @@ export class RealNameRoutePage implements FundRoutePage {
   readonly controller: RealNameController;
   constructor(controller: RealNameController) { this.controller = controller; }
   aboutToAppear(): void {}
-  onShown(): void {}
+  onShown(): void { this.controller.onShown(); }
   onHidden(): void {}
   onWillDisappear(): void { this.controller.leave(); }
 }
@@ -85,7 +83,7 @@ export class LaborRoutePage implements FundRoutePage {
   readonly controller: LaborAgreementController;
   constructor(controller: LaborAgreementController) { this.controller = controller; }
   aboutToAppear(): void { this.controller.load(); }
-  onShown(): void {}
+  onShown(): void { this.controller.onShown(); }
   onHidden(): void {}
   onWillDisappear(): void { this.controller.leave(); }
 }
@@ -96,18 +94,20 @@ export class FundPageFactory {
   private readonly deps: () => WalletDeps;
   private readonly draft: () => WithdrawInputDraft | null;
   private readonly loginEpoch: () => string | null;
+  private readonly requestSync: () => void;
 
   constructor(session: WalletSession, deps: () => WalletDeps, draft: () => WithdrawInputDraft | null,
-    loginEpoch: () => string | null) {
+    loginEpoch: () => string | null, requestSync: () => void = (): void => {}) {
     this.session = session;
     this.deps = deps;
     this.draft = draft;
     this.loginEpoch = loginEpoch;
+    this.requestSync = requestSync;
   }
 
   withdraw(): WithdrawRoutePage {
     const d: WalletDeps = this.deps();
-    const c: WithdrawController = new WithdrawController(d);
+    const c: WithdrawController = new WithdrawController(d, this.requestSync);
     this.bindDraft(c, d, null);
     c.onIdentityBound = (identity: SessionIdentity): void => this.bindDraft(c, d, identity);
     return new WithdrawRoutePage(c, (): void => this.draft()?.clear());
@@ -120,12 +120,24 @@ export class FundPageFactory {
     }
     const binding: WithdrawDraftBinding = new WithdrawDraftBinding(draft, c.formAccount, c.formScope,
       d.account, this.loginEpoch, d.scope, identity);
-    // 初次装配才恢复旧草稿；未知期已接受的输入优先，重绑不得拿落盘值覆盖。
-    if (identity === null) {
+    // null 也可能是归属/存储暂不可读，保留回填机会；成功或用户编辑后才结束。
+    let pendingRestore: boolean = true;
+    c.onRestoreDraft = (): void => {
+      if (!pendingRestore) {
+        return;
+      }
+      if (c.inputEdited || c.snapshot.inputText.length > 0) {
+        pendingRestore = false;
+        return;
+      }
       const saved: string | null = binding.restore();
       if (saved !== null) {
         c.restoreInput(saved);
+        pendingRestore = false;
       }
+    };
+    if (identity === null) {
+      c.onRestoreDraft();
     }
     const epoch: number = this.session.epoch;
     const scope: string = c.formScope;
@@ -142,9 +154,9 @@ export class FundPageFactory {
   }
 
   records(withdrawalId: string | null): RecordsRoutePage {
-    return new RecordsRoutePage(new WithdrawRecordsController(this.deps()), withdrawalId);
+    return new RecordsRoutePage(new WithdrawRecordsController(this.deps(), this.requestSync), withdrawalId);
   }
-  payout(): PayoutRoutePage { return new PayoutRoutePage(new PayoutAccountController(this.deps())); }
-  realName(): RealNameRoutePage { return new RealNameRoutePage(new RealNameController(this.deps())); }
-  labor(): LaborRoutePage { return new LaborRoutePage(new LaborAgreementController(this.deps())); }
+  payout(): PayoutRoutePage { return new PayoutRoutePage(new PayoutAccountController(this.deps(), this.requestSync)); }
+  realName(): RealNameRoutePage { return new RealNameRoutePage(new RealNameController(this.deps(), this.requestSync)); }
+  labor(): LaborRoutePage { return new LaborRoutePage(new LaborAgreementController(this.deps(), this.requestSync)); }
 }

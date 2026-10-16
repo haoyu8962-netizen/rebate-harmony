@@ -41,6 +41,19 @@
 //              new OrderListScrollSync(…) 赋的字段；build 里 .onScrollIndex((p) => this.E.onScrollIndex(p))、
 //              .onDidScroll(() => this.E.onDidScroll())、.onTouch((ev) => this.E.onTouch(ev.type === TouchType.Down)) 都在，
 //              且同名属性回调全部是这种一行转发
+//   FU-HM-0726（F-HM-42 ① / R1-06 / T-17）：
+//   E2-pages   扩到五页：AppPayoutAccountPage / AppRealNamePage / AppLaborAgreementPage 同样经 AppWallet.shared.P.payout() /
+//              .realName() / .labor()（无参数）建页并一行转发生命周期；记录页参数必须原样是 AppWallet.routeString(this.param,
+//              'withdrawal_id')（不得写成 this.param === null ? null : null 之类恒值）
+//   E2-pages-sync new FundPageFactory 第 5 个参数（requestSync，接口约定 N5）是只做一件事的箭头函数 () => this.sync()（不得缺失、
+//              空函数、调别的方法、放进分支）
+//   身份参数（E1-identity / E2-identity / E4-source / E4-identity）：箭头函数 / 方法体只看「返回值」能否到达 sessionIdentity——
+//              先调用 sessionIdentity 再返回恒未知的回调不再算数（T-17）
+//   FU-HM-0726 第 2 版（T-01 / T-02）：
+//   E2-visible 五页的 .onShown 回调顶层登记 AppWallet.shared.setVisible(() => this.G.onShown(), () => this.G.onHidden())，.onHidden
+//              回调顶层 AppWallet.shared.setVisible(null)；AppWallet.setVisible 把第 1 个参数存进字段 V，onAppForeground 调用它
+//   E3-records-retry WithdrawRecordsView.apply 顶层 m.retryVisible = s.retryVisible；build 的 RecordsPhase.LOADING 分支内有
+//              if (this.<模型>.retryVisible) { …(() => this.config.controller.retry())… }
 //   E4-source  只有一处 new HomeIdentitySource(env, snapshot, fallback) 赋给字段 F（不再赋值），snapshot 读真实快照（R1-07 口径）
 //   E4-key     每个 new RetryAfterGate(…) 与 new HomeDeps(…) 的第 2 个参数是 () => this.F.key()（两种构造都必须存在）
 //   E4-same-source syncWith(old, R.home, R.identity, …)：R 是同一函数体顶层 const R = this.F.now()；syncWith 与 this.build(R.home)
@@ -224,10 +237,42 @@ function reachesSessionIdentity(info, node, depth, seen) {
     }
     ts.forEachChild(n, walk);
   };
+  // T-17（FU-HM-0726）：函数只看返回值——表达式体，或函数体（不进嵌套函数）里每条 return 的表达式都要能到达 sessionIdentity。
+  const returned = (body) => {
+    if (!ts.isBlock(body)) {
+      return [body];
+    }
+    const out = [];
+    const visit = (n) => {
+      if (ts.isFunctionLike(n)) {
+        return;
+      }
+      if (ts.isReturnStatement(n)) {
+        out.push(n.expression || null);
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    body.statements.forEach(visit);
+    return out;
+  };
+  const allReturn = (body) => {
+    const exprs = returned(body);
+    return exprs.length > 0 && exprs.every((e) => {
+      if (!e) {
+        return false;
+      }
+      found = false;
+      walk(e);
+      return found;
+    });
+  };
   if (ts.isCallExpression(node)) {
     walk(node);
   } else if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-    walk(node.body);
+    return allReturn(node.body);
+  } else if (ts.isBlock(node)) {
+    return allReturn(node);
   } else {
     walk(node);
   }
@@ -633,7 +678,32 @@ if (w !== null && pgs !== null) {
     || norm(fac.news[0].args[0]) !== 'this.session') {
     fail('E2-pages', WALLET, '应只有一处 new FundPageFactory(this.session, deps, draft, loginEpoch) 赋给字段且不再赋值');
   }
-  for (const spec of [['AppWithdrawPage', 'withdraw'], ['AppWithdrawRecordsPage', 'records']]) {
+  // E2-pages-sync（N5）：第 5 个参数 requestSync 只做一件事——this.sync()（AppWallet.sync：经 WalletSessionReconciler 对账）。
+  {
+    const c = fac.news.length === 1 ? fac.news[0] : null;
+    const acts = c !== null && c.argNodes.length === 5 ? arrowStatements(c.argNodes[4]) : null;
+    const body = c !== null && c.argNodes.length === 5 ? c.argNodes[4].body : null;
+    const single = acts !== null && acts.length === 1
+      && ts.isCallExpression(acts[0]) && ts.isPropertyAccessExpression(acts[0].expression)
+      && acts[0].expression.name.text === 'sync' && acts[0].expression.expression.kind === ts.SyntaxKind.ThisKeyword
+      && acts[0].arguments.length === 0
+      && (body === null || !ts.isBlock(body) || (body.statements.length === 1 && topLevelIn(acts[0], body)));
+    if (!single) {
+      fail('E2-pages-sync', WALLET, 'new FundPageFactory 的第 5 个参数（requestSync）应是 () => this.sync()（不得缺失、空函数、调别的方法、放进分支）');
+    }
+  }
+  const routeArgOk = (call) => {
+    if (call.arguments.length !== 1) {
+      return false;
+    }
+    const a = call.arguments[0];
+    return ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression) && a.expression.name.text === 'routeString'
+      && norm(a.expression.expression.getText(pgs.sf)) === 'AppWallet' && a.arguments.length === 2
+      && norm(a.arguments[0].getText(pgs.sf)) === 'this.param' && ts.isStringLiteral(a.arguments[1])
+      && a.arguments[1].text === 'withdrawal_id';
+  };
+  for (const spec of [['AppWithdrawPage', 'withdraw'], ['AppWithdrawRecordsPage', 'records'], ['AppPayoutAccountPage', 'payout'],
+    ['AppRealNamePage', 'realName'], ['AppLaborAgreementPage', 'labor']]) {
     const type = findType(pgs.sf, spec[0]);
     const appear = findMethod(type, 'aboutToAppear');
     const disappear = findMethod(type, 'aboutToDisappear');
@@ -650,8 +720,7 @@ if (w !== null && pgs !== null) {
       if (ok) {
         G = norm(st.expression.left.getText(pgs.sf)).slice(5);
         const call = st.expression.right;
-        ok = spec[1] === 'withdraw' ? call.arguments.length === 0
-          : (call.arguments.length === 1 && call.arguments[0].getText(pgs.sf).indexOf('this.param') >= 0);
+        ok = spec[1] === 'records' ? routeArgOk(call) : call.arguments.length === 0;
         ok = ok && assignCount(pgs.sf, G, type) === 1;
       }
     }
@@ -669,6 +738,122 @@ if (w !== null && pgs !== null) {
       fail('E2-pages', PAGES, spec[0] + ' 没有经 AppWallet.shared.<工厂>.' + spec[1] + '(…) 建页并把 aboutToAppear / onShown / onHidden / '
         + 'onWillDisappear / aboutToDisappear 一行转发给同一个 FundRoutePage');
     }
+    // E2-visible（FU-HM-0726 第 2 版 T-02）：回前台 / 进后台经 AppWallet 的可见页登记到达本页——.onShown 回调的顶层语句里有
+    // AppWallet.shared.setVisible(() => this.G.onShown(), () => this.G.onHidden())；.onHidden 回调的顶层语句里有
+    // AppWallet.shared.setVisible(null)（清理）。
+    const isSetVisible = (e) => !!e && ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression)
+      && e.expression.name.text === 'setVisible' && norm(e.expression.expression.getText(pgs.sf)) === 'AppWallet.shared';
+    const forwards = (arg, method) => {
+      const acts = arrowStatements(arg);
+      return acts !== null && acts.length === 1 && isThisCall(acts[0], pgs.sf, G, method) && acts[0].arguments.length === 0;
+    };
+    const shownCbs = build === null ? [] : attributeCallbacks(build, 'onShown');
+    const hiddenCbs = build === null ? [] : attributeCallbacks(build, 'onHidden');
+    const registers = G.length > 0 && shownCbs.length > 0 && shownCbs.every((cb) => {
+      const acts = arrowStatements(cb);
+      return acts !== null && acts.some((e) => isSetVisible(e) && e.arguments.length === 2
+        && forwards(e.arguments[0], 'onShown') && forwards(e.arguments[1], 'onHidden'));
+    });
+    const clears = hiddenCbs.length > 0 && hiddenCbs.every((cb) => {
+      const acts = arrowStatements(cb);
+      return acts !== null && acts.some((e) => isSetVisible(e) && e.arguments.length === 1
+        && e.arguments[0].kind === ts.SyntaxKind.NullKeyword);
+    });
+    if (!registers || !clears) {
+      fail('E2-visible', PAGES, spec[0] + ' 的 onShown 没有登记 AppWallet.shared.setVisible(() => this.<页>.onShown(), () => this.<页>.onHidden())'
+        + '，或 onHidden 没有 AppWallet.shared.setVisible(null)（回前台到不了本页）');
+    }
+  }
+  // E2-visible：AppWallet.setVisible 把第 1 个参数存进字段 V，onAppForeground 取 V 并调用（前台转发）。
+  {
+    const wType = findType(w.sf, 'AppWallet');
+    const setVis = findMethod(wType, 'setVisible');
+    const fg = findMethod(wType, 'onAppForeground');
+    let V = '';
+    if (setVis !== null && setVis.parameters.length >= 1) {
+      const p0 = setVis.parameters[0].name.getText(w.sf);
+      const st = setVis.body.statements.find((x) => ts.isExpressionStatement(x) && ts.isBinaryExpression(x.expression)
+        && x.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken && norm(x.expression.left.getText(w.sf)).startsWith('this.')
+        && norm(x.expression.right.getText(w.sf)) === p0);
+      V = st ? norm(st.expression.left.getText(w.sf)).slice(5) : '';
+    }
+    let called = false;
+    if (fg !== null && V.length > 0) {
+      const locals = new Set();
+      const walk = (x) => {
+        if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.initializer
+          && norm(x.initializer.getText(w.sf)) === 'this.' + V) {
+          locals.add(x.name.text);
+        }
+        if (ts.isCallExpression(x) && x.arguments.length === 0) {
+          const t = norm(x.expression.getText(w.sf)).replace(/\?\.$/, '');
+          if (locals.has(t) || t === 'this.' + V) {
+            called = true;
+          }
+        }
+        ts.forEachChild(x, walk);
+      };
+      walk(fg.body);
+    }
+    if (!called) {
+      fail('E2-visible', WALLET, 'AppWallet.onAppForeground 没有调用 setVisible 登记的回前台回调');
+    }
+  }
+}
+
+// ---------------------------------------------------------------- E3-records-retry（FU-HM-0726 第 2 版 T-01）
+// WithdrawRecordsView：apply 里顶层 m.retryVisible = s.retryVisible；build 里 phase === RecordsPhase.LOADING 的分支内有
+// if (<…>.retryVisible) { … 回调一行转发 this.config.controller.retry() … }（延后期「加载态 + 重试」可见、可点）。
+const RVIEW = 'features/wallet/src/main/ets/WithdrawRecordsView.ets';
+const rv = load(RVIEW);
+if (rv !== null) {
+  const type = findType(rv.sf, 'WithdrawRecordsView');
+  const apply = findMethod(type, 'apply');
+  let mirrored = false;
+  if (apply !== null && apply.parameters.length >= 1) {
+    const p0 = apply.parameters[0].name.getText(rv.sf);
+    mirrored = apply.body.statements.some((x) => ts.isExpressionStatement(x) && ts.isBinaryExpression(x.expression)
+      && x.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && /\.retryVisible$/.test(norm(x.expression.left.getText(rv.sf)))
+      && norm(x.expression.right.getText(rv.sf)) === p0 + '.retryVisible');
+  }
+  let wired = false;
+  const plainFlag = (cond) => ts.isPropertyAccessExpression(cond) && cond.name.text === 'retryVisible'
+    && /^this(\.[A-Za-z_]+)+$/.test(norm(cond.getText(rv.sf)));
+  const retryForward = (scope) => {
+    let found = false;
+    const walk = (x) => {
+      if (!found && (ts.isArrowFunction(x) || ts.isFunctionExpression(x))) {
+        const acts = arrowStatements(x);
+        if (acts !== null && acts.length === 1 && ts.isCallExpression(acts[0]) && acts[0].arguments.length === 0
+          && norm(acts[0].expression.getText(rv.sf)) === 'this.config.controller.retry') {
+          found = true;
+        }
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(scope);
+    return found;
+  };
+  const walkIf = (x) => {
+    if (ts.isIfStatement(x) && /RecordsPhase\.LOADING/.test(x.expression.getText(rv.sf))) {
+      const inner = (y) => {
+        if (ts.isIfStatement(y) && plainFlag(y.expression) && retryForward(y.thenStatement)) {
+          wired = true;
+        }
+        ts.forEachChild(y, inner);
+      };
+      inner(x.thenStatement);
+    }
+    ts.forEachChild(x, walkIf);
+  };
+  const buildM = findMethod(type, 'build');
+  if (buildM !== null) {
+    walkIf(buildM.body);
+  }
+  if (!mirrored || !wired) {
+    fail('E3-records-retry', RVIEW, 'WithdrawRecordsView 没有把 snapshot.retryVisible 原样映射到页面模型，或 LOADING 分支里没有 '
+      + 'if (<模型>.retryVisible) 下一行转发 this.config.controller.retry() 的【重试】');
   }
 }
 

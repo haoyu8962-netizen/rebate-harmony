@@ -358,6 +358,12 @@ export class WalletSession implements StepUpSessionPort {
   private lastScope: string | undefined = undefined;
   private pendingListeners: Map<string, ((source: Object) => void)[]> = new Map<string, ((source: Object) => void)[]>();
   private dirtyListeners: ((scope: string) => void)[] = [];
+  /**
+   * FU-HM-0726 OP-02 / RC-02：提现成功但归属暂不可确认时（发起页已出栈或成功结果尚未落地就出栈）交给会话的钱包刷新责任，按
+   * 「发起页的钱包会话世代 + 原归属」登记（键见 dirtyKey）。同世代同归属经 recoverIdentity 恢复后通知钱包刷新（与页面生命周期无关）；
+   * 登记与消费都拒绝旧世代，会话换代（reset）时清空。
+   */
+  private deferredDirty: string[] = [];
 
   constructor(clock: () => number, scope: () => string) {
     this.scope = scope;
@@ -383,6 +389,23 @@ export class WalletSession implements StepUpSessionPort {
     for (const recover of this.identityMembers.values()) {
       recover(identity);
     }
+    const key: string = WalletSession.dirtyKey(this.epoch, identity.scope);
+    if (identity.known && identity.scope.length > 0 && this.deferredDirty.indexOf(key) >= 0) {
+      this.deferredDirty = this.deferredDirty.filter((k: string): boolean => k !== key);
+      this.markWalletDirty(identity.scope);
+    }
+  }
+
+  /** OP-02 / RC-02：提现成功的钱包刷新责任按发起页的会话世代与原归属交给会话（见 deferredDirty）；世代已不是当前的不登记。 */
+  deferWalletDirty(scope: string, epoch: number): void {
+    const key: string = WalletSession.dirtyKey(epoch, scope);
+    if (scope.length > 0 && epoch === this.epoch && this.deferredDirty.indexOf(key) < 0) {
+      this.deferredDirty.push(key);
+    }
+  }
+
+  private static dirtyKey(epoch: number, scope: string): string {
+    return String(epoch) + '\n' + scope;
   }
 
   remove(member: WalletSessionAware): void {
@@ -512,6 +535,8 @@ export class WalletSession implements StepUpSessionPort {
         }
       }
     }
+    // OP-02：换代丢弃旧归属的待刷新责任（含本次 resetForSession 中交出的）。
+    this.deferredDirty = [];
     this.currentIdentity = null;
   }
 }

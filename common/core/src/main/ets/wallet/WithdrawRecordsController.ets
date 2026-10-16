@@ -53,6 +53,7 @@ export class RecordsSnapshot {
   error: WalletMessage | null = null;
   notice: WalletMessage | null = null;
   blocked: boolean = false;
+  retryVisible: boolean = false;
   /** 定位的单（带 withdrawal_id 打开且取到）。 */
   focusId: string | null = null;
   version: number = 0;
@@ -76,6 +77,7 @@ export class WithdrawRecordsController implements WalletSessionAware {
   static readonly DETAIL_OPERATION: string = 'getWithdrawal';
   static readonly PAGE_SIZE: number = 20;
   private readonly d: WalletDeps;
+  private readonly requestSync: () => void;
   private boundScope: string;
   private readonly recovery: FundIdentityRecovery;
   private loadRequested: boolean = false;
@@ -100,8 +102,9 @@ export class WithdrawRecordsController implements WalletSessionAware {
   onChange: (snapshot: RecordsSnapshot) => void = (_s: RecordsSnapshot) => {
   };
 
-  constructor(deps: WalletDeps) {
+  constructor(deps: WalletDeps, requestSync: () => void = (): void => {}) {
     this.d = deps;
+    this.requestSync = requestSync;
     this.boundScope = deps.scope();
     this.recovery = new FundIdentityRecovery(this.boundScope, ['records']);
     this.state.sessionEpoch = deps.session.epoch;
@@ -142,8 +145,20 @@ export class WithdrawRecordsController implements WalletSessionAware {
   }
 
   /** 回到前台、从修改收款账号返回：请求一次（不轮询）。 */
-  onShown(): void {
-    if (this.state.phase !== RecordsPhase.IDLE && !this.state.refreshing && this.state.phase !== RecordsPhase.LOADING) {
+  onShown(refresh: boolean = true): void {
+    if (this.left) {
+      return;
+    }
+    if (this.recovery.deferred) {
+      this.requestSync();
+      return;
+    }
+    if (this.recovery.needs('records')) {
+      this.run(false);
+      return;
+    }
+    if (refresh && this.state.phase !== RecordsPhase.IDLE && !this.state.refreshing
+      && this.state.phase !== RecordsPhase.LOADING) {
       this.run(true);
     }
   }
@@ -171,6 +186,10 @@ export class WithdrawRecordsController implements WalletSessionAware {
   }
 
   retry(): boolean {
+    if (!this.left && !this.d.session.readGate.active && this.recovery.deferred) {
+      this.requestSync();
+      return true;
+    }
     if (this.left || this.d.session.readGate.active || this.inFlight()) {
       return false;
     }
@@ -189,6 +208,8 @@ export class WithdrawRecordsController implements WalletSessionAware {
   private run(keep: boolean): void {
     this.loadRequested = true;
     if (this.recovery.deferred) {
+      this.state.phase = RecordsPhase.LOADING;
+      this.emit();
       return;
     }
     if (this.left) {
@@ -198,8 +219,7 @@ export class WithdrawRecordsController implements WalletSessionAware {
       // FU-HM-0712（共性第 65 条，Android FU R1-01 同类）：会话已变（新令牌已保存、清空通知还没到）时不经 begin() 把已显示的旧列表
       // 重新绑定到当前会话、也不为它发新会话的请求；作废在途请求，清空通知随后让本页失效。
       this.begin();
-      this.state.refreshing = false;
-      this.emit();
+      this.readUnavailable(WalletMessages.of(WalletMessages.GENERIC_KEY));
       return;
     }
     const seq: number = this.begin();
@@ -263,6 +283,13 @@ export class WithdrawRecordsController implements WalletSessionAware {
       const page: WithdrawalPage | null = result.ok ? WalletJson.withdrawals(result.data) : null;
       this.recovery.finish('records', seq, accepted && seq === this.current && page !== null);
       if (!accepted) {
+        if (!this.left && seq === this.current) {
+          const message: WalletMessage = WalletMessages.of(WalletMessages.GENERIC_KEY);
+          if (keep && s.phase === RecordsPhase.CONTENT) {
+            restorePaging(message);
+          }
+          this.readUnavailable(message);
+        }
         return;
       }
       s.refreshing = false;
@@ -320,6 +347,21 @@ export class WithdrawRecordsController implements WalletSessionAware {
     });
   }
 
+  /** 当前轮归属暂不可确认：结束加载并给重试，不接受本轮响应。 */
+  private readUnavailable(message: WalletMessage): void {
+    const s: RecordsSnapshot = this.state;
+    s.refreshing = false;
+    s.loadingMore = false;
+    if (s.phase === RecordsPhase.CONTENT) {
+      s.refreshError = message;
+    } else {
+      s.phase = RecordsPhase.ERROR;
+      s.error = message;
+    }
+    s.version++;
+    this.emit();
+  }
+
   /** 翻页。 */
   loadMore(): boolean {
     const s: RecordsSnapshot = this.state;
@@ -332,10 +374,15 @@ export class WithdrawRecordsController implements WalletSessionAware {
     s.loadMoreError = null;
     this.emit();
     this.listRequest(seq, this.cursor).then((result: ApiResult) => {
-      if (!this.alive || seq !== this.current) {
+      if (this.left || seq !== this.current) {
         return;
       }
       s.loadingMore = false;
+      if (!this.alive) {
+        s.loadMoreError = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        this.emit();
+        return;
+      }
       const page: WithdrawalPage | null = result.ok ? WalletJson.withdrawals(result.data) : null;
       if (page === null) {
         s.loadMoreError = (result.ok ? WalletLoadFailure.badData() : this.failure(result)).message;
@@ -413,7 +460,20 @@ export class WithdrawRecordsController implements WalletSessionAware {
     this.owners.push(owner);
     request.sendAllowed = this.d.session.readGate.sendAllowed;
     this.d.api.request(request).then((result: ApiResult) => {
-      if (!this.alive || seq !== this.current || this.detailReq.get(id) !== req) {
+      // 旧轮次/出栈响应仍丢弃；当前轮次归属暂不可确认时，留下明确的详情重试入口。
+      if (this.left || seq !== this.current || this.detailReq.get(id) !== req) {
+        return;
+      }
+      if (!this.alive) {
+        const message: WalletMessage = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        if (focus) {
+          this.focusRetryId = id;
+          this.state.focusError = message;
+        } else {
+          this.state.detailErrors.set(id, message);
+        }
+        this.state.version++;
+        this.emit();
         return;
       }
       const s: RecordsSnapshot = this.state;
@@ -612,6 +672,7 @@ export class WithdrawRecordsController implements WalletSessionAware {
   }
 
   private emit(): void {
+    this.state.retryVisible = this.recovery.deferred || this.state.phase === RecordsPhase.ERROR;
     this.state.blocked = this.d.session.readGate.active;
     try {
       this.onChange(this.state);

@@ -8,6 +8,7 @@
 import { SessionIdentity } from '../session/SessionIdentity';
 import { FundIdentityRecovery } from './FundIdentityRecovery';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
+import { PendingResolution } from '../network/NetworkPolicy';
 import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
 import { StepUpController } from '../stepup/StepUpController';
 import { WalletDeps } from './WalletController';
@@ -104,6 +105,9 @@ export class WithdrawController implements WalletSessionAware {
   static readonly ESTIMATE_DELAY_MS: number = 500;
   private static instances: number = 0;
   private readonly d: WalletDeps;
+  private readonly requestSync: () => void;
+  /** 本页构建时的钱包会话世代（不可变；resetForSession 只换快照，本页随之出栈）。RC-02：钱包刷新责任按它登记。 */
+  private readonly formEpoch: number;
   private flowInstance: SensitiveFlow;
 
   get flow(): SensitiveFlow { return this.flowInstance; }
@@ -111,8 +115,12 @@ export class WithdrawController implements WalletSessionAware {
   private boundScope: string;
   private readonly recovery: FundIdentityRecovery;
   onIdentityBound: (identity: SessionIdentity) => void = (_identity: SessionIdentity): void => {};
+  onRestoreDraft: () => void = (): void => {};
   private left: boolean = false;
   private shownOnce: boolean = false;
+  private inputEditedByUser: boolean = false;
+
+  get inputEdited(): boolean { return this.inputEditedByUser; }
   /**
    * 页面可见性与导航世代（onHidden / 本页发起导航时换代，onShown 恢复可见）。等待结果之后的导航（前置引导页、成功后以
    * WithdrawRecords 替换本页）只在「可见且发起后没有发生过导航」时执行：否则引导不自动打开（引导条与按钮仍在），成功的替换登记后
@@ -129,6 +137,16 @@ export class WithdrawController implements WalletSessionAware {
   private deferredStepUp: DeferredResult | null = null;
   private deferredRisk: WalletMessage | null = null;
   private deferredRiskAt: DeferredResult | null = null;
+  /**
+   * R3-01（FU-HM-0726）：写已生效的结局（提交 / 确认成功、放弃已受理或得知原结果成功）到达时身份暂时未知——不显示错误、不复位，
+   * 登记原结果（本页表单的会话不变才落地），本页保持忙碌（【提交】/ 确认 / 放弃不可用）。身份确认为同一归属后按原结果落地，
+   * 不重发；换代时随页面作废。
+   */
+  private heldStep: SensitiveStep | null = null;
+  private heldVersion: number | null = null;
+  private heldGen: number = -1;
+  /** R3-02：身份未知期间丢弃过写结果（已复位）：身份确认为同一归属后主动同步未决记录并重取，不依赖 onShown。 */
+  private droppedWhileUnknown: boolean = false;
   private rulesSeq: number = 0;
   /** 估算被限流拦下时给出的 rulesError（共性第 45 条）：之后任何一次 rules 成功都清掉它。 */
   private estimateBlockedError: WalletMessage | null = null;
@@ -167,11 +185,13 @@ export class WithdrawController implements WalletSessionAware {
     (_t: string, _a: string | null, _s: string) => {
     };
 
-  constructor(deps: WalletDeps) {
+  constructor(deps: WalletDeps, requestSync: () => void = (): void => {}) {
     this.d = deps;
+    this.requestSync = requestSync;
     WithdrawController.instances++;
     this.state = new WithdrawSnapshot('W' + WithdrawController.instances + '-' + deps.clock());
     this.state.sessionEpoch = deps.session.epoch;
+    this.formEpoch = deps.session.epoch;
     this.account = deps.account();
     this.boundScope = deps.scope();
     this.recovery = new FundIdentityRecovery(this.boundScope, ['rules', 'payout']);
@@ -208,16 +228,81 @@ export class WithdrawController implements WalletSessionAware {
         WithdrawController.STEP_UP_ACTION, this.d.session.withdrawGate, this.account);
       this.onIdentityBound(identity);
     }
+    if (this.landHeld() && (this.left || this.state.phase === WithdrawPhase.DONE)) {
+      return;
+    }
+    this.onRestoreDraft();
     if (!this.shownOnce) {
       return;
     }
-    if (this.recovery.needs('rules')) {
+    const refetch: boolean = this.droppedWhileUnknown && this.alive;
+    if (refetch) {
+      this.droppedWhileUnknown = false;
+    }
+    if (refetch || this.recovery.needs('rules')) {
       this.syncPending();
       this.fetchRules(this.state.inputFen, true);
     }
-    if (this.recovery.needs('payout')) {
+    if (refetch || this.recovery.needs('payout')) {
       this.fetchPayout();
     }
+    if (refetch) {
+      this.state.version++;
+      this.emit();
+    }
+  }
+
+  /**
+   * R3-01：落地身份未知期间登记的写结果：本页表单的会话（归属、账号、会话世代）重新确认后按原结果落地，不重发；返回是否落地。
+   */
+  private landHeld(): boolean {
+    const step: SensitiveStep | null = this.heldStep;
+    if (step === null || this.left || !this.owns()) {
+      // 归属仍不可确认（或已不是本页表单的会话）：保留登记、保持忙碌；换代由 resetForSession 让本页出栈。
+      return false;
+    }
+    const version: number | null = this.heldVersion;
+    const gen: number = this.heldGen;
+    this.clearHeld();
+    // apply 先把本地拒绝里带着的真实成功按它判定一次（realStep），再落地；不重发。
+    this.apply(step, version, gen);
+    return true;
+  }
+
+  private clearHeld(): void {
+    this.heldStep = null;
+    this.heldVersion = null;
+    this.heldGen = -1;
+  }
+
+  /**
+   * OP-01：网络层判过归属失效、把真实成功放在 result.settled 的本地拒绝——不论 apply 此刻 alive 与否，本页表单的会话（归属、账号、
+   * 会话世代）仍成立就按真实结果判定一次（不重发）；不成立时原样返回，由 apply 登记待落地。owned 是 apply 开头唯一一次归属判定的
+   * 结果（RC-01：不在这里重读）。其余结果原样返回。
+   */
+  private realStep(step: SensitiveStep, owned: boolean): SensitiveStep {
+    const settled: ApiResult | null = step.result.settled;
+    if (this.left || settled === null || !settled.ok || !owned) {
+      return step;
+    }
+    return this.flow.settledStep(step) ?? step;
+  }
+
+  /** 提现已受理（钱包余额会变）：成功、得知原结果成功，或 settled 里的真实成功且不是「已放弃」。 */
+  private static withdrew(step: SensitiveStep): boolean {
+    const settled: ApiResult | null = step.result.settled;
+    return step.action === SensitiveOutcome.DONE || (step.action === SensitiveOutcome.ALREADY_DONE && step.result.code === 0)
+      || (settled !== null && settled.ok && settled.pendingResolution !== PendingResolution.ABANDONED);
+  }
+
+  /**
+   * 写已生效的结局（提交 / 确认成功、放弃已受理或得知原结果成功）：不能显示成可重试的错误。身份暂时未知时网络层把结果交成本地拒绝，
+   * 真实的外壳成功在 result.settled（未决记录已按它结算）。
+   */
+  private static effective(step: SensitiveStep): boolean {
+    const settled: ApiResult | null = step.result.settled;
+    return step.action === SensitiveOutcome.DONE || step.action === SensitiveOutcome.ABANDONED
+      || (step.action === SensitiveOutcome.ALREADY_DONE && step.result.code === 0) || (settled !== null && settled.ok);
   }
 
   /** 别处结算了未决记录：重新同步待确认 / 在途；原先被别处挡住、现在没有待确认了，就重取 rules（余额与次数可能已变）。 */
@@ -278,6 +363,7 @@ export class WithdrawController implements WalletSessionAware {
     if (accepted !== null) {
       this.state.inputText = accepted;
       this.state.inputFen = WithdrawAmountInput.parse(accepted);
+      this.emit();
     }
   }
 
@@ -287,6 +373,21 @@ export class WithdrawController implements WalletSessionAware {
       return;
     }
     this.nav.back();
+    if (this.recovery.deferred) {
+      this.shownOnce = true;
+      this.state.phase = WithdrawPhase.LOADING;
+      this.requestSync();
+      this.emit();
+      return;
+    }
+    if (this.heldStep !== null && !this.alive) {
+      // R3-01：有待落地的写结果、归属仍不可确认——请求一次同步；落地前本页保持忙碌，不重发。
+      this.requestSync();
+    }
+    if (this.landHeld() && (this.left || this.state.phase === WithdrawPhase.DONE)) {
+      return;
+    }
+    this.onRestoreDraft();
     if (this.surfaceFinish()) {
       return;
     }
@@ -305,6 +406,10 @@ export class WithdrawController implements WalletSessionAware {
   retry(): boolean {
     if (this.left || this.d.session.readGate.active) {
       return false;
+    }
+    if (this.recovery.deferred) {
+      this.onShown();
+      return true;
     }
     this.state.phase = WithdrawPhase.LOADING;
     this.state.error = null;
@@ -348,6 +453,7 @@ export class WithdrawController implements WalletSessionAware {
   }
 
   private applyInput(text: string, immediate: boolean): void {
+    this.inputEditedByUser = true;
     const s: WithdrawSnapshot = this.state;
     s.inputText = text;
     s.inputFen = WithdrawAmountInput.parse(text);
@@ -969,17 +1075,41 @@ export class WithdrawController implements WalletSessionAware {
    * 只结算状态（引导条与按钮仍在，用户手动打开）；二次验证面板、风控弹窗、成功替换登记为延后结果（原键、页面、会话），回到本页或此刻
    * 已经回到本页时复核后恢复。
    */
-  private apply(step: SensitiveStep, version: number | null, gen: number): void {
+  private apply(raw: SensitiveStep, version: number | null, gen: number): void {
+    // RC-01：本次结果分流只做这一次归属判定（owns：归属、账号、会话世代）；写已生效的结果全程只按它走，不再重读 alive / owns。
+    const owned: boolean = this.owns();
+    const step: SensitiveStep = this.realStep(raw, owned);
     const s: WithdrawSnapshot = this.state;
     const current: boolean = this.nav.current(gen);
-    if (!this.alive) {
-      // 已出栈或会话变了：响应不改页面，结论只落到未决记录（ApiClient 已结算）。提交成功仍标记钱包需要刷新（同一会话）。
-      const succeeded: boolean = step.action === SensitiveOutcome.DONE
-        || (step.action === SensitiveOutcome.ALREADY_DONE && step.result.code === 0);
-      if (this.d.scope() === this.boundScope && succeeded) {
+    if (!this.left && WithdrawController.effective(step)) {
+      if (!owned) {
+        // R3-01 / OP-01：写已生效但本页表单的会话此刻不可确认——不显示错误、不复位（复位会让用户再点出第二笔真实提现），登记原结果，
+        // 本页保持忙碌；会话重新确认后（recoverIdentity / onShown）按原结果落地，不重发。换代时随 resetForSession 作废（leave 把钱包
+        // 刷新责任交给会话，OP-02）。
+        this.heldStep = step;
+        this.heldVersion = version;
+        this.heldGen = gen;
+        return;
+      }
+      // 会话成立：直接按（真实）结果落地，不进入下面按 alive 重读的复位分支。
+    } else if (!this.alive) {
+      if (!this.left) {
+        // 归属暂不可确认、写未生效（失败或结果未知）：只解除本页忙碌，不采用响应，也不自动重发写请求；结果未知的由未决记录拦重提。
+        this.droppedWhileUnknown = true;
+        this.dropStepUp();
+        if (s.phase === WithdrawPhase.SUBMITTING || s.phase === WithdrawPhase.STEP_UP) {
+          s.phase = this.restPhase();
+        }
+        s.banner = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        s.version++;
+        this.emit();
+      }
+      // 已出栈页面不再改变；结论由未决记录保存。同一会话的提交成功仍标记钱包需要刷新。
+      if (this.left && WithdrawController.withdrew(step)) {
         // 共性第 53 条：不只留标记——通知仍存在的钱包页（同一会话）作废成功前的旧摘要请求并刷新。共性第 58 条（R3-01）：确认 / 放弃
-        // 返回 ALREADY_DONE 且原结果成功（原提现已受理）同样要通知，与在页时 finish 的口径一致。
-        this.d.session.markWalletDirty(this.boundScope);
+        // 返回 ALREADY_DONE 且原结果成功（原提现已受理）同样要通知，与在页时 finish 的口径一致。OP-02：此刻归属不可确认时把刷新责任
+        // 交给会话（绑原归属），同归属恢复后通知，换代丢弃。
+        this.walletDirtyFor(this.boundScope);
       }
       return;
     }
@@ -1154,6 +1284,12 @@ export class WithdrawController implements WalletSessionAware {
       return;
     }
     this.left = true;
+    const held: SensitiveStep | null = this.heldStep;
+    this.clearHeld();
+    if (held !== null && WithdrawController.withdrew(held)) {
+      // OP-02：成功结果还没落地本页就出栈——钱包刷新责任交给会话（绑原归属），不随页面丢失。
+      this.walletDirtyFor(this.boundScope);
+    }
     this.cancelDebounce();
     const owners: (() => boolean)[] = this.owners;
     this.owners = [];
@@ -1184,6 +1320,21 @@ export class WithdrawController implements WalletSessionAware {
       this.onChange(this.state);
     } catch (e) {
       // 页面回调出错不影响执行器。
+    }
+  }
+
+  /**
+   * 提现成功后的钱包刷新（OP-02 / RC-02）：责任绑定本页表单的会话世代 formEpoch（构建时固定，页面的请求都在这个世代发出）与原归属。
+   * 钱包会话已换代 → 丢弃；归属此刻仍是 scope → 立即通知；暂不可确认 → 交给会话（按世代 + 归属登记），同世代同归属恢复后通知。
+   */
+  private walletDirtyFor(scope: string): void {
+    if (this.formEpoch !== this.d.session.epoch) {
+      return;
+    }
+    if (this.d.scope() === scope) {
+      this.d.session.markWalletDirty(scope);
+    } else {
+      this.d.session.deferWalletDirty(scope, this.formEpoch);
     }
   }
 

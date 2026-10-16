@@ -56,6 +56,7 @@ class RecordsModel {
   @Trace focusError: string = '';
   @Trace refreshError: string = '';
   @Trace blocked: boolean = false;
+  @Trace retryVisible: boolean = false;
 }
 
 /**
@@ -91,6 +92,7 @@ export struct WithdrawRecordsView {
     m.focusError = s.focusError === null ? '' : s.focusError.text;
     m.refreshError = s.refreshError === null ? '' : s.refreshError.text;
     m.blocked = s.blocked;
+    m.retryVisible = s.retryVisible;
     m.groups = this.group(s.items);
     const ui: UIContext = this.getUIContext();
     if (s.error !== null && s.error.seq !== this.lastErrorSeq) {
@@ -436,6 +438,10 @@ export struct WithdrawRecordsView {
       } else if (this.model.phase === RecordsPhase.LOADING) {
         Column() {
           LoadingProgress().width(32).height(32).color(CouliColors.textSecondary)
+          if (this.model.retryVisible) {
+            WalletLink({ text: this.t('wallet.retry'), linkId: 'records_deferred_retry', disabled: this.model.blocked,
+              onTap: () => this.config.controller.retry() })
+          }
         }
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)

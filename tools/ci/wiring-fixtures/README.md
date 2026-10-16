@@ -9,3 +9,12 @@ FU-HM-0725 第 2 版（逻辑下沉 Core，entry / 视图一行转发；规则�
 - E3-input（M43 的新形状）：`e3-input-cleared`（恒值）、`e3-input-constant-expr`、`e3-input-removed`、`e3-input-dead-branch`、`e3-input-overwritten`、`e3-input-wrong-arg`。
 - E3-takeover：`e3-touch-constant`、`e3-scroll-index-constant`（恒值）、`e3-events-wrong-receiver`、`e3-events-other-sync`、`e3-events-dead-method`（挪出 build）、`e3-no-touch-down`。
 - E4-source / E4-key / E4-same-source（M38 的新形状）：`e4-source-constant`、`e4-source-overwritten`、`e4-key-constant`、`e4-key-discard-reread`（丢弃结果后二次读取）、`e4-key-wrong-receiver`、`e4-now-second-read`、`e4-now-reassigned`、`e4-sync-dead-branch`、`e4-build-other-identity`。
+
+FU-HM-0726（F-HM-42 ① 接口约定 N5、R1-06 / T-17）：`good` 与全部样例的 AppWallet 改为 `new FundPageFactory(…, () => this.sync())`，WalletPages
+追加收款账号 / 实名 / 劳务协议三页的满足形状（原样例报的规则不变）。新增漏接样例（每个只报目标规则）：
+- E2-pages-sync：`e2-pages-sync-missing`（缺参数）、`e2-pages-sync-noop`（恒值 / 空函数）、`e2-pages-sync-other-call`（调别的方法）、
+  `e2-pages-sync-dead-branch`（死代码）、`e2-pages-sync-wrong-receiver`（错误接收者）。
+- E2-pages 三页：`e2-pages-payout-no-shown-forward`、`e2-pages-realname-bypass-factory`、`e2-pages-labor-dead-forward`；
+  T-17 记录页参数恒值 `e2-pages-records-param-constant`（`this.param === null ? null : null`）。
+- 身份参数只看返回值（T-17）：`e2-identity-call-then-constant`（E2-identity）、`e4-source-call-then-constant`（E4-source）——先调用
+  sessionIdentity 再返回恒未知。

@@ -284,8 +284,14 @@ export struct AppRealNamePage {
     .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
-    .onShown(() => this.page?.onShown())
-    .onHidden(() => this.page?.onHidden())
+    .onShown(() => {
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
+    })
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
     .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }
@@ -326,8 +332,14 @@ export struct AppLaborAgreementPage {
     .onReady((ctx: NavDestinationContext) => this.own.ready(ctx))
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => AppPrivacy.shared.blocksBack)
-    .onShown(() => this.page?.onShown())
-    .onHidden(() => this.page?.onHidden())
+    .onShown(() => {
+      this.page?.onShown();
+      AppWallet.shared.setVisible((): void => this.page?.onShown(), (): void => this.page?.onHidden());
+    })
+    .onHidden(() => {
+      AppWallet.shared.setVisible(null);
+      this.page?.onHidden();
+    })
     .onWillDisappear(() => this.page?.onWillDisappear())
   }
 }

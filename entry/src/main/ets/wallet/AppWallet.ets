@@ -220,7 +220,7 @@ export class AppWallet {
   private draft: WithdrawInputDraft | null = null;
   readonly session: WalletSession = new WalletSession(Date.now, (): string => AppWallet.scopeKey());
   readonly pages: FundPageFactory = new FundPageFactory(this.session, (): WalletDeps => this.deps(),
-    (): WithdrawInputDraft | null => this.draft, (): string | null => AppNetwork.loginEpoch());
+    (): WithdrawInputDraft | null => this.draft, (): string | null => AppNetwork.loginEpoch(), (): void => this.sync());
   private readonly api: WalletApiPort = new LiveWalletPort();
   private readonly config: WalletConfigPort = new StoreWalletConfig();
   /** F-X-17（FU-HM-0723）：会话变化对账——账号变了、或同账号的登录世代分区变了都删钱包缓存与金额草稿。 */

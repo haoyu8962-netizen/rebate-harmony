@@ -91,6 +91,7 @@ export class PayoutAccountController implements WalletSessionAware {
   static readonly SAVE_OPERATION: string = 'savePayoutAccount';
   static readonly STEP_UP_ACTION: string = 'payout_account_change';
   private readonly d: WalletDeps;
+  private readonly requestSync: () => void;
   private flowInstance: SensitiveFlow;
 
   get flow(): SensitiveFlow { return this.flowInstance; }
@@ -113,6 +114,16 @@ export class PayoutAccountController implements WalletSessionAware {
   private deferredStepUp: DeferredResult | null = null;
   private deferredRisk: WalletMessage | null = null;
   private deferredRiskAt: DeferredResult | null = null;
+  /**
+   * R3-01（FU-HM-0726）：写已生效的结局（保存 / 确认成功、放弃已受理或得知原结果成功）到达时身份暂时未知——不显示错误、不复位，
+   * 登记原结果（本页表单的会话不变才落地），本页保持忙碌（【保存】/ 确认 / 放弃不可用）。身份确认为同一归属后按原结果落地，
+   * 不重发；换代时随页面作废。
+   */
+  private heldStep: SensitiveStep | null = null;
+  private heldVersion: number | null = null;
+  private heldGen: number = -1;
+  /** R3-02：身份未知期间丢弃过写结果（已复位）：身份确认为同一归属后主动同步未决记录并重取，不依赖 onShown。 */
+  private droppedWhileUnknown: boolean = false;
   private loadSeq: number = 0;
   private owners: (() => boolean)[] = [];
   private stepUpPhase: string = SensitiveOutcome.SUBMIT;
@@ -135,8 +146,9 @@ export class PayoutAccountController implements WalletSessionAware {
   onSaved: () => void = () => {
   };
 
-  constructor(deps: WalletDeps) {
+  constructor(deps: WalletDeps, requestSync: () => void = (): void => {}) {
     this.d = deps;
+    this.requestSync = requestSync;
     PayoutAccountController.instances++;
     this.pageId = 'P' + PayoutAccountController.instances;
     this.boundScope = deps.scope();
@@ -174,10 +186,71 @@ export class PayoutAccountController implements WalletSessionAware {
       this.flowInstance = new SensitiveFlow(this.d, SensitiveOutcome.OP_PAYOUT, PayoutAccountController.SAVE_OPERATION,
         PayoutAccountController.STEP_UP_ACTION, this.d.session.payoutGate, this.account);
     }
+    this.landHeld();
+    if (this.left) {
+      return;
+    }
+    const refetch: boolean = this.droppedWhileUnknown && this.alive;
+    if (refetch) {
+      this.droppedWhileUnknown = false;
+      this.syncPending();
+      this.state.version++;
+      if (this.loadRequested) {
+        this.load();
+      } else {
+        this.emit();
+      }
+      return;
+    }
     if (this.loadRequested && this.recovery.needs('payout')) {
       this.syncPending();
       this.load();
     }
+  }
+
+  /**
+   * R3-01：落地身份未知期间登记的写结果：本页表单的会话（归属、账号、会话世代）重新确认后按原结果落地，不重发。
+   */
+  private landHeld(): void {
+    const step: SensitiveStep | null = this.heldStep;
+    if (step === null || this.left || !this.owns()) {
+      // 归属仍不可确认（或已不是本页表单的会话）：保留登记、保持忙碌；换代由 resetForSession 让本页出栈。
+      return;
+    }
+    const version: number | null = this.heldVersion;
+    const gen: number = this.heldGen;
+    this.clearHeld();
+    // apply 先把本地拒绝里带着的真实成功按它判定一次（realStep），再落地；不重发。
+    this.apply(step, version, gen);
+  }
+
+  private clearHeld(): void {
+    this.heldStep = null;
+    this.heldVersion = null;
+    this.heldGen = -1;
+  }
+
+  /**
+   * OP-01：网络层判过归属失效、把真实成功放在 result.settled 的本地拒绝——不论 apply 此刻 alive 与否，本页表单的会话（归属、账号、
+   * 会话世代）仍成立就按真实结果判定一次（不重发）；不成立时原样返回，由 apply 登记待落地。owned 是 apply 开头唯一一次归属判定的
+   * 结果（RC-01：不在这里重读）。其余结果原样返回。
+   */
+  private realStep(step: SensitiveStep, owned: boolean): SensitiveStep {
+    const settled: ApiResult | null = step.result.settled;
+    if (this.left || settled === null || !settled.ok || !owned) {
+      return step;
+    }
+    return this.flow.settledStep(step) ?? step;
+  }
+
+  /**
+   * 写已生效的结局（保存 / 确认成功、放弃已受理或得知原结果成功）：不能显示成可重试的错误。身份暂时未知时网络层把结果交成本地拒绝，
+   * 真实的外壳成功在 result.settled（未决记录已按它结算）。
+   */
+  private static effective(step: SensitiveStep): boolean {
+    const settled: ApiResult | null = step.result.settled;
+    return step.action === SensitiveOutcome.DONE || step.action === SensitiveOutcome.ABANDONED
+      || (step.action === SensitiveOutcome.ALREADY_DONE && step.result.code === 0) || (settled !== null && settled.ok);
   }
 
   /** 别处结算了未决记录：重新同步；待确认没了就回到当前账号显示（或表单）并重取服务端当前账号。 */
@@ -227,9 +300,24 @@ export class PayoutAccountController implements WalletSessionAware {
       return;
     }
     this.nav.back();
+    if (this.recovery.deferred) {
+      this.loadRequested = true;
+      this.state.phase = PayoutPhase.LOADING;
+      this.requestSync();
+      this.emit();
+      return;
+    }
+    if (this.heldStep !== null && !this.alive) {
+      // R3-01：有待落地的写结果、归属仍不可确认——请求一次同步；落地前本页保持忙碌，不重发。
+      this.requestSync();
+    }
+    this.landHeld();
+    if (this.left) {
+      return;
+    }
     this.surfaceDeferred();
     this.syncPending();
-    if (this.state.phase === PayoutPhase.IDLE || this.state.phase === PayoutPhase.ERROR
+    if (this.recovery.needs('payout') || this.state.phase === PayoutPhase.IDLE || this.state.phase === PayoutPhase.ERROR
       || this.state.phase === PayoutPhase.VIEW || this.state.phase === PayoutPhase.PENDING) {
       this.load();
     } else {
@@ -240,6 +328,10 @@ export class PayoutAccountController implements WalletSessionAware {
   retry(): boolean {
     if (this.left || this.d.session.readGate.active) {
       return false;
+    }
+    if (this.recovery.deferred) {
+      this.onShown();
+      return true;
     }
     this.load();
     return true;
@@ -276,10 +368,22 @@ export class PayoutAccountController implements WalletSessionAware {
       const current: boolean = this.alive;
       const data: WalletRecord | null = result.ok ? WalletJson.payoutAccount(result.data) : null;
       this.recovery.finish('payout', seq, current && seq === this.loadSeq && data !== null);
-      if (!current || seq !== this.loadSeq) {
+      if (this.left || seq !== this.loadSeq) {
         return;
       }
       this.owners = this.owners.filter((o: () => boolean): boolean => o !== owner);
+      if (!current) {
+        const message: WalletMessage = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        if (this.showsAccount()) {
+          s.phase = PayoutPhase.ERROR;
+          s.error = message;
+        } else {
+          s.notice = message;
+        }
+        s.version++;
+        this.emit();
+        return;
+      }
       if (data === null) {
         if (result.ok) {
           this.d.log('payout account dropped: bad fields');
@@ -690,9 +794,33 @@ export class PayoutAccountController implements WalletSessionAware {
    * 只结算状态（提示仍在，用户手动打开）；二次验证面板与风控弹窗登记为延后结果（原键、页面、会话），回到本页或此刻已回到本页时复核
    * 后恢复。
    */
-  private apply(step: SensitiveStep, version: number | null, gen: number): void {
+  private apply(raw: SensitiveStep, version: number | null, gen: number): void {
+    // RC-01：本次结果分流只做这一次归属判定（owns：归属、账号、会话世代）；写已生效的结果全程只按它走，不再重读 alive / owns。
+    const owned: boolean = this.owns();
+    const step: SensitiveStep = this.realStep(raw, owned);
     const s: PayoutSnapshot = this.state;
-    if (!this.alive) {
+    if (!this.left && PayoutAccountController.effective(step)) {
+      if (!owned) {
+        // R3-01 / OP-01：写已生效但本页表单的会话此刻不可确认——不显示错误、不复位（复位会让用户再点出多一次 PUT），登记原结果，
+        // 本页保持忙碌；会话重新确认后（recoverIdentity / onShown）按原结果落地，不重发。换代时随 resetForSession 作废。
+        this.heldStep = step;
+        this.heldVersion = version;
+        this.heldGen = gen;
+        return;
+      }
+      // 会话成立：直接按（真实）结果落地，不进入下面按 alive 重读的复位分支。
+    } else if (!this.alive) {
+      if (!this.left) {
+        // 保存、确认、放弃与二次验证续发共用；写未生效（失败或结果未知）时复位，恢复后 recoverIdentity / onShown 同步未决记录并重取。
+        this.droppedWhileUnknown = true;
+        this.dropStepUp();
+        if (s.phase === PayoutPhase.SAVING || s.phase === PayoutPhase.STEP_UP) {
+          s.phase = PayoutPhase.FORM;
+        }
+        s.banner = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        s.version++;
+        this.emit();
+      }
       return;
     }
     const current: boolean = this.nav.current(gen);

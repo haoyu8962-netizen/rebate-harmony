@@ -2,6 +2,9 @@
 // - FundApp：AppWallet 的 Core 部分（会话、缓存、WalletSessionReconciler、金额草稿、deps）+ 生产资金页工厂 FundPageFactory（N1）。
 //   页面装配与路由生命周期一律经 FundPageFactory 与 FundRoutePage（aboutToAppear / onShown / onHidden / onWillDisappear），
 //   测试不再自己 new 控制器、不再自己写生命周期。
+//   FU-HM-0726（接口约定 N5）：工厂第 5 个参数 requestSync 与 AppWallet 相同——请求一次钱包同步（AppWallet.sync）；这里记次数
+//   syncRequests 后转发 FundApp.sync()。deps().scope 经 ScopeFaults（T-07：按读取位置注入「这一次读到的归属不是当前会话」）。
+//   FundServer.write(key, reply)：写请求（'POST /v1/withdrawals'、'PUT /v1/me/payout-account'）的应答（T-20）。
 // - FundServer：钱包假服务。version 决定响应内容（恢复前 1、恢复后 2，用来判断显示的是不是新响应）；hold(path, n) 让之后 n 次
 //   该路径的请求挂起，release(path) 放行。
 // - OpWalletPort / FundContract：按 operationId 在 request 入口同步计数 issued，控制器回调之后计 consumed。
@@ -76,12 +79,58 @@ export class OpWalletPort implements WalletApiPort {
     return this.inner.pendingStoreUnavailable();
   }
 
+  // FU-HM-0726 第 4 版：确认 / 放弃上一笔也在入口计数（op = confirmPending / abandonPending），allQuiet 才会等它们结算。
   confirmPending(key: string, token: string | null, sendAllowed: () => boolean): Promise<ApiResult> {
-    return this.inner.confirmPending(key, token, sendAllowed);
+    return this.ops.track('confirmPending', this.inner.confirmPending(key, token, sendAllowed));
   }
 
   abandonPending(key: string, sendAllowed: () => boolean): Promise<ApiResult> {
-    return this.inner.abandonPending(key, sendAllowed);
+    return this.ops.track('abandonPending', this.inner.abandonPending(key, sendAllowed));
+  }
+}
+
+/**
+ * deps().scope 的故障注入（T-07）：arm(from, to) 之后第 from..to 次读取（从 1 数）返回「凭据读不出」形状的归属键（p.unknownScopeKey），
+ * 其余照常；hits 记命中次数，reads 记 arm 之后的读取次数。to = from 为「仅第 n 次失败」，to 很大为「第 n 次起一直失败」。
+ */
+export class ScopeFaults {
+  reads: number = 0;
+  hits: number = 0;
+  private from: number = -1;
+  private to: number = -1;
+
+  arm(from: number, to: number): void {
+    this.reads = 0;
+    this.hits = 0;
+    this.from = from;
+    this.to = to;
+  }
+
+  disarm(): void {
+    this.from = -1;
+    this.to = -1;
+  }
+
+  /** 这一次读取是否注入故障（同步计数）。 */
+  next(): boolean {
+    this.reads++;
+    if (this.from > 0 && this.reads >= this.from && this.reads <= this.to) {
+      this.hits++;
+      return true;
+    }
+    return false;
+  }
+}
+
+class HeldWrite {
+  readonly key: string;
+  readonly request: TransportRequest;
+  readonly resolve: (r: TransportResponse) => void;
+
+  constructor(key: string, request: TransportRequest, resolve: (r: TransportResponse) => void) {
+    this.key = key;
+    this.request = request;
+    this.resolve = resolve;
   }
 }
 
@@ -102,6 +151,33 @@ export class FundServer {
   version: number = 1;
   private holds: Map<string, number> = new Map<string, number>();
   private held: Held[] = [];
+  private writes: Map<string, (r: TransportRequest) => TransportResponse> =
+    new Map<string, (r: TransportRequest) => TransportResponse>();
+  private writeHolds: Map<string, number> = new Map<string, number>();
+  private writeHeld: HeldWrite[] = [];
+
+  /** 写请求的应答（key = 'METHOD /path'）。 */
+  write(key: string, reply: (r: TransportRequest) => TransportResponse): void {
+    this.writes.set(key, reply);
+  }
+
+  /** FU-HM-0726 第 4 版（R2-01）：之后 n 次 key 写请求挂起；releaseWrite 时按**放行时**登记的应答作答。 */
+  holdWrite(key: string, n: number): void {
+    this.writeHolds.set(key, n);
+  }
+
+  heldWrites(key: string): number {
+    return this.writeHeld.filter((h: HeldWrite): boolean => h.key === key).length;
+  }
+
+  releaseWrite(key: string): void {
+    const now: HeldWrite[] = this.writeHeld.filter((h: HeldWrite): boolean => h.key === key);
+    this.writeHeld = this.writeHeld.filter((h: HeldWrite): boolean => h.key !== key);
+    for (const h of now) {
+      const reply: ((x: TransportRequest) => TransportResponse) | undefined = this.writes.get(key);
+      h.resolve(reply === undefined ? envelope(50001, '{}') : reply(h.request));
+    }
+  }
 
   /** 之后 n 次 path 的请求挂起。 */
   hold(path: string, n: number): void {
@@ -161,6 +237,18 @@ export class FundServer {
 
   handle(r: TransportRequest): Promise<TransportResponse> {
     const path: string = pathOf(r);
+    const write: ((x: TransportRequest) => TransportResponse) | undefined = this.writes.get(r.method + ' ' + path);
+    if (write !== undefined) {
+      const key: string = r.method + ' ' + path;
+      const n: number = this.writeHolds.get(key) ?? 0;
+      if (n > 0) {
+        this.writeHolds.set(key, n - 1);
+        return new Promise<TransportResponse>((resolve: (x: TransportResponse) => void): void => {
+          this.writeHeld.push(new HeldWrite(key, r, resolve));
+        });
+      }
+      return Promise.resolve(write(r));
+    }
     const left: number = this.holds.get(path) ?? 0;
     if (left > 0) {
       this.holds.set(path, left - 1);
@@ -180,6 +268,8 @@ export class FundContract implements WalletContractPort {
   private holds: number = 0;
   private held: ((r: ApiResult) => void)[] = [];
   private heldVersions: number[] = [];
+  private writeHolds: number = 0;
+  private writeHeld: ((r: ApiResult) => void)[] = [];
 
   constructor(server: FundServer, ops: OpCounter) {
     this.server = server;
@@ -218,8 +308,35 @@ export class FundContract implements WalletContractPort {
     return FundContract.ok(d);
   }
 
+  /** FU-HM-0726 第 3 版（R1-02）：之后 n 次写请求（submitRealname / signLaborAgreement）挂起，releaseWrites 时按成功作答。 */
+  holdWrites(n: number): void {
+    this.writeHolds = n;
+  }
+
+  get heldWrites(): number {
+    return this.writeHeld.length;
+  }
+
+  releaseWrites(): void {
+    const list: ((r: ApiResult) => void)[] = this.writeHeld;
+    this.writeHeld = [];
+    for (const r of list) {
+      r(FundContract.ok({}));
+    }
+  }
+
+  private write(op: string): Promise<ApiResult> {
+    if (this.writeHolds > 0) {
+      this.writeHolds--;
+      return this.ops.track(op, new Promise<ApiResult>((resolve: (r: ApiResult) => void): void => {
+        this.writeHeld.push(resolve);
+      }));
+    }
+    return this.ops.track(op, Promise.resolve(FundContract.ok({})));
+  }
+
   submitRealname(_name: string, _idNo: string): Promise<ApiResult> {
-    return this.ops.track('submitRealname', Promise.resolve(FundContract.ok({})));
+    return this.write('submitRealname');
   }
 
   getLaborAgreement(): Promise<ApiResult> {
@@ -235,7 +352,7 @@ export class FundContract implements WalletContractPort {
   }
 
   signLaborAgreement(_version: string, _sha: string): Promise<ApiResult> {
-    return this.ops.track('signLaborAgreement', Promise.resolve(FundContract.ok({})));
+    return this.write('signLaborAgreement');
   }
 }
 
@@ -256,6 +373,9 @@ export class FundApp {
   readonly pages: FundPageFactory;
   /** session.removePages 收到的路由（按调用顺序）。 */
   readonly removed: string[] = [];
+  /** 工厂的 requestSync 被调用的次数（N5）。 */
+  syncRequests: number = 0;
+  readonly scopeFaults: ScopeFaults = new ScopeFaults();
 
   constructor(p: Proc) {
     this.p = p;
@@ -273,9 +393,13 @@ export class FundApp {
     this.session.removePages = (route: string): void => {
       this.removed.push(route);
     };
-    // AppWallet：new FundPageFactory(this.session, () => this.deps(), () => this.draft, () => AppNetwork.loginEpoch())。
+    // AppWallet：new FundPageFactory(this.session, () => this.deps(), () => this.draft, () => AppNetwork.loginEpoch(),
+    //   () => this.sync())（N5，FU-HM-0726）。
     this.pages = new FundPageFactory(this.session, (): WalletDeps => this.deps(), (): WithdrawInputDraft | null => draft,
-      (): string | null => p.epoch());
+      (): string | null => p.epoch(), (): void => {
+        this.syncRequests++;
+        this.sync();
+      });
     p.rig.server.handler = (r: TransportRequest): Promise<TransportResponse> => this.server.handle(r);
   }
 
@@ -292,10 +416,12 @@ export class FundApp {
   deps(): WalletDeps {
     const d: WalletDeps = new WalletDeps(this.port, this.session);
     d.clock = (): number => this.p.rig.nowMillis;
-    d.scope = (): string => this.p.scopeKey();
+    d.scope = (): string => this.scopeFaults.next() ? this.p.unknownScopeKey() : this.p.scopeKey();
     d.account = (): string | null => this.p.account();
     d.cache = this.cache;
     d.contract = this.contract;
+    // 终版补测（M45 / M46）：二次验证发码用的手机号（同 WalletFixture 的测试号）。
+    d.stepUpPhone = (_a: string): string | null => '13800005678';
     return d;
   }
 }

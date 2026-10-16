@@ -35,6 +35,7 @@ export class RealNameSnapshot {
 
 export class RealNameController implements WalletSessionAware {
   private readonly d: WalletDeps;
+  private readonly requestSync: () => void;
   private boundScope: string;
   private readonly recovery: FundIdentityRecovery;
   /** 本页表单固定的账号（FU-HM-0712，共性第 65 条）：构造时与 boundScope 一起取得；实名成功的结论按它落地。 */
@@ -49,8 +50,9 @@ export class RealNameController implements WalletSessionAware {
   onDone: () => void = () => {
   };
 
-  constructor(deps: WalletDeps) {
+  constructor(deps: WalletDeps, requestSync: () => void = (): void => {}) {
     this.d = deps;
+    this.requestSync = requestSync;
     this.boundScope = deps.scope();
     this.recovery = new FundIdentityRecovery(this.boundScope, []);
     this.account = deps.account();
@@ -72,6 +74,12 @@ export class RealNameController implements WalletSessionAware {
       this.account = identity.account;
       this.state.submitting = false;
       this.emit();
+    }
+  }
+
+  onShown(): void {
+    if (!this.left && this.recovery.deferred) {
+      this.requestSync();
     }
   }
 
@@ -122,7 +130,8 @@ export class RealNameController implements WalletSessionAware {
     input['name'] = s.name;
     input['idNo'] = s.idNo;
     // 共性第 52 条（S0）：表单属于本页构建时的会话（归属键含登录序号与会话世代）；会话已变（即使清空通知还没到）就不提交姓名与证件号。
-    return this.alive && s.sessionEpoch === this.d.session.epoch && !s.unavailable && !s.lockedToday && !s.submitting
+    return !this.recovery.deferred && this.alive && s.sessionEpoch === this.d.session.epoch
+      && !s.unavailable && !s.lockedToday && !s.submitting
       && !this.d.session.realnameGate.active
       && RealNameForm.normalize(input)['submitEnabled'] === true;
   }
@@ -170,10 +179,15 @@ export class RealNameController implements WalletSessionAware {
     this.emit();
     const seq: number = ++this.seq;
     port.submitRealname(normalized['name'] as string, normalized['idNo'] as string).then((result: ApiResult) => {
-      if (!this.alive || seq !== this.seq) {
+      if (this.left || seq !== this.seq) {
         return;
       }
       s.submitting = false;
+      if (!this.alive) {
+        s.banner = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        this.emit();
+        return;
+      }
       if (result.ok) {
         this.verified();
         return;
@@ -304,6 +318,7 @@ export class LaborSnapshot {
 
 export class LaborAgreementController implements WalletSessionAware {
   private readonly d: WalletDeps;
+  private readonly requestSync: () => void;
   private boundScope: string;
   private readonly recovery: FundIdentityRecovery;
   private left: boolean = false;
@@ -317,8 +332,9 @@ export class LaborAgreementController implements WalletSessionAware {
   onDone: () => void = () => {
   };
 
-  constructor(deps: WalletDeps) {
+  constructor(deps: WalletDeps, requestSync: () => void = (): void => {}) {
     this.d = deps;
+    this.requestSync = requestSync;
     this.boundScope = deps.scope();
     this.recovery = new FundIdentityRecovery(this.boundScope, ['labor']);
     this.state.unavailable = deps.contract === null;
@@ -353,9 +369,26 @@ export class LaborAgreementController implements WalletSessionAware {
     return !this.left && this.d.scope() === this.boundScope;
   }
 
+  onShown(): void {
+    if (this.left) {
+      return;
+    }
+    if (this.recovery.deferred) {
+      this.requestSync();
+    } else if (this.recovery.needs('labor')) {
+      this.load();
+    }
+  }
+
   load(): void {
+    if (this.left) {
+      return;
+    }
     this.loadRequested = true;
     if (this.recovery.deferred) {
+      this.state.loading = true;
+      this.emit();
+      this.requestSync();
       return;
     }
     const port: WalletContractPort | null = this.d.contract;
@@ -376,10 +409,15 @@ export class LaborAgreementController implements WalletSessionAware {
       const sha: string | null = data === null ? null : WalletJson.text(data, 'text_sha256');
       this.recovery.finish('labor', seq, current && seq === this.seq && data !== null
         && version !== null && sha !== null);
-      if (!current || seq !== this.seq) {
+      if (this.left || seq !== this.seq) {
         return;
       }
       s.loading = false;
+      if (!current) {
+        s.error = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        this.emit();
+        return;
+      }
       if (data === null || version === null || sha === null) {
         s.error = result.ok ? WalletMessages.of(WalletMessages.GENERIC_KEY) : this.d.readFailure(result).message;
         this.emit();
@@ -427,10 +465,15 @@ export class LaborAgreementController implements WalletSessionAware {
     this.emit();
     const seq: number = ++this.seq;
     port.signLaborAgreement(s.version as string, s.sha256 as string).then((result: ApiResult) => {
-      if (!this.alive || seq !== this.seq) {
+      if (this.left || seq !== this.seq) {
         return;
       }
       s.signing = false;
+      if (!this.alive) {
+        s.banner = WalletMessages.of(WalletMessages.GENERIC_KEY);
+        this.emit();
+        return;
+      }
       if (result.ok) {
         s.done = true;
         this.emit();

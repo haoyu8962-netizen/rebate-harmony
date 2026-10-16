@@ -11,4 +11,16 @@ export class AppWallet {
     this.reconciler?.sync();
     this.syncRealname();
   }
+
+  setVisible(onForeground: (() => void) | null, onBackground: (() => void) | null = null): void {
+    this.visible = onForeground;
+    this.hidden = onForeground === null ? null : onBackground;
+  }
+
+  onAppForeground(): void {
+    const v: (() => void) | null = this.visible;
+    if (v !== null) {
+      v();
+    }
+  }
 }

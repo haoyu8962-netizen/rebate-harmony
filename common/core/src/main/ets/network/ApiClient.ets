@@ -335,6 +335,12 @@ export class ApiResult {
    * 只有这个标记能区分「服务端明确给了 null」与「给了空对象 / 坏数据」；其余调用不看它。
    */
   dataNull: boolean = false;
+  /**
+   * FU-HM-0726 R3-01：敏感写（提现 / 收款账号的提交、确认与放弃）发出后调用归属失效（身份暂时未知、换了会话等），本结果是本地
+   * 拒绝，但服务端已给出外壳成功（code 0）——这里带上那次真实的成功结果（放弃已按原 operation 解包），未决记录也已按它结算到原账号。
+   * 只供发起页在确认身份仍是同一归属后按原结果落地（不重发）；其余情况为 null。不改动当前会话。
+   */
+  settled: ApiResult | null = null;
 
   constructor(outcome: string, code: number, msg: string, data: Record<string, Object>, traceId: string,
     httpStatus: number, failure: string, localRejectReason: string | null, effect: ErrorEffect | null,
@@ -1573,7 +1579,7 @@ export class ApiClient {
         false, false, ctx));
     } finally {
       try {
-        store.onResponse(key, ApiClient.abandonOutcomeKind(result), account, ctx.id);
+        store.onResponse(key, ApiClient.abandonOutcomeKind(result.settled ?? result), account, ctx.id);
       } catch (e) {
         // 记录写不进存储：持久记录仍是在途，下次恢复时按结果未知处理。
       }
@@ -1583,7 +1589,11 @@ export class ApiClient {
         // 同上。
       }
     }
-    return this.abandonResult(result, operation);
+    const abandonedOrLost: ApiResult = this.abandonResult(result, operation);
+    if (result.settled !== null) {
+      abandonedOrLost.settled = this.abandonResult(result.settled, operation);
+    }
+    return abandonedOrLost;
   }
 
   /**
@@ -1989,6 +1999,19 @@ export class ApiClient {
   }
 
   /** 响应对应的未决结局（归属失效时按真实响应结算原账号的记录；10002 / 10402 不再重放 → 没有结果）。 */
+  /** 归属失效后被拿走的外壳成功响应（R3-01）：不是外壳成功时为 null。 */
+  private static settledSuccess(response: TransportResponse, traceId: string, key: string | null): ApiResult | null {
+    if (response.failure !== TransportFailure.NONE) {
+      return null;
+    }
+    const envelope: Envelope | null = Envelope.parse(response.body);
+    if (envelope === null || envelope.code !== 0) {
+      return null;
+    }
+    return new ApiResult(ApiOutcome.SUCCESS, 0, envelope.msg, envelope.data,
+      envelope.traceId.length > 0 ? envelope.traceId : traceId, response.status, TransportFailure.NONE, null, null, key);
+  }
+
   private static responseKind(response: TransportResponse): string {
     if (response.failure !== TransportFailure.NONE) {
       return PendingResponseKind.NO_ENVELOPE;
@@ -2101,7 +2124,11 @@ export class ApiClient {
         // 撤回同意、切换环境、换了会话：旧响应不改动当前会话（不保存登录令牌、不清会话、不刷新、不重试，lessons 23、34），
         // 未决记录按真实响应结算到原账号。
         this.settle(ctx, ApiClient.responseKind(response));
-        return this.lostResult(afterSend);
+        const lostAfterSend: ApiResult = this.lostResult(afterSend);
+        if (ctx.pendingKey !== null || op.operationId === ApiClient.ABANDON_OPERATION) {
+          lostAfterSend.settled = ApiClient.settledSuccess(response, traceId, key);
+        }
+        return lostAfterSend;
       }
       if (response.failure === TransportFailure.CANCELLED && admitBlocked.length > 0) {
         // 传输层交出前的最后核对（admit）被发送闸门拦下：没有发出（R2-01）。按拒绝当时记下的原因结算（共性第 62 条）。

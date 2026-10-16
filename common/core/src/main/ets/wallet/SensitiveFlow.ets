@@ -288,6 +288,18 @@ export class SensitiveFlow {
     this.judge(SensitiveOutcome.ABANDON, true, result, key));
   }
 
+  /**
+   * FU-HM-0726 R3-01：这一步是归属失效时被拿走的本地拒绝、但服务端已给出外壳成功（ApiResult.settled，未决记录已按它结算）。发起页确认
+   * 身份仍是同一归属后调用：按那次真实结果判定一次（同 submit / confirm / abandon 的判定），不重发。不是这种情况返回 null。
+   */
+  settledStep(step: SensitiveStep): SensitiveStep | null {
+    const real: ApiResult | null = step.result.settled;
+    if (real === null || !real.ok) {
+      return null;
+    }
+    return this.judge(step.phase, step.phase !== SensitiveOutcome.SUBMIT, real, step.key ?? real.idempotencyKey);
+  }
+
   /** 实际发包前的核对：42901 闸门 + 点击时的账号与会话世代。 */
   private sendGuard(click: PendingClick | null): () => boolean {
     const gate: RetryAfterGate = this.gate;

@@ -1,7 +1,8 @@
 // FU-HM-0725 第 2 / 3 版：依赖接口约定 N1–N4 的用例（测试作者，2026-10-16；第 3 版按 tests-review-r2 T-01 / T-06 / T-15 / T-16 与
 // 裁定「五个资金页恢复一律只走 A」修订；第 2 版按 tests-review T-01..T-08、T-10、T-12..T-14 与编排裁定
 // 「逻辑下沉 Core、entry / 视图只做一行转发」修订）。接口约定见 couli-runs/NATIVE/FU-HM-0725/tests-handback.md「## 第 2 版」。
-// 实现前本文件编译不过，按「红」计。用到的新接口：
+// 实现前本文件编译不过，按「红」计。FU-HM-0726 起本文件的用例设施（FundCase / openCase / isA / Bystanders 等）导出给
+// FollowupHM0726.test.ets 复用（只加 export，行为不变）。用到的新接口：
 //   N1 FundPageFactory / FundRoutePage（资金页装配 + 路由生命周期，entry AppWallet / WalletPages 一行转发）；
 //   N2 HomeIdentitySource / HomeIdentityRead（首页身份与键的派生，AppHome 一行转发）；
 //   N3 OrderInputMirror（订单搜索框显示值的派生，OrderListView.apply 一行转发）；
@@ -22,14 +23,14 @@ import {
 import { fingerprint, OrdersApp, scrollTo } from './FollowupHM0725Rig';
 import { FundApp, FundServer } from './FollowupHM0725ContractRig';
 
-const R_WITHDRAW: string = 'Withdraw';
-const R_RECORDS: string = 'WithdrawRecords';
-const R_PAYOUT: string = 'PayoutAccount';
-const R_REALNAME: string = 'RealName';
-const R_LABOR: string = 'LaborAgreement';
-const TAG_A_E1: string = OrderStaleCache.partitionTag(A, E1);
+export const R_WITHDRAW: string = 'Withdraw';
+export const R_RECORDS: string = 'WithdrawRecords';
+export const R_PAYOUT: string = 'PayoutAccount';
+export const R_REALNAME: string = 'RealName';
+export const R_LABOR: string = 'LaborAgreement';
+export const TAG_A_E1: string = OrderStaleCache.partitionTag(A, E1);
 
-function text(r: WalletRecord | null | undefined, key: string): string {
+export function text(r: WalletRecord | null | undefined, key: string): string {
   if (r === null || r === undefined) {
     return '';
   }
@@ -44,7 +45,7 @@ function text(r: WalletRecord | null | undefined, key: string): string {
  * - kept：恢复前经生产入口填写的有效输入此刻原样保留（实名页，第 4 版 T-18；'' = 通过）。其余页为 null；
  * - usable：A 之后的可用性（'' = 通过）：表单身份已重绑并能经生产输入入口使用。
  */
-class FundCase {
+export class FundCase {
   readonly route: string;
   readonly page: FundRoutePage;
   readonly ops: string[];
@@ -69,7 +70,7 @@ class FundCase {
 }
 
 /** 经生产工厂打开（与 entry WalletPages 相同的生命周期：aboutToAppear → onShown）。 */
-function openCase(app: FundApp, route: string): FundCase {
+export function openCase(app: FundApp, route: string): FundCase {
   if (route === R_WITHDRAW) {
     const pg: WithdrawRoutePage = app.pages.withdraw();
     pg.aboutToAppear();
@@ -163,7 +164,7 @@ function openCase(app: FundApp, route: string): FundCase {
   return rn;
 }
 
-function opsCount(app: FundApp, ops: string[]): number {
+export function opsCount(app: FundApp, ops: string[]): number {
   let n: number = 0;
   for (const op of ops) {
     n += app.ops.count(op);
@@ -172,12 +173,12 @@ function opsCount(app: FundApp, ops: string[]): number {
 }
 
 /** A：页面属于当前会话、恢复后重新发了本页请求且都已结算、显示新响应。 */
-function isA(app: FundApp, c: FundCase, ops0: number): boolean {
+export function isA(app: FundApp, c: FundCase, ops0: number): boolean {
   return c.alive() && c.fresh() && (c.ops.length === 0 || (opsCount(app, c.ops) > ops0 && app.ops.quiet(c.ops)));
 }
 
 /** 已知身份下打开的旁观者（钱包页 + 一个有实际输入的资金页 + 有效禁用期），恢复与再次同步都不得改动它们。 */
-class Bystanders {
+export class Bystanders {
   readonly wallet: WalletController;
   readonly walletEpoch: number;
   readonly fund: FundRoutePage;
@@ -212,7 +213,7 @@ class Bystanders {
 }
 
 /** 已知身份 A/E1 下打开旁观者（target 为实名时用提现页，否则用实名页），并建立禁用期后推进 30 秒。 */
-async function openBystanders(app: FundApp, target: string): Promise<Bystanders | null> {
+export async function openBystanders(app: FundApp, target: string): Promise<Bystanders | null> {
   const w: WalletController = new WalletController(app.deps());
   w.load();
   if (!(await until((): boolean => w.snapshot.phase === WalletPhase.CONTENT))) {
