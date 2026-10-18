@@ -235,7 +235,8 @@ export class Rig {
     transport: HttpTransport | null = null, tokenStore: MemorySessionTokens | null = null,
     pendingBackend: MemoryPendingKeyBackend | null = null, updatePort: UpdatePort | null = null,
     credentials: CredentialSource | null = null, registrar: DeviceRegistrar | null = null,
-    sessionTokens: SessionTokens | null = null, context: FakeContext | null = null) {
+    sessionTokens: SessionTokens | null = null, context: FakeContext | null = null,
+    clientFactory: ((deps: ApiClientDeps) => ApiClient) | null = null) {
     // FU-HM-0711b：可换成按真实闸门（PrivacyGate、EnvironmentSwitchGate）实时取值的上下文。
     this.context = context ?? new FakeContext();
     this.tokens = tokenStore ?? new MemorySessionTokens(tokens);
@@ -280,7 +281,8 @@ export class Rig {
       this.refreshNotices.push(generation + ':' + scope);
       this.refreshResume.push(resumePending);
     };
-    this.client = new ApiClient(deps);
+    // HM-13c 测试评审 r1-3：可换成在 request 入口同步记录、再转发真实 ApiClient 的子类（缺省为生产 ApiClient）。
+    this.client = clientFactory === null ? new ApiClient(deps) : clientFactory(deps);
   }
 }
 

@@ -1469,7 +1469,7 @@ export class InviteConfirmDecision {
 
 /**
  * 邀请提示条点确认之后（BR-INV-04 细则；规则空白 G01、G16）：
- * - 游客：码放进进程内的预填容器，经 Router 打开 Login，随登录提交（不发请求、不持久化）；
+ * - 游客：确认后只记为进程内待绑定码，不跳登录；以后短信 / 一键登录提交时带上（G19，不持久化）；
  * - 已登录、可补填：未绑手机 → 先绑手机（bind_phone_first）；已绑手机 → 补填绑定，但契约没有 POST /v1/me/inviter 与 InviteBackfill 路由
  *   （G01），只给判定值 backfill_pending_contract，界面上不出已登录用户的邀请提示条；
  * - getMe 拿不到、不可补填、已有上级 → none。

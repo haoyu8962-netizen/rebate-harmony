@@ -3,6 +3,7 @@
 // pasteboard / AppRouting / ApiClient，集成测试接假剪贴板、真实 Router 与本地假服务。
 // 隐私红线：读到的原文只在 pasteProduct / pasteInvite 的局部变量里经过 Clipboard.ets 的纯函数，立即丢弃；不打日志、不落盘、不进
 // 快照（快照只有抽出的邀请码、30132 预填与 parse 结果）；识别、提示、上传、绑定的前后都不写系统剪贴板（写只经 ClipboardWriter）。
+import { PendingInviteCode } from '../invite/PendingInviteCode';
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { ApiOutcome, ApiRequest, ApiResult, ClientScope } from '../network/ApiClient';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
@@ -219,29 +220,6 @@ export class ClipboardWatcher {
   }
 }
 
-/** 游客点邀请确认后的邀请码（G16）：进程内单例，进入验证码页时取走一次；不持久化、不上传。 */
-export class InvitePrefill {
-  private code: string | null = null;
-
-  set(code: string): void {
-    this.code = code;
-  }
-
-  take(): string | null {
-    const code: string | null = this.code;
-    this.code = null;
-    return code;
-  }
-
-  clear(): void {
-    this.code = null;
-  }
-
-  get pending(): boolean {
-    return this.code !== null;
-  }
-}
-
 /** parse 卡片的进程内种子（G09）：以 product_key 存，ProductDetail 打开时取走一次（沿用 parse 卡的 link_id）。 */
 export class ProductSeeds {
   private readonly seeds: Map<string, Record<string, Object>> = new Map<string, Record<string, Object>>();
@@ -416,6 +394,8 @@ export class PasteOutcome {
 export class ClipboardDeps {
   readonly pasteboard: PasteboardPort;
   readonly api: SearchApiPort;
+  /** entry 注入进程内唯一容器；缺省只供未组合的调用方与测试。 */
+  pendingInvite: PendingInviteCode;
   /** 隐私：agreed（已同意当前版本）/ basic（基本模式）/ outdated（未决、版本过期、撤回清理未完成）。 */
   consent: () => string = (): string => ClipboardReadPolicy.CONSENT_OUTDATED;
   /** 当前敏感浮层（ClipboardSensitive.OVERLAY_*；没有为 none）。 */
@@ -454,9 +434,11 @@ export class ClipboardDeps {
    */
   bootReady: () => boolean = (): boolean => true;
 
-  constructor(pasteboard: PasteboardPort, api: SearchApiPort) {
+  constructor(pasteboard: PasteboardPort, api: SearchApiPort,
+    pendingInvite: PendingInviteCode = new PendingInviteCode()) {
     this.pasteboard = pasteboard;
     this.api = api;
+    this.pendingInvite = pendingInvite;
   }
 }
 
@@ -603,7 +585,6 @@ export class ClipboardController {
   readonly ledger: SaltedWriteLedger;
   readonly writer: ClipboardWriter;
   readonly watcher: ClipboardWatcher;
-  readonly invitePrefill: InvitePrefill = new InvitePrefill();
   readonly seeds: ProductSeeds = new ProductSeeds();
   private readonly parser: ParseInputService;
 
@@ -678,6 +659,10 @@ export class ClipboardController {
     this.parser = new ParseInputService(deps.api);
     this.watcher = new ClipboardWatcher((): Record<string, Object> => this.readState());
     this.screenKey = this.currentKey();
+  }
+
+  get pendingInvite(): PendingInviteCode {
+    return this.deps.pendingInvite;
   }
 
   get snapshot(): ClipboardSnapshot {
@@ -879,7 +864,7 @@ export class ClipboardController {
     if (this.deps.consent() !== ClipboardReadPolicy.CONSENT_AGREED) {
       this.invalidateAll();
       this.clearRecords();
-      this.invitePrefill.clear();
+      this.pendingInvite.clear();
       this.lastScope = null;
       this.lastGeneration = null;
       return;
@@ -904,7 +889,7 @@ export class ClipboardController {
   /** 切换环境（清理注册表的第一步）：同步作废全部，预填与种子一并丢弃。 */
   environmentSwitched(): void {
     this.invalidateAll();
-    this.invitePrefill.clear();
+    this.pendingInvite.clear();
     this.seeds.clear();
   }
 
@@ -1235,7 +1220,7 @@ export class ClipboardController {
   }
 
   /**
-   * 邀请确认条的按钮（「粘贴并绑定邀请人」）：游客 → 码进预填容器，经 Router 打开 Login；不发请求。promptId：渲染时绑定的那一条
+   * 邀请确认条的按钮（「粘贴并绑定邀请人」）：游客 → 只记为待绑定码，不跳登录、不发请求（G19）。promptId：渲染时绑定的那一条
    * （ClipboardPromptBinding；共性第 16、18 条：执行层核对「仍是当前提示」与共享禁用期，失效直接返回，不预填、不导航）。
    */
   confirmPrompt(promptId: number): boolean {
@@ -1259,9 +1244,8 @@ export class ClipboardController {
     const decision: InviteConfirmDecision = InviteConfirmAction.decide(session, null);
     this.dropPrompt();
     if (decision.actionRaw === InviteConfirmAction.PREFILL_LOGIN && prompt.inviteCode !== null) {
-      this.invitePrefill.set(prompt.inviteCode);
-      const params: Record<string, Object> = {};
-      return this.deps.open(ClipboardController.LOGIN_ROUTE, params);
+      this.pendingInvite.set(prompt.inviteCode);
+      return true;
     }
     // TODO(N-30) G01：已登录用户的补填绑定等契约补 POST /v1/me/inviter 与 InviteBackfill 路由
     return false;

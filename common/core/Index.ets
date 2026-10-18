@@ -190,7 +190,7 @@ export {
   ClipboardRecords
 } from './src/main/ets/clipboard/ClipboardRecords';
 export {
-  PasteboardPort, ClipboardWriter, ParseOutcome, ParseInputService, ClipboardWatcher, InvitePrefill, ProductSeeds,
+  PasteboardPort, ClipboardWriter, ParseOutcome, ParseInputService, ClipboardWatcher, ProductSeeds,
   ClipboardPromptView, ClipboardResultView, ClipboardNoticeText, ClipboardSnapshot, InvitePasteOutcome, PasteOutcome, ClipboardDeps,
   ClipboardController, ClipboardResultBinding, ClipboardPromptBinding, SaltedWriteLedger, SharedTextRecord, ShareReceipt,
   ClipboardPageMark
@@ -407,3 +407,7 @@ export * from 'core/ets/config/DebugOnly';
 export { FundPageFactory, FundRoutePage, WithdrawRoutePage, RecordsRoutePage, PayoutRoutePage, RealNameRoutePage, LaborRoutePage } from './src/main/ets/wallet/FundRoutePages';
 export { HomeIdentityRead, HomeIdentitySource } from './src/main/ets/home/HomeIdentitySource';
 export { OrderInputMirror, OrderListViewEvents } from './src/main/ets/orders/OrderViewAdapters';
+
+// HM-13c：进程内待绑定码与邀请链接分流（解析端口等 G03 契约）。
+export { PendingInviteCode, PendingInviteRow } from './src/main/ets/invite/PendingInviteCode';
+export { InviteLinkInput, InviteLinkDecision, InviteLinkDispatcher, InviteLinkParser } from './src/main/ets/invite/InviteLinkDispatcher';

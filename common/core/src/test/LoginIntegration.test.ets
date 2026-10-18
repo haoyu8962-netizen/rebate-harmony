@@ -11,7 +11,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   AfterLoginAction, GuardDecision, GuardDecisionKind, GuardState, LaunchReadiness, LegalVersions,
   LoginHost, LoginOutcome, LoginRateLimits, LoginService, MemoryPendingBackend, MemorySessionTokens, NetworkHeaders, PathStack,
-  PendingActionStore, PhoneEntry, PrivacyState, RouteDestination, RouteRequest, RouteSource, Router, RouterLoginHost, RouteTable,
+  PendingActionStore, PendingInviteCode, PhoneEntry, PrivacyState, RouteDestination, RouteRequest, RouteSource, Router, RouterLoginHost, RouteTable,
   RoutingSync,
   SendCodeOutcome, SessionTokenSet, StackNavigator, TransportRequest, TransportResponse, UpdateCheckStatus,
   UpdateNetworkPort, UpdateState
@@ -264,7 +264,11 @@ export default function loginIntegrationTest() {
     it('login_request_carries_legal_versions_consent_time_and_invite', 0, async () => {
       const f: Fixture = new Fixture();
       routeLogin(f, 'full', true, ',"invite_bind":{"result":"bound","code":null}');
-      const outcome: LoginOutcome = await f.service.login('0086 13800138000', '123456', CONSENT_AT, ' k7m2qx ', false);
+      // HM-13c（BR-INV-06，2026-10-18）：invite_code 只来自待绑定码，不再取登录页手填值
+      const pending: PendingInviteCode = new PendingInviteCode();
+      pending.set('K7M2QX');
+      f.service.pendingInvite = pending;
+      const outcome: LoginOutcome = await f.service.login('0086 13800138000', '123456', CONSENT_AT, '', false);
       expect(outcome.stateRaw).assertEqual('logged_in');
       expect(outcome.inviteResult).assertEqual('bound');
       const body: Record<string, Object> = f.bodyOf('/v1/auth/login/sms');
@@ -281,6 +285,9 @@ export default function loginIntegrationTest() {
       const f: Fixture = new Fixture();
       routeLogin(f, 'deletion_only');
       f.status = UpdateCheckStatus.finished(UpdateState.BELOW_MIN);
+      const pending: PendingInviteCode = new PendingInviteCode();
+      pending.set('K7M2QX');
+      f.service.pendingInvite = pending;
       await f.service.login('13800138000', '123456', CONSENT_AT, 'K7M2QX', true);
       const body: Record<string, Object> = f.bodyOf('/v1/auth/login/sms');
       expect(body['invite_code'] === undefined).assertTrue();

@@ -15,6 +15,7 @@ import {
 } from 'core';
 import { CouliAnnounce, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
 import { LoginPageConfig } from 'auth';
+import { AppPendingInvite } from '../invite/AppPendingInvite';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
@@ -287,7 +288,7 @@ export class AppClipboard {
   compose(context: common.Context): void {
     const client: ApiClient | null = AppNetwork.client;
     const deps: ClipboardDeps = new ClipboardDeps(new HarmonyPasteboard(),
-      client === null ? new UnavailableParsePort() : new ApiClientSearchPort(client));
+      client === null ? new UnavailableParsePort() : new ApiClientSearchPort(client), AppPendingInvite.shared);
     deps.consent = (): string => AppClipboard.consent();
     deps.overlay = (): string => this.overlay();
     deps.scope = (): string => {
@@ -465,13 +466,12 @@ export class AppClipboard {
     return new HarmonyPasteboard().readText();
   }
 
-  /** 登录页接线：邀请码【粘贴】与游客邀请确认的预填（受限登录不显示邀请码）。 */
+  /** 旧登录页邀请码【粘贴】接线；待绑定码独立共享，不再向手填输入框预填（HM-13a 再删旧入口）。 */
   bindLogin(config: LoginPageConfig, restricted: boolean): void {
     const controller: ClipboardController | null = this.controllerInstance;
     config.invitePaste.available = !restricted && controller !== null
       && AppClipboard.consent() === ClipboardReadPolicy.CONSENT_AGREED;
     config.invitePaste.blocked = controller !== null && controller.blocked;
-    config.takeInvitePrefill = (): string | null => controller === null ? null : controller.invitePrefill.take();
     config.onInvitePaste = async (success: boolean): Promise<string | null> => {
       if (controller === null) {
         return null;

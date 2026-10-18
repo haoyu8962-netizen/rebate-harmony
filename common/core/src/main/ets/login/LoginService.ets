@@ -1,10 +1,11 @@
+import { PendingInviteCode } from '../invite/PendingInviteCode';
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { ErrorEffect } from '../network/ErrorActionMapper';
 import { LocalRejectReason, SessionScope } from '../network/NetworkPolicy';
 import { TransportFailure } from '../network/HttpTransport';
 import { SessionTokens } from '../session/SessionTokens';
 import {
-  AfterLogin, AfterLoginAction, CodeInput, InviteField, LegalVersions, LoginErrorMapper, LoginErrorResult, PhoneNumber,
+  AfterLogin, AfterLoginAction, CodeInput, LegalVersions, LoginErrorMapper, LoginErrorResult, PhoneNumber,
   PhoneResult, SmsCountdown, SmsCountdownResult
 } from './LoginFlow';
 
@@ -303,6 +304,9 @@ export class LoginService {
   static readonly STATE_COUNTDOWN: string = 'countdown_active';
   /** 验证码有效期缺省秒数（BR-ID-05）。 */
   static readonly CODE_VALIDITY_SEC: number = 300;
+
+  /** entry 与剪贴板、邀请链接共享；未接入时不带码，不从手填值回落。 */
+  pendingInvite: PendingInviteCode | null = null;
 
   private readonly client: ApiClient;
   private readonly tokens: SessionTokens;
@@ -687,7 +691,7 @@ export class LoginService {
   /**
    * 短信登录。consentAtMillis：勾选或确认框同意的时刻（AgreementState.consentAtMillis）；restricted：从强更页进入的受限登录。
    */
-  async login(rawPhone: string, code: string, consentAtMillis: number | null, inviteRaw: string,
+  async login(rawPhone: string, code: string, consentAtMillis: number | null, _inviteRaw: string,
     restricted: boolean): Promise<LoginOutcome> {
     const phone: PhoneResult = PhoneNumber.normalize(rawPhone);
     if (!phone.valid || phone.normalized === null) {
@@ -714,7 +718,9 @@ export class LoginService {
     body['code'] = code;
     body['legal_versions'] = legal;
     body['consent_at'] = new Date(consentAtMillis).toISOString();
-    const invite: string | null = InviteField.wireValue(inviteRaw, restricted);
+    // 本地校验与 BUSY 均通过后才取走；结果回来不再清容器，避免误删请求在途时新到的码（G18）。
+    const pending: PendingInviteCode | null = this.pendingInvite;
+    const invite: string | null = restricted || pending === null ? null : pending.consumeForRequest();
     if (invite !== null) {
       body['invite_code'] = invite;
     }

@@ -311,12 +311,13 @@ export default function clipboardIntegrationTest() {
       const prompt: ClipboardPromptView | null = f.controller.snapshot.prompt;
       expect(prompt !== null && prompt.kind === 'invite' && prompt.inviteCode === 'K7M3QX').assertTrue();
       expect(f.controller.confirmPrompt((prompt as ClipboardPromptView).id)).assertTrue();
-      expect(f.top()).assertEqual('Login');
+      // HM-13c（F-CLIP-06、BR-INV-04 ④、AC-S1-63 ①，2026-10-18）：记为待绑定码、不跳登录
+      expect(f.top()).assertEqual('');
       expect(f.controller.snapshot.prompt === null).assertTrue();
-      // 不发任何请求（游客只预填不上传）；进入验证码页时取走一次
+      // 不发任何请求（游客只记待绑定码不上传）；读取不取走，随登录请求才消费
       expect(f.rig.server.received.length).assertEqual(0);
-      expect(f.controller.invitePrefill.take()).assertEqual('K7M3QX');
-      expect(f.controller.invitePrefill.take() === null).assertTrue();
+      expect(f.controller.pendingInvite.peek()).assertEqual('K7M3QX');
+      expect(f.controller.pendingInvite.peek()).assertEqual('K7M3QX');
       // 本机记录只有 hash 与时间，没有原文
       expect(f.store.dump().join(';').indexOf('K7M3QX')).assertEqual(-1);
       expect(f.store.dump().join(';').indexOf('邀请码')).assertEqual(-1);
@@ -337,7 +338,7 @@ export default function clipboardIntegrationTest() {
       await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true);
       g.controller.closePrompt((g.controller.snapshot.prompt as ClipboardPromptView).id);
       expect(g.controller.snapshot.prompt === null && g.top() === '').assertTrue();
-      expect(g.controller.invitePrefill.pending).assertFalse();
+      expect(g.controller.pendingInvite.peek() === null).assertTrue();
     });
 
     it('AC-S1-63.e_logged_in_and_self_written_no_invite_prompt', 0, async () => {
@@ -684,9 +685,10 @@ export default function clipboardIntegrationTest() {
       const p: ClipboardPromptView | null = f.controller.snapshot.prompt;
       expect(p !== null && p.entry === 'search_typing' && p.inviteCode === 'K7M3QX').assertTrue();
       expect(f.controller.confirmPrompt((p as ClipboardPromptView).id)).assertTrue();
-      expect(f.top()).assertEqual('Login');
+      // HM-13c：不跳登录，留在搜索页
+      expect(f.top()).assertEqual('Search');
       expect(f.rig.server.received.length).assertEqual(0);
-      expect(f.controller.invitePrefill.take()).assertEqual('K7M3QX');
+      expect(f.controller.pendingInvite.peek()).assertEqual('K7M3QX');
     });
 
     it('lesson16_result_buttons_check_block_and_currency', 0, async () => {
@@ -698,7 +700,7 @@ export default function clipboardIntegrationTest() {
       // 过时的提示编号：不预填、不导航
       expect(f.controller.confirmPrompt((p as ClipboardPromptView).id + 1)).assertFalse();
       expect(f.top()).assertEqual('');
-      expect(f.controller.invitePrefill.pending).assertFalse();
+      expect(f.controller.pendingInvite.peek() === null).assertTrue();
       // 多卡结果在共享禁用期内：【用商品名搜索】与点卡都不执行
       const g: ClipFixture = new ClipFixture();
       g.reply = envelope(0, '{"results":[{"hit":{"platform":"taobao","kind":"url","raw":"x"},"card":' + card('tb:1')
@@ -849,9 +851,11 @@ export default function clipboardIntegrationTest() {
       p1.close();
       expect(h.controller.snapshot.prompt === p2).assertTrue();
       expect(h.top()).assertEqual('');
-      expect(h.controller.invitePrefill.pending).assertFalse();
+      expect(h.controller.pendingInvite.peek() === null).assertTrue();
       expect(new ClipboardPromptBinding(h.controller, p2.id).confirm()).assertTrue();
-      expect(h.top()).assertEqual('Login');
+      // HM-13c：不跳登录；记下的是当前这一条的码
+      expect(h.top()).assertEqual('');
+      expect(h.controller.pendingInvite.peek()).assertEqual('K7M3QX');
     });
 
     it('h_r1_04_logged_in_pure_invite_is_silent', 0, async () => {
@@ -872,7 +876,7 @@ export default function clipboardIntegrationTest() {
           expect(f.result() === null).assertTrue();
           expect(f.controller.snapshot.prompt === null).assertTrue();
           expect(filled.length).assertEqual(0);
-          expect(f.controller.invitePrefill.pending).assertFalse();
+          expect(f.controller.pendingInvite.peek() === null).assertTrue();
           expect(f.controller.snapshot.busy).assertFalse();
         }
       }

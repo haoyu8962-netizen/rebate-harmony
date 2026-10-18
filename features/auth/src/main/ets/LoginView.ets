@@ -1,6 +1,6 @@
 import {
   AgreementState, AuthFeedback, CodeInput, CodeRevision, CodeStamp, InviteDecision, InviteField, LoginOutcome, LoginPageEntries, LoginRateLimits, LoginService,
-  OAuthLoginErrorAction,
+  OAuthLoginErrorAction, PendingInviteCode, PendingInviteRow,
   OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, PhoneResult, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
@@ -132,8 +132,19 @@ export class LoginPageConfig {
    */
   onInvitePaste: (success: boolean) => Promise<string | null> = (_s: boolean): Promise<string | null> =>
   Promise.resolve(null);
-  /** 进入验证码步时取一次游客邀请确认留下的预填码（APP-07 G16，取走即丢弃）；没有为 null。 */
-  takeInvitePrefill: () => string | null = (): string | null => null;
+  /** HM-13c：一键首屏与手机号页都从同一容器现取行数据；不受剪贴板开关影响，不消费。排版待视觉闸后。 */
+  get pendingInviteRow(): PendingInviteRow | null {
+    const pending: PendingInviteCode | null = this.service.pendingInvite;
+    return pending === null ? null : PendingInviteRow.of(pending, this.restricted);
+  }
+
+  /** 小字行的【移除】动作；下次读行数据即为空，后续登录请求也不带码。 */
+  removePendingInvite(): void {
+    const pending: PendingInviteCode | null = this.service.pendingInvite;
+    if (pending !== null) {
+      pending.remove();
+    }
+  }
   /** 系统返回（页面挂上后由 LoginView 设置）：验证码步先回手机号步，返回 true；手机号步返回 false，交给导航关闭。 */
   systemBack: () => boolean = () => false;
   /**
@@ -408,11 +419,6 @@ export struct LoginView {
     this.model.codeText = '';
     this.model.codeError = '';
     this.model.step = LoginModel.STEP_CODE;
-    // APP-07 G16：游客从剪贴板邀请确认过来的码，进入验证码页时填一次（之后以用户输入为准；受限登录不显示邀请码）。
-    const prefill: string | null = this.config.restricted ? null : this.config.takeInvitePrefill();
-    if (prefill !== null && this.model.inviteText.length === 0) {
-      this.model.inviteText = prefill;
-    }
     // 倒计时按这个号码保存的截止时间现算（_seconds 与之相同，只作说明）。
     this.refreshTimers();
   }

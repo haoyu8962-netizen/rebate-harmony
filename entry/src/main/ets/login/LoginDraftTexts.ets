@@ -22,6 +22,9 @@ export class LoginDraftTexts {
     m.set('login.back', '返回');
     m.set('login.settings', '设置');
     m.set('login.title', '手机号登录');
+    // HM-13c 小字行（BR-TEXT-14）；仅备视图模型文案，排版留在视觉闸后。
+    m.set('login.pending_invite', '已识别好友邀请码 {code}');
+    m.set('login.pending_invite.remove', '移除');
     m.set('login.phone.label', '手机号');
     m.set('login.phone.prefix', '+86');
     m.set('login.phone.placeholder', '请输入手机号');

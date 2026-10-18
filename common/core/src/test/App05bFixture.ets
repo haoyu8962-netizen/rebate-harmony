@@ -2,7 +2,7 @@
 // 生产的登录出口 RouterLoginHost（与 entry AppLogin 同一份代码）+ LoginService / OAuthLoginService / BindPhoneService。
 // 第三方 SDK 用可控的假适配器（测试替身只替代 SDK，不替代被测的执行器）。
 import {
-  BindPhoneHost, BindPhoneService, ErrorEffect, GuardDecision, GuardState, LaunchReadiness, LegalVersions, LoginHost, LoginService,
+  ApiClient, ApiClientDeps, BindPhoneHost, BindPhoneService, ErrorEffect, GuardDecision, GuardState, LaunchReadiness, LegalVersions, LoginHost, LoginService,
   MemoryPendingBackend, MemorySessionTokens, OAuthLoginService, OAuthProvider, PathStack, PendingActionStore,
   PhoneBindingState, PrivacyState, RouteDestination, RouteRequest, RouteSource, Router, RouterLoginHost, RouteTable,
   RoutingSync, SessionTokenSet, StackNavigator, ThirdPartyAuthAdapter, ThirdPartyAuthKind, ThirdPartyAuthResult,
@@ -177,12 +177,13 @@ export class OAuthFixture {
   syncMe: () => void = () => {
   };
 
-  constructor(tokens: MemorySessionTokens | null = null, backend: MemoryPendingBackend | null = null) {
+  constructor(tokens: MemorySessionTokens | null = null, backend: MemoryPendingBackend | null = null,
+    clientFactory: ((deps: ApiClientDeps) => ApiClient) | null = null) {
     const port: UpdateNetworkPort = new UpdateNetworkPort((): UpdateState => this.status.result ?? UpdateState.UNKNOWN,
       (_m: string | null): void => {
         this.status = UpdateCheckStatus.finished(UpdateState.BELOW_MIN);
       });
-    this.rig = new Rig(null, null, tokens, null, port);
+    this.rig = new Rig(null, null, tokens, null, port, null, null, null, null, clientFactory);
     this.navigator.attachStack(this.stack);
     this.navigator.tabRootHandler = (d: RouteDestination): boolean => {
       if (d.route === null || TAB_ROOTS.indexOf(d.route) < 0) {

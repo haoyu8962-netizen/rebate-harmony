@@ -6,6 +6,7 @@ import {
 } from 'core';
 import { CouliDialog, CouliDialogOptions, CouliToast } from 'designsystem';
 import { BindPhonePageConfig, LoginPageConfig, LoginTexts } from 'auth';
+import { AppPendingInvite } from '../invite/AppPendingInvite';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppNetwork } from '../network/AppNetwork';
@@ -91,6 +92,7 @@ export class AppLogin {
       return null;
     }
     const service: LoginService = new LoginService(client, tokens, this.host);
+    service.pendingInvite = AppPendingInvite.shared;
     // R2-01：登录页确定出栈（关闭、清栈、强更替换导航栈）的同步出口立即作废本次尝试；系统返回由页面 onWillDisappear 兜住。
     this.host.watchLoginPage(service);
     // R2-01：短信登录的账号一定有手机号；其余（第三方登录、冷启动未知）要等 getMe 查清。
@@ -209,7 +211,7 @@ export class AppLogin {
     }
     const config: LoginPageConfig = new LoginPageConfig(service, this.texts);
     config.restricted = restricted;
-    // APP-07：邀请码行【粘贴】（PasteButton）与游客邀请确认的预填（进入验证码页时取一次）。
+    // 旧邀请码行的 PasteButton 接线留到 HM-13a；待绑定码经 service 读取，不再进入手填输入框。
     AppClipboard.shared.bindLogin(config, restricted);
     config.sessionExpired = this.sessionExpiredPending;
     this.sessionExpiredPending = false;
