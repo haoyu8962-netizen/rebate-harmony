@@ -12,6 +12,7 @@ export {
 } from './src/main/ets/format/PriceModels';
 export { CouliTextModifier, TABULAR_FEATURE } from './src/main/ets/components/CouliText';
 export { CouliIcon, CouliIconPaths } from './src/main/ets/components/CouliIcon';
+// BRAND-01：品牌 Logo 取用入口不从这里导出，见 Brand.ets（import { CouliLogo } from 'designsystem/Brand'）。
 export {
   CouliButton, CouliButtonVariant, CouliButtonSize, PlatformBadge, CouliChip, CouliChipTone, MatchBadge, AiLabel
 } from './src/main/ets/components/Basics';
