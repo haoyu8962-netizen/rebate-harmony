@@ -48,12 +48,14 @@ export class AgreementConfirmKeys {
   readonly primaryKey: string;
   readonly secondaryKey: string = 'login.agree_confirm.btn_disagree';
 
-  private constructor(action: string) {
-    this.bodyKey = action === 'oauth' ? 'login.agree_confirm.body_oauth' : 'login.agree_confirm.body';
+  private constructor(action: string, huaweiTerms: boolean) {
+    this.bodyKey = huaweiTerms ? 'login.agree_confirm.body_huawei' :
+      (action === 'oauth' ? 'login.agree_confirm.body_oauth' : 'login.agree_confirm.body');
     this.primaryKey = action === 'get_code' ? 'login.agree_confirm.btn_get_code' : 'login.agree_confirm.btn_login';
   }
 
-  static of(action: string): AgreementConfirmKeys {
-    return new AgreementConfirmKeys(action);
+  /** 通用向量保持原键；华为组件的确认显式加上认证协议正文。 */
+  static of(action: string, huaweiTerms: boolean = false): AgreementConfirmKeys {
+    return new AgreementConfirmKeys(action, huaweiTerms);
   }
 }

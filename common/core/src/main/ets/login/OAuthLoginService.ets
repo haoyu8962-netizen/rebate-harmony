@@ -218,9 +218,9 @@ export class LoginPageEntries {
   }
 
   static of(oauth: OAuthLoginService | null, restricted: boolean, placeholder: boolean,
-    lastMethod: string | null = null): LoginPageEntries {
-    const providers: string[] = oauth === null ? [] : oauth.visibleProviders();
-    // 当前尚无一键首屏；sms 不挂标签，占位按钮也不代表可用登录方式（G05）。
+    lastMethod: string | null = null, decidedProviders: string[] | null = null): LoginPageEntries {
+    const providers: string[] = decidedProviders ?? (oauth === null ? [] : oauth.visibleProviders());
+    // 这里只给第三方按钮挂标签；一键和其他手机号入口由 QuickLoginFlow.lastMethod 给出（G05）。
     const visibleLast: string | null = lastMethod !== null && providers.indexOf(lastMethod) >= 0 ? lastMethod : null;
     return new LoginPageEntries(providers, !restricted, placeholder && !restricted, visibleLast);
   }
@@ -282,7 +282,7 @@ export class OAuthLoginService {
     login.onAttemptInvalidated((): void => this.leave());
   }
 
-  /** 登录页要显示的第三方按钮（provider 名）。鸿蒙只有微信候选（无 Apple，BR-ID-04；华为账号登录在 HM-08）。 */
+  /** 登录页要显示的第三方按钮（provider 名）。鸿蒙候选为微信与普通华为；各自按适配器可用性判断，无 Apple。 */
   visibleProviders(): string[] {
     const out: string[] = [];
     const wechat: ThirdPartyAuthAdapter | undefined = this.adapters.get(OAuthProvider.WECHAT);
@@ -298,6 +298,10 @@ export class OAuthLoginService {
     if (apple !== undefined && ThirdPartyButtons.appleVisible(OAuthLoginService.PLATFORM)
       && OAuthLoginService.safeAvailable(apple)) {
       out.push(OAuthProvider.APPLE);
+    }
+    const huawei: ThirdPartyAuthAdapter | undefined = this.adapters.get(OAuthProvider.HUAWEI);
+    if (huawei !== undefined && OAuthLoginService.safeAvailable(huawei)) {
+      out.push(OAuthProvider.HUAWEI);
     }
     return out;
   }

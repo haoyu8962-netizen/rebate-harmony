@@ -25,6 +25,10 @@ export {
   GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer
 } from '../network/DebugSubstitutes';
 
+export {
+  DebugHuaweiAuthAdapter, DebugHuaweiQuickLogin, DebugHuaweiQuickLoginScene, GatedHuaweiQuickLogin
+} from '../login/DebugHuaweiLogin';
+
 export const ENVIRONMENT_SWITCH_COMPILED: boolean = true;
 
 /** 调试面板拿可切换的当前环境；环境闸门不是 SETTLED（未装入或 BLOCKED）时返回 undefined。 */

@@ -2,6 +2,7 @@ import { SessionIdentity } from '../session/SessionIdentity';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
 import { ApiOperation, ApiOperations } from 'generated';
+import { OneTapLoginPort } from '../login/OneTapLoginPort';
 import { EnvironmentEndpoints } from '../config/AppEnvironment';
 import { LoginEpochIds, SessionLoginEpochs, SessionReadStatus, SessionTokens, SessionTokenSet } from '../session/SessionTokens';
 import {
@@ -675,7 +676,7 @@ export class ClientScope {
 export class ApiClient {
   /** 签发会话的操作（响应 data 为 TokenPair）。 */
   static readonly SESSION_ISSUING: string[] = ['loginBySms', 'loginByWechat', 'loginByApple', 'loginByHuawei',
-    'refreshToken'];
+    'refreshToken', OneTapLoginPort.OPERATION_ID];
   static readonly REFRESH_OPERATION: string = 'refreshToken';
   /** 登出（settings.logout）：回 10404 时不发会话级跳登录 Effect。 */
   static readonly LOGOUT_OPERATION: string = 'logout';
@@ -952,7 +953,8 @@ export class ApiClient {
 
   /** 发一个业务请求。不抛出。 */
   request(request: ApiRequest): Promise<ApiResult> {
-    const operation: ApiOperation | undefined = ApiOperations.byId(request.operationId);
+    const operation: ApiOperation | undefined = ApiOperations.byId(request.operationId)
+      ?? OneTapLoginPort.operation(request.operationId);
     if (operation === undefined) {
       return Promise.resolve(ApiResult.rejected(LocalRejectReason.UNKNOWN_OPERATION));
     }

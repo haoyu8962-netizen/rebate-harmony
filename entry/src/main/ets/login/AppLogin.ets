@@ -4,10 +4,11 @@ import {
   AppConfig, GuardDecisionKind, LastLoginMethodStore, PreferencesLastLoginMethodBackend, ApiClient, BindPhoneForm,
   BindPhoneHost, BindPhoneRecheck, BindPhoneService, ConfigStore, LoginOutcome, LoginService,
   OAuthLoginOutcome, OAuthLoginRoute, OAuthLoginService, OAuthProvider, PhoneBindingState, RouterLoginHost, RoutePolicy,
-  SessionState, SessionTokens
+  PrivacyDecision, QuickLoginDeps, QuickLoginFlow, SessionState, SessionTokens
 } from 'core';
 import { CouliDialog, CouliDialogOptions, CouliToast } from 'designsystem';
 import { BindPhonePageConfig, LoginPageConfig, LoginTexts } from 'auth';
+import { AppPrivacy } from '../privacy/AppPrivacy';
 import { AppPendingInvite } from '../invite/AppPendingInvite';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -157,7 +158,7 @@ export class AppLogin {
     if (login === null || client === null) {
       return null;
     }
-    const oauth: OAuthLoginService = new OAuthLoginService(client, login, [BuildVariant.wechatAdapter()],
+    const oauth: OAuthLoginService = new OAuthLoginService(client, login, [BuildVariant.wechatAdapter(), BuildVariant.huaweiAdapter()],
       this.phoneBinding);
     // /v1/config.invite.bind_phone_guide（缺省 on，BR-INV-21）。
     oauth.guideEnabled = (): boolean => AppLogin.inviteFlag('bind_phone_guide');
@@ -242,8 +243,8 @@ export class AppLogin {
     config.restricted = restricted;
     config.sessionExpired = this.sessionExpiredPending;
     this.sessionExpiredPending = false;
-    // LoginPublicHarmony 的【华为账号登录】：HM-08 / APP-13 才做，只在 Debug / Staging 构建显示占位（版式比对用），Release 不显示。
-    config.showThirdPartySlot = BuildVariant.IS_DEBUG_BUILD;
+    // 普通华为由适配器与首屏决策给出，停用旧的无动作占位按钮；布局留在视觉闸后。
+    config.showThirdPartySlot = false;
     // 第三方登录（APP-05b）：按钮由适配器决定（Release 微信适配器不可用 → 不显示）。
     config.oauth = this.oauthService();
     config.onOAuthLoggedIn = (outcome: OAuthLoginOutcome): void => {
@@ -278,6 +279,17 @@ export class AppLogin {
     config.onLoggedIn = (outcome: LoginOutcome): void => {
       this.showInviteResult(outcome);
     };
+    const client: ApiClient | null = AppNetwork.client;
+    if (client !== null) {
+      const deps: QuickLoginDeps = new QuickLoginDeps(BuildVariant.huaweiQuickLogin(), client, service, config.oauth,
+        (): boolean => BuildVariant.huaweiQuickLoginCapable(),
+        (): boolean => AppPrivacy.shared.decision === PrivacyDecision.CONSENTED && AppPrivacy.shared.credentialsReadable());
+      deps.restricted = restricted;
+      deps.clock = config.clock;
+      deps.pageFlow = config.pageFlow;
+      deps.onLoggedIn = config.onLoggedIn;
+      config.quickLogin = new QuickLoginFlow(deps);
+    }
     return config;
   }
 

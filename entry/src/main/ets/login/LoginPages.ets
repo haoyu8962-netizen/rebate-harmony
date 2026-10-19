@@ -16,6 +16,9 @@ export struct AppLoginPage {
 
   aboutToAppear(): void {
     this.config = AppLogin.shared.pageConfig(this.restrictedLogin);
+    // 闸前只推进首屏视图模型，官方组件与周围排版尚未挂入 LoginView。
+    this.config?.quickLogin?.start().catch((): void => {
+    });
   }
 
   build() {

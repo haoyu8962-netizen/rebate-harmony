@@ -4,7 +4,7 @@
 // 不发出任何网络请求；否则原样交给真实传输层。这道检查在实际传输入口统一做（Core 的 DebugMockTransport，R2-01）：
 // send / cancel 只经它，不按接口逐个判断，草稿、公告等新增的假响应同样受它约束。
 import {
-  AgentFakeTransport, DebugMockTransport, DebugSubstitutes, HttpStreamTransport, HttpTransport, NetworkHeaders, RcpTransport,
+  OneTapLoginPort, AgentFakeTransport, DebugMockTransport, DebugSubstitutes, HttpStreamTransport, HttpTransport, NetworkHeaders, RcpTransport,
   TransportFailure, TransportRequest, TransportResponse, TransportStreamSink
 } from 'core';
 import { AgentVariant } from '../agent/AgentVariant';
@@ -222,6 +222,11 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
       }
       return DebugFakeServer.envelope(0, '{"resend_after_sec":60,"expires_in_sec":300}');
     }
+    if (url.indexOf(OneTapLoginPort.PATH) >= 0) {
+      // 一键号码按短信新号处理，复用已绑手机与 invite_bind 应答；只改本地解析出来的副本。
+      body['code'] = '123456';
+      return this.login(body);
+    }
     if (url.indexOf('/v1/auth/login/sms') >= 0) {
       return this.login(body);
     }
@@ -234,8 +239,8 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
       return DebugFakeServer.envelope(0, '{"attempt_id":"debug-stub-attempt-' + this.serial
         + '","nonce":"debug-stub-nonce-' + this.serial + '","expire_at":"2026-10-08T09:40:00+08:00"}');
     }
-    if (url.indexOf('/v1/auth/login/wechat') >= 0) {
-      // APP-05b：微信登录 → 第三方新号（is_new_user=true，进绑手机引导）；未绑手机。
+    if (url.indexOf('/v1/auth/login/wechat') >= 0 || url.indexOf('/v1/auth/login/huawei') >= 0) {
+      // APP-05b / HM-14a：普通微信或华为授权 → 第三方新号；未绑手机。
       if (DebugFakeServer.wechatScene === 'risk') {
         return DebugFakeServer.envelope(44001, '{}');
       }

@@ -1,6 +1,6 @@
 import {
   AgreementConfirmKeys, AgreementSentence, AuthFeedback, CodeInput, CodeSubmitResult, LoginOutcome,
-  LoginPageEntries, LoginPageFlow, LoginService,
+  LoginPageEntries, LoginPageFlow, LoginService, QuickLoginFlow,
   OAuthLoginErrorAction, PendingInviteCode, PendingInviteRow,
   OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, SendCodeOutcome
 } from 'core';
@@ -87,6 +87,25 @@ export class LoginPageConfig {
   showThirdPartySlot: boolean = false;
   /** 第三方登录执行器（APP-05b）；没有为 null（不显示第三方按钮）。显示哪些按钮由它的适配器决定（visibleProviders）。 */
   oauth: OAuthLoginService | null = null;
+  /** 首屏视图模型，官方组件与布局在视觉闸后接入。 */
+  quickLogin: QuickLoginFlow | null = null;
+  private phoneFlow: LoginPageFlow | null = null;
+
+  get pageFlow(): LoginPageFlow {
+    if (this.phoneFlow === null) {
+      const flow: LoginPageFlow = new LoginPageFlow(this.service, this.clock, this.restricted);
+      flow.helpLinks = this.helpLinks;
+      flow.open = this.open;
+      this.phoneFlow = flow;
+    }
+    return this.phoneFlow;
+  }
+
+  get entries(): LoginPageEntries {
+    return LoginPageEntries.of(this.oauth, this.restricted, this.showThirdPartySlot,
+      this.service.lastLoginMethod?.read() ?? null, this.quickLogin?.thirdParty ?? null);
+  }
+
   /** 第三方登录成功（页面已由执行器关闭）：entry 弹绑手机引导（routeRaw = bind_phone_guide）等。 */
   onOAuthLoggedIn: (outcome: OAuthLoginOutcome) => void = (_o: OAuthLoginOutcome) => {
   };
@@ -194,7 +213,6 @@ export struct LoginView {
   @Local fontScale: CouliFontScale = CouliFontScale.shared();
   /** 验证码格子行的可用宽度（vp；onAreaChange 测得前为 0，按设计稿格宽）。 */
   @Local codeAreaWidth: number = 0;
-  private flow: LoginPageFlow | null = null;
   private active: boolean = false;
   private shownConfirm: AgreementConfirmKeys | null = null;
   private shownFeedback: SendCodeOutcome | null = null;
@@ -202,13 +220,7 @@ export struct LoginView {
   private oauthUntil: number = 0;
 
   private get pageFlow(): LoginPageFlow {
-    if (this.flow === null) {
-      const flow: LoginPageFlow = new LoginPageFlow(this.config.service, this.config.clock, this.config.restricted);
-      flow.helpLinks = this.config.helpLinks;
-      flow.open = this.config.open;
-      this.flow = flow;
-    }
-    return this.flow;
+    return this.config.pageFlow;
   }
 
   private timer: number = -1;
@@ -521,8 +533,7 @@ export struct LoginView {
 
   /** 入口显示（FU-HM-0721，共性 28：受限只隐藏业务入口，第三方按适配器可用性）。 */
   private entries(): LoginPageEntries {
-    return LoginPageEntries.of(this.config.oauth, this.config.restricted, this.config.showThirdPartySlot,
-      this.config.service.lastLoginMethod?.read() ?? null);
+    return this.config.entries;
   }
 
   private providers(): string[] {

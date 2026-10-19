@@ -117,6 +117,12 @@ export { CodeAutoSubmit, CodeSubmitResult } from './src/main/ets/login/CodeAutoS
 export { LastLoginMethodBackend, LastLoginMethodStore } from './src/main/ets/login/LastLoginMethod';
 export { PreferencesLastLoginMethodBackend } from './src/main/ets/login/PreferencesLastLoginMethodBackend';
 export { LoginPageFlow } from './src/main/ets/login/LoginPageFlow';
+export {
+  HuaweiQuickLoginPort, QuickLoginCredential, QuickLoginCredentialKind, QuickLoginFallback, QuickLoginPrefetch,
+  UnavailableHuaweiAdapter, UnavailableHuaweiQuickLogin
+} from './src/main/ets/login/HuaweiQuickLoginPort';
+export { OneTapLoginPort } from './src/main/ets/login/OneTapLoginPort';
+export { LoginFirstScreen, QuickLoginDeps, QuickLoginFlow } from './src/main/ets/login/LoginFirstScreen';
 // login（APP-05b）：第三方登录、绑手机与并号的纯逻辑（向量 specs/oauth-login-vectors.json）与执行器；桥 auth.login 的等待（F-HM-10）。
 export {
   OAuthProvider, DroppedCallback, OAuthAttemptSession, OAuthRouteResult, OAuthLoginRoute, OAuthErrorResult,

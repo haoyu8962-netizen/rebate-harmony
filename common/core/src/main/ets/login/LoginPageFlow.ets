@@ -101,6 +101,11 @@ export class LoginPageFlow {
     return this.gate('oauth', run);
   }
 
+  /** 一键组件要求重新同意时，沿用同一确认框与点击时刻，只替换动作对应的文案键。 */
+  tapOneTap(run: () => Promise<void>): Promise<void> {
+    return this.gate('one_tap', run, true);
+  }
+
   async confirmAgree(): Promise<void> {
     const run: (() => Promise<void>) | null = this.pending;
     if (run === null || this.confirmation === null) {
@@ -152,7 +157,7 @@ export class LoginPageFlow {
     return out;
   }
 
-  private gate(action: string, run: () => Promise<void>): Promise<void> {
+  private gate(action: string, run: () => Promise<void>, huaweiTerms: boolean = false): Promise<void> {
     if (this.confirmation !== null) {
       return Promise.resolve();
     }
@@ -161,7 +166,7 @@ export class LoginPageFlow {
       return run();
     }
     this.pending = run;
-    this.confirmation = AgreementConfirmKeys.of(action);
+    this.confirmation = AgreementConfirmKeys.of(action, huaweiTerms);
     return Promise.resolve();
   }
 

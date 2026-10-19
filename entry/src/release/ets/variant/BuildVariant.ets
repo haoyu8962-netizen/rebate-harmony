@@ -3,6 +3,7 @@
 // 本文件不得引用任何调试能力、非 prod 地址或 debug_only 路由（tools/ci/release-scan.sh 检查产物）。
 import { common, Want } from '@kit.AbilityKit';
 import {
+  HuaweiQuickLoginPort, UnavailableHuaweiAdapter, UnavailableHuaweiQuickLogin,
   AppEnvironment, CouliPreferences, DeepLinkConfig, HomeContractPort, HttpStreamTransport, HttpTransport, JumpPorts,
   MeContractPort, NoPushTokenSource,
   PendingKeyBackend, PushTokenSource, RcpTransport, RouteTable, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
@@ -32,6 +33,19 @@ export class BuildVariant {
   /** 流式传输（APP-10b，ApiClient.stream）：与整包请求同一个 RCP 传输（同一会话）。 */
   static networkStreamTransport(transport: HttpTransport): HttpStreamTransport | null {
     return transport instanceof RcpTransport ? transport as RcpTransport : null;
+  }
+
+  /** HM-14b 前正式包没有华为授权能力，权限获批不代表客户端已接入。 */
+  static huaweiAdapter(): ThirdPartyAuthAdapter {
+    return new UnavailableHuaweiAdapter();
+  }
+
+  static huaweiQuickLogin(): HuaweiQuickLoginPort {
+    return new UnavailableHuaweiQuickLogin();
+  }
+
+  static huaweiQuickLoginCapable(): boolean {
+    return false;
   }
 
   /**

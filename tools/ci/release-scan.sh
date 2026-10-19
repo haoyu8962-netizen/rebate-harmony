@@ -130,6 +130,8 @@ markers = [
     "COULI_FAKE_SEARCH_SERVER_APP06A_4f8e27",
     # APP-05b：微信登录的假适配器（entry/src/staging/ets/variant/DebugWechatAdapter.ets）。
     "COULI_FAKE_WECHAT_ADAPTER_APP05B_7b31e5",
+    # HM-14a：core staging 华为假能力与 entry 场景参数，Release 不得包含。
+    "COULI_FAKE_HUAWEI_HM14A_8c2f31", "couli_debug_huawei_scene",
     # APP-06b：购买、外跳与授权的本机假服务场景（entry/src/staging/ets/variant/DebugFakeTrade.ets）与场景启动参数键。
     "COULI_FAKE_TRADE_SERVER_APP06B_5d1e93", "couli_debug_trade_scene",
     # APP-06b 共性第 42 条：模拟安装状态的外跳端口包装（entry/src/staging/ets/variant/DebugFakeTrade.ets），开关与执行分支都只在 staging。

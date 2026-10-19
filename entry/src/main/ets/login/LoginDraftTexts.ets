@@ -49,6 +49,7 @@ export class LoginDraftTexts {
     m.set('login.agree_confirm.btn_get_code', '同意并获取验证码');
     m.set('login.agree_confirm.btn_login', '同意并登录');
     m.set('login.agree_confirm.btn_disagree', '不同意');
+    m.set('login.agree_confirm.body_huawei', '《华为账号用户认证协议》《用户协议》《隐私政策》，未注册的号码将自动注册凑狸账号');
     m.set('login.agree_confirm.body_oauth', '《用户协议》《隐私政策》，首次登录将自动注册凑狸账号');
     // ---- LoginCode / LoginCodeInvite
     m.set('login.code.title', '输入验证码');

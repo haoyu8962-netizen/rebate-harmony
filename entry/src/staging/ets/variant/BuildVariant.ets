@@ -5,6 +5,7 @@ import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import {
+  DebugHuaweiAuthAdapter, DebugHuaweiQuickLogin, DebugHuaweiQuickLoginScene, GatedHuaweiQuickLogin, HuaweiQuickLoginPort,
   AmountMaskStore, AppConfig, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugLaunchDeferral,
   DebugMockGate, DebugSubstitutes, DeepLinkConfig, EnvironmentSwitchGate, GatedAuthAdapter, GatedMeContractPort,
   GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer, HomeContractPort,
@@ -107,6 +108,19 @@ export class BuildVariant {
   /** 流式传输（APP-10b，ApiClient.stream）：同一个实际传输入口（DebugFakeServer → DebugMockTransport 同一道闸门）。 */
   static networkStreamTransport(transport: HttpTransport): HttpStreamTransport | null {
     return transport instanceof DebugFakeServer ? transport as DebugFakeServer : null;
+  }
+
+  /** 普通授权沿用现有第三方的环境闸门；一键假能力只在本机假服务打开时启用。 */
+  static huaweiAdapter(): ThirdPartyAuthAdapter {
+    return new GatedAuthAdapter(new DebugHuaweiAuthAdapter(), DebugSubstitutes.environmentGate());
+  }
+
+  static huaweiQuickLogin(): HuaweiQuickLoginPort {
+    return new GatedHuaweiQuickLogin(new DebugHuaweiQuickLogin((): string => DebugHuaweiQuickLoginScene.current), DebugFakeServer.mockGate);
+  }
+
+  static huaweiQuickLoginCapable(): boolean {
+    return DebugFakeServer.mockGate();
   }
 
   /**
@@ -469,6 +483,11 @@ export class BuildVariant {
       // FU-HM-0711b R1-05：执行时过替身闸门，600 毫秒到点时再核对一次（期间切到 prod 不执行）。
       BuildVariant.launchDeferral.submit('couli_debug_share', (): void => DebugLaunchDeferral.delayed(
         DebugFakeServer.mockGate, 600, (): void => AppClipboard.shared.shareArrived('text/plain', sample)));
+    }
+    const huaweiScene: Object | undefined = want.parameters?.[DebugHuaweiQuickLoginScene.LAUNCH_KEY];
+    if (typeof huaweiScene === 'string') {
+      DebugHuaweiQuickLoginScene.current = huaweiScene;
+      hilog.info(0x0000, 'Couli', 'huawei scene %{public}s %{public}s', huaweiScene, DebugHuaweiQuickLoginScene.MARKER);
     }
     const scene: Object | undefined = want.parameters?.['couli_debug_wechat_scene'];
     if (typeof scene === 'string') {
