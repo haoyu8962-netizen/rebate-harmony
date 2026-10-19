@@ -1,3 +1,4 @@
+import { LastLoginMethodStore } from './LastLoginMethod';
 import { PendingInviteCode } from '../invite/PendingInviteCode';
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult } from '../network/ApiClient';
 import { ErrorEffect } from '../network/ErrorActionMapper';
@@ -307,6 +308,8 @@ export class LoginService {
 
   /** entry 与剪贴板、邀请链接共享；未接入时不带码，不从手填值回落。 */
   pendingInvite: PendingInviteCode | null = null;
+  /** 与第三方登录共用；只在会话保存且登录计划成功后写。 */
+  lastLoginMethod: LastLoginMethodStore | null = null;
 
   private readonly client: ApiClient;
   private readonly tokens: SessionTokens;
@@ -729,6 +732,8 @@ export class LoginService {
     const owner: () => boolean = this.ownerFor(issued);
     request.owner = owner;
     this.loggingIn = true;
+    const methodStore: LastLoginMethodStore | null = this.lastLoginMethod;
+    const methodRevision: number = methodStore?.revision ?? -1;
     let result: ApiResult;
     try {
       result = await this.client.request(request);
@@ -747,7 +752,11 @@ export class LoginService {
           verified(account);
         }
       }
-      return this.loggedIn(result, issued, restricted);
+      const outcome: LoginOutcome = await this.loggedIn(result, issued, restricted);
+      if (outcome.stateRaw === LoginOutcome.LOGGED_IN && methodStore !== null) {
+        methodStore.record(LastLoginMethodStore.SMS, methodRevision);
+      }
+      return outcome;
     }
     if (issued !== this.serial) {
       return new LoginOutcome(LoginOutcome.STALE);

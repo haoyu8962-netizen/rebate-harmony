@@ -112,6 +112,11 @@ export {
   LoginHost, SendCodeOutcome, LoginOutcome, SmsSendDeadlines, LoginRateLimits, LoginService, PhoneEntry, LoginSendState,
   AttemptTicket, WriteObserver, SendDeadline
 } from './src/main/ets/login/LoginService';
+export { AgreementSpan, AgreementSentence, AgreementConfirmKeys } from './src/main/ets/login/AgreementSentence';
+export { CodeAutoSubmit, CodeSubmitResult } from './src/main/ets/login/CodeAutoSubmit';
+export { LastLoginMethodBackend, LastLoginMethodStore } from './src/main/ets/login/LastLoginMethod';
+export { PreferencesLastLoginMethodBackend } from './src/main/ets/login/PreferencesLastLoginMethodBackend';
+export { LoginPageFlow } from './src/main/ets/login/LoginPageFlow';
 // login（APP-05b）：第三方登录、绑手机与并号的纯逻辑（向量 specs/oauth-login-vectors.json）与执行器；桥 auth.login 的等待（F-HM-10）。
 export {
   OAuthProvider, DroppedCallback, OAuthAttemptSession, OAuthRouteResult, OAuthLoginRoute, OAuthErrorResult,

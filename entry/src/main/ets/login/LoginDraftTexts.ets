@@ -29,6 +29,10 @@ export class LoginDraftTexts {
     m.set('login.phone.prefix', '+86');
     m.set('login.phone.placeholder', '请输入手机号');
     m.set('login.phone.clear', '清除手机号');
+    m.set('login.agree.text', '我已阅读并同意《用户协议》和《隐私政策》，未注册的手机号验证后将自动注册凑狸账号');
+    m.set('login.agree.text_huawei', '我已阅读并同意《华为账号用户认证协议》《用户协议》《隐私政策》，未注册的号码将自动注册凑狸账号');
+    m.set('login.last_method_tag', '上次登录');
+    m.set('login.code.help_entry', '收不到验证码？');
     m.set('login.agree.prefix', '我已阅读并同意');
     m.set('login.agree.agreement', '《用户协议》');
     m.set('login.agree.and', '和');
@@ -40,10 +44,12 @@ export class LoginDraftTexts {
     m.set('login.other_methods', '其他登录方式');
     m.set('login.huawei', '华为账号登录');
     // ---- LoginAgreeConfirm
-    m.set('login.agree_confirm.title', '请阅读并同意协议');
-    m.set('login.agree_confirm.body', '登录前请阅读并同意《用户协议》和《隐私政策》。');
-    m.set('login.agree_confirm.cancel', '取消');
-    m.set('login.agree_confirm.ok', '同意并继续');
+    m.set('login.agree_confirm.title', '请阅读并同意以下条款');
+    m.set('login.agree_confirm.body', '《用户协议》《隐私政策》，未注册的号码将自动注册凑狸账号');
+    m.set('login.agree_confirm.btn_get_code', '同意并获取验证码');
+    m.set('login.agree_confirm.btn_login', '同意并登录');
+    m.set('login.agree_confirm.btn_disagree', '不同意');
+    m.set('login.agree_confirm.body_oauth', '《用户协议》《隐私政策》，首次登录将自动注册凑狸账号');
     // ---- LoginCode / LoginCodeInvite
     m.set('login.code.title', '输入验证码');
     m.set('login.code.sent_to', '验证码已发送至 {phone}');

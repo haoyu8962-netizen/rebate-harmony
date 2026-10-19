@@ -89,18 +89,18 @@ export default function followupHM0721Test() {
     // ---------------------------------------------------------------- 共性 28（iOS R2-01）
     it('fhm0721_28_restricted_login_page_shows_third_party_by_adapter_hides_business_inputs', 0, () => {
       const f: OAuthFixture = new OAuthFixture();
-      // 适配器可用：受限登录页照常显示微信；设置、登录遇到问题、邀请码隐藏；华为占位（不可用的版式占位）不显示。
+      // 适配器可用：受限登录页照常显示微信；登录遇到问题隐藏；华为占位（不可用的版式占位）不显示。
+      // HM-13a（2026-10-18，AC-S1-77 ⑤、AC-S1-181 ①）：登录页不再有【设置】与邀请码入口，settings / invite 两项随之删除
+      // （受限与普通页都没有，见 LoginHM13a.test.ets entries_*）。
       const restricted: LoginPageEntries = LoginPageEntries.of(f.oauth, true, true);
       same('restricted providers', restricted.providers, ['wechat']);
       same('restricted slot', restricted.thirdPartySlot, true);
-      same('restricted settings', restricted.settings, false);
       same('restricted help', restricted.help, false);
-      same('restricted invite', restricted.invite, false);
       same('restricted huawei placeholder', restricted.huaweiPlaceholder, false);
-      // 普通登录页：全部入口照旧。
+      // 普通登录页：其余入口照旧。
       const normal: LoginPageEntries = LoginPageEntries.of(f.oauth, false, true);
       same('normal providers', normal.providers, ['wechat']);
-      same('normal entries', [normal.settings, normal.help, normal.invite, normal.huaweiPlaceholder], [true, true, true, true]);
+      same('normal entries', [normal.help, normal.huaweiPlaceholder], [true, true]);
       // 适配器不可用 / 没装微信：受限页与普通页一样不显示（按适配器可用性，不是按受限）。
       f.adapter.available = false;
       same('unavailable restricted', LoginPageEntries.of(f.oauth, true, true).providers, []);

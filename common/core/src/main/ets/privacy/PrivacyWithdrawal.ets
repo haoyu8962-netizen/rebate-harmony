@@ -30,7 +30,11 @@ export class PrivacyWithdrawalCleaners {
 
   /** 撤回同意时调用：只跑令牌、设备身份与埋点队列的清理项。 */
   static run(registry: LocalDataCleanerRegistry): Promise<CleanReport> {
-    return registry.cleanOnly(PrivacyWithdrawalCleaners.NAMES);
+    // cleanOnly 同步启动作废在途请求，再清撤回专用偏好；两类失败都阻止标记清理完成。
+    const common: Promise<CleanReport> = registry.cleanOnly(PrivacyWithdrawalCleaners.NAMES);
+    const preferences: CleanReport = registry.runWithdrawalHooks();
+    return common.then((report: CleanReport): CleanReport =>
+      new CleanReport(report.cleaned.concat(preferences.cleaned), report.failed.concat(preferences.failed)));
   }
 }
 

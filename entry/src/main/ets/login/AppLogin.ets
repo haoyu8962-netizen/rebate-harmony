@@ -1,6 +1,8 @@
+import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, BindPhoneForm, BindPhoneHost, BindPhoneRecheck, BindPhoneService, ConfigStore, LoginOutcome, LoginService,
+  AppConfig, GuardDecisionKind, LastLoginMethodStore, PreferencesLastLoginMethodBackend, ApiClient, BindPhoneForm,
+  BindPhoneHost, BindPhoneRecheck, BindPhoneService, ConfigStore, LoginOutcome, LoginService,
   OAuthLoginOutcome, OAuthLoginRoute, OAuthLoginService, OAuthProvider, PhoneBindingState, RouterLoginHost, RoutePolicy,
   SessionState, SessionTokens
 } from 'core';
@@ -12,14 +14,12 @@ import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppRouting } from '../routing/AppRouting';
 import { AppUpdate } from '../update/AppUpdate';
-import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppAccount, DELETE_ACCOUNT_ROUTE } from '../account/AppAccount';
 import { LoginDraftTexts } from './LoginDraftTexts';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliLogin';
 const AGREEMENT_ROUTE: string = 'Agreement';
-const SETTINGS_ROUTE: string = 'Settings';
 const HELP_ROUTE: string = 'Help';
 const ME_ROUTE: string = 'Me';
 
@@ -50,6 +50,8 @@ export class AppLogin {
 
   private service: LoginService | null = null;
   private oauth: OAuthLoginService | null = null;
+  private lastMethod: LastLoginMethodStore | null = null;
+
   private bindService: BindPhoneService | null = null;
   /** 本机已知的「是否绑了手机」（第三方登录未绑手机的会话 → 守卫的 LOGGED_IN）。 */
   readonly phoneBinding: PhoneBindingState = new PhoneBindingState();
@@ -63,6 +65,32 @@ export class AppLogin {
   private sessionExpiredPending: boolean = false;
   /** 登录成功后显示邀请结果要用的界面上下文（RootPage 挂上）。 */
   private ui: UIContext | null = null;
+
+  /** 冷启动就登记撤回清理，不能等用户打开登录页后才登记。 */
+  compose(context: common.Context): void {
+    if (this.lastMethod === null) {
+      this.lastMethod = new LastLoginMethodStore(new PreferencesLastLoginMethodBackend(context));
+      this.lastMethod.installCleaner(AppConfig.cleaners);
+    }
+    if (this.service !== null) {
+      this.service.lastLoginMethod = this.lastMethod;
+    }
+  }
+
+  private static helpLinks(): Record<string, Object> | null {
+    const store: ConfigStore | null = AppClientCore.shared.config;
+    const json: string | null = store === null ? null : store.value('help_links');
+    if (json === null) {
+      return null;
+    }
+    try {
+      const parsed: Object = JSON.parse(json) as Object;
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ?
+        parsed as Record<string, Object> : null;
+    } catch (e) {
+      return null;
+    }
+  }
 
   attachUi(ui: UIContext): void {
     this.ui = ui;
@@ -93,6 +121,7 @@ export class AppLogin {
     }
     const service: LoginService = new LoginService(client, tokens, this.host);
     service.pendingInvite = AppPendingInvite.shared;
+    service.lastLoginMethod = this.lastMethod;
     // R2-01：登录页确定出栈（关闭、清栈、强更替换导航栈）的同步出口立即作废本次尝试；系统返回由页面 onWillDisappear 兜住。
     this.host.watchLoginPage(service);
     // R2-01：短信登录的账号一定有手机号；其余（第三方登录、冷启动未知）要等 getMe 查清。
@@ -211,8 +240,6 @@ export class AppLogin {
     }
     const config: LoginPageConfig = new LoginPageConfig(service, this.texts);
     config.restricted = restricted;
-    // 旧邀请码行的 PasteButton 接线留到 HM-13a；待绑定码经 service 读取，不再进入手填输入框。
-    AppClipboard.shared.bindLogin(config, restricted);
     config.sessionExpired = this.sessionExpiredPending;
     this.sessionExpiredPending = false;
     // LoginPublicHarmony 的【华为账号登录】：HM-08 / APP-13 才做，只在 Debug / Staging 构建显示占位（版式比对用），Release 不显示。
@@ -234,13 +261,10 @@ export class AppLogin {
       AppRouting.shared.navigator.remove(RoutePolicy.LOGIN);
       AppRouting.shared.stateChanged();
     };
-    config.onSettings = (): void => {
-      AppRouting.shared.openInApp(SETTINGS_ROUTE);
-    };
-    config.onHelp = (): void => {
-      // login.help_entry：help_links.login_help 未配置时打开帮助中心首页（BR-TEXT-14 表 C）。TODO(N-26)：接 help_links.login_help。
-      AppRouting.shared.openInApp(HELP_ROUTE);
-    };
+    config.helpLinks = (): Record<string, Object> | null => AppLogin.helpLinks();
+    config.open = (route: string, params: Record<string, Object>): boolean =>
+      (restricted ? AppRouting.shared.openFromForceUpdatePage(route, params) :
+        AppRouting.shared.openInApp(route, params)).kind === GuardDecisionKind.OPEN;
     config.onAgreement = (type: string): void => {
       const params: Record<string, Object> = {};
       params['type'] = type;

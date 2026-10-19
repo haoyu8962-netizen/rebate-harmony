@@ -1,3 +1,4 @@
+import { LastLoginMethodStore } from './LastLoginMethod';
 import { ApiClient, ApiOutcome, ApiRequest, ApiResult, ClientScope } from '../network/ApiClient';
 import { ErrorEffect } from '../network/ErrorActionMapper';
 import { LocalRejectReason, SessionScope } from '../network/NetworkPolicy';
@@ -195,33 +196,33 @@ export class OAuthLoginOutcome {
 
 /**
  * 登录页入口的显示（FU-HM-0721，APP-05b 共性 28，iOS R2-01；LoginView 按它渲染）。从强更页进入的受限登录（restricted）只隐藏
- * 业务入口：设置、登录遇到问题、邀请码；第三方登录不因受限隐藏，仍按适配器可用性显示（visibleProviders）——仅第三方身份、未绑手机的
+ * 业务入口：登录遇到问题；设置与邀请码入口在所有登录页均已移除（HM-13a）。第三方登录不因受限隐藏，仍按适配器可用性显示（visibleProviders）——仅第三方身份、未绑手机的
  * 已有账号要能登录原账号取得 deletion_only 去注销（BR-ID-01）。协议校验与 deletion_only 分流照旧（执行器负责）。
  * 华为账号登录占位（Debug 版式比对用、点了不做事）不是可用的登录方式，受限时不显示。
  */
 export class LoginPageEntries {
   readonly providers: string[];
-  readonly settings: boolean;
   readonly help: boolean;
-  readonly invite: boolean;
   readonly huaweiPlaceholder: boolean;
+  readonly lastMethod: string | null;
 
-  constructor(providers: string[], settings: boolean, help: boolean, invite: boolean, huaweiPlaceholder: boolean) {
+  constructor(providers: string[], help: boolean, huaweiPlaceholder: boolean, lastMethod: string | null) {
     this.providers = providers;
-    this.settings = settings;
     this.help = help;
-    this.invite = invite;
     this.huaweiPlaceholder = huaweiPlaceholder;
+    this.lastMethod = lastMethod;
   }
 
-  /** 「其他登录方式」区是否出现（有可用的第三方按钮或占位）。 */
   get thirdPartySlot(): boolean {
     return this.providers.length > 0 || this.huaweiPlaceholder;
   }
 
-  static of(oauth: OAuthLoginService | null, restricted: boolean, placeholder: boolean): LoginPageEntries {
+  static of(oauth: OAuthLoginService | null, restricted: boolean, placeholder: boolean,
+    lastMethod: string | null = null): LoginPageEntries {
     const providers: string[] = oauth === null ? [] : oauth.visibleProviders();
-    return new LoginPageEntries(providers, !restricted, !restricted, !restricted, placeholder && !restricted);
+    // 当前尚无一键首屏；sms 不挂标签，占位按钮也不代表可用登录方式（G05）。
+    const visibleLast: string | null = lastMethod !== null && providers.indexOf(lastMethod) >= 0 ? lastMethod : null;
+    return new LoginPageEntries(providers, !restricted, placeholder && !restricted, visibleLast);
   }
 }
 
@@ -334,8 +335,14 @@ export class OAuthLoginService {
     }
     this.running = true;
     const ticket: AttemptTicket = this.login.attemptTicket();
+    const methodStore: LastLoginMethodStore | null = this.login.lastLoginMethod;
+    const methodRevision: number = methodStore?.revision ?? -1;
     try {
-      return await this.run(provider, operationId, adapter, consentAtMillis, ticket, restricted);
+      const outcome: OAuthLoginOutcome = await this.run(provider, operationId, adapter, consentAtMillis, ticket, restricted);
+      if (outcome.stateRaw === OAuthLoginOutcome.LOGGED_IN && methodStore !== null) {
+        methodStore.record(provider, methodRevision);
+      }
+      return outcome;
     } finally {
       this.running = false;
       this.login.releaseTicket(ticket);

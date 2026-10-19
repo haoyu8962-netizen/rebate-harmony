@@ -9,12 +9,11 @@ import {
   ClipboardPromptInfo, ClipboardPromptView, ClipboardReadPolicy, ClipboardResultBinding, SecureClipboardSaltStore,
   SharePromptTexts, SharedTextRecord,
   ClipboardResultView, ClipboardSensitive, ClipboardSnapshot, ConfigStore,
-  CouliPreferences, InvitePasteOutcome, ParseResultAction, ParseRow, PasteboardPort, PrivacyState, PurchaseModalRegistry,
+  CouliPreferences, ParseResultAction, ParseRow, PasteboardPort, PrivacyState, PurchaseModalRegistry,
   RouteDestination, ClipboardPageMark, EnvironmentGate,
   SearchApiPort, SessionState, TabWillChangeRegistry, TransportFailure
 } from 'core';
 import { CouliAnnounce, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
-import { LoginPageConfig } from 'auth';
 import { AppPendingInvite } from '../invite/AppPendingInvite';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppNetwork } from '../network/AppNetwork';
@@ -466,33 +465,6 @@ export class AppClipboard {
     return new HarmonyPasteboard().readText();
   }
 
-  /** 旧登录页邀请码【粘贴】接线；待绑定码独立共享，不再向手填输入框预填（HM-13a 再删旧入口）。 */
-  bindLogin(config: LoginPageConfig, restricted: boolean): void {
-    const controller: ClipboardController | null = this.controllerInstance;
-    config.invitePaste.available = !restricted && controller !== null
-      && AppClipboard.consent() === ClipboardReadPolicy.CONSENT_AGREED;
-    config.invitePaste.blocked = controller !== null && controller.blocked;
-    config.onInvitePaste = async (success: boolean): Promise<string | null> => {
-      if (controller === null) {
-        return null;
-      }
-      const outcome: InvitePasteOutcome = await controller.pasteInvite(success);
-      config.invitePaste.blocked = controller.blocked;
-      if (outcome.actionRaw === InvitePasteOutcome.FILL) {
-        return outcome.code;
-      }
-      if (outcome.actionRaw === InvitePasteOutcome.NOT_FOUND) {
-        this.toast(ClipboardDraftTexts.text('clipboard.login_invite.not_found'));
-      } else if (outcome.actionRaw === InvitePasteOutcome.BLOCKED) {
-        // 42901 禁用期：执行层不读，给限流提示，不误报「未识别到邀请码」（A17）
-        this.toast(ClipboardDraftTexts.text(ParseResultAction.key(ParseResultAction.RATE_LIMITED)));
-      }
-      return null;
-    };
-    this.loginPaste = config;
-  }
-
-  private loginPaste: LoginPageConfig | null = null;
 
   /** ProductDetail 打开时取走 parse 卡的种子（G09；product_key 一致才用）。 */
   takeSeed(param: Object): Record<string, Object> | null {
@@ -514,9 +486,6 @@ export class AppClipboard {
     const m: ClipboardUiModel = this.uiModel;
     m.blocked = s.blocked;
     m.busy = s.busy;
-    if (this.loginPaste !== null) {
-      this.loginPaste.invitePaste.blocked = s.blocked;
-    }
     if (s.prompt === null) {
       m.promptId = 0;
       m.promptText = '';

@@ -44,6 +44,33 @@ class BeforeClearHook {
 export class LocalDataCleanerRegistry {
   private cleaners: LocalDataCleaner[] = [];
   private hooks: BeforeClearHook[] = [];
+  private withdrawalHooks: BeforeClearHook[] = [];
+
+  /** 只随撤回同意清除的本机偏好，环境切换 cleanAll 不执行（G24）。同名替换。 */
+  setOnWithdrawal(name: string, run: () => void): void {
+    const hook: BeforeClearHook = new BeforeClearHook(name, run);
+    const index: number = this.withdrawalHooks.findIndex((h: BeforeClearHook): boolean => h.name === name);
+    if (index < 0) {
+      this.withdrawalHooks.push(hook);
+    } else {
+      this.withdrawalHooks[index] = hook;
+    }
+  }
+
+  /** 由撤回入口同步执行；失败纳入撤回报告，保留撤回痕迹以便冷启动重试。 */
+  runWithdrawalHooks(): CleanReport {
+    const cleaned: string[] = [];
+    const failed: string[] = [];
+    for (const hook of this.withdrawalHooks.slice()) {
+      try {
+        hook.run();
+        cleaned.push(hook.name);
+      } catch (e) {
+        failed.push(hook.name);
+      }
+    }
+    return new CleanReport(cleaned, failed);
+  }
 
   /**
    * 登记「清理前第一步」（同名替换）：cleanAll（切换环境、覆盖安装对账）与 cleanOnly（撤回同意）开始时、在任何清理器

@@ -42,6 +42,7 @@ export default class EntryAbility extends UIAbility {
     AppConfig.cleaners.register(new PreferencesNamespaceCleaner(appContext));
     // 令牌、device_id、install_secret 的占位清理项（APP-02b）：撤回同意只跑它们；切换环境的全部清理也包含它们（03 §3.6）。
     PrivacyWithdrawalCleaners.registerPlaceholders(AppConfig.cleaners);
+    AppLogin.shared.compose(appContext);
     // APP-03a 网络核心的组合处（harmony-review-r3 R3-04，lessons 35）：ApiClient 与它的会话令牌、未决键在这里创建；
     // 令牌用真实清理项同名替换占位，未决幂等键只在切换环境（cleanAll）时清；ApiClient.invalidate 登记为撤回同意与
     // 切换环境两条清理的第一步（在环境对账 AppConfig.start 之前登记）。返回的处理函数接到下面的 AppUpdate.onChanged。

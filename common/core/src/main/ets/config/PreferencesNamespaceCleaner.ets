@@ -40,9 +40,12 @@ export class CouliPreferences {
    * 与本机隐私决定同理不属于任何服务器环境，环境切换与覆盖安装对账都不删；只在撤回清理全部成功后由 PrivacyGate 改回 false。
    */
   static readonly PRIVACY_WITHDRAWAL_INTENT_NAMESPACE: string = 'couli_privacy_withdrawal_intent';
-  /** 任何清理器都不删除的命名空间。 */
+  /** 上次成功登录的方式（G24）：退出、切换环境保留；撤回同意通过专用钩子删除键。 */
+  static readonly LAST_LOGIN_METHOD_NAMESPACE: string = 'couli_last_login_method';
+  /** 命名空间清理器不删除的文件。 */
   static readonly PRESERVED_NAMESPACES: string[] = [CouliPreferences.ENVIRONMENT_RECORD_NAMESPACE,
-    CouliPreferences.PRIVACY_DECISION_NAMESPACE, CouliPreferences.PRIVACY_WITHDRAWAL_INTENT_NAMESPACE];
+    CouliPreferences.PRIVACY_DECISION_NAMESPACE, CouliPreferences.PRIVACY_WITHDRAWAL_INTENT_NAMESPACE,
+    CouliPreferences.LAST_LOGIN_METHOD_NAMESPACE];
 }
 
 /** 删除本 App 的 Preferences 命名空间（文件与内存缓存一起删）；永远不删环境记录、本机隐私决定与撤回意图命名空间。 */

@@ -20,9 +20,13 @@
  * - LoginErrorMapper.map(op: string, code: number, data: Record<string, Object>)
  *   -> { stateRaw: string, textKey?, field?, route? }；
  *   接已有 ErrorActionMapper，不另造错误码表。
- * - InviteField.decide(raw: string, context: Record<string, Object>)
- *   -> { showInviteField: boolean, valid?: boolean, noticeKey? }；
- *   valid 只判注册输入语法，空值可省略，不决定能否登录。
+ * - InviteField.normalize(raw: string) -> string；InviteField.decide(raw: string, context: Record<string, Object>)
+ *   -> { valid: boolean }；valid 只判邀请码语法，空值可省略，不决定能否登录。
+ *   HM-13a（2026-10-18）：登录页不再有邀请码输入框，invite 组改写为只验规范化与语法（原 showInviteField / noticeKey /
+ *   restricted 行删除，待绑定码小字行由 HM-13c PendingInviteRow 另验）。
+ * - HM-13a：AgreementConfirmKeys.of(action: string)
+ *   -> { titleKey, bodyKey, primaryKey, secondaryKey }（确认框按触发动作选键，agreementConfirm 组；从 Index 导出）。
+ *   codeAutoSubmit 组（带执行器的序列向量）由 LoginHM13a.test.ets 用真实 LoginService 跑。
  * - AfterLogin.plan(response: Record<string, Object>,
  *   state: Record<string, Object>): string[]；
  *   response 为向量投影，session_scope 来自实际 tokens.session_scope。
@@ -49,6 +53,7 @@ import {
   InviteField,
   AfterLogin
 } from '../main/ets/login/LoginFlow';
+import { AgreementConfirmKeys } from '../../Index';
 
 type Scalar = string | number | boolean | null | undefined;
 
@@ -125,15 +130,25 @@ interface ErrorVector extends NamedVector {
 }
 
 interface InviteExpected {
-  showInviteField: boolean;
-  valid?: boolean;
-  noticeKey?: string | null;
+  valid: boolean;
+  normalized: string;
 }
 
 interface InviteVector extends NamedVector {
   raw: string;
-  context: Record<string, Object>;
   expect: InviteExpected;
+}
+
+interface ConfirmExpected {
+  titleKey?: string | null;
+  bodyKey?: string | null;
+  primaryKey?: string | null;
+  secondaryKey?: string | null;
+}
+
+interface ConfirmVector extends NamedVector {
+  action: string;
+  expect: ConfirmExpected;
 }
 
 interface AfterExpected {
@@ -155,6 +170,7 @@ interface LoginVectors {
   code: CodeVector[];
   loginError: ErrorVector[];
   invite: InviteVector[];
+  agreementConfirm: ConfirmVector[];
   afterLogin: AfterVector[];
   gaps: string[];
 }
@@ -281,16 +297,18 @@ function checkError(row: ErrorVector): void {
 
 function checkInvite(row: InviteVector): void {
   const label: string = 'invite.' + row.name;
-  const actual = InviteField.decide(row.raw, row.context);
-  assertScalar(
-    label + '.showInviteField',
-    actual.showInviteField,
-    row.expect.showInviteField
-  );
-  if (row.expect.valid !== undefined) {
-    assertScalar(label + '.valid', actual.valid, row.expect.valid);
-  }
-  assertText(label + '.noticeKey', actual.noticeKey, row.expect.noticeKey);
+  const context: Record<string, Object> = {};
+  assertScalar(label + '.valid', InviteField.decide(row.raw, context).valid, row.expect.valid);
+  assertScalar(label + '.normalized', InviteField.normalize(row.raw), row.expect.normalized);
+}
+
+function checkConfirm(row: ConfirmVector): void {
+  const label: string = 'agreementConfirm.' + row.name;
+  const actual: AgreementConfirmKeys = AgreementConfirmKeys.of(row.action);
+  assertText(label + '.titleKey', actual.titleKey, row.expect.titleKey);
+  assertText(label + '.bodyKey', actual.bodyKey, row.expect.bodyKey);
+  assertText(label + '.primaryKey', actual.primaryKey, row.expect.primaryKey);
+  assertText(label + '.secondaryKey', actual.secondaryKey, row.expect.secondaryKey);
 }
 
 function checkAfter(row: AfterVector): void {
@@ -318,6 +336,7 @@ export default function loginVectorTest() {
       checkNames('code', root.code);
       checkNames('loginError', root.loginError);
       checkNames('invite', root.invite);
+      checkNames('agreementConfirm', root.agreementConfirm);
       checkNames('afterLogin', root.afterLogin);
     });
 
@@ -360,6 +379,13 @@ export default function loginVectorTest() {
       const row: InviteVector = root.invite[index];
       it('invite.' + row.name, 0, () => {
         checkInvite(row);
+      });
+    }
+
+    for (let index: number = 0; index < root.agreementConfirm.length; index++) {
+      const row: ConfirmVector = root.agreementConfirm[index];
+      it('agreementConfirm.' + row.name, 0, () => {
+        checkConfirm(row);
       });
     }
 

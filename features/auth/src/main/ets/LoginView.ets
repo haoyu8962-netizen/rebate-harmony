@@ -1,12 +1,13 @@
 import {
-  AgreementState, AuthFeedback, CodeInput, CodeRevision, CodeStamp, InviteDecision, InviteField, LoginOutcome, LoginPageEntries, LoginRateLimits, LoginService,
+  AgreementConfirmKeys, AgreementSentence, AuthFeedback, CodeInput, CodeSubmitResult, LoginOutcome,
+  LoginPageEntries, LoginPageFlow, LoginService,
   OAuthLoginErrorAction, PendingInviteCode, PendingInviteRow,
-  OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, PhoneResult, SendCodeOutcome, SmsCountdown
+  OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, SendCodeOutcome
 } from 'core';
 import {
   CodeCellLayout, CouliButton, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
-  CouliPasteButton, CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
+  CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
 } from 'designsystem';
 
 /**
@@ -18,12 +19,14 @@ export class LoginKeys {
   static readonly BRAND: string = 'login.brand';
   static readonly CLOSE: string = 'login.close';
   static readonly BACK: string = 'login.back';
-  static readonly SETTINGS: string = 'login.settings';
   static readonly TITLE: string = 'login.title';
   static readonly PHONE_LABEL: string = 'login.phone.label';
   static readonly PHONE_PREFIX: string = 'login.phone.prefix';
   static readonly PHONE_PLACEHOLDER: string = 'login.phone.placeholder';
   static readonly PHONE_CLEAR: string = 'login.phone.clear';
+  static readonly AGREE_TEXT: string = 'login.agree.text';
+  static readonly LAST_METHOD: string = 'login.last_method_tag';
+  static readonly CODE_HELP: string = 'login.code.help_entry';
   static readonly AGREE_PREFIX: string = 'login.agree.prefix';
   static readonly AGREE_AGREEMENT: string = 'login.agree.agreement';
   static readonly AGREE_AND: string = 'login.agree.and';
@@ -31,7 +34,6 @@ export class LoginKeys {
   static readonly AGREE_SUFFIX: string = 'login.agree.suffix';
   static readonly AGREE_HINT: string = 'login.agree.hint';
   static readonly GET_CODE: string = 'login.get_code';
-  static readonly INVITE_ENTRY: string = 'login.invite.entry';
   static readonly CONTINUE_CODE: string = 'login.code.continue';
   static readonly OTHER_METHODS: string = 'login.other_methods';
   static readonly HUAWEI: string = 'login.huawei';
@@ -42,19 +44,11 @@ export class LoginKeys {
   /** 文案变量 {provider_name} 的取值（error.50305、error.30411.mergeable）。 */
   static readonly PROVIDER_PREFIX: string = 'login.provider.';
   static readonly WECHAT_UNAVAILABLE: string = 'login.wechat_unavailable';
-  static readonly CONFIRM_TITLE: string = 'login.agree_confirm.title';
-  static readonly CONFIRM_BODY: string = 'login.agree_confirm.body';
-  static readonly CONFIRM_CANCEL: string = 'login.agree_confirm.cancel';
-  static readonly CONFIRM_OK: string = 'login.agree_confirm.ok';
   static readonly CODE_TITLE: string = 'login.code.title';
   static readonly CODE_SENT_TO: string = 'login.code.sent_to';
   static readonly CODE_LABEL: string = 'login.code.label';
   static readonly CODE_COUNTDOWN: string = 'login.code.countdown';
   static readonly CODE_RESEND: string = 'login.code.resend';
-  static readonly INVITE_LABEL: string = 'login.invite.label';
-  static readonly INVITE_PLACEHOLDER: string = 'login.invite.placeholder';
-  static readonly INVITE_CLEAR: string = 'login.invite.clear';
-  static readonly SUBMIT: string = 'login.submit';
   static readonly HELP: string = 'login.help_entry';
   static readonly RISK_BLOCKED_DESC: string = 'login.risk_blocked.desc';
   static readonly RISK_BLOCKED_OK: string = 'login.risk_blocked.ok';
@@ -75,22 +69,12 @@ export interface LoginTexts {
   format(key: string, vars: Map<string, string>): string;
 }
 
-/**
- * 邀请码行【粘贴】（APP-07，LoginCodeInvite；鸿蒙为系统 PasteButton，读屏名由系统提供）：available 为 entry 判定可以放粘贴入口
- * （已同意隐私政策、不是受限登录）；blocked 为 42901 禁用期（按钮置灰，执行层另拦）。
- */
-@ObservedV2
-export class LoginInvitePasteUi {
-  @Trace available: boolean = false;
-  @Trace blocked: boolean = false;
-}
-
 /** 页面的出口（entry 接 Router 与 App 能力）。 */
 export class LoginPageConfig {
   readonly service: LoginService;
   readonly texts: LoginTexts;
   /**
-   * 从强更页进入的受限登录（APP-02c 内部来源标记）：不显示设置、登录遇到问题、邀请码；第三方登录仍按适配器可用性显示
+   * 从强更页进入的受限登录（APP-02c 内部来源标记）：不显示登录遇到问题、待绑定码；设置和邀请码输入入口已从所有登录页移除。第三方登录仍按适配器可用性显示
    * （FU-HM-0721，APP-05b 共性 28：仅第三方身份的已有账号要能登录取得 deletion_only 去注销），见 Core LoginPageEntries。
    */
   restricted: boolean = false;
@@ -109,10 +93,15 @@ export class LoginPageConfig {
   clock: () => number = () => Date.now();
   onClose: () => void = () => {
   };
-  onSettings: () => void = () => {
-  };
-  onHelp: () => void = () => {
-  };
+  helpLinks: () => Record<string, Object> | null = (): Record<string, Object> | null => null;
+  open: (route: string, params: Record<string, Object>) => boolean = (_r: string, _p: Record<string, Object>): boolean => false;
+
+  get agreementSentence(): AgreementSentence {
+    const links: Map<string, string> = new Map<string, string>();
+    links.set('agreement', this.texts.text(LoginKeys.AGREE_AGREEMENT));
+    links.set('privacy', this.texts.text(LoginKeys.AGREE_PRIVACY));
+    return AgreementSentence.of(this.texts.text(LoginKeys.AGREE_TEXT), links);
+  }
   /** 协议链接：type = agreement / privacy（routes.json Agreement.type）。 */
   onAgreement: (type: string) => void = (_t: string) => {
   };
@@ -124,14 +113,6 @@ export class LoginPageConfig {
   /** 10405（受限登录查不到账号 no_account 等）：提示先更新后回到强更页（BR-ID-01 细则「受限登录」）。 */
   onForceUpdate: () => void = () => {
   };
-  /** 邀请码【粘贴】的显示状态（APP-07）。 */
-  readonly invitePaste: LoginInvitePasteUi = new LoginInvitePasteUi();
-  /**
-   * 邀请码【粘贴】被点（success = PasteButton 结果为 SUCCESS）：entry 读剪贴板只抽码，返回要填进输入框的码；抽不到、被限流、
-   * 不能读时返回 null（轻提示由 entry 给；不清空已有输入，BR-INV-04）。
-   */
-  onInvitePaste: (success: boolean) => Promise<string | null> = (_s: boolean): Promise<string | null> =>
-  Promise.resolve(null);
   /** HM-13c：一键首屏与手机号页都从同一容器现取行数据；不受剪贴板开关影响，不消费。排版待视觉闸后。 */
   get pendingInviteRow(): PendingInviteRow | null {
     const pending: PendingInviteCode | null = this.service.pendingInvite;
@@ -167,9 +148,6 @@ export class LoginModel {
   @Trace step: string = LoginModel.STEP_PHONE;
   @Trace phoneText: string = '';
   @Trace codeText: string = '';
-  @Trace inviteText: string = '';
-  /** 手机号页点了「有邀请码？」：展开邀请码输入。 */
-  @Trace inviteOpen: boolean = false;
   @Trace agreed: boolean = false;
   @Trace countdown: number = 0;
   @Trace sending: boolean = false;
@@ -177,7 +155,7 @@ export class LoginModel {
   @Trace phoneError: string = '';
   @Trace codeError: string = '';
   @Trace sentTo: string = '';
-  /** 42901 禁用有变化时递增（禁用截止时刻在 LoginView.limits，发码与登录分开，R2-03）：让按钮状态重新计算。 */
+  /** 42901 禁用有变化时递增（禁用截止时刻在 CodeAutoSubmit，发码与登录分开，R2-03）：让按钮状态重新计算。 */
   @Trace rateLimitStamp: number = 0;
   /** 发码结束时递增：「继续输入验证码」入口重新判断（F-HM-08）。 */
   @Trace entryStamp: number = 0;
@@ -191,7 +169,7 @@ export class LoginModel {
 
 const ROW_ID_CHECKBOX: string = 'login_agree_checkbox';
 const ID_GET_CODE: string = 'login_get_code';
-const ID_SUBMIT: string = 'login_submit';
+const ID_CODE: string = 'login_code';
 const ID_TITLE: string = 'login_title';
 const ID_LINK_AGREEMENT: string = 'login_link_agreement';
 const ID_LINK_PRIVACY: string = 'login_link_privacy';
@@ -206,8 +184,8 @@ const CHECKBOX: number = 20;
 /**
  * 短信登录页（Login / LoginAgreeConfirm / LoginCode / LoginCodeBlocked / LoginCodeInvite / LoginSessionExpired /
  * LoginDeletionProcessing 画板；鸿蒙「其他登录方式」按 LoginPublicHarmony）。一个路由 Login，两步：手机号 → 验证码。
- * 读屏顺序按 A11yFocusLogin：关闭 → 设置 → 标题 → 手机号（含 +86）→ 清除 → 协议复选框（描述为自动注册说明）→ 两个协议链接 →
- * 获取验证码 → 邀请码入口 → 其他登录方式 → 第三方按钮 → 登录遇到问题；品牌方块是装饰。进入页面焦点落在标题，不自动弹键盘。
+ * 读屏顺序按 A11yFocusLogin：关闭 → 标题 → 手机号（含 +86）→ 清除 → 协议复选框（描述为自动注册说明）→ 两个协议链接 →
+ * 获取验证码 → 其他登录方式 → 第三方按钮 → 登录遇到问题；品牌方块是装饰。进入页面焦点落在标题，不自动弹键盘。
  */
 @ComponentV2
 export struct LoginView {
@@ -216,21 +194,28 @@ export struct LoginView {
   @Local fontScale: CouliFontScale = CouliFontScale.shared();
   /** 验证码格子行的可用宽度（vp；onAreaChange 测得前为 0，按设计稿格宽）。 */
   @Local codeAreaWidth: number = 0;
-  private agreement: AgreementState = new AgreementState(() => Date.now());
-  /**
-   * 登录按钮的 42901 截止时刻（R2-03：发码限流不禁用登录按钮）。发码的倒计时与 42901 禁用不在页面存：按号码读
-   * LoginService.sendState（F-HM-09，APP-05a 共性 21）。
-   */
-  private limits: LoginRateLimits = new LoginRateLimits();
-  /** 第三方登录收到 42901 的禁用截止时刻（只禁第三方按钮，与短信发码 / 登录分开）。 */
+  private flow: LoginPageFlow | null = null;
+  private active: boolean = false;
+  private shownConfirm: AgreementConfirmKeys | null = null;
+  private shownFeedback: SendCodeOutcome | null = null;
+  /** 第三方登录的限流独立于短信发码 / 登录。 */
   private oauthUntil: number = 0;
-  /** 验证码修订号（FU-HM-0721，APP-05b 共性 29）：提交时捕获，迟到的 20002 / 20003 只落到仍是提交时那串码的输入框上。 */
-  private readonly codeRev: CodeRevision = new CodeRevision();
+
+  private get pageFlow(): LoginPageFlow {
+    if (this.flow === null) {
+      const flow: LoginPageFlow = new LoginPageFlow(this.config.service, this.config.clock, this.config.restricted);
+      flow.helpLinks = this.config.helpLinks;
+      flow.open = this.config.open;
+      this.flow = flow;
+    }
+    return this.flow;
+  }
+
   private timer: number = -1;
 
   aboutToAppear(): void {
     CouliFontScale.attach(this.getUIContext());
-    this.agreement = new AgreementState(this.config.clock);
+    this.active = true;
     this.model.now = this.config.clock();
     this.config.systemBack = (): boolean => this.systemBack();
     this.config.pageShown = (): void => this.refreshTimers();
@@ -247,7 +232,8 @@ export struct LoginView {
     };
     this.stopTimer();
     // 离开登录页：在途的发码与登录结果不再改页面、不恢复 pending_action（会话若已保存照常生效）。
-    this.config.service.invalidateAttempt();
+    this.active = false;
+    this.pageFlow.backToPhone();
   }
 
   /** 系统返回：验证码步先回手机号步；手机号步交给导航关闭页面。 */
@@ -283,7 +269,7 @@ export struct LoginView {
   }
 
   private timerNeeded(): boolean {
-    return this.config.service.sendState(this.model.phoneText).needsTimer(this.limits.loginBlocked(this.model.now)
+    return this.config.service.sendState(this.model.phoneText).needsTimer(this.pageFlow.code.rateLimited
       || this.model.now < this.oauthUntil);
   }
 
@@ -303,20 +289,6 @@ export struct LoginView {
     }
   }
 
-  /** 发码收到 42901：只禁用这个号码的获取验证码 / 重新获取（截止时间已由 LoginService 按号码记下，R2-03、F-HM-09）。 */
-  private disableSend(outcome: SendCodeOutcome): void {
-    if (outcome.stateRaw === SmsCountdown.STATE_RATE_LIMITED) {
-      this.rateLimitChanged();
-    }
-  }
-
-  /** 登录收到 42901：只禁用登录按钮（LoginRateLimits.applyLogin）。 */
-  private disableLogin(outcome: LoginOutcome): void {
-    if (this.limits.applyLogin(outcome, this.config.clock())) {
-      this.rateLimitChanged();
-    }
-  }
-
   private rateLimitChanged(): void {
     this.model.rateLimitStamp++;
     this.refreshTimers();
@@ -333,160 +305,125 @@ export struct LoginView {
     return this.sendRateLimited() && this.config.service.issuedCodeRemainingSec(this.model.phoneText) <= 0;
   }
 
-  /** 登录按钮是否因 42901 禁用。 */
-  private loginRateLimited(): boolean {
-    return this.model.rateLimitStamp >= 0 && this.limits.loginBlocked(this.model.now);
-  }
-
   // ---------------------------------------------------------------- 协议
 
   private toggleAgreement(): void {
-    if (this.agreement.checked) {
-      this.agreement.uncheck();
+    if (this.pageFlow.agreement.checked) {
+      this.pageFlow.agreement.uncheck();
     } else {
-      this.agreement.check();
+      this.pageFlow.agreement.check();
     }
-    this.model.agreed = this.agreement.checked;
+    this.model.agreed = this.pageFlow.agreement.checked;
   }
 
-  /** 未勾选时弹 LoginAgreeConfirm；同意后记下点击时刻并继续 next。 */
-  private withAgreement(returnFocusId: string, next: () => void): void {
-    this.agreement.tapLogin();
-    if (this.agreement.consumeProceed()) {
-      next();
+  /** Core 已决定是否显示确认框；按钮只转发，不在视图里继续发码。 */
+  private showAgreementConfirm(returnFocusId: string): void {
+    const keys: AgreementConfirmKeys | null = this.pageFlow.confirm;
+    if (keys === null || keys === this.shownConfirm) {
       return;
     }
+    this.shownConfirm = keys;
     const options: CouliDialogOptions = new CouliDialogOptions();
-    options.title = this.t(LoginKeys.CONFIRM_TITLE);
-    options.message = this.t(LoginKeys.CONFIRM_BODY);
-    options.primaryText = this.t(LoginKeys.CONFIRM_OK);
-    options.secondaryText = this.t(LoginKeys.CONFIRM_CANCEL);
+    options.title = this.t(keys.titleKey);
+    options.message = this.t(keys.bodyKey);
+    options.primaryText = this.t(keys.primaryKey);
+    options.secondaryText = this.t(keys.secondaryKey);
     options.returnFocusId = returnFocusId;
-    // R1-13：正文里的《用户协议》《隐私政策》是两个可点、读屏可单独聚焦的链接；点链接关闭确认框（不算同意）并打开协议正文。
     options.links = [new CouliDialogLink(this.t(LoginKeys.AGREE_AGREEMENT), AGREEMENT_TYPE),
       new CouliDialogLink(this.t(LoginKeys.AGREE_PRIVACY), PRIVACY_TYPE)];
-    options.onLink = (type: string) => {
-      this.agreement.cancel();
+    options.onLink = (type: string): void => {
+      if (!this.active || this.pageFlow.confirm !== keys) {
+        return;
+      }
+      this.pageFlow.cancelAgree();
+      this.shownConfirm = null;
       this.config.onAgreement(type);
     };
-    options.onPrimary = () => {
-      this.agreement.confirm(this.config.clock());
-      this.model.agreed = true;
-      if (this.agreement.consumeProceed()) {
-        next();
+    options.onPrimary = (): void => {
+      this.shownConfirm = null;
+      if (this.active && this.pageFlow.confirm === keys) {
+        this.pageAction(this.pageFlow.confirmAgree(), returnFocusId);
       }
     };
-    options.onSecondary = () => {
-      this.agreement.cancel();
+    options.onSecondary = (): void => {
+      if (this.pageFlow.confirm === keys) {
+        this.pageFlow.cancelAgree();
+      }
+      this.shownConfirm = null;
     };
+    options.onDismissed = options.onSecondary;
     CouliDialog.open(this.getUIContext(), options);
   }
 
-  // ---------------------------------------------------------------- 发码与登录
-
-  private requestCode(): void {
-    const phone: PhoneResult = PhoneNumber.normalize(this.model.phoneText);
-    if (!phone.valid) {
-      this.model.phoneError = this.t('error.20001.phone_invalid');
+  /** 动作后的 UI 投影与反馈；Promise 内的协议、发码与换步由 Core 完成。 */
+  private async pageAction(action: Promise<void>, focusId: string): Promise<void> {
+    this.model.sending = true;
+    this.model.agreed = this.pageFlow.agreement.checked;
+    this.model.phoneError = '';
+    try {
+      await action;
+    } finally {
+      this.model.sending = false;
+    }
+    if (!this.active) {
       return;
     }
-    this.model.phoneError = '';
-    // R1-05 / R3-01：这个号码已收到的码仍有效、此刻又不能再发（成功发码的倒计时没到，或发码 42901 限流中）：不发码，
-    // 直接回到验证码步继续输入已收到的码。「继续输入」与「重新发码」分开，限流只禁后者。
-    if (this.model.step === LoginModel.STEP_PHONE) {
-      const entry: PhoneEntry = this.config.service.phoneEntry(this.model.phoneText, this.sendRateLimited());
-      if (entry.kind === PhoneEntry.CONTINUE && entry.phone !== null) {
-        this.enterCodeStep(entry.phone, entry.countdownSec);
-        return;
+    this.model.entryStamp++;
+    this.model.step = this.pageFlow.step;
+    this.model.codeText = this.pageFlow.code.code;
+    this.model.codeError = '';
+    this.model.agreed = this.pageFlow.agreement.checked;
+    this.model.sentTo = PhoneNumber.masked(PhoneNumber.normalize(this.pageFlow.phone).normalized ?? '');
+    this.refreshTimers();
+    this.showAgreementConfirm(focusId);
+    const feedback: SendCodeOutcome | null = this.pageFlow.sendFeedback;
+    if (feedback !== null && feedback !== this.shownFeedback) {
+      if (feedback.field === 'phone') {
+        this.model.phoneError = this.t(feedback.textKey ?? 'error.20001');
       }
-      if (this.sendRateLimited()) {
-        return;
+      if (feedback.field !== 'phone' || this.model.step === LoginModel.STEP_CODE) {
+        this.toast(feedback.textKey, feedback.trace6);
+      }
+      if (feedback.route !== null) {
+        this.config.open(feedback.route, {});
       }
     }
-    this.withAgreement(this.model.step === LoginModel.STEP_PHONE ? ID_GET_CODE : ID_SUBMIT, () => {
-      this.sendCode();
-    });
+    this.shownFeedback = feedback;
   }
 
-  /** 当前号码的「继续输入验证码」入口；没有为 null（读 phoneText 让界面随输入刷新）。 */
+  private requestCode(): void {
+    this.pageAction(this.pageFlow.tapGetCode(), ID_GET_CODE);
+  }
+
   private continueEntry(): PhoneEntry | null {
     const entry: PhoneEntry = this.config.service.continueEntry(this.model.phoneText);
     return entry.kind === PhoneEntry.CONTINUE ? entry : null;
   }
 
-  private enterCodeStep(normalizedPhone: string, _seconds: number): void {
-    this.model.sentTo = PhoneNumber.masked(normalizedPhone);
-    this.model.codeText = '';
+  /** 输入、粘贴和系统填充共用这一个入口；不在视图里调用 login 或重试。 */
+  private inputCode(value: string): void {
+    const pending: Promise<CodeSubmitResult> | null = this.pageFlow.code.input(value);
+    this.model.codeText = this.pageFlow.code.code;
     this.model.codeError = '';
-    this.model.step = LoginModel.STEP_CODE;
-    // 倒计时按这个号码保存的截止时间现算（_seconds 与之相同，只作说明）。
-    this.refreshTimers();
+    if (pending !== null) {
+      this.model.submitting = true;
+      this.showCodeResult(pending);
+    }
   }
 
-  private async sendCode(): Promise<void> {
-    if (this.model.sending) {
-      return;
-    }
-    this.model.sending = true;
-    let outcome: SendCodeOutcome;
+  private async showCodeResult(pending: Promise<CodeSubmitResult>): Promise<void> {
+    let result: CodeSubmitResult;
     try {
-      outcome = await this.config.service.sendCode(this.model.phoneText);
-    } finally {
-      this.model.sending = false;
-      this.model.entryStamp++;
-    }
-    switch (outcome.stateRaw) {
-      case SmsCountdown.STATE_SENT:
-      case LoginService.STATE_COUNTDOWN:
-        // 发码成功，或这个号码的倒计时还没到（不再发出，R1-05）：进验证码步，倒计时按剩余秒数。
-        if (this.model.step === LoginModel.STEP_CODE && outcome.stateRaw === LoginService.STATE_COUNTDOWN) {
-          this.refreshTimers();
-          return;
-        }
-        this.enterCodeStep(outcome.phone ?? '', outcome.countdownSec);
-        return;
-      case SmsCountdown.STATE_RATE_LIMITED:
-        this.disableSend(outcome);
-        this.toast(outcome.textKey, outcome.trace6);
-        return;
-      case LoginOutcome.STALE:
-        // FU-HM-0722（F-X-13 / APP-05b 共性 34）：在途时改过号码的旧结果不提示、不改字段，但服务里可能已按规范化号码记下截止时间
-        // （传输取消前已到达的成功 / 42901）：按当前号码重算倒计时 / 限流并在需要时启动计时器，到期自动恢复。
-        this.refreshTimers();
-        return;
-      case LoginOutcome.BUSY:
-        return;
-      default:
-        if (outcome.field === 'phone') {
-          this.model.phoneError = this.t(outcome.textKey ?? 'error.20001');
-          if (this.model.step === LoginModel.STEP_CODE) {
-            this.toast(outcome.textKey, outcome.trace6);
-          }
-          return;
-        }
-        this.toast(outcome.textKey, outcome.trace6);
-    }
-  }
-
-  private submit(): void {
-    if (!CodeInput.accept(this.model.codeText).complete || this.model.submitting) {
-      return;
-    }
-    this.withAgreement(ID_SUBMIT, () => {
-      this.login();
-    });
-  }
-
-  private async login(): Promise<void> {
-    this.model.submitting = true;
-    const stamp: CodeStamp = this.codeRev.capture(this.model.codeText);
-    let outcome: LoginOutcome;
-    try {
-      outcome = await this.config.service.login(this.model.phoneText, this.model.codeText,
-        this.agreement.consentAtMillis, this.config.restricted ? '' : this.model.inviteText, this.config.restricted);
+      result = await pending;
     } finally {
       this.model.submitting = false;
     }
+    const outcome: LoginOutcome = result.outcome;
+    // 成功会先关闭页面，仍需交给 entry 展示登录后结果。
+    if (!this.active && outcome.stateRaw !== LoginOutcome.LOGGED_IN) {
+      return;
+    }
+    this.model.codeText = this.pageFlow.code.code;
     switch (outcome.stateRaw) {
       case LoginOutcome.LOGGED_IN:
         this.stopTimer();
@@ -498,22 +435,21 @@ export struct LoginView {
       case LoginOutcome.CODE_INCOMPLETE:
         return;
       case 'code_error':
-        if (!this.codeRev.current(stamp, this.model.codeText)) {
+        if (!result.current) {
           // 共性 29：提交期间改了验证码，旧码的错误不显示在新码上。
           return;
         }
         this.model.codeError = this.t(outcome.textKey ?? 'error.20002');
         return;
       case 'code_expired':
-        if (!this.codeRev.current(stamp, this.model.codeText)) {
+        if (!result.current) {
           // 共性 29：旧码过期不清空用户新输入的码。
           return;
         }
         this.model.codeError = this.t(outcome.textKey ?? 'error.20003');
-        this.model.codeText = this.codeRev.change(this.model.codeText, '');
         return;
       case 'rate_limited':
-        this.disableLogin(outcome);
+        this.rateLimitChanged();
         this.toast(outcome.textKey, outcome.trace6);
         return;
       case 'registration_blocked':
@@ -529,7 +465,9 @@ export struct LoginView {
           return;
         }
         if (outcome.field === 'code') {
-          this.model.codeError = this.t(outcome.textKey ?? 'error.20001');
+          if (result.current) {
+            this.model.codeError = this.t(outcome.textKey ?? 'error.20001');
+          }
           return;
         }
         this.toast(outcome.textKey, outcome.trace6);
@@ -562,7 +500,7 @@ export struct LoginView {
     options.primaryText = this.t(LoginKeys.RISK_BLOCKED_OK);
     options.secondaryText = this.t(LoginKeys.APPEAL);
     options.dismissOnMask = false;
-    options.returnFocusId = ID_SUBMIT;
+    options.returnFocusId = ID_CODE;
     options.onSecondary = () => this.config.onCustomerService();
     CouliDialog.open(this.getUIContext(), options);
   }
@@ -574,7 +512,7 @@ export struct LoginView {
     options.message = this.t(LoginKeys.DELETION_BODY);
     options.primaryText = this.t(LoginKeys.DELETION_OK);
     options.secondaryText = this.t(LoginKeys.DELETION_CS);
-    options.returnFocusId = ID_SUBMIT;
+    options.returnFocusId = ID_CODE;
     options.onSecondary = () => this.config.onCustomerService();
     CouliDialog.open(this.getUIContext(), options);
   }
@@ -583,7 +521,8 @@ export struct LoginView {
 
   /** 入口显示（FU-HM-0721，共性 28：受限只隐藏业务入口，第三方按适配器可用性）。 */
   private entries(): LoginPageEntries {
-    return LoginPageEntries.of(this.config.oauth, this.config.restricted, this.config.showThirdPartySlot);
+    return LoginPageEntries.of(this.config.oauth, this.config.restricted, this.config.showThirdPartySlot,
+      this.config.service.lastLoginMethod?.read() ?? null);
   }
 
   private providers(): string[] {
@@ -603,9 +542,7 @@ export struct LoginView {
     if (this.model.oauthBusy || this.oauthBlocked() || this.model.sending || this.model.submitting) {
       return;
     }
-    this.withAgreement(focusId, () => {
-      this.loginWith(provider);
-    });
+    this.pageAction(this.pageFlow.tapOAuth((): Promise<void> => this.loginWith(provider)), focusId);
   }
 
   private async loginWith(provider: string): Promise<void> {
@@ -616,7 +553,7 @@ export struct LoginView {
     this.model.oauthBusy = true;
     let outcome: OAuthLoginOutcome;
     try {
-      outcome = await oauth.loginWith(provider, this.agreement.consentAtMillis, this.config.restricted);
+      outcome = await oauth.loginWith(provider, this.pageFlow.agreement.consentAtMillis, this.config.restricted);
     } finally {
       this.model.oauthBusy = false;
     }
@@ -679,8 +616,8 @@ export struct LoginView {
   }
 
   private backToPhone(): void {
-    this.config.service.invalidateAttempt();
-    this.model.step = LoginModel.STEP_PHONE;
+    this.pageFlow.backToPhone();
+    this.model.step = this.pageFlow.step;
     this.model.codeText = '';
     this.model.codeError = '';
   }
@@ -710,17 +647,6 @@ export struct LoginView {
         }
       })
       Blank()
-      if (this.entries().settings) {
-        Text(this.t(LoginKeys.SETTINGS))
-          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis, CouliFontWeight.medium))
-          .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
-          .textAlign(TextAlign.End)
-          .accessibilityRole(AccessibilityRoleType.BUTTON)
-          .focusable(true)
-          .focusBox(CouliFocus.box)
-          .id('login_settings')
-          .onClick(() => this.config.onSettings())
-      }
     }
     .width('100%')
     .padding({ left: CouliSpacing.space2, right: CouliSpacing.space4 })
@@ -767,8 +693,7 @@ export struct LoginView {
         }
         .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
         .accessibilityGroup(true)
-        .accessibilityText(this.t(LoginKeys.AGREE_PREFIX))
-        .accessibilityDescription(this.t(LoginKeys.AGREE_HINT))
+        .accessibilityText(this.config.agreementSentence.accessibilityText)
         .accessibilityRole(AccessibilityRoleType.CHECKBOX)
         .accessibilityChecked(this.model.agreed)
         .focusable(true)
@@ -822,7 +747,7 @@ export struct LoginView {
               this.model.phoneText = value;
               this.model.phoneError = '';
               // 换号：作废在途发码（旧号的结果不再改页面）；发码状态随号码切换（F-HM-09）。
-              this.config.service.invalidateAttempt();
+              this.pageFlow.phone = value;
               this.refreshTimers();
             }
           })
@@ -838,7 +763,7 @@ export struct LoginView {
           .accessibilityRole(AccessibilityRoleType.BUTTON)
           .onClick(() => {
             this.model.phoneText = '';
-            this.config.service.invalidateAttempt();
+            this.pageFlow.phone = '';
             this.refreshTimers();
           })
         }
@@ -856,80 +781,6 @@ export struct LoginView {
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
-  }
-
-  @Builder
-  inviteField() {
-    Column({ space: CouliSpacing.space2 }) {
-      Row({ space: CouliSpacing.space2 }) {
-        Text(this.t(LoginKeys.INVITE_LABEL))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-          .accessibilityLevel('no')
-          .layoutWeight(1)
-        if (this.config.invitePaste.available) {
-          // LoginCodeInvite 邀请码行右侧【粘贴】：系统 PasteButton，SUCCESS 后才读，只抽码填入（APP-07）
-          CouliPasteButton({
-            disabled: this.config.invitePaste.blocked,
-            buttonId: 'login_invite_paste',
-            onResult: (success: boolean) => {
-              this.pasteInvite(success);
-            }
-          })
-        }
-      }
-      .width('100%')
-      Row() {
-        TextInput({ text: this.model.inviteText, placeholder: this.t(LoginKeys.INVITE_PLACEHOLDER) })
-          .maxLength(32)
-          .fontSize(CouliTypography.title.fontSize)
-          .fontColor(CouliColors.textPrimary)
-          .backgroundColor(Color.Transparent)
-          .layoutWeight(1)
-          .height(INPUT_HEIGHT)
-          .accessibilityText(this.t(LoginKeys.INVITE_LABEL))
-          .id('login_invite')
-          .onChange((value: string) => {
-            this.model.inviteText = value;
-          })
-        if (this.model.inviteText.length > 0) {
-          Row() {
-            CouliIcon({ name: 'close', iconSize: 18, color: CouliColors.textSecondary })
-          }
-          .width(CouliInteraction.minTouchTarget)
-          .height(CouliInteraction.minTouchTarget)
-          .justifyContent(FlexAlign.Center)
-          .accessibilityGroup(true)
-          .accessibilityText(this.t(LoginKeys.INVITE_CLEAR))
-          .accessibilityRole(AccessibilityRoleType.BUTTON)
-          .onClick(() => {
-            this.model.inviteText = '';
-          })
-        }
-      }
-      .width('100%')
-      .padding({ left: CouliSpacing.space2 })
-      .borderRadius(CouliRadius.button)
-      .border({ width: 1, color: CouliColors.borderControl })
-      .backgroundColor(CouliColors.backgroundSurface)
-      // 告知句（BR-INV-18 细则）：输入框下方，有效码与无效码都显示；语法不对不拦登录（INVITE-01）。
-      Text(this.t(this.inviteDecision().noticeKey ?? InviteField.NOTICE_KEY))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-    }
-    .alignItems(HorizontalAlign.Start)
-    .width('100%')
-  }
-
-  private async pasteInvite(success: boolean): Promise<void> {
-    const code: string | null = await this.config.onInvitePaste(success);
-    if (code !== null) {
-      this.model.inviteText = code;
-    }
-  }
-
-  private inviteDecision(): InviteDecision {
-    const context: Record<string, Object> = {};
-    context['restricted'] = this.config.restricted;
-    return InviteField.decide(this.model.inviteText, context);
   }
 
   /** 圆形图标 + 短标签的第三方按钮（Login 画板「微信」：48vp 圆、描边、下方 12 号标签；整体一个读屏单元）。 */
@@ -956,6 +807,7 @@ export struct LoginView {
     .opacity(this.oauthBlocked() ? 0.4 : 1)
     .accessibilityGroup(true)
     .accessibilityText(this.t(LoginKeys.WECHAT))
+    .accessibilityDescription(this.entries().lastMethod === provider ? this.t(LoginKeys.LAST_METHOD) : '')
     .accessibilityRole(AccessibilityRoleType.BUTTON)
     .enabled(!this.oauthBlocked())
     .focusable(true)
@@ -1007,7 +859,7 @@ export struct LoginView {
         .focusable(true)
         .focusBox(CouliFocus.box)
         .id('login_help')
-        .onClick(() => this.config.onHelp())
+        .onClick(() => this.pageFlow.openCodeHelp())
     }
   }
 
@@ -1057,29 +909,7 @@ export struct LoginView {
           .focusable(true)
           .focusBox(CouliFocus.box)
           .id('login_continue_code')
-          .onClick(() => {
-            const entry: PhoneEntry | null = this.continueEntry();
-            if (entry !== null && entry.phone !== null) {
-              this.enterCodeStep(entry.phone, entry.countdownSec);
-            }
-          })
-      }
-      if (this.entries().invite) {
-        if (this.model.inviteOpen) {
-          this.inviteField()
-        } else {
-          Text(this.t(LoginKeys.INVITE_ENTRY))
-            .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis))
-            .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-            .textAlign(TextAlign.Center)
-            .accessibilityRole(AccessibilityRoleType.BUTTON)
-            .focusable(true)
-            .focusBox(CouliFocus.box)
-            .id('login_invite_entry')
-            .onClick(() => {
-              this.model.inviteOpen = true;
-            })
-        }
+          .onClick(() => this.pageAction(this.pageFlow.tapContinue(), 'login_continue_code'))
       }
       Blank().layoutWeight(1)
       if (this.entries().thirdPartySlot) {
@@ -1134,13 +964,10 @@ export struct LoginView {
         .width('100%')
         .height(this.codeLayout().cellHeight)
         .accessibilityText(this.t(LoginKeys.CODE_LABEL))
-        .id('login_code')
+        .id(ID_CODE)
         .defaultFocus(true)
-        .onChange((value: string) => {
-          const clean: string = CodeInput.sanitize(value);
-          this.model.codeText = this.codeRev.change(this.model.codeText, clean);
-          this.model.codeError = '';
-        })
+        .enabled(!this.model.sending)
+        .onChange((value: string) => this.inputCode(value))
     }
     .width('100%')
     .onAreaChange((_old: Area, now: Area) => {
@@ -1172,6 +999,16 @@ export struct LoginView {
           .width('100%')
       }
       Row() {
+        if (this.entries().help) {
+          Text(this.t(LoginKeys.CODE_HELP))
+            .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis))
+            .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+            .accessibilityRole(AccessibilityRoleType.BUTTON)
+            .focusable(true)
+            .focusBox(CouliFocus.box)
+            .id('login_code_help')
+            .onClick(() => this.pageFlow.openCodeHelp())
+        }
         Blank()
         if (this.model.countdown > 0) {
           Text(this.fmt(LoginKeys.CODE_COUNTDOWN, 'sec', String(this.model.countdown)))
@@ -1182,26 +1019,14 @@ export struct LoginView {
               this.sendRateLimited() ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.medium))
             .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
             .accessibilityRole(AccessibilityRoleType.BUTTON)
-            .enabled(!this.sendRateLimited() && !this.model.sending)
+            .enabled(!this.sendRateLimited() && !this.model.sending && !this.model.submitting)
             .focusable(true)
             .focusBox(CouliFocus.box)
             .id('login_resend')
-            .onClick(() => this.requestCode())
+            .onClick(() => this.pageAction(this.pageFlow.tapResend(), 'login_resend'))
         }
       }
       .width('100%')
-      if (this.entries().invite) {
-        this.inviteField()
-      }
-      this.agreementRow()
-      CouliButton({
-        text: this.t(LoginKeys.SUBMIT),
-        fullWidth: true,
-        loading: this.model.submitting,
-        disabled: !CodeInput.accept(this.model.codeText).complete || this.loginRateLimited(),
-        buttonId: ID_SUBMIT,
-        onTap: () => this.submit()
-      })
       Blank().layoutWeight(1)
       this.helpEntry()
     }

@@ -116,6 +116,7 @@ import followupHM0725Test from './FollowupHM0725.test';
 import followupHM0725ContractTest from './FollowupHM0725Contract.test';
 import followupHM0726Test from './FollowupHM0726.test';
 import pendingInviteHM13cTest from './PendingInviteHM13c.test';
+import loginHM13aTest from './LoginHM13a.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -242,4 +243,5 @@ export default function testsuite() {
   followupHM0725ContractTest();
   followupHM0726Test();
   pendingInviteHM13cTest();
+  loginHM13aTest();
 }
