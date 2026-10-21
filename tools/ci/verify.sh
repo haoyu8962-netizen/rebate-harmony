@@ -350,6 +350,19 @@ step "桥启动脚本执行测试（node 沙箱，APP-04 R2-07）"
 "$NODE_BIN/node" "$ROOT/tools/ci/bridge-bootstrap-test.js" "$ROOT" || fail_fast "bridge-bootstrap-test" "见上方输出"
 record "bridge-bootstrap-test" PASS "启动脚本在途 id 行为"
 
+# F-X-24：远程禁用桥方法（配置整键校验、准入 90403、has()、原生推送 / 去重 / 令牌门控）。锁定版本的 H5 SDK 源码
+# 从上面 contract.lock 一致性一步解析出的 rebate-platform（RP_DIR，按 contract.lock 的提交 git show）读取；TypeScript 用
+# DevEco SDK 自带的。
+step "远程禁用桥方法执行测试（node，F-X-24）"
+REBATE_PLATFORM_DIR="$RP_DIR" \
+    COULI_HM_TYPESCRIPT="$DEVECO_SDK_HOME/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript" \
+    "$NODE_BIN/node" "$ROOT/tools/ci/bridge-disabled-methods-test.js" >"$LOG_DIR/bridge-disabled-methods-test.log" 2>&1 \
+    || { tail -40 "$LOG_DIR/bridge-disabled-methods-test.log" || true; fail_fast "bridge-disabled-methods-test" "见 ${LOG_DIR}/bridge-disabled-methods-test.log"; }
+grep -E '^(PASS|FAIL) |^H5 has\(\) source|^Tests run' "$LOG_DIR/bridge-disabled-methods-test.log" || true
+BDM_SUMMARY="$(grep -E '^Tests run' "$LOG_DIR/bridge-disabled-methods-test.log" | tail -1 || true)"
+[ -n "$BDM_SUMMARY" ] || fail_fast "bridge-disabled-methods-test" "没有测试汇总行"
+record "bridge-disabled-methods-test" PASS "$BDM_SUMMARY"
+
 # ---------------------------------------------------------------- 3. SDK 版本（规划 D5）
 step "SDK 版本：compile/target = 已装 SDK（API 24），compatible = API 20"
 SDK_VERSION="$(python3 - "$SDK_PKG" "$ROOT/build-profile.json5" <<'PY'

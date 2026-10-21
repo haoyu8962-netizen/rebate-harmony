@@ -69,6 +69,13 @@ export class BridgeResult {
   static fail(code: number): BridgeResult {
     return new BridgeResult(code, '{}');
   }
+
+  /** 远程禁用（03 §5.3「方法远程禁用（试行）」，F-X-24）：90403 + data.reason=method_disabled。 */
+  static disabled(): BridgeResult {
+    const data: BridgeJson = {};
+    data['reason'] = BridgeHost.REASON_METHOD_DISABLED;
+    return new BridgeResult(BridgeCode.FORBIDDEN, JSON.stringify(data));
+  }
 }
 
 /** 一次调用的结算：回复文本（不回复为 null）与回复交出后的动作。 */
@@ -288,11 +295,15 @@ export type BridgeTrackPort = (event: ClientEvent) => void;
  *   trade.openProduct 交 Router 按只读页面清单判定（不在清单内 90500）、其余 90500；低于最低版本时 90500，只有从强更页
  *   进入的页面里只读方法照常。被拒的调用不排队、不补执行。
  * - 超时：方法声明了 timeout_ms 的，到时 90003（结果未知，迟到的结果丢弃）。
+ * - 远程禁用（F-X-24）：disabledMethods 里的方法在可信主框架判断之后、其余协议判定与能力实现之前直接 90403 +
+ *   data.reason=method_disabled（强更等待后重判时同样）；supportedMethods 不声明它们。
  * - 被拒（非 0 码）时记一条 bridge_call 埋点（方法名与错误码）。
  * 单线程（UI 线程）使用。
  */
 export class BridgeHost {
   static readonly BRIDGE_VERSION: number = 1;
+  /** 远程禁用时回复 data.reason 的取值（03 §5.3）。 */
+  static readonly REASON_METHOD_DISABLED: string = 'method_disabled';
   /** 未知状态下照常执行的只读方法（03 §4.4「未知状态下的桥调用」第一类）。 */
   static readonly READ_ONLY_METHODS: string[] = [
     'app.getEnv', 'app.getConfig', 'auth.getUser', 'auth.getH5Token', 'ui.toast', 'ui.showLoading', 'ui.hideLoading',
@@ -321,6 +332,11 @@ export class BridgeHost {
    */
   onCallExpired: (valid: () => boolean) => void = (_v: () => boolean) => {
   };
+  /**
+   * 远程禁用的方法（/v1/config bridge_disabled_methods 的生效值，App 接 ConfigStore.bridgeDisabledMethods；F-X-24）。
+   * 每次准入与能力声明时读当时的值（配置更新后下一次调用即生效）；读不出按 []。
+   */
+  disabledMethods: () => string[] = () => [];
 
   constructor(state: BridgeStatePort, clock: BridgeClock = new SystemBridgeClock()) {
     this.state = state;
@@ -341,11 +357,13 @@ export class BridgeHost {
    * 方法，按 schema 顺序（与 Android 同一口径）。暂未实现的（trade.*、share.open、media.*、ext.*、cs.open）照样声明：调用先过
    * 协议判定（参数、手势、登录、白名单），通过后才由 process 回 90001，一致性页的 bad_params / no_gesture / 90403 用例才能
    * 测到协议层。since.harmony 为 null 的（clipboard.read、P1）不声明，SDK 自己返回 90001。
+   * 远程禁用的方法（disabledMethods）不声明：H5 的 has() 对它返回 false（F-X-24）。
    */
   supportedMethods(): string[] {
     const out: string[] = [];
+    const disabled: string[] = this.currentDisabled();
     BridgeMethods.all.forEach((spec: BridgeMethodSpec, name: string) => {
-      if (spec.sinceHarmony !== null && BridgeSchema.hasMethod(name)) {
+      if (spec.sinceHarmony !== null && BridgeSchema.hasMethod(name) && disabled.indexOf(name) < 0) {
         out.push(name);
       }
     });
@@ -480,9 +498,9 @@ export class BridgeHost {
     const spec: BridgeMethodSpec | undefined = BridgeMethods.spec(method);
     const budget: CallBudget = new CallBudget(spec === undefined || spec.timeoutMs === null ? null :
       this.clock.now() + spec.timeoutMs);
-    const decision: BridgeDecision = this.decide(method, paramsJson, caller);
-    if (!decision.allow) {
-      return BridgeResult.fail(decision.errorCode ?? BridgeCode.FORBIDDEN);
+    const refused: BridgeResult | null = this.admit(method, paramsJson, caller);
+    if (refused !== null) {
+      return refused;
     }
     const handler: BridgeHandler | undefined = this.handlers.get(method);
     if (handler === undefined) {
@@ -500,9 +518,9 @@ export class BridgeHost {
     if (!this.samePage(caller)) {
       return null;
     }
-    const again: BridgeDecision = this.decide(method, paramsJson, caller);
-    if (!again.allow) {
-      return BridgeResult.fail(again.errorCode ?? BridgeCode.FORBIDDEN);
+    const again: BridgeResult | null = this.admit(method, paramsJson, caller);
+    if (again !== null) {
+      return again;
     }
     if (this.currentBinding() !== binding) {
       return BridgeResult.fail(BridgeCode.NATIVE_ERROR);
@@ -525,11 +543,27 @@ export class BridgeHost {
     return this.runWithTimeout(handler, call, budget);
   }
 
-  private decide(method: string, paramsJson: string, caller: BridgeCaller): BridgeDecision {
+  /**
+   * 准入（在任何能力实现之前）：可信主框架之后先看远程禁用（F-X-24：列表里的方法直接 90403 + reason=method_disabled，
+   * 不执行实现、不发请求，含 net.signedRequest 与本端未实现的方法），再交 BridgeProtocol 判定。通过为 null。
+   */
+  private admit(method: string, paramsJson: string, caller: BridgeCaller): BridgeResult | null {
     const protocol: BridgeProtocol = new BridgeProtocol(this.state.trustedOrigins(), this.state.linkPatterns(),
       this.state.shareDomains());
-    return protocol.decide(new BridgeContext(method, caller.origin, caller.isMainFrame,
+    if (protocol.callerAllowed(caller.isMainFrame, caller.origin) && this.currentDisabled().indexOf(method) >= 0) {
+      return BridgeResult.disabled();
+    }
+    const decision: BridgeDecision = protocol.decide(new BridgeContext(method, caller.origin, caller.isMainFrame,
       caller.userGesture, this.state.privacy(), this.state.loggedIn(), paramsJson));
+    return decision.allow ? null : BridgeResult.fail(decision.errorCode ?? BridgeCode.FORBIDDEN);
+  }
+
+  private currentDisabled(): string[] {
+    try {
+      return this.disabledMethods();
+    } catch (e) {
+      return [];
+    }
   }
 
   private samePage(caller: BridgeCaller): boolean {
@@ -633,7 +667,7 @@ export class BridgeHost {
     } catch (e) {
       // 埋点失败不影响响应。
     }
-    return BridgeWire.failure(id, result.code);
+    return BridgeWire.failure(id, result.code, result.dataJson);
   }
 
   /** 埋点里的方法名：只记 schema 里的方法名，其余（not_exposed、未知、超长）记 unknown，不把 H5 传来的任意字符串写进埋点。 */

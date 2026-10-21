@@ -66,6 +66,12 @@ export class TrustedWebConfig {
   /** 加载失败、证书错误、被拦等诊断（只给日志用，不带完整 URL）。 */
   onDiagnostic: (kind: string) => void = (_kind: string) => {
   };
+  /**
+   * 订阅「声明给 H5 的方法可能变了」（远程禁用名单随配置更新，F-X-24）：容器出现时登记、消失时用返回的函数取消；
+   * 每次通知时把 host.supportedMethods() 同步进当前页面。缺省不订阅。
+   */
+  watchMethods: (changed: () => void) => () => void = (_changed: () => void) => (): void => {
+  };
 
   constructor(url: string, host: BridgeHost, trustedOrigins: () => string[], env: BridgeEnvInfo) {
     this.url = url;
@@ -152,6 +158,15 @@ export class BridgeTransport {
   private readonly replies: BridgeReplyChannel;
   /** 每次回复的诊断（只有错误码与调用方是否主框架，不带方法参数与 URL）。 */
   private readonly diagnostic: (kind: string) => void;
+  /**
+   * 已随 deliverToken 交给当前文档的令牌，与最近一次交出的方法列表 JSON（F-X-24）：syncMethods 只给已拿到当前令牌的文档推，
+   * 列表与最近交出的相同不重推。令牌轮换（换文档）后要等 deliverToken 把新令牌和最新列表一起送进新文档。
+   * 脚本按交出顺序执行，所以去重比的是「最近交出」的列表（还在执行中的也算）；执行失败时撤回这两个标记（只撤回仍是
+   * 最近一次交出、且令牌仍相同的那次——pushSeq 与令牌比对，旧文档的迟到回调不会改掉新文档的状态），下一次通知重送。
+   */
+  private deliveredToken: string = '';
+  private sentMethods: string = '';
+  private pushSeq: number = 0;
 
   constructor(controller: webview.WebviewController, host: BridgeHost, trustedOrigins: () => string[],
     diagnostic: (kind: string) => void = (_k: string) => {
@@ -229,14 +244,75 @@ export class BridgeTransport {
     if (origin === null || !OriginRules.allowed(origin, this.trustedOrigins())) {
       return;
     }
-    const script: string = 'window.__couliBridgeToken && window.__couliBridgeToken(' + JSON.stringify(token) + ');';
+    // 送令牌的同时同步当前声明的方法（F-X-24：注入脚本里的列表在容器创建时生成，之后远程禁用名单可能已变）。每次都送：
+    // 新文档、加载完成、同文档导航、hello 补送都要拿到令牌与最新列表（含前进后退回来的文档）。
+    const methods: string = JSON.stringify(this.host.supportedMethods());
+    const script: string = 'window.__couliBridgeToken && window.__couliBridgeToken(' + JSON.stringify(token) + ');'
+      + BridgeTransport.methodsScript(token, methods);
+    // 页面已离开（执行失败）：下一个页面开始时会再送；控制器未就绪（同步抛错）：页面加载完成时再送。
+    this.push(script, token, methods, true);
+  }
+
+  /**
+   * 交出一段带令牌 / 方法列表的脚本并记下状态（F-X-24）：交出即记（后续去重要比最近交出的列表），执行失败再撤回；
+   * 同步抛错不记。withToken：这段脚本同时送令牌（失败时连同 deliveredToken 一起撤回）。
+   */
+  private push(script: string, token: string, methods: string, withToken: boolean): void {
+    let running: Promise<string>;
     try {
-      this.controller.runJavaScript(script).catch((): void => {
-        // 页面已离开：下一个页面开始时会再送。
-      });
+      running = this.controller.runJavaScript(script);
     } catch (e) {
-      // 控制器未就绪：页面加载完成时再送。
+      return;
     }
+    this.pushSeq++;
+    const seq: number = this.pushSeq;
+    if (withToken) {
+      this.deliveredToken = token;
+    }
+    this.sentMethods = methods;
+    running.catch((): void => {
+      if (withToken && this.deliveredToken === token && this.session.currentToken() === token) {
+        this.deliveredToken = '';
+      }
+      if (seq === this.pushSeq && this.deliveredToken === token) {
+        this.sentMethods = '';
+      }
+    });
+  }
+
+  /**
+   * 配置变化（F-X-24）：把 host.supportedMethods() 送进当前主框架，H5 的 has() 下一次读到新列表。用当前令牌调启动脚本的
+   * __couliBridgeMethods（令牌不符不改）。不送的情形：当前文档还没拿到当前令牌（没有令牌、换文档后还没 deliverToken，
+   * 由 deliverToken 连同令牌一起送）、列表与上次送进这个文档的相同（成功刷新但名单没变、304）、当前主框架不是可信源
+   * （每次现读控制器地址和白名单，不沿用旧结论）。
+   */
+  syncMethods(): void {
+    const token: string = this.session.currentToken();
+    if (token.length === 0 || token !== this.deliveredToken) {
+      return;
+    }
+    const methods: string = JSON.stringify(this.host.supportedMethods());
+    if (methods === this.sentMethods) {
+      return;
+    }
+    let main: string = '';
+    try {
+      main = this.controller.getUrl();
+    } catch (e) {
+      return;
+    }
+    const origin: string | null = OriginRules.ofUrl(main);
+    if (origin === null || !OriginRules.allowed(origin, this.trustedOrigins())) {
+      return;
+    }
+    // 执行失败撤回标记，下一次配置通知重送；页面已离开时下一个页面开始会随令牌再送。
+    this.push(BridgeTransport.methodsScript(token, methods), token, methods, false);
+  }
+
+  /** methodsJson：方法名数组的 JSON 文本。 */
+  private static methodsScript(token: string, methodsJson: string): string {
+    return 'window.__couliBridgeMethods && window.__couliBridgeMethods(' + JSON.stringify(token) + ','
+      + methodsJson + ');';
   }
 
   /** 代理方法里同步执行：先读调用方 frame 的 URL（必须在这次调用的回调里读），再异步处理。 */
@@ -313,6 +389,9 @@ export struct TrustedWebView {
   }, (): void => {
   });
   private origins: string[] = [];
+  /** 取消订阅方法列表变化（F-X-24）。 */
+  private unwatchMethods: () => void = (): void => {
+  };
   private appListener: ApplicationStateListener | null = null;
   /** 进入容器时的系统栏样式（ui.setNavBar 改过 status_bar_style 时，离开容器恢复）。 */
   private savedStatusBar: window.SystemBarProperties | null = null;
@@ -327,6 +406,7 @@ export struct TrustedWebView {
       (): string[] => this.config.trustedOrigins(), (kind: string): void => this.config.onDiagnostic(kind));
     this.transport = transport;
     this.nativeObject = transport.nativeObject;
+    this.unwatchMethods = this.config.watchMethods((): void => this.transport?.syncMethods());
     this.config.teardown = (): void => {
       this.transport?.dispose();
       try {
@@ -351,6 +431,9 @@ export struct TrustedWebView {
 
   aboutToDisappear(): void {
     // 路由真正出栈时 teardown（APP-04 共性 28，F-HM-07）：先作废全部调用，再停止加载。只被盖住时不会走到这里。
+    this.unwatchMethods();
+    this.unwatchMethods = (): void => {
+    };
     this.transport?.dispose();
     try {
       this.controller.stop();

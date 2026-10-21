@@ -86,6 +86,10 @@ export interface ConfigLayers {
 
 export class ConfigStore implements ConfigLayers {
   static readonly LKG_FORMAT: number = 1;
+  /** /v1/config 顶层键：远程禁用的桥方法（F-X-24）。 */
+  static readonly BRIDGE_DISABLED_METHODS: string = 'bridge_disabled_methods';
+  /** 契约 openapi Config.bridge_disabled_methods.items.pattern。 */
+  private static readonly BRIDGE_METHOD_PATTERN: RegExp = new RegExp('^[a-z][a-zA-Z0-9]*\\.[a-z][a-zA-Z0-9]*$');
 
   private readonly readFile: () => string | null;
   private readonly writeFile: (value: string | null) => void;
@@ -231,6 +235,54 @@ export class ConfigStore implements ConfigLayers {
       }
     }
     return null;
+  }
+
+  /**
+   * 远程禁用的桥方法（03 §5.3「方法远程禁用（试行）」；04 bridge_disabled_methods；F-X-24）：与其他顶层键同口径，按
+   * 当前 → LKG → 包内取第一个「有这个键」的层（显式 null 也算有，只是不合法）。所有层都没有 → []，不记日志。
+   * 取到的值整体校验：必须是数组，每项是字符串且合方法名格式（契约 Config.bridge_disabled_methods 的 pattern），且不重复
+   * （uniqueItems）；任何一处不合 → 整键按缺省 []，并调 warn 一次、只传键名（不带原值），不逐项挑拣。合法时原样返回副本；
+   * 不核对是否是本端支持的方法（未知方法名无副作用）。显式 [] 有效，不回落到旧层。
+   */
+  bridgeDisabledMethods(warn: (key: string) => void = (_key: string): void => {
+  }): string[] {
+    const key: string = ConfigStore.BRIDGE_DISABLED_METHODS;
+    for (const layer of this.layers()) {
+      const value: Object | undefined = layer[key];
+      if (value === undefined) {
+        continue;
+      }
+      const methods: string[] | null = ConfigStore.methodList(value);
+      if (methods === null) {
+        try {
+          warn(key);
+        } catch (e) {
+          // 日志出口出错不影响取值。
+        }
+        return [];
+      }
+      return methods;
+    }
+    return [];
+  }
+
+  /** 整键校验：不是数组、有一项不是字符串或不合格式、有重复 → null。 */
+  private static methodList(value: Object | null): string[] | null {
+    if (value === null || !Array.isArray(value)) {
+      return null;
+    }
+    const out: string[] = [];
+    for (const item of value as Object[]) {
+      if (typeof item !== 'string') {
+        return null;
+      }
+      const name: string = item as string;
+      if (!ConfigStore.BRIDGE_METHOD_PATTERN.test(name) || out.indexOf(name) >= 0) {
+        return null;
+      }
+      out.push(name);
+    }
+    return out;
   }
 
   /**

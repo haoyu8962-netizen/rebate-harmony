@@ -17,6 +17,7 @@ if (!match) {
 }
 const DUPLICATE_CODE = 90002;
 const DUPLICATE_MSG = 'invalid params';
+const PAGE_TOKEN = '0123456789abcdef0123456789abcdef'; // gitleaks:allow 测试用假令牌
 
 function script(methods) {
   return match[1]
@@ -36,7 +37,7 @@ function page() {
   window.top = window;
   const context = vm.createContext({ window, JSON, Object, Promise, Map, Error });
   vm.runInContext(script(['clipboard.write', 'app.getEnv']), context);
-  window.__couliBridgeToken('0123456789abcdef0123456789abcdef');
+  window.__couliBridgeToken(PAGE_TOKEN);
   return { window, sent, reply: (body) => window.__couliBridgeReceive(JSON.stringify(body)) };
 }
 
@@ -99,6 +100,34 @@ function assertEqual(actual, expected, what) {
       assertEqual((await again).code, 0, id + ' 应答后可再用');
     }
     assertEqual(p.sent.length, 8, '原生收到的调用数');
+  });
+
+  await test('fx24_open_page_methods_change_only_with_current_token_and_can_recover', () => {
+    const p = page();
+    const bridge = p.window.__REBATE_BRIDGE__;
+    const enabled = ['clipboard.write', 'app.getEnv'];
+    const disabled = ['app.getEnv'];
+    assertEqual(bridge.methods, enabled, '已打开页面的初始列表');
+
+    p.window.__couliBridgeMethods(undefined, disabled);
+    assertEqual(bridge.methods, enabled, '没有令牌不能禁用能力');
+    p.window.__couliBridgeMethods('wrong-token', disabled);
+    assertEqual(bridge.methods, enabled, '错误令牌不能禁用能力');
+    p.window.__couliBridgeMethods(PAGE_TOKEN, disabled);
+    assertEqual(bridge.methods, ['app.getEnv'], '正确令牌更新同一页面的列表');
+    assertEqual(Object.isFrozen(bridge.methods), true, '更新后的列表仍冻结');
+    disabled.push('clipboard.write');
+    assertEqual(bridge.methods, ['app.getEnv'], '修改传入数组不能改回页面列表');
+
+    // 换过令牌后，旧令牌也不能恢复能力；不重建页面或重新注入脚本。
+    const nextToken = 'fedcba9876543210fedcba9876543210'; // gitleaks:allow 测试用假令牌
+    p.window.__couliBridgeToken(nextToken);
+    p.window.__couliBridgeMethods(PAGE_TOKEN, enabled);
+    assertEqual(bridge.methods, ['app.getEnv'], '旧令牌不能恢复能力');
+    p.window.__couliBridgeMethods(nextToken, enabled);
+    assertEqual(bridge.methods, enabled, '当前令牌恢复被移出禁用名单的能力');
+    assertEqual(Object.isFrozen(bridge.methods), true, '恢复后的列表仍冻结');
+    assertEqual(p.window.__REBATE_BRIDGE__ === bridge, true, '仍是同一个页面桥对象');
   });
 
   for (const [state, name] of results) {

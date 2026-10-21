@@ -189,7 +189,7 @@ export class BridgeHandlers {
    * 经 ApiClient 用主会话与 install_secret 代签代发（10002 刷新、10402 重新注册在 ApiClient 里）。拿到带统一外壳的响应一律
    * code 0、data = {status, body}；超时、断连、没有外壳为 90003；本地没有发出为 90500。
    * 契约即白名单（CT-LOCK-02 编排裁定）：signed_paths 里有 openapi 签名操作的一律代发，原生侧不另设拦截表，服务端
-   * bridge_disabled_methods 紧急关闭三端尚未接入（F-X-24）；找不到操作时不发，返回 90500。
+   * 用 bridge_disabled_methods 紧急关闭（F-X-24，在 BridgeHost 准入层判断，禁用时不会进到这里）；找不到操作时不发，返回 90500。
    * TODO(N-22)：幂等键由 ApiClient 对写操作新生成（键由 H5 还是原生给，契约未定，03 §5.3）。
    */
   static signedRequest(api: BridgeApiPort): BridgeHandler {

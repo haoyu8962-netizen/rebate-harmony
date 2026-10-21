@@ -4,10 +4,14 @@
  * ExternalWebView 不引用本文件。
  *
  * 定义 window.__REBATE_BRIDGE__ = { version, methods, postMessage, subscribe }（packages/bridge-sdk 的 BridgeTransport）：
- * - methods 是本端按契约声明的方法（BridgeHost.supportedMethods：since.harmony 不为 null；暂未实现的调用回 90001），
- *   H5 的 has() 只认它；
+ * - methods 是本端按契约声明的方法（BridgeHost.supportedMethods：since.harmony 不为 null 且未被远程禁用；暂未实现的调用
+ *   回 90001），H5 的 has() 只认它。它是读当前列表的只读属性（每次读都是冻结的数组）：远程禁用名单变化时原生用
+ *   runJavaScript（主框架）调 window.__couliBridgeMethods(令牌, 方法名数组) 换掉列表（F-X-24）。这个列表只是给页面的
+ *   能力提示，不是准入：页面脚本自己调 __couliBridgeToken 设一个值再用同值调 __couliBridgeMethods 就能改它，所以禁用是否
+ *   生效只看原生准入（BridgeHost 对禁用方法一律 90403 + method_disabled，处理器不执行）。令牌比对只用来防止误覆盖：
+ *   发给别的文档 / 旧世代的推送（令牌对不上）不会改掉当前列表；
  * - 主框架令牌（R1-01）：只在顶层 frame 定义只读的 window.__couliBridgeToken(token)，原生只经 runJavaScript（主框架）调用它；
- *   令牌留在闭包里，页面读不到。脚本最后调 __couliBridgeNative.hello() 请原生送令牌（代理对象还没就绪时由原生在页面加载
+ *   令牌留在闭包里，页面读不到（页面能调 setToken 改写它，但原生只认自己发的令牌，改写只会让本页的桥调用失效）。脚本最后调 __couliBridgeNative.hello() 请原生送令牌（代理对象还没就绪时由原生在页面加载
  *   完成时补送）；拿到令牌之前的调用先排队，拿到后按顺序发出；
  * - postMessage 把 (令牌, 信封) 交给原生代理对象 __couliBridgeNative.post（javaScriptProxy），返回的 Promise 由原生用
  *   window.__couliBridgeReceive(响应 JSON) 兑现；事件同一入口，按 event 字段分发给 subscribe 的监听者；
@@ -22,7 +26,7 @@ export const BRIDGE_METHODS_PLACEHOLDER: string = '__COULI_METHODS__';
 export const BRIDGE_BOOTSTRAP_TEMPLATE: string = `(function () {
   'use strict';
   if (window.top !== window || window.__REBATE_BRIDGE__) { return; }
-  var methods = __COULI_METHODS__;
+  var methods = Object.freeze(__COULI_METHODS__.slice());
   var duplicateCode = __COULI_DUPLICATE_CODE__;
   var duplicateMsg = __COULI_DUPLICATE_MSG__;
   var pending = new Map();
@@ -60,11 +64,17 @@ export const BRIDGE_BOOTSTRAP_TEMPLATE: string = `(function () {
       resolve(msg);
     }
   }
+  function setMethods(value, list) {
+    if (token === null || value !== token || !Array.isArray(list)) { return; }
+    for (var i = 0; i < list.length; i++) { if (typeof list[i] !== 'string') { return; } }
+    methods = Object.freeze(list.slice());
+  }
   Object.defineProperty(window, '__couliBridgeReceive', { value: receive, writable: false, configurable: false });
+  Object.defineProperty(window, '__couliBridgeMethods', { value: setMethods, writable: false, configurable: false });
   Object.defineProperty(window, '__couliBridgeToken', { value: setToken, writable: false, configurable: false });
   var bridge = {
     version: 1,
-    methods: Object.freeze(methods.slice()),
+    get methods() { return methods; },
     postMessage: function (request) {
       return new Promise(function (resolve, reject) {
         var text;

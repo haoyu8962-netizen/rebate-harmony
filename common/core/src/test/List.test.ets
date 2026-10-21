@@ -1,4 +1,6 @@
 import environmentConfigTest from './EnvironmentConfig.test';
+import clientCoreBridgeDisabledTest from './ClientCoreBridgeDisabled.test';
+import bridgeDisabledMethodsTest from './BridgeDisabledMethods.test';
 import routerVectorTest from './RouterVector.test';
 import routerBehaviorTest from './RouterBehavior.test';
 import privacyGateVectorTest from './PrivacyGateVector.test';
@@ -248,4 +250,6 @@ export default function testsuite() {
   pendingInviteHM13cTest();
   loginHM13aTest();
   quickLoginHM14aTest();
+  clientCoreBridgeDisabledTest();
+  bridgeDisabledMethodsTest();
 }

@@ -4,7 +4,7 @@ import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiRequest, ClipboardController, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
-  BridgeStatePort, ClientEvent, ConfigStore, EnvironmentGate, EnvironmentSwitchGate,
+  BridgeStatePort, ClientEvent, ConfigSnapshot, ConfigStore, EnvironmentGate, EnvironmentSwitchGate,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
   GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
   PrivacyState, RouteRequest, RouteSource, RouteTargetAllowlist, UpdateCheckStatus, UpdateState
@@ -151,6 +151,27 @@ export class AppBridge {
     }
   }
 
+  /**
+   * /v1/config bridge_disabled_methods 的生效值（core ConfigStore.bridgeDisabledMethods）；没有 ConfigStore 为 []。
+   * 值不合法时整键按 [] 并记一条 warn（只记键名）；同一份生效配置只记一次，不随每次桥调用重复。
+   */
+  static disabledMethods(): string[] {
+    const store: ConfigStore | null = AppClientCore.shared.config;
+    if (store === null) {
+      return [];
+    }
+    return store.bridgeDisabledMethods((key: string): void => {
+      const mark: string = store.sourceRaw + ':' + store.appliedFetchId;
+      if (mark !== AppBridge.disabledWarned) {
+        AppBridge.disabledWarned = mark;
+        hilog.warn(DOMAIN, TAG, 'invalid config key %{public}s', key);
+      }
+    });
+  }
+
+  /** 上一次记 warn 的生效配置（层 + 拉取编号）。 */
+  private static disabledWarned: string = '';
+
   /** 网页容器实例的编号（clipboard.setAutoDetect 的临时抑制按容器实例记，APP-07 G06）。 */
   private static containerSerial: number = 0;
 
@@ -165,6 +186,8 @@ export class AppBridge {
     host.onCallExpired = (valid: () => boolean): void => {
       AppNetwork.client?.cancelOwned(valid);
     };
+    // F-X-24：远程禁用名单读 ConfigStore 的生效值（与其他配置键同一份、同一刷新时机），每次准入时现取。
+    host.disabledMethods = (): string[] => AppBridge.disabledMethods();
     const api = (request: ApiRequest): Promise<ApiResult> => {
       const client: ApiClient | null = AppNetwork.client;
       return client === null ? Promise.resolve(ApiResult.rejected(LocalRejectReason.CANCELLED)) : client.request(request);
@@ -293,6 +316,12 @@ export class AppBridge {
     };
     config.onDiagnostic = (kind: string): void => {
       hilog.info(DOMAIN, TAG, 'trusted web %{public}s', kind);
+    };
+    // F-X-24：配置换层或换内容时，已打开页面的能力列表（has()）随之更新。
+    config.watchMethods = (changed: () => void): () => void => {
+      const store: ConfigStore | null = AppClientCore.shared.config;
+      return store === null ? (): void => {
+      } : store.subscribe((_s: ConfigSnapshot): void => changed());
     };
     return config;
   }

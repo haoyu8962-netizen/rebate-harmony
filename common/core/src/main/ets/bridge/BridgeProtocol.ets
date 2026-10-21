@@ -100,12 +100,24 @@ export class BridgeWire {
     return JSON.stringify(body);
   }
 
-  /** 失败响应：{"id","code","msg"}（msg 取契约 errors 的说明）。 */
-  static failure(id: string, code: number): string {
+  /**
+   * 失败响应：{"id","code","msg"}（msg 取契约 errors 的说明）。dataJson 是非空对象时另带 data（如远程禁用的
+   * {"reason":"method_disabled"}，F-X-24）；其余失败不带 data。
+   */
+  static failure(id: string, code: number, dataJson: string = '{}'): string {
     const body: BridgeJson = {};
     body['id'] = id;
     body['code'] = code;
     body['msg'] = BridgeErrors.all.get(code) ?? '';
+    let data: BridgeJson | null = null;
+    try {
+      data = BridgeSchema.objectOf(JSON.parse(dataJson) as Object);
+    } catch (e) {
+      data = null;
+    }
+    if (data !== null && Object.keys(data).length > 0) {
+      body['data'] = data;
+    }
     return JSON.stringify(body);
   }
 
@@ -248,8 +260,13 @@ export class BridgeProtocol {
     return spec !== undefined && (spec.level === 'L2' || spec.gestureRequired);
   }
 
+  /** 调用方是可信 origin 的主框架（decide 的第一步；远程禁用也只在这之后判断，不对不可信调用方透露禁用原因）。 */
+  callerAllowed(isMainFrame: boolean, origin: string): boolean {
+    return isMainFrame && OriginRules.allowed(origin, this.trustedOrigins);
+  }
+
   decide(ctx: BridgeContext): BridgeDecision {
-    if (!ctx.isMainFrame || !OriginRules.allowed(ctx.origin, this.trustedOrigins)) {
+    if (!this.callerAllowed(ctx.isMainFrame, ctx.origin)) {
       return BridgeDecision.deny(BridgeCode.FORBIDDEN);
     }
     const spec: BridgeMethodSpec | undefined = BridgeMethods.spec(ctx.method);
