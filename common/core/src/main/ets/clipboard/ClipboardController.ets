@@ -1244,8 +1244,8 @@ export class ClipboardController {
     const decision: InviteConfirmDecision = InviteConfirmAction.decide(session, null);
     this.dropPrompt();
     if (decision.actionRaw === InviteConfirmAction.PREFILL_LOGIN && prompt.inviteCode !== null) {
-      this.pendingInvite.set(prompt.inviteCode);
-      return true;
+      // 不合格码由 set 静默拒写、旧码保留（D10-107），不加新提示
+      return this.pendingInvite.set(prompt.inviteCode);
     }
     // TODO(N-30) G01：已登录用户的补填绑定等契约补 POST /v1/me/inviter 与 InviteBackfill 路由
     return false;

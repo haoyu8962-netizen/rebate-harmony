@@ -162,5 +162,77 @@
     "INTEGRATION-02：已核对 logout/getMe，但七个 API 没有登出/用户查询入口。另验 logout 吊销当前会话、清本机会话/pending_action、回游客且不影响其他设备；getMe 决定身份与可补填状态。",
     "CONTRACT-01：锁定 sendSmsCode 仍列 44003，并把供应商结果未知算发送；最新 BR-ID-05 明确 MVP 不返回 44003，供应商超时返回 50401 且不计成功条数。登记差异，不加人机验证向量、不改锁定契约。",
     "TEST-WIRING：三端接入同一 JSON。iOS 注册 Login/LoginTests target；Android 注册 feature:login 并复用已有 JUnit4/serialization；鸿蒙 gen.py 生成 LoginVectorsData.ets、--check 查漂移、List.test.ets 调用 loginVectorTest。本轮只读输出，未写文件、未编译运行。"
-  ]
+  ],
+  "pendingInviteSet": {
+ "_doc": "D10-107 \u4e09\u7aef\u5171\u7528\uff1a\u5f85\u7ed1\u5b9a\u9080\u8bf7\u7801\u5199\u5165\uff08PendingInviteCode.set\uff09\u524d\u7684\u89c4\u8303\u5316 + \u683c\u5f0f\u6821\u9a8c\u6837\u4f8b\u3002\u4f9d\u636e BR-INV-01\uff086 \u4f4d\uff0c\u5b57\u7b26\u96c6 23456789ABCDEFGHJKLMNPQRSTUVWXYZ\uff09\u3001BR-INV-02\uff08NFKC \u2192 \u5220\u5168\u90e8 Unicode \u7a7a\u767d\u542b U+3000 \u4e0e\u96f6\u5bbd U+200B\u2013U+200D\u3001U+FEFF \u2192 \u8f6c\u5927\u5199\uff0c\u4e0d\u505a O\u21920 \u7ea0\u9519\uff09\u3002\u4e0d\u5408\u683c\uff1a\u9759\u9ed8\u4e0d\u5199\u3001\u65e7\u7801\u4fdd\u7559\u3001\u65e0 UI \u63d0\u793a\uff08brief-17c-android Q1\uff0c\u540c iOS fe53a11\uff09\u3002\u5404\u7aef\u62f7\u8fdb\u672c\u4ed3\u5e93 specs/login-vectors.json \u7684 pendingInviteSet \u6bb5\uff0c\u5185\u5bb9\u9010\u5b57\u76f8\u540c\u3002\u6765\u6e90\uff1aiOS PendingInviteApp17cTests+InviteLink.swift \u7684 bad \u5217\u8868 + 08 \u4f8b K0M2QX\u3002",
+ "version": 1,
+ "valid": [
+  {
+   "raw": "K7M2QX",
+   "stored": "K7M2QX"
+  },
+  {
+   "raw": "k7m2qx",
+   "stored": "K7M2QX"
+  },
+  {
+   "raw": "\uff2b\uff17\uff2d\uff12\uff31\uff38",
+   "stored": "K7M2QX"
+  },
+  {
+   "raw": " K7M2QX\u200b",
+   "stored": "K7M2QX"
+  },
+  {
+   "raw": "K7M2\u3000QX",
+   "stored": "K7M2QX"
+  },
+  {
+   "raw": "\ufeffK7M2QX\n",
+   "stored": "K7M2QX"
+  },
+  {
+   "raw": "T3ST22",
+   "stored": "T3ST22"
+  }
+ ],
+ "invalid": [
+  "",
+  "K7M2Q",
+  "K7M2QXA",
+  "K7M2Q0",
+  "K7M2Q1",
+  "K7M2QI",
+  "K7M2QO",
+  "K7M2Q-",
+  "K7M2Q!",
+  "https://x/i/K7M2QX",
+  "K0M2QX"
+ ],
+ "sequences": [
+  {
+   "steps": [
+    "K7M2QX",
+    "K7M2Q0"
+   ],
+   "stored": "K7M2QX",
+   "_doc": "\u5148\u5199\u5408\u683c\u518d\u5199\u4e0d\u5408\u683c\uff0c\u65e7\u7801\u4fdd\u7559"
+  },
+  {
+   "steps": [
+    "K7M2QX",
+    "t3st22"
+   ],
+   "stored": "T3ST22",
+   "_doc": "\u5408\u683c\u503c\u8986\u76d6\u65e7\u7801"
+  },
+  {
+   "steps": [
+    "K7M2Q0"
+   ],
+   "stored": null,
+   "_doc": "\u7a7a\u5bb9\u5668\u5199\u4e0d\u5408\u683c\u503c\u4ecd\u4e3a\u7a7a"
+  }
+ ]
+}
 }

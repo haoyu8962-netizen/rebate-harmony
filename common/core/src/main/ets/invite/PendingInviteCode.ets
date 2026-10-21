@@ -1,3 +1,5 @@
+import { InviteField } from '../login/LoginFlow';
+
 /**
  * 已确认的待绑定码（BR-INV-04）：只活在本次进程，不落盘。entry 创建并共享，Core 不持有静态实例。
  * 只有短信 / 一键登录真正提交时消费；第三方登录与绑手机只保留，补填页用 peek 预填。
@@ -5,8 +7,17 @@
 export class PendingInviteCode {
   private code: string | null = null;
 
-  set(code: string): void {
-    this.code = code;
+  /**
+   * 写入前按注册页同一规则规范化并校验（BR-INV-01 / 02，D10-107）：合格存规范化值、返回 true；
+   * 不合格静默不写、旧码保留、返回 false（调用方不据此出提示，与 iOS / Android 同）。
+   */
+  set(raw: string): boolean {
+    const normalized: string = InviteField.normalize(raw);
+    if (!InviteField.isValidCode(normalized)) {
+      return false;
+    }
+    this.code = normalized;
+    return true;
   }
 
   peek(): string | null {

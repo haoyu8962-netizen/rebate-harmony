@@ -380,16 +380,28 @@ export class InviteField {
   static readonly NOTICE_KEY: string = 'invite.notice_inviter';
   /** openapi LoginBySmsRequest.invite_code maxLength。 */
   static readonly MAX_WIRE_LENGTH: number = 32;
-  private static readonly STRIP: RegExp = /[\s​-‍﻿]/g;
+  /**
+   * BR-INV-02「删全部 Unicode 空白」：JS 的 \s 覆盖 Unicode White_Space 里除 U+0085（NEL）外的全部字符，单独补上；
+   * 零宽 U+200B–U+200D、U+FEFF（\s 已含 U+FEFF）。HM-13d / D10-107。
+   */
+  private static readonly STRIP: RegExp = /[\s\u0085\u200b-\u200d\ufeff]/g;
   private static readonly PATTERN: RegExp = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
   static normalize(raw: string): string {
     return PhoneNumber.nfkc(raw).replace(InviteField.STRIP, '').toUpperCase();
   }
 
+  /**
+   * 已规范化的值是否是一个完整邀请码（BR-INV-01：6 位、规定字符集）。与 decide 不同：空串不算码（decide 的空值表示省略）。
+   * 待绑定码写入前的校验（PendingInviteCode.set，D10-107）与注册页共用这一个 PATTERN。
+   */
+  static isValidCode(normalized: string): boolean {
+    return InviteField.PATTERN.test(normalized);
+  }
+
   static decide(raw: string, context: Record<string, Object>): InviteDecision {
     const normalized: string = InviteField.normalize(raw);
-    const valid: boolean = normalized.length === 0 || InviteField.PATTERN.test(normalized);
+    const valid: boolean = normalized.length === 0 || InviteField.isValidCode(normalized);
     if (context['restricted'] === true) {
       return new InviteDecision(false, valid, '', null);
     }
