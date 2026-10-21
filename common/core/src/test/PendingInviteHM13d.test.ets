@@ -139,8 +139,8 @@ export default function pendingInviteHM13dTest() {
     const vectors: PendingSetVectors = root.pendingInviteSet;
 
     it('vectors_manifest', 0, () => {
-      same('version', vectors.version, 1);
-      same('valid count', vectors.valid.length, 7);
+      same('version', vectors.version, 2);
+      same('valid count', vectors.valid.length, 8);
       same('invalid count', vectors.invalid.length, 11);
       same('sequence count', vectors.sequences.length, 3);
     });
