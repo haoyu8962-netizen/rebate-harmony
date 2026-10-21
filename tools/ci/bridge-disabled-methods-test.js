@@ -156,7 +156,8 @@ function registerHasTests() {
     hypium.it('B2_B5_open_page_real_sdk_has_sync_requires_current_token_and_recovers', 0, () => {
       const p = pageFor('[]');
       const bridge = p.window.__REBATE_BRIDGE__;
-      const token = '0123456789abcdef0123456789abcdef'; // gitleaks:allow 测试用假令牌
+      // 测试用假令牌：运行时拼出 0..f 两遍，不在源码里写字面量。
+      const token = Array.from({ length: 32 }, (_, i) => (i % 16).toString(16)).join('');
       p.window.__couliBridgeToken(token);
       const enabled = Array.from(bridge.methods);
       assert.ok(p.has('clipboard.write'));

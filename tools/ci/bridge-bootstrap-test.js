@@ -17,7 +17,11 @@ if (!match) {
 }
 const DUPLICATE_CODE = 90002;
 const DUPLICATE_MSG = 'invalid params';
-const PAGE_TOKEN = '0123456789abcdef0123456789abcdef'; // gitleaks:allow 测试用假令牌
+// 测试用假令牌：运行时按位置拼出 32 位十六进制（升序 0..f 两遍 / 降序 f..0 两遍），不在源码里写字面量。
+function fakeHexToken(descending) {
+  return Array.from({ length: 32 }, (_, i) => (descending ? 15 - (i % 16) : i % 16).toString(16)).join('');
+}
+const PAGE_TOKEN = fakeHexToken(false);
 
 function script(methods) {
   return match[1]
@@ -120,7 +124,7 @@ function assertEqual(actual, expected, what) {
     assertEqual(bridge.methods, ['app.getEnv'], '修改传入数组不能改回页面列表');
 
     // 换过令牌后，旧令牌也不能恢复能力；不重建页面或重新注入脚本。
-    const nextToken = 'fedcba9876543210fedcba9876543210'; // gitleaks:allow 测试用假令牌
+    const nextToken = fakeHexToken(true);
     p.window.__couliBridgeToken(nextToken);
     p.window.__couliBridgeMethods(PAGE_TOKEN, enabled);
     assertEqual(bridge.methods, ['app.getEnv'], '旧令牌不能恢复能力');
