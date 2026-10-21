@@ -120,6 +120,7 @@ export class DefaultTexts {
     map.set('error.10405', '当前版本过低，请更新后继续使用');
     map.set('error.10405.no_account', '这个账号还没有注册，请先更新 App 再注册');
     map.set('error.20001', '填写内容有误，请检查');
+    map.set('error.20001.favorites_full', '收藏夹已满，请先删除一些');
     map.set('error.20001.nickname_sensitive', '昵称含不允许使用的内容，请修改');
     map.set('error.20001.phone_invalid', '请输入 11 位中国大陆手机号');
     map.set('error.20002', '验证码错误，请重新输入');
@@ -232,6 +233,11 @@ export class DefaultTexts {
     map.set('external_page.product_unresolved', '该商品暂无法查返利');
     map.set('external_page.retry', '重试');
     map.set('external_page.union_host_blocked', '这个页面暂不支持在这里打开，可以在 App 内搜索商品');
+    map.set('favorite.add', '收藏');
+    map.set('favorite.added', '已收藏');
+    map.set('favorite.invalid', '已失效');
+    map.set('favorite.removed', '已取消收藏');
+    map.set('favorites.empty', '还没有收藏的商品');
     map.set('h5.load_failed', '页面加载失败，请重试');
     map.set('invite.before_buy_tip', '下单后将不能再填写邀请码。有邀请码可以先填写');
     map.set('invite.bind_phone_guide.body', '绑定手机号后，可在期限内填写邀请码。已用手机号注册过的，绑定同一个手机号、符合条件时可把当前登录方式并入原账号');
@@ -302,6 +308,11 @@ export class DefaultTexts {
     map.set('perm.push.guide_bar', '通知没有开启，跟单和提现到账的消息可能收不到。去开启');
     map.set('platform_coming_soon', '{platform_name}返利即将开放');
     map.set('platform_no_rebate', '{platform_name}暂不支持返利');
+    map.set('price_trend.empty', '暂无价格记录');
+    map.set('price_trend.source', '凑狸记录的券后价');
+    map.set('price_trend.source.general', '凑狸记录的价格');
+    map.set('price_trend.title', '近 30 天券后价');
+    map.set('price_trend.title.general', '近 30 天价格');
     map.set('privacy.basic_mode.enable', '开启完整功能');
     map.set('privacy.basic_mode.notice', '当前为基本模式，只能浏览。开启完整功能后可以登录、查返利');
     map.set('privacy.btn.agree', '同意');

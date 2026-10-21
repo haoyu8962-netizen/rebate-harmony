@@ -6,6 +6,8 @@ import {
   BridgeJson, BridgeResult, BridgeStatePort, BridgeTouchKind, ClientEvent, ExternalNavPolicy, GuardDecision,
   GuardDecisionKind, GuardReason, TransportFailure, UpdateCheckStatus, UpdateState
 } from '../../Index';
+import { BridgeContract, BridgeSignedPath } from 'generated';
+import { SNAPSHOT_JSON } from 'generated/src/test/ContractSnapshotData';
 
 export const ORIGIN: string = 'https://h5.example.test';
 export const PATTERNS: string = '{"version":"t","rules":[{"platform":"taobao","category":"union_host",' +
@@ -384,21 +386,65 @@ export default function bridgeHostTest() {
       expect(wire(await host.handle(req('b', 'auth.getUser'), MAIN_NO_TAP)).code).assertEqual(90003);
     });
 
-    it('signed_request_without_openapi_operation_is_not_sent', 0, async () => {
-      let sent: number = 0;
-      const api = (_r: ApiRequest): Promise<ApiResult> => {
-        sent++;
+    it('signed_request_claims_is_sent_once_via_contract_operation', 0, async () => {
+      const sent: string[] = [];
+      const api = (r: ApiRequest): Promise<ApiResult> => {
+        sent.push(r.operationId + ' ' + r.query + ' ' + r.body);
         return Promise.resolve(apiResult(ApiOutcome.SUCCESS, 0, {}, 200));
       };
       const host: BridgeHost = new BridgeHost(new FakeState(), new ManualClock());
       host.register('net.signedRequest', BridgeHandlers.signedRequest(api));
+      // CT-LOCK-02 编排裁定：契约即白名单，不在原生侧拦 createOrderClaim；signed_paths 的 POST /v1/orders/claims 照常代发 1 次。
       const reply: Wire = wire(await host.handle(req('a', 'net.signedRequest',
-        '{"method":"POST","path":"/v1/orders/claims","body":{}}'), MAIN_TAP));
-      // TODO(N-22)：锁定的 openapi 没有 POST /v1/orders/claims 操作，原生不发，按 90500 结束。
-      expect(reply.code).assertEqual(90500);
-      expect(sent).assertEqual(0);
+        '{"method":"POST","path":"/v1/orders/claims","body":{"order_no":"123"}}'), MAIN_TAP));
+      expect(reply.code).assertEqual(0);
+      expect(JSON.stringify(sent)).assertEqual('["createOrderClaim  {\\"order_no\\":\\"123\\"}"]');
       expect(wire(await host.handle(req('b', 'net.signedRequest', '{"method":"POST","path":"/v1/links/convert"}'),
         MAIN_TAP)).code).assertEqual(90403);
+      expect(sent.length).assertEqual(1);
+    });
+
+    // CT-LOCK-02 编排裁定（复审 r1 重写）：桥可代发的 signed 操作集合 = 契约里的 signed 操作集合，双向比较。
+    // 预期：只读锁定快照全文（bridge.schema 的 signed_paths ∩ openapi 的 x-signed），不经生成表。
+    // 实际：① 运行时白名单 BridgeContract.SIGNED_PATHS 原样枚举；② 把快照里每个客户端操作（签名与否）连同 signed_paths 各项
+    // 都当候选，经真实桥入口 net.signedRequest 逐个代发，记下真正发出的 operationId。多放一项、少放一项都会变红。
+    it('bridge_signed_set_equals_contract_signed_set', 0, async () => {
+      const contract: ContractSigned = contractSigned();
+      expect(contract.signedPaths.length > 0).assertTrue();
+      expect(contract.expected.length).assertEqual(contract.signedPaths.length);
+      expect(contract.expected.indexOf('createOrderClaim') >= 0).assertTrue();
+      const runtimePaths: string[] = [];
+      for (const entry of BridgeContract.SIGNED_PATHS) {
+        const e: BridgeSignedPath = entry;
+        runtimePaths.push(e.method + ' ' + e.path);
+      }
+      expect(sortedJson(runtimePaths)).assertEqual(sortedJson(contract.signedPaths));
+      const sent: string[] = [];
+      const api = (r: ApiRequest): Promise<ApiResult> => {
+        sent.push(r.operationId);
+        return Promise.resolve(apiResult(ApiOutcome.SUCCESS, 0, {}, 200));
+      };
+      const host: BridgeHost = new BridgeHost(new FakeState(), new ManualClock());
+      host.register('net.signedRequest', BridgeHandlers.signedRequest(api));
+      const candidates: string[] = contract.clientOperations.concat(contract.signedPaths);
+      let index: number = 0;
+      for (const key of candidates) {
+        const space: number = key.indexOf(' ');
+        const params: string = '{"method":"' + key.substring(0, space) + '","path":"' + key.substring(space + 1) +
+          '","body":{}}';
+        const before: number = sent.length;
+        const code: number = wire(await host.handle(req('s' + index, 'net.signedRequest', params), MAIN_TAP)).code;
+        index++;
+        if (contract.signedPaths.indexOf(key) >= 0) {
+          expect(code).assertEqual(0);
+          expect(sent.length).assertEqual(before + 1);
+        } else {
+          // 白名单外的候选操作（含 openapi 里其他 x-signed 操作）：不发送、不回成功（协议层 90403 或参数校验码）。
+          expect(code === 0).assertFalse();
+          expect(sent.length).assertEqual(before);
+        }
+      }
+      expect(sortedJson(unique(sent))).assertEqual(sortedJson(contract.expected));
     });
 
     it('nav_open_goes_through_router_and_unknown_blocked_is_90500', 0, async () => {
@@ -479,4 +525,64 @@ export default function bridgeHostTest() {
       expect(ExternalNavPolicy.blockedKind('blob:https://a/b')).assertEqual('download');
     });
   });
+}
+
+/** 锁定快照里的 signed 集合（CT-LOCK-02 r1）：只读快照全文，不经生成表。 */
+class ContractSigned {
+  signedPaths: string[] = [];
+  expected: string[] = [];
+  clientOperations: string[] = [];
+}
+
+function contractSigned(): ContractSigned {
+  const out: ContractSigned = new ContractSigned();
+  const bridge: Record<string, Object> = JSON.parse(SNAPSHOT_JSON.get('contracts/bridge.schema.json') as string) as
+    Record<string, Object>;
+  for (const row of bridge['signed_paths'] as Record<string, Object>[]) {
+    out.signedPaths.push((row['method'] as string) + ' ' + (row['path'] as string));
+  }
+  const openapi: Record<string, Object> = JSON.parse(SNAPSHOT_JSON.get('contracts/openapi.json') as string) as
+    Record<string, Object>;
+  const paths: Record<string, Object> = openapi['paths'] as Record<string, Object>;
+  const signedOps: Map<string, string> = new Map<string, string>();
+  for (const path of Object.keys(paths)) {
+    if (path.startsWith('/admin/')) {
+      continue;
+    }
+    const item: Record<string, Object> = paths[path] as Record<string, Object>;
+    for (const method of Object.keys(item)) {
+      const op: Record<string, Object> = item[method] as Record<string, Object>;
+      if (typeof op !== 'object' || op === null || op['operationId'] === undefined) {
+        continue;
+      }
+      const key: string = method.toUpperCase() + ' ' + path;
+      out.clientOperations.push(key);
+      if (op['x-signed'] === true) {
+        signedOps.set(key, op['operationId'] as string);
+      }
+    }
+  }
+  for (const key of out.signedPaths) {
+    const id: string | undefined = signedOps.get(key);
+    if (id !== undefined) {
+      out.expected.push(id);
+    }
+  }
+  return out;
+}
+
+function unique(values: string[]): string[] {
+  const out: string[] = [];
+  for (const v of values) {
+    if (out.indexOf(v) < 0) {
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+function sortedJson(values: string[]): string {
+  const copy: string[] = values.slice();
+  copy.sort();
+  return JSON.stringify(copy);
 }

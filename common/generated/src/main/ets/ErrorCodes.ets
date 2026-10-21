@@ -82,6 +82,7 @@ export class ErrorCodes {
     all.set(30151, new ErrorCodeInfo(30151, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30152, new ErrorCodeInfo(30152, 422, RetryKind.NOT_APPLICABLE, reasons([], []), true, false));
     all.set(30153, new ErrorCodeInfo(30153, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30154, new ErrorCodeInfo(30154, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30201, new ErrorCodeInfo(30201, 404, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30202, new ErrorCodeInfo(30202, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30203, new ErrorCodeInfo(30203, 422, RetryKind.LATER, reasons([], []), false, false));
@@ -113,6 +114,7 @@ export class ErrorCodes {
     all.set(30414, new ErrorCodeInfo(30414, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30415, new ErrorCodeInfo(30415, 422, RetryKind.LATER, reasons([], []), false, false));
     all.set(30416, new ErrorCodeInfo(30416, 422, RetryKind.LATER, reasons([], []), false, false));
+    all.set(30417, new ErrorCodeInfo(30417, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30501, new ErrorCodeInfo(30501, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30502, new ErrorCodeInfo(30502, 422, RetryKind.LATER, reasons([], []), false, false));
     all.set(30503, new ErrorCodeInfo(30503, 422, RetryKind.NEVER, reasons([], []), false, false));
@@ -135,6 +137,7 @@ export class ErrorCodes {
     all.set(44001, new ErrorCodeInfo(44001, 403, RetryKind.NEVER, reasons([], []), false, false));
     all.set(44002, new ErrorCodeInfo(44002, 403, RetryKind.NEVER, reasons([], []), false, false));
     all.set(44003, new ErrorCodeInfo(44003, 403, RetryKind.AFTER_ACTION, reasons([], []), false, false));
+    all.set(44004, new ErrorCodeInfo(44004, 403, RetryKind.NEVER, reasons([], []), false, false));
     all.set(50001, new ErrorCodeInfo(50001, 500, RetryKind.IMMEDIATE, reasons([], []), false, false));
     all.set(50301, new ErrorCodeInfo(50301, 503, RetryKind.LATER, reasons(['maintenance', 'not_launched'], [RetryKind.LATER, RetryKind.NEVER]), false, false));
     all.set(50302, new ErrorCodeInfo(50302, 503, RetryKind.LATER, reasons([], []), false, false));

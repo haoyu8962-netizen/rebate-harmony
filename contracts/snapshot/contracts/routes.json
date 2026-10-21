@@ -902,8 +902,13 @@
             "enum": [
               "agreement",
               "privacy",
-              "sdk_list"
+              "sdk_list",
+              "labor_agreement"
             ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": []

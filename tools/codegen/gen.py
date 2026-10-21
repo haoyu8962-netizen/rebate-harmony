@@ -346,7 +346,8 @@ def route_specs(route_entry_type, route_entry_values, debug_only):
 
 # routes.json params 用到的 JSON Schema 关键字；出现别的关键字时报错，免得生成物悄悄漏掉约束。
 PARAM_TYPES = ("string", "integer", "number", "boolean", "object", "array")
-PARAM_KEYWORDS = {"type", "enum", "minLength", "maxLength", "pattern", "description", "additionalProperties"}
+# CT-LOCK-02：a7c9f1fc 的 Agreement.version（integer, minimum 1）带来 minimum。
+PARAM_KEYWORDS = {"type", "enum", "minLength", "maxLength", "minimum", "pattern", "description", "additionalProperties"}
 
 
 def agent_guide_account_values():
@@ -386,12 +387,18 @@ def route_params(name, schema):
         for k in ("minLength", "maxLength"):
             if k in p and (not isinstance(p[k], int) or isinstance(p[k], bool)):
                 raise GenError("路由 %s 参数 %s 的 %s 不是整数" % (name, pname, k))
-        out.append("new RouteParamSpec(%s, RouteParamType.%s, %s, %s, %s, %s)" % (
+        if "minimum" in p:
+            if ptype not in ("integer", "number"):
+                raise GenError("路由 %s 参数 %s 的 minimum 只用于 integer / number" % (name, pname))
+            if not isinstance(p["minimum"], (int, float)) or isinstance(p["minimum"], bool):
+                raise GenError("路由 %s 参数 %s 的 minimum 不是数字" % (name, pname))
+        out.append("new RouteParamSpec(%s, RouteParamType.%s, %s, %s, %s, %s%s)" % (
             ts_str(pname), upper_snake(ptype),
             "null" if enum is None else "[" + ", ".join(ts_str(v) for v in enum) + "]",
             "null" if "minLength" not in p else str(p["minLength"]),
             "null" if "maxLength" not in p else str(p["maxLength"]),
-            ts_nullable_str(p.get("pattern"))))
+            ts_nullable_str(p.get("pattern")),
+            "" if "minimum" not in p else ", " + (str(p["minimum"]) if isinstance(p["minimum"], int) else repr(p["minimum"]))))
     return out, required, additional
 
 
@@ -421,15 +428,18 @@ export class RouteParamSpec {
   readonly minLength: number | null;
   readonly maxLength: number | null;
   readonly pattern: string | null;
+  /** 数值下限（含），integer / number 参数用（CT-LOCK-02 起：Agreement.version）。 */
+  readonly minimum: number | null;
 
   constructor(name: string, type: RouteParamType, enumValues: string[] | null, minLength: number | null,
-    maxLength: number | null, pattern: string | null) {
+    maxLength: number | null, pattern: string | null, minimum: number | null = null) {
     this.name = name;
     this.type = type;
     this.enumValues = enumValues;
     this.minLength = minLength;
     this.maxLength = maxLength;
     this.pattern = pattern;
+    this.minimum = minimum;
   }
 }
 

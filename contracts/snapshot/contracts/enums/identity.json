@@ -82,14 +82,15 @@
       }
     },
     "consent_type": {
-      "source": "08 §13.2；BR-ID-12、BR-WDR-31",
+      "source": "08 §13.2；BR-ID-12、BR-WDR-31、BR-ID-16",
       "values": {
         "privacy": "隐私政策",
         "agreement": "用户协议",
         "ai_third_party": "AI 第三方处理",
         "id_verification": "实名授权",
         "personalization": "个性化推荐",
-        "labor_agreement": "劳务协议"
+        "labor_agreement": "劳务协议",
+        "clipboard_auto_import": "剪贴板自动识别功能用途同意"
       }
     },
     "consent_channel": {
@@ -142,6 +143,17 @@
         "frozen": "冻结（可设期限 frozen_until）",
         "appealing": "申诉中",
         "banned": "封禁（永久）"
+      }
+    },
+    "risk_reason_category": {
+      "source": "规划/04 §3.2 user_risk_state；BR-TEXT-23 细则「原因类别」；BR-ID-31",
+      "description": "user_risk_state.reason_category，用户可见的原因类别（用户文案取字典 risk_reason.<category>）；state 不为 normal 时必填；后台封禁与冻结时必选一项（PUT /admin/v1/users/{user_id}/risk-state，CT-02j）",
+      "values": {
+        "malicious_rights": "异常售后维权",
+        "fraud_invite": "异常邀请行为",
+        "abnormal_trade": "异常交易",
+        "account_security": "账户安全核验",
+        "other": "违反用户协议"
       }
     },
     "realname_status": {

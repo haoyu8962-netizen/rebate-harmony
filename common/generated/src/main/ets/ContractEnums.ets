@@ -5,6 +5,7 @@
 
 /** 契约枚举 admin_permission */
 export enum AdminPermission {
+  DASHBOARD_VIEW = 'dashboard.view',
   USER_LIST = 'user.list',
   USER_LOOKUP = 'user.lookup',
   PII_REVEAL_PHONE = 'pii.reveal_phone',
@@ -63,6 +64,8 @@ export enum AdminPermission {
 
 export function parseAdminPermission(raw: string): AdminPermission | undefined {
   switch (raw) {
+    case 'dashboard.view':
+      return AdminPermission.DASHBOARD_VIEW;
     case 'user.list':
       return AdminPermission.USER_LIST;
     case 'user.lookup':
@@ -245,6 +248,124 @@ export function parseAdminAuthLevel(raw: string): AdminAuthLevel | undefined {
       return AdminAuthLevel.ADMIN;
     case 'super':
       return AdminAuthLevel.SUPER;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_dashboard_todo_key */
+export enum AdminDashboardTodoKey {
+  WITHDRAW_REVIEW_PENDING = 'withdraw_review_pending',
+  CLAIM_REVIEW_PENDING = 'claim_review_pending',
+  SETTLE_BILL_PENDING = 'settle_bill_pending',
+  RECON_DIFF_OPEN = 'recon_diff_open',
+  APPEAL_PENDING = 'appeal_pending',
+  AGENT_REPORT_OVERDUE = 'agent_report_overdue',
+  BENEFICIARY_HELD_OVERDUE = 'beneficiary_held_overdue',
+  UNION_AUTH_EXPIRING = 'union_auth_expiring'
+}
+
+export function parseAdminDashboardTodoKey(raw: string): AdminDashboardTodoKey | undefined {
+  switch (raw) {
+    case 'withdraw_review_pending':
+      return AdminDashboardTodoKey.WITHDRAW_REVIEW_PENDING;
+    case 'claim_review_pending':
+      return AdminDashboardTodoKey.CLAIM_REVIEW_PENDING;
+    case 'settle_bill_pending':
+      return AdminDashboardTodoKey.SETTLE_BILL_PENDING;
+    case 'recon_diff_open':
+      return AdminDashboardTodoKey.RECON_DIFF_OPEN;
+    case 'appeal_pending':
+      return AdminDashboardTodoKey.APPEAL_PENDING;
+    case 'agent_report_overdue':
+      return AdminDashboardTodoKey.AGENT_REPORT_OVERDUE;
+    case 'beneficiary_held_overdue':
+      return AdminDashboardTodoKey.BENEFICIARY_HELD_OVERDUE;
+    case 'union_auth_expiring':
+      return AdminDashboardTodoKey.UNION_AUTH_EXPIRING;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_search_hit_type */
+export enum AdminSearchHitType {
+  ORDER = 'order',
+  USER = 'user',
+  WITHDRAWAL = 'withdrawal'
+}
+
+export function parseAdminSearchHitType(raw: string): AdminSearchHitType | undefined {
+  switch (raw) {
+    case 'order':
+      return AdminSearchHitType.ORDER;
+    case 'user':
+      return AdminSearchHitType.USER;
+    case 'withdrawal':
+      return AdminSearchHitType.WITHDRAWAL;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 export_status */
+export enum ExportStatus {
+  PENDING = 'pending',
+  RUNNING = 'running',
+  DONE = 'done',
+  FAILED = 'failed',
+  EXPIRED = 'expired',
+  CANCELLED = 'cancelled'
+}
+
+export function parseExportStatus(raw: string): ExportStatus | undefined {
+  switch (raw) {
+    case 'pending':
+      return ExportStatus.PENDING;
+    case 'running':
+      return ExportStatus.RUNNING;
+    case 'done':
+      return ExportStatus.DONE;
+    case 'failed':
+      return ExportStatus.FAILED;
+    case 'expired':
+      return ExportStatus.EXPIRED;
+    case 'cancelled':
+      return ExportStatus.CANCELLED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 export_resource */
+export enum ExportResource {
+  USERS = 'users',
+  AUDIT_LOGS = 'audit_logs'
+}
+
+export function parseExportResource(raw: string): ExportResource | undefined {
+  switch (raw) {
+    case 'users':
+      return ExportResource.USERS;
+    case 'audit_logs':
+      return ExportResource.AUDIT_LOGS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_claim_match_field */
+export enum AdminClaimMatchField {
+  ORDER_NO = 'order_no',
+  PAID_DATE = 'paid_date'
+}
+
+export function parseAdminClaimMatchField(raw: string): AdminClaimMatchField | undefined {
+  switch (raw) {
+    case 'order_no':
+      return AdminClaimMatchField.ORDER_NO;
+    case 'paid_date':
+      return AdminClaimMatchField.PAID_DATE;
     default:
       return undefined;
   }
@@ -1226,7 +1347,8 @@ export enum ConsentType {
   AI_THIRD_PARTY = 'ai_third_party',
   ID_VERIFICATION = 'id_verification',
   PERSONALIZATION = 'personalization',
-  LABOR_AGREEMENT = 'labor_agreement'
+  LABOR_AGREEMENT = 'labor_agreement',
+  CLIPBOARD_AUTO_IMPORT = 'clipboard_auto_import'
 }
 
 export function parseConsentType(raw: string): ConsentType | undefined {
@@ -1243,6 +1365,8 @@ export function parseConsentType(raw: string): ConsentType | undefined {
       return ConsentType.PERSONALIZATION;
     case 'labor_agreement':
       return ConsentType.LABOR_AGREEMENT;
+    case 'clipboard_auto_import':
+      return ConsentType.CLIPBOARD_AUTO_IMPORT;
     default:
       return undefined;
   }
@@ -1367,6 +1491,32 @@ export function parseRiskState(raw: string): RiskState | undefined {
       return RiskState.APPEALING;
     case 'banned':
       return RiskState.BANNED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 risk_reason_category */
+export enum RiskReasonCategory {
+  MALICIOUS_RIGHTS = 'malicious_rights',
+  FRAUD_INVITE = 'fraud_invite',
+  ABNORMAL_TRADE = 'abnormal_trade',
+  ACCOUNT_SECURITY = 'account_security',
+  OTHER = 'other'
+}
+
+export function parseRiskReasonCategory(raw: string): RiskReasonCategory | undefined {
+  switch (raw) {
+    case 'malicious_rights':
+      return RiskReasonCategory.MALICIOUS_RIGHTS;
+    case 'fraud_invite':
+      return RiskReasonCategory.FRAUD_INVITE;
+    case 'abnormal_trade':
+      return RiskReasonCategory.ABNORMAL_TRADE;
+    case 'account_security':
+      return RiskReasonCategory.ACCOUNT_SECURITY;
+    case 'other':
+      return RiskReasonCategory.OTHER;
     default:
       return undefined;
   }
@@ -2878,11 +3028,16 @@ export class ContractEnums {
 
   private static build(): Map<string, string[]> {
     const all: Map<string, string[]> = new Map<string, string[]>();
-    all.set('admin_permission', ['user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'agent.trace', 'agent.report']);
+    all.set('admin_permission', ['dashboard.view', 'user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'agent.trace', 'agent.report']);
     all.set('admin_step_up_tier', ['totp', 'sms']);
     all.set('admin_login_step', ['totp', 'change_password', 'bind_totp']);
     all.set('admin_account_status', ['active', 'disabled']);
     all.set('admin_auth_level', ['none', 'admin', 'super']);
+    all.set('admin_dashboard_todo_key', ['withdraw_review_pending', 'claim_review_pending', 'settle_bill_pending', 'recon_diff_open', 'appeal_pending', 'agent_report_overdue', 'beneficiary_held_overdue', 'union_auth_expiring']);
+    all.set('admin_search_hit_type', ['order', 'user', 'withdrawal']);
+    all.set('export_status', ['pending', 'running', 'done', 'failed', 'expired', 'cancelled']);
+    all.set('export_resource', ['users', 'audit_logs']);
+    all.set('admin_claim_match_field', ['order_no', 'paid_date']);
     all.set('ledger_type', ['REBATE_CREDIT', 'SHARE_CREDIT', 'REFERRAL_CREDIT', 'CLAWBACK', 'SETTLE_ADJUST', 'WITHDRAW_FREEZE', 'WITHDRAW_PAID', 'WITHDRAW_RETURN', 'WITHDRAW_FEE', 'TAX_WITHHOLD', 'REWARD', 'ADMIN_ADJUST', 'BAD_DEBT_WRITEOFF']);
     all.set('referral_credit_sub_type', ['DIRECT', 'INDIRECT']);
     all.set('clawback_sub_type', ['FULL', 'PART_REFUND', 'RIGHTS', 'PUNISH']);
@@ -2925,12 +3080,13 @@ export class ContractEnums {
     all.set('sms_purpose', ['login', 'bind', 'step_up']);
     all.set('step_up_action', ['withdraw', 'payout_account_change', 'phone_change', 'account_deletion']);
     all.set('idempotency_abandon_outcome', ['abandoned', 'completed']);
-    all.set('consent_type', ['privacy', 'agreement', 'ai_third_party', 'id_verification', 'personalization', 'labor_agreement']);
+    all.set('consent_type', ['privacy', 'agreement', 'ai_third_party', 'id_verification', 'personalization', 'labor_agreement', 'clipboard_auto_import']);
     all.set('consent_channel', ['first_launch', 'login_page', 'h5_landing', 'agent_sheet', 'realname_sheet', 'privacy_center', 'login_merge', 'withdraw_flow']);
     all.set('auth_method', ['web_code', 'sdk_token']);
     all.set('union_binding_status', ['unbound', 'pending_auth', 'active', 'invalid', 'released', 'blocked']);
     all.set('union_binding_blocked_reason', ['ban', 'admin_disable', 'deletion']);
     all.set('risk_state', ['normal', 'frozen', 'appealing', 'banned']);
+    all.set('risk_reason_category', ['malicious_rights', 'fraud_invite', 'abnormal_trade', 'account_security', 'other']);
     all.set('realname_status', ['none', 'verified', 'failed']);
     all.set('deletion_status', ['cooling', 'processing', 'done', 'cancelled']);
     all.set('deletion_cancel_reason', ['user', 'negative_balance']);

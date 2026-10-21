@@ -26,15 +26,18 @@ export class RouteParamSpec {
   readonly minLength: number | null;
   readonly maxLength: number | null;
   readonly pattern: string | null;
+  /** 数值下限（含），integer / number 参数用（CT-LOCK-02 起：Agreement.version）。 */
+  readonly minimum: number | null;
 
   constructor(name: string, type: RouteParamType, enumValues: string[] | null, minLength: number | null,
-    maxLength: number | null, pattern: string | null) {
+    maxLength: number | null, pattern: string | null, minimum: number | null = null) {
     this.name = name;
     this.type = type;
     this.enumValues = enumValues;
     this.minLength = minLength;
     this.maxLength = maxLength;
     this.pattern = pattern;
+    this.minimum = minimum;
   }
 }
 
@@ -162,7 +165,7 @@ export class Routes {
     all.set('Notice', new RouteSpec('Notice', RouteKind.H5, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], '/notice', false, false, null,
       [new RouteParamSpec('article_id', RouteParamType.STRING, null, 1, null, null)], [], false));
     all.set('Agreement', new RouteSpec('Agreement', RouteKind.H5, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], '/agreement', false, false, null,
-      [new RouteParamSpec('type', RouteParamType.STRING, ['agreement', 'privacy', 'sdk_list'], null, null, null)], [], false));
+      [new RouteParamSpec('type', RouteParamType.STRING, ['agreement', 'privacy', 'sdk_list', 'labor_agreement'], null, null, null), new RouteParamSpec('version', RouteParamType.INTEGER, null, null, null, null, 1)], [], false));
     all.set('WebPage', new RouteSpec('WebPage', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
       [new RouteParamSpec('url', RouteParamType.STRING, null, null, 2048, '^https://')], ['url'], false));
     all.set('ExternalPage', new RouteSpec('ExternalPage', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], null, false, false, null,

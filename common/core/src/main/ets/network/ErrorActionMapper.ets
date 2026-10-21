@@ -19,8 +19,9 @@ import { SessionScope } from './NetworkPolicy';
  * 7. 42901 → 按 Retry-After 秒数禁用按钮，缺省 5 秒；
  * 8. 50301 按 reason（maintenance / 无 reason：禁用 + Toast；not_launched：禁用不弹 Toast）；
  * 9. 5xxxx（50001、50401 与表外）→ 通用错误态附 trace_id 后 6 位；表外与废弃的非 5xxxx 码 → 服务端 msg 兜底；
- *    表内但用户侧字典没有 error.<code> 的 1xxxx（10008 / 10009 只在 /admin/v1 出现，客户端不会收到）同表外 1xxxx：
- *    服务端 msg 兜底（CT-LOCK-01 R1-01；10002 / 10402 已在前面专门处理）；
+ *    表内但用户侧字典没有 error.<code> 的码（10008 / 10009、30154、30417、44004 只在 /admin/v1 出现，客户端不会收到）同表外码：
+ *    服务端 msg 兜底（CT-LOCK-01 R1-01 起 1xxxx，CT-LOCK-02 扩到全部码段；page_action 表与置灰码除外，
+ *    10002 / 10402 已在前面专门处理）；
  *    error-codes.yaml 写明具体动作的码（30144 refetch_product、30306 disable_button、page_action 表等，见 specialAction）；
  *    其余表内码 → Toast（文案 error.<code>，带 reason 先取子键）。
  */
@@ -254,7 +255,7 @@ export class ErrorActionMapper {
       const key: string | null = ErrorActionMapper.textKey(code, reason ?? 'maintenance');
       return new ErrorEffect(EffectKind.DISABLE_WITH_TOAST, null, key, ReplayKind.NONE, false);
     }
-    if (!known || ErrorActionMapper.isTextlessAuthCode(code)) {
+    if (!known || ErrorActionMapper.isTextlessUnhandledCode(code)) {
       if (ErrorActionMapper.isServerError(code)) {
         return new ErrorEffect(EffectKind.GENERIC_ERROR, null, null, ReplayKind.NONE, false, 0, true);
       }
@@ -435,11 +436,14 @@ export class ErrorActionMapper {
   }
 
   /**
-   * 表内、没有专门分支、用户侧字典也没有 error.<code> 的 1xxxx（CT-LOCK-01 R1-01）：客户端不会收到（10008 / 10009 只在
-   * /admin/v1），按表外 1xxxx 的通用回落处理（fallback_message，服务端 msg 兜底），不新增后台业务处理。
+   * 表内、没有专门分支、用户侧字典也没有 error.<code> 的码（CT-LOCK-01 R1-01 起 1xxxx；CT-LOCK-02 扩到全部码段）：
+   * 客户端不会收到（10008 / 10009、30154、30417、44004 只在 /admin/v1），按表外码的通用回落处理（fallback_message，
+   * 服务端 msg 兜底），不新增后台业务处理。由发起页按界面处理的码（PAGE_ACTION_CODES，如 30505、44003）与置灰码不在此列，
+   * 行为不变；10002 / 10402 在前面已专门处理。
    */
-  private static isTextlessAuthCode(code: number): boolean {
-    return code >= 10000 && code <= 19999 && !ErrorActionMapper.hasText('error.' + code);
+  private static isTextlessUnhandledCode(code: number): boolean {
+    return ErrorActionMapper.PAGE_ACTION_CODES.indexOf(code) < 0 && ErrorActionMapper.DISABLE_CODES.indexOf(code) < 0 &&
+      !ErrorActionMapper.hasText('error.' + code);
   }
 
   private static hasText(key: string): boolean {

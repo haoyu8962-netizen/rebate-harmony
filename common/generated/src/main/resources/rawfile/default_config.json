@@ -7,6 +7,7 @@
     "flags": {
       "agent.entry.visible": true,
       "clipboard.enabled.taobao": true,
+      "clipboard.auto_read.ios": true,
       "ui.grayscale": false,
       "external_page.product_intercept": true,
       "external_page.union_host_block": true,
@@ -51,7 +52,9 @@
     "require_phone": false
   },
   "jump_tip": {},
-  "clipboard": {},
+  "clipboard": {
+    "consent_version": "2026-10-01"
+  },
   "bridge_origins": {},
   "auth_tips": {},
   "compliance": {},

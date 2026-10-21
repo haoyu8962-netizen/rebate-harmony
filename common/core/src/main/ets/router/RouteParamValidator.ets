@@ -6,7 +6,7 @@ import { HomeActionJson } from '../home/HomePolicies';
 
 /**
  * routes.json params 的 JSON Schema 校验（03 §4.4「统一入口守卫」：所有来源都校验参数）。
- * 只认生成器支持的关键字：type、enum、minLength、maxLength、pattern、required、additionalProperties。
+ * 只认生成器支持的关键字：type、enum、minLength、maxLength、minimum、pattern、required、additionalProperties。
  */
 export class RouteParamValidator {
   static isValid(params: Record<string, Object>, spec: RouteSpec): boolean {
@@ -36,6 +36,10 @@ export class RouteParamValidator {
     }
     const value: Object = raw;
     if (!RouteParamValidator.matchesType(value, param.type)) {
+      return false;
+    }
+    // CT-LOCK-02：minimum（含）只约束数值参数（matchesType 已保证 integer / number 是有限数）。
+    if (param.minimum !== null && typeof value === 'number' && (value as number) < param.minimum) {
       return false;
     }
     if (typeof value !== 'string') {

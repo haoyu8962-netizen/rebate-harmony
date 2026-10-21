@@ -236,8 +236,8 @@
         413,
         415
       ],
-      "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」；后台上传平台标识被拒收时 data.fields=[file]、data.reason 为 icon_format_invalid（非 SVG / PNG、不能解析、PNG 边长不足 512px 或非透明底）、icon_too_large（超过 content.platform_icon.max_bytes）或 icon_svg_unconvertible（含样式表、复杂选择器、@ 规则、外部引用或超出转换上限，无法保真转换），后台发布缺来源登记的版本时 data.fields 列出所有缺的项（[source_url]、[downloaded_on]，两项都缺时为 [source_url, downloaded_on]），BR-TEXT-24 细则）",
-      "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash 与 icon_format_invalid、icon_too_large、icon_svg_unconvertible 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31、BR-TEXT-24 细则），不进用户侧字典",
+      "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」；后台上传平台标识被拒收时 data.fields=[file]、data.reason 为 icon_format_invalid（非 SVG / PNG、不能解析、PNG 边长不足 512px 或非透明底）、icon_too_large（超过 content.platform_icon.max_bytes）或 icon_svg_unconvertible（含样式表、复杂选择器、@ 规则、外部引用或超出转换上限，无法保真转换），后台发布缺来源登记的版本时 data.fields 列出所有缺的项（[source_url]、[downloaded_on]，两项都缺时为 [source_url, downloaded_on]），BR-TEXT-24 细则；加收藏时收藏数已达 favorites.max_per_user 为 data.reason=favorites_full，规划/01 F-PROD-12）",
+      "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash 与 icon_format_invalid、icon_too_large、icon_svg_unconvertible 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31、BR-TEXT-24 细则），不进用户侧字典；favorites_full 轻提示、不弹窗",
       "retry": "否",
       "retry_kind": "never",
       "data": {
@@ -249,7 +249,8 @@
           "phone_invalid",
           "icon_format_invalid",
           "icon_too_large",
-          "icon_svg_unconvertible"
+          "icon_svg_unconvertible",
+          "favorites_full"
         ]
       },
       "sources": [
@@ -336,7 +337,16 @@
           "order_attribution",
           "withdrawal",
           "settle_batch",
-          "platform_icon"
+          "platform_icon",
+          "config_item",
+          "kill_switch",
+          "user_risk_state",
+          "union_binding",
+          "page",
+          "agreement",
+          "article",
+          "dict_item",
+          "claim_item"
         ]
       },
       "sources": [
@@ -344,7 +354,12 @@
         "BR-FUND-04",
         "BR-ATTR-20",
         "BR-WDR-08",
-        "BR-ID-36"
+        "BR-ID-36",
+        "BR-WDR-17",
+        "BR-INV-21",
+        "BR-ID-12",
+        "BR-TEXT-13",
+        "BR-TEXT-12"
       ]
     },
     {
@@ -591,6 +606,17 @@
       "sources": [
         "BR-ID-17",
         "BR-ID-18"
+      ]
+    },
+    {
+      "code": 30154,
+      "http": 422,
+      "meaning": "用户联盟绑定的当前状态不允许该操作（只出现在 /admin/v1 的 users/{id}/union-bindings/{platform}/reset、disable、enable：重置只接受 active、invalid；停用只接受 active、invalid；恢复只接受 blocked_reason=admin_disable 的 blocked；该平台没有绑定记录同码；不带 data。码值按 08 §13.11 301 段顺序取号，CT-02j）",
+      "action": "后台：刷新用户详情，按绑定的当前状态提示",
+      "retry": "否",
+      "retry_kind": "never",
+      "sources": [
+        "BR-ID-20"
       ]
     },
     {
@@ -1016,6 +1042,28 @@
       ]
     },
     {
+      "code": 30417,
+      "http": 422,
+      "meaning": "导出任务当前状态不允许该操作（只出现在 /admin/v1 的 exports/{id}/download 与 exports/{id}/retry：下载只接受 done 且未到 expires_at（到期未及置 expired 的也按 expired）；重试只接受 failed；data.status 为任务当前状态（enum export_status）。码值按 08 §13.11 304 段（账号身份，BR-ID-34）顺序取号，CT-24k）",
+      "action": "后台：刷新导出记录，按任务当前状态提示",
+      "retry": "否",
+      "retry_kind": "never",
+      "data": {
+        "status": [
+          "pending",
+          "running",
+          "done",
+          "failed",
+          "expired",
+          "cancelled"
+        ]
+      },
+      "sources": [
+        "BR-ID-34",
+        "BR-ID-30"
+      ]
+    },
+    {
       "code": 30501,
       "http": 422,
       "meaning": "AI 助手未开放",
@@ -1333,6 +1381,18 @@
       "sources": [
         "BR-ID-05",
         "BR-ID-32"
+      ]
+    },
+    {
+      "code": 44004,
+      "http": 403,
+      "meaning": "用户风控状态不允许该操作（只出现在 /admin/v1 的 users/{id}/risk-state：封禁只接受 normal、frozen；冻结只接受 normal、frozen（已冻结时改写期限与原因）；解封只接受 banned；解冻只接受 frozen；appealing 的用户一律拒绝、改走申诉处理；不带 data。码值按 08 §13.11 440 段顺序取号（44003 保留不复用），CT-02j）",
+      "action": "后台：刷新用户详情，按风控状态的当前值提示",
+      "retry": "否",
+      "retry_kind": "never",
+      "sources": [
+        "BR-ID-31",
+        "BR-ID-36"
       ]
     },
     {
