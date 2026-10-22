@@ -1,3 +1,4 @@
+import followupHM0729Test from './FollowupHM0729.test';
 import environmentConfigTest from './EnvironmentConfig.test';
 import clientCoreBridgeDisabledTest from './ClientCoreBridgeDisabled.test';
 import bridgeDisabledMethodsTest from './BridgeDisabledMethods.test';
@@ -248,6 +249,7 @@ export default function testsuite() {
   followupHM0725Test();
   followupHM0725ContractTest();
   followupHM0726Test();
+  followupHM0729Test();
   pendingInviteHM13cTest();
   pendingInviteHM13dTest();
   loginHM13aTest();

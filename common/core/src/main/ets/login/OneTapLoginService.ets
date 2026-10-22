@@ -55,8 +55,14 @@ export class OneTapLoginService {
     }
   }
 
+  /**
+   * currentConsent（FU-HM-0729 评审 r1，R1-01）：页面此刻的同意时刻（未同意为 null）。请求在途期间网络层可能 10401 校时重签、
+   * 10402 重新注册后重放原请求体：每一次实际发送前都现读，必须仍等于请求体里的 consent_at，否则不发、旧尝试作废（现读为未同意 →
+   * AGREEMENT_REQUIRED；仍同意但时刻变了 → STALE，需重新授权）。已在首发合法消费的待绑定码不回滚，在途新收到的码也不动。
+   * null = 沿用 consentAt（旧调用语义不变）。
+   */
   async loginHuawei(attempt: OneTapAttempt, code: string, consentAt: number | null,
-    restricted: boolean): Promise<LoginOutcome> {
+    restricted: boolean, currentConsent: (() => number | null) | null = null): Promise<LoginOutcome> {
     if (consentAt === null || !Number.isSafeInteger(consentAt)) {
       return new LoginOutcome(LoginOutcome.AGREEMENT_REQUIRED);
     }
@@ -75,6 +81,8 @@ export class OneTapLoginService {
     const request: ApiRequest = new ApiRequest(OneTapLoginPort.OPERATION_ID, {}, '',
       OneTapLoginPort.body(attempt.id, code, this.legal, consentAt, invite));
     request.owner = ticket.owner;
+    const consentHeld: () => boolean = (): boolean => currentConsent === null || currentConsent() === consentAt;
+    request.sendAllowed = consentHeld;
     attempt.submitted = true;
     this.running = true;
     try {
@@ -97,6 +105,10 @@ export class OneTapLoginService {
       if (!this.login.ticketValid(ticket)) {
         return new LoginOutcome(LoginOutcome.STALE);
       }
+      if (result.outcome === ApiOutcome.LOCAL_REJECT && result.localRejectReason === LocalRejectReason.SEND_BLOCKED
+        && currentConsent !== null && OneTapLoginService.consentNow(currentConsent) === null) {
+        return new LoginOutcome(LoginOutcome.AGREEMENT_REQUIRED);
+      }
       if (result.outcome === ApiOutcome.LOCAL_REJECT
         && result.localRejectReason !== LocalRejectReason.SESSION_SAVE_FAILED
         && result.localRejectReason !== LocalRejectReason.INVALID_SESSION_TOKENS) {
@@ -106,6 +118,16 @@ export class OneTapLoginService {
     } finally {
       this.running = false;
       this.login.releaseTicket(ticket);
+    }
+  }
+
+  /** 现读同意时刻；读取出错或非法时间按未同意。 */
+  private static consentNow(currentConsent: () => number | null): number | null {
+    try {
+      const value: number | null = currentConsent();
+      return value === null || !Number.isSafeInteger(value) ? null : value;
+    } catch (e) {
+      return null;
     }
   }
 }

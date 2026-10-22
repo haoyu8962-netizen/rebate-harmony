@@ -564,7 +564,9 @@ export struct LoginView {
     this.model.oauthBusy = true;
     let outcome: OAuthLoginOutcome;
     try {
-      outcome = await oauth.loginWith(provider, this.pageFlow.agreement.consentAtMillis, this.config.restricted);
+      // FU-HM-0729：同时转发页面此刻的同意来源（授权回来时 Core 现读，撤勾则不登录、重新勾选用新时刻）。
+      outcome = await oauth.loginWith(provider, this.pageFlow.agreement.consentAtMillis, this.config.restricted,
+        (): number | null => this.pageFlow.agreement.consentAtMillis);
     } finally {
       this.model.oauthBusy = false;
     }

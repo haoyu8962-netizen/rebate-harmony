@@ -323,9 +323,12 @@ export class OAuthLoginService {
   /**
    * consentAtMillis：勾选或确认框同意的时刻（同短信登录，BR-ID-04）。restricted：从强更页进入的受限登录（FU-HM-0721，共性 28）——
    * 第三方请求体本来就不带邀请码；登录后按 APP-05a 计划分流（见 run 里的 usesLoginPlan）。
+   * currentConsent（FU-HM-0729，brief 第 3 条）：页面此刻的同意时刻（未同意为 null）。授权在途期间用户可能取消 / 重新勾选协议：
+   * 拉起第三方前、提交凭证前各现读一次——未同意则按 AGREEMENT_REQUIRED 结束（不发登录、不动待绑定码）；仍同意时请求体采用现读的
+   * 同意时刻，不用开始时取走的快照。不传（null）沿用旧语义：始终用 consentAtMillis。
    */
   async loginWith(provider: string, consentAtMillis: number | null,
-    restricted: boolean = false): Promise<OAuthLoginOutcome> {
+    restricted: boolean = false, currentConsent: (() => number | null) | null = null): Promise<OAuthLoginOutcome> {
     const adapter: ThirdPartyAuthAdapter | undefined = this.adapters.get(provider);
     const operationId: string | null = OAuthProvider.loginOperation(provider);
     if (adapter === undefined || operationId === null || !OAuthLoginService.safeAvailable(adapter)) {
@@ -342,7 +345,8 @@ export class OAuthLoginService {
     const methodStore: LastLoginMethodStore | null = this.login.lastLoginMethod;
     const methodRevision: number = methodStore?.revision ?? -1;
     try {
-      const outcome: OAuthLoginOutcome = await this.run(provider, operationId, adapter, consentAtMillis, ticket, restricted);
+      const outcome: OAuthLoginOutcome = await this.run(provider, operationId, adapter, consentAtMillis, ticket, restricted,
+        currentConsent);
       if (outcome.stateRaw === OAuthLoginOutcome.LOGGED_IN && methodStore !== null) {
         methodStore.record(provider, methodRevision);
       }
@@ -354,7 +358,7 @@ export class OAuthLoginService {
   }
 
   private async run(provider: string, operationId: string, adapter: ThirdPartyAuthAdapter, consentAtMillis: number,
-    ticket: AttemptTicket, restricted: boolean): Promise<OAuthLoginOutcome> {
+    ticket: AttemptTicket, restricted: boolean, currentConsent: (() => number | null) | null): Promise<OAuthLoginOutcome> {
     // R1-01（APP-05b 共性 1）：开始时固定会话、登录、隐私、环境归属；每次异步返回后、提交凭证前复核，变了就终止整个尝试，
     // 后续请求不在新上下文里重新绑定（等待授权期间保存了另一账号的会话 → 不提交、不覆盖）。
     const scope: ClientScope = this.client.captureScope();
@@ -376,6 +380,10 @@ export class OAuthLoginService {
     if (typeof attemptId !== 'string' || typeof nonce !== 'string' || (attemptId as string).length === 0
       || (nonce as string).length === 0) {
       return new OAuthLoginOutcome(OAuthLoginErrorAction.SERVICE_ERROR, null, LoginService.GENERIC_KEY, created.trace6);
+    }
+    // FU-HM-0729：取尝试期间取消了同意——不拉起第三方。
+    if (OAuthLoginService.consentNow(consentAtMillis, currentConsent) === null) {
+      return new OAuthLoginOutcome(LoginOutcome.AGREEMENT_REQUIRED);
     }
     // 2. 拉起第三方。迟到的回调（取消、离页、超时之后）只交给 session 记为丢弃。
     const handle: string = this.session.create();
@@ -435,7 +443,14 @@ export class OAuthLoginService {
       this.session.cancel();
       return new OAuthLoginOutcome(OAuthLoginErrorAction.REAUTHORIZE, null, 'error.20004');
     }
-    const body: Record<string, Object> | null = this.loginBody(provider, attemptId as string, outcome, consentAtMillis);
+    // FU-HM-0729（brief 第 3 条）：授权在途期间取消了同意——本次尝试终止，凭证不提交、不消费待绑定码；重新勾选过则采用此刻的同意时刻。
+    // 现读与建体、提交在同一同步区，中间没有异步空隙。
+    const consentAt: number | null = OAuthLoginService.consentNow(consentAtMillis, currentConsent);
+    if (consentAt === null) {
+      this.session.cancel();
+      return new OAuthLoginOutcome(LoginOutcome.AGREEMENT_REQUIRED);
+    }
+    const body: Record<string, Object> | null = this.loginBody(provider, attemptId as string, outcome, consentAt);
     if (body === null) {
       this.session.cancel();
       return new OAuthLoginOutcome(OAuthLoginErrorAction.REAUTHORIZE, null, 'error.20004');
@@ -450,10 +465,19 @@ export class OAuthLoginService {
     }
     const request: ApiRequest = new ApiRequest(operationId, {}, '', JSON.stringify(body));
     request.owner = ticket.owner;
+    // FU-HM-0729 评审 r1（R1-01）：同意检查接到每一次实际发送（首发、10401 校时重签、10402 重新注册后的重放都经网络层发送闸门）——
+    // 现读的同意时刻必须仍等于请求体里的 consent_at：撤勾或重新勾选（时刻变了）都不再发出旧请求体，以 send_blocked 结束这次尝试。
+    request.sendAllowed = (): boolean => OAuthLoginService.consentNow(consentAtMillis, currentConsent) === consentAt;
     const result: ApiResult = await this.client.request(request);
     if (!result.ok) {
       if (!this.login.ticketValid(ticket)) {
         return new OAuthLoginOutcome(LoginOutcome.STALE);
+      }
+      if (result.outcome === ApiOutcome.LOCAL_REJECT && result.localRejectReason === LocalRejectReason.SEND_BLOCKED) {
+        // 已撤勾：按现有未同意口径（不登录、不动待绑定码）；重新勾选过：旧尝试作废，按需重新授权（凭证不随新时刻重发）。
+        return OAuthLoginService.consentNow(consentAtMillis, currentConsent) === null ?
+          new OAuthLoginOutcome(LoginOutcome.AGREEMENT_REQUIRED) :
+          new OAuthLoginOutcome(OAuthLoginErrorAction.REAUTHORIZE, null, 'error.20004');
       }
       return this.failure(provider, result);
     }
@@ -612,6 +636,12 @@ export class OAuthLoginService {
       return new OAuthLoginOutcome(mapped.actionRaw, null, mapped.textKey ?? null, result.trace6, mapped.disableMillis);
     }
     return new OAuthLoginOutcome(OAuthLoginErrorAction.NETWORK_ERROR, null, LoginService.GENERIC_KEY, result.trace6);
+  }
+
+  /** 同意时刻的统一出口：有现读来源就读页面此刻的状态，否则用开始时的快照；未同意或非法时间为 null。 */
+  private static consentNow(snapshot: number, currentConsent: (() => number | null) | null): number | null {
+    const value: number | null = currentConsent === null ? snapshot : currentConsent();
+    return value === null || !Number.isSafeInteger(value) ? null : value;
   }
 
   private static safeAvailable(adapter: ThirdPartyAuthAdapter): boolean {

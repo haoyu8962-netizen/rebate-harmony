@@ -289,14 +289,19 @@ export class QuickLoginFlow {
         this.otherPhone();
         return;
       }
-      const outcome: LoginOutcome = await this.service.loginHuawei(created, code, consentAt, this.deps.restricted);
+      // FU-HM-0729 评审 r1：同时转发共享协议对象的现读来源；网络层每次实际发送（含校时重签、重新注册后的重放）前都核对。
+      // 同意修订变了（撤勾或重新勾选）即不再是这次尝试的同意：按未同意读出，旧请求体不发。
+      const outcome: LoginOutcome = await this.service.loginHuawei(created, code, consentAt, this.deps.restricted,
+        (): number | null => consentRevision === this.consentRevision ? this.agreement.consentAtMillis : null);
       if (revision !== this.revision) {
         return;
       }
       this.result = outcome;
       if (outcome.stateRaw === LoginOutcome.LOGGED_IN) {
         this.deps.onLoggedIn(outcome);
-      } else if (outcome.stateRaw !== LoginOutcome.STALE && outcome.stateRaw !== LoginOutcome.BUSY) {
+      } else if (outcome.stateRaw !== LoginOutcome.STALE && outcome.stateRaw !== LoginOutcome.BUSY
+        && outcome.stateRaw !== LoginOutcome.AGREEMENT_REQUIRED) {
+        // 在途撤勾 / 重新勾选（AGREEMENT_REQUIRED）同前置复核的口径：静默停在一键登录页，不报错、不跳走，由用户重新同意后再点。
         this.feedback = LoginService.GENERIC_KEY;
         this.otherPhone();
       }
