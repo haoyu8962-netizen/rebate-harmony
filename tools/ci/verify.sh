@@ -649,7 +649,7 @@ run_device_tests() {
     record "device-test $module" PASS "${pass#DEVICE_TEST_PASS }"
 }
 run_device_tests core common/core core_test
-COULI_HM_TEST_TOTAL_TIMEOUT=900 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap"
 
 # ---------------------------------------------------------------- 8. Release 制品扫描

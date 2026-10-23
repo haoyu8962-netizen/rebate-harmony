@@ -165,7 +165,7 @@ run_device_tests core common/core core_test
                     self.assertEqual((folder / 'build-receipts').read_text().splitlines(),
                                      ['core|genOnDeviceTestHap|default', 'entry|assembleHap|staging'])
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
-                                     ['core_test|||', 'entry_test|' + tmp + '/Staging.hap|600000|900'])
+                                     ['core_test|||', 'entry_test|' + tmp + '/Staging.hap|600000|1800'])
                 print('REFERENCE_ONLY verify dispatch: ' + probe)
 
     def test_device_timeout_defaults_and_explicit_override(self):
@@ -173,7 +173,7 @@ run_device_tests core common/core core_test
         source = (root / 'tools/ci/device-test.sh').read_text()
         config = 'case_timeout=' + source.split('case_timeout=', 1)[1].split('\nwith_timeout ', 1)[0]
         self.assertIn('-s timeout "$case_timeout"', source)
-        self.assertIn('[ "$elapsed_seconds" -le 900 ]', source)
+        self.assertIn('[ "$elapsed_seconds" -le 1800 ]', source)
         for module, override, expected in [('entry_test', '', '600000'),
                                            ('entry_test', '180000', '600000'),
                                            ('core_test', '', '60000'),

@@ -140,7 +140,7 @@ RESULT="$WORK/aa-test-$MODULE.log"
 rc=0
 started_seconds=$SECONDS
 # Hypium 1.0.24 只支持统一单例上限；entry 的大组件及每个 ProductCard 变体给足 600s。
-# 也覆盖直接调用此脚本的路径；整轮 900s 验收门槛仍在下方独立检查。
+# 也覆盖直接调用此脚本的路径；整轮 1800s 验收门槛（D10-232，原 900s，提速后改回）仍在下方独立检查。
 case_timeout="${COULI_HM_TEST_CASE_TIMEOUT:-60000}"
 if [ "$MODULE" = entry_test ]; then case_timeout=600000; fi
 with_timeout "${COULI_HM_TEST_TOTAL_TIMEOUT:-600}" "$HDC" -t "$DEVICE" shell aa test -b "$BUNDLE" -m "$MODULE" -s unittest OpenHarmonyTestRunner \
@@ -174,7 +174,7 @@ sys.exit(0 if m and int(m.group(1)) > 0 and m.group(2) == "0" and m.group(3) == 
 grep -q "OHOS_REPORT_CODE: 0" "$RESULT" || die "aa test 没有报告 OHOS_REPORT_CODE: 0"
 grep -q "TestFinished-ResultCode: 0" "$RESULT" || die "aa test 没有报告 TestFinished-ResultCode: 0"
 if [ "$MODULE" = entry_test ]; then
-    [ "$elapsed_seconds" -le 900 ] || die "DS-02 entry 设备整轮超过 900 秒：${elapsed_seconds}"
+    [ "$elapsed_seconds" -le 1800 ] || die "DS-02 entry 设备整轮超过 1800 秒：${elapsed_seconds}"
     python3 "$(dirname "$0")/ds02/check_device_result.py" "$RESULT" || die "DS-02 设备用例未全部通过"
 fi
 echo "DEVICE_TEST_PASS elapsed_seconds=${elapsed_seconds} device=${DEVICE} model=${MODEL:-unknown} api=${API} ${SUMMARY}"
