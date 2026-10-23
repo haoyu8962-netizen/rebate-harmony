@@ -26,7 +26,7 @@
 
 import { describe, it, expect } from '@ohos/hypium';
 import { EventRouteParamsDroppedRoute } from 'generated';
-import { CouliFormat } from 'designsystem';
+import { CouliFormat } from 'designsystem/src/main/ets/format/CouliFormat';
 import { ACCOUNT_VECTORS_JSON } from './AccountVectorsData';
 import {
   AccountJson,

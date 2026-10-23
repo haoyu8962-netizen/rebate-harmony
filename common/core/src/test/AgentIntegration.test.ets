@@ -15,7 +15,9 @@ import {
 } from '../../Index';
 import { AgentFakeScript, AgentFakeService, AgentDebugSources } from '../staging/ets/agent/AgentFakeService';
 import { ClientEvent, RouteSpec } from 'generated';
-import { CouliFormat, CouliModalInstance, CouliModalPresenter, CouliModalSlot, ProductGridLayout } from 'designsystem';
+import { CouliFormat } from 'designsystem/src/main/ets/format/CouliFormat';
+import { CouliModalInstance, CouliModalPresenter, CouliModalSlot } from 'designsystem/src/main/ets/components/ModalInstance';
+import { ProductGridLayout } from 'designsystem/Logic';
 import { AGENT_STREAM_FIXTURES } from './AgentStreamFixturesData';
 import { AGENT_VECTORS_JSON } from './AgentVectorsData';
 import { ParamStack, TAB_ROOTS } from './OrderIntegration.test';

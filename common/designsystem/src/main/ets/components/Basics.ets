@@ -3,6 +3,7 @@ import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliSpacing, Cou
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
+import { PlatformIconSource } from './PlatformIconSource';
 
 export enum CouliButtonVariant {
   /** 主按钮：狸橙底白字（一个区域一个）。 */
@@ -11,7 +12,7 @@ export enum CouliButtonVariant {
   SECONDARY = 'secondary',
   /** 文字按钮：深橙字、无底。 */
   TEXT = 'text',
-  /** 狸橙实底卡内的白底按钮（GUIDE §7.1：白底 + 深橙字 600）。 */
+  /** 狸橙实底卡内的白底按钮（GUIDE §7.1：白底 + 深橙字 600；清单变体名 onSolid，颜色读 T1 color.button.inverse.*）。 */
   ON_BRAND = 'on_brand'
 }
 
@@ -41,6 +42,10 @@ export struct CouliButton {
   @Param accessibilityName: string = '';
   /** 组件 id（弹层关闭后把焦点还给它：CouliFocusReturn.to）；空串不设。 */
   @Param buttonId: string = '';
+  /** 按钮文字 Text 的组件 id（目录页大字号测量用）；空串不设。 */
+  @Param textId: string = '';
+  /** 目录页静态展示「按下」：系统按压是瞬时变暗，样例直接画按下底色（主按钮 color.button.primary.pressed.*）。 */
+  @Param pressedPreview: boolean = false;
   @Event onTap: () => void = () => {
   };
   /** 按钮实际高度（vp）：紧凑按钮的命中区按它上下各扩 (48 − 44) / 2（R1-01）。 */
@@ -65,15 +70,19 @@ export struct CouliButton {
 
   private bgColor(): ResourceColor {
     if (this.variant === CouliButtonVariant.TEXT) {
-      return Color.Transparent;
+      return this.pressedPreview && !this.disabled ? CouliColors.brandSubtle : Color.Transparent;
     }
     if (this.disabled) {
       return CouliColors.buttonPrimaryDisabledBackground;
     }
     if (this.variant === CouliButtonVariant.PRIMARY) {
-      return CouliColors.buttonPrimaryDefaultBackground;
+      return this.pressedPreview ? CouliColors.buttonPrimaryPressedBackground : CouliColors.buttonPrimaryDefaultBackground;
     }
-    return CouliColors.backgroundSurface;
+    if (this.variant === CouliButtonVariant.ON_BRAND) {
+      // T1：狸橙实底卡内的白底按钮，深色下仍白底（color.button.inverse.background）。
+      return this.pressedPreview ? CouliColors.brandSubtle : CouliColors.buttonInverseBackground;
+    }
+    return this.pressedPreview ? CouliColors.backgroundMuted : CouliColors.backgroundSurface;
   }
 
   private foreground(): ResourceColor {
@@ -85,6 +94,8 @@ export struct CouliButton {
         return CouliColors.buttonPrimaryDefaultText;
       case CouliButtonVariant.SECONDARY:
         return CouliColors.textPrimary;
+      case CouliButtonVariant.ON_BRAND:
+        return CouliColors.buttonInverseText;
       default:
         return CouliColors.brandEmphasis;
     }
@@ -111,6 +122,7 @@ export struct CouliButton {
             this.foreground(), this.weight(), true))
           .textAlign(TextAlign.Center)
           .flexShrink(1)
+          .id(this.textId.length > 0 ? this.textId : undefined)
       }
       .justifyContent(FlexAlign.Center)
     }
@@ -148,23 +160,41 @@ export struct CouliButton {
   }
 }
 
+/** 平台标识内置图的资源（文件名去扩展名；资源名按变量拼出，原因见 couliColorResource）。 */
+function platformMedia(file: string): Resource {
+  return $r('app.media.' + file.substring(0, file.lastIndexOf('.')));
+}
+
 /**
- * 平台来源标签（GUIDE §7.1）：白底 + 1px 装饰描边、灰棕字、胶囊、最小高 20；字号放大时增高不截断。
- * 平台 logo 未到（design/icons/platform/），先只放文字。
+ * 平台来源标签（GUIDE §7.1）：白底 + 1px 装饰描边、灰棕字、胶囊、最小高 20（T11）；字号放大时增高不截断。
+ * DS-02：淘宝 / 京东 / 拼多多前面放内置官方图（PlatformIconSource，design/icons/platform/ 原图，图标高 = 说明字号），
+ * 其他平台（天猫、抖音、唯品会、未知）只放文字（占位）。不传 platform 时与 DS-01 一样只有文字。
  */
 @ComponentV2
 export struct PlatformBadge {
   @Param label: string = '';
+  /** 平台标识键（taobao / jd / pdd …）；空串不放图。 */
+  @Param platform: string = '';
 
   build() {
-    Text(this.label)
-      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.sourceText))
-      .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2 })
-      .constraintSize({ minHeight: CouliSpacing.space5 })
-      .backgroundColor(CouliColors.sourceBackground)
-      .border({ width: CouliComponentMetrics.controlBorderWidth, color: CouliColors.sourceBorder })
-      .borderRadius(CouliRadius.pill)
-      .maxLines(1)
+    Row({ space: CouliSpacing.space1 }) {
+      if (PlatformIconSource.builtin(this.platform).length > 0) {
+        Image(platformMedia(PlatformIconSource.builtin(this.platform)))
+          .width(CouliTypography.caption.fontSize)
+          .height(CouliTypography.caption.fontSize)
+          .objectFit(ImageFit.Contain)
+          .accessibilityLevel('no')
+      }
+      Text(this.label)
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.sourceText))
+        .maxLines(1)
+    }
+    .padding({ left: this.platform.length > 0 ? CouliSpacing.space1 : CouliSpacing.space2, right: CouliSpacing.space2 })
+    .constraintSize({ minHeight: CouliComponentMetrics.platformBadgeMinHeight })
+    .backgroundColor(CouliColors.sourceBackground)
+    .border({ width: CouliComponentMetrics.controlBorderWidth, color: CouliColors.sourceBorder })
+    .borderRadius(CouliRadius.pill)
+    .accessibilityGroup(true)
   }
 }
 
@@ -242,22 +272,27 @@ export struct CouliChip {
   }
 }
 
-/** AI 匹配标签（如「规格待确认」）：文字由调用方从字典给（agent.match.*）；中性浅底 + 信息图标。 */
+/**
+ * AI 匹配标签（如「规格待确认」）：文字由调用方从字典给（agent.match.*）；中性浅底（清单 §4：三端统一中性款，绿色只留给已结算）。
+ * 普通带信息图标；规格待确认（unconfirmed）带问号图标。
+ */
 @ComponentV2
 export struct MatchBadge {
   @Param text: string = '';
+  @Param unconfirmed: boolean = false;
 
   build() {
-    CouliChip({ label: this.text, tone: CouliChipTone.MUTED, icon: 'info' })
+    CouliChip({ label: this.text, tone: CouliChipTone.MUTED, icon: this.unconfirmed ? 'help' : 'info' })
   }
 }
 
-/** AI 生成内容标识（BR-TEXT-16）：文字由调用方从字典给（ai_label）；白底描边。 */
+/** AI 生成内容标识（BR-TEXT-16）：文字由调用方从字典给（ai_label）；清单 §4 按 AgentResult 稿统一为 12 号次要色纯文字。 */
 @ComponentV2
 export struct AiLabel {
   @Param text: string = '';
 
   build() {
-    CouliChip({ label: this.text, tone: CouliChipTone.OUTLINE, icon: 'chat' })
+    Text(this.text)
+      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
   }
 }

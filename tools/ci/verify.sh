@@ -5,7 +5,7 @@
 #   tools/ci/verify.sh          全量：生成物检查 → lint（项目规则 + codelinter）→ 违反样例必须报错 → 桥启动脚本 node 执行测试 → 镜像 + ohpm install（锁文件不变）
 #                               → SDK 版本核对 → Debug / Staging / Release 三套 assembleHap（每套核对 API 版本、API 20 兼容告警、应用名）
 #                               → Hypium 本机单测（designsystem 另在 TZ=UTC / America/Los_Angeles 各跑一次）
-#                               → 设备测试（core 的 ohosTest，需已连接的鸿蒙模拟器 / 真机；没有就失败，不跳过）
+#                               → 设备测试（core + entry 的 ohosTest，需已连接的鸿蒙模拟器 / 真机；没有就失败，不跳过）
 #                               → release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
 #   tools/ci/verify.sh --fast   只到生成物检查、项目 lint、SDK 版本核对与一次 Debug 构建
 #
@@ -240,6 +240,17 @@ record "lint-hm10-toolchain" PASS "$(printf '%s' "$HM10_TOOLCHAIN" | sed -E 's/^
 step "lint.py（项目规则）"
 python3 "$ROOT/tools/ci/lint.py" || fail_fast "lint.py" "见上方输出"
 record "lint.py" PASS
+
+step "DS-02 组件资源 / 守卫 / 目录隔离宿主测试"
+python3 "$ROOT/tools/ci/ds02/test_host.py" || fail_fast "ds02-host" "见上方用例断言"
+record "ds02-host" PASS
+
+step "DS-02 纯逻辑与测试设施自测"
+node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"
+PYTHONPATH="$ROOT/tools/codegen:$ROOT/tools/ci/ds02${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 "$ROOT/tools/ci/ds02/test_test_facilities.py" || fail_fast "ds02-facilities" "见上方设施反例"
+node "$ROOT/tools/ci/ds02/check-ui-facilities.cjs" || fail_fast "ds02-ui-facilities" "见上方遍历 / 启动 / 注册反例"
+record "ds02-logic/facilities" PASS "设施模拟不计入设备通过；entry_test 仍须真机全量执行"
 
 step "lint-fixtures（每条规则的违反样例必须被拦下）"
 FIXTURE_COUNT=0
@@ -604,11 +615,14 @@ run_unit_tests designsystem common/designsystem America/Los_Angeles
 run_device_tests() {
     # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name
     local module="$1" dir="$2" test_module="$3" log="$LOG_DIR/device-test-build-$1.log" code
-    local hap="$BUILD_DIR/$dir/build/default/outputs/ohosTest/$module-ohosTest-unsigned.hap"
+    local test_product="${4:-default}" application_hap="${5:-}"
+    local test_task="genOnDeviceTestHap"
+    if [ "$module" = entry ]; then test_task="assembleHap"; fi
+    local hap="$BUILD_DIR/$dir/build/$test_product/outputs/ohosTest/$module-ohosTest-unsigned.hap"
     step "设备测试：${module}（ohosTest，${test_module}）"
     rm -f "$hap"
-    if ! (cd "$BUILD_DIR" && "$HVIGORW" --mode module -p module="$module@ohosTest" -p isOhosTest=true -p product=default \
-        -p buildMode=debug genOnDeviceTestHap --no-daemon) >"$log" 2>&1; then
+    if ! (cd "$BUILD_DIR" && "$HVIGORW" --mode module -p module="$module@ohosTest" -p isOhosTest=true -p product="$test_product" \
+        -p buildMode=debug "$test_task" --no-daemon) >"$log" 2>&1; then
         show_matches "ERROR|Error Message|error" "$log" 30
         fail_fast "device-test $module" "测试包构建失败，见 $log"
     fi
@@ -620,7 +634,7 @@ run_device_tests() {
         fail_fast "device-test $module" "测试包用到了高于 API 20 的接口，见 $log"
     fi
     local out="$OUT_DIR/device-test-$module.log"
-    if "$ROOT/tools/ci/device-test.sh" "$hap" "$test_module" "$OUT_DIR/device-test" >"$out" 2>&1; then
+    if "$ROOT/tools/ci/device-test.sh" "$hap" "$test_module" "$OUT_DIR/device-test" "$application_hap" >"$out" 2>&1; then
         code=0
     else
         code=$?
@@ -635,6 +649,8 @@ run_device_tests() {
     record "device-test $module" PASS "${pass#DEVICE_TEST_PASS }"
 }
 run_device_tests core common/core core_test
+COULI_HM_TEST_TOTAL_TIMEOUT=900 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap"
 
 # ---------------------------------------------------------------- 8. Release 制品扫描
 export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"

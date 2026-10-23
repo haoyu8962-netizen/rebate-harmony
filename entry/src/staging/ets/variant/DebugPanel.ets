@@ -6,7 +6,9 @@ import {
   EnvironmentSwitcher, LaunchReport, parseAppEnvironment, SwitchResult
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
-import { AppVersionCheckExample, DebugRoutes } from 'generated';
+// DS-02：调试导出直接从 generated 的 src/staging/ets/DebugOnly 取，不经 generated 总入口——entry 的 UiTest 包与本应用同 bundle、ArkTS 模块按名字共用，
+// 测试包先加载的 generated 总入口是 Release 版（依赖一律取 default target），经总入口取调试导出会在设备测试时找不到而崩溃。
+import { AppVersionCheckExample, DebugRoutes } from 'generated/src/staging/ets/DebugOnly';
 import { CATALOG_ROUTE } from '../catalog/ComponentCatalog';
 import { DEBUG_CONFORMANCE_URL, DEBUG_HARNESS_URL, DEBUG_WEB_ROUTE, DebugWebTarget } from './DebugBridge';
 import { AppPrivacy } from '../../../main/ets/privacy/AppPrivacy';

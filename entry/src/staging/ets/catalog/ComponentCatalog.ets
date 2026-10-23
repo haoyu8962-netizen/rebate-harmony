@@ -1,4 +1,5 @@
-// 组件目录页与设计对照页（DS-01；只在 Debug / Staging 编译，从调试面板进入；Release 产物里不存在）。
+// 组件目录页与设计对照页（DS-01 起；DS-02 扩成按组件清单分组的目录：索引 → 每个组件一屏，浅 / 深、200% 切换）。
+// 只在 Debug / Staging 编译，从调试面板进入；Release 产物里不存在。
 import { LengthMetrics } from '@kit.ArkUI';
 import {
   AiLabel, AmountGrid, AmountGridItem, AmountTone, BuyButton, BuyButtonState, CouliButton, CouliButtonSize,
@@ -10,11 +11,18 @@ import {
   RebateTagSize, SkeletonProductCard, ProductCardGrid, TabBar, TabBarItem, ToastView, WalletHeroCard
 } from 'designsystem';
 import { CatalogSamples, CatalogText } from './CatalogSamples';
+import { CATALOG_DETAIL_ROUTE, CATALOG_NAV_DEMO_ROUTE, CATALOG_NAV_DEMO_TITLE, DS01_REVIEW_ROUTE } from './CatalogRoutes';
+import { CatalogToolbar } from './CatalogToolbar';
+import { CATALOG_COMPONENTS, CATALOG_GROUPS, CatalogComponent } from './CatalogManifest';
+import { CatalogLaunch } from './CatalogLaunch';
+
+export { CATALOG_DETAIL_ROUTE, CATALOG_NAV_DEMO_ROUTE, DS01_REVIEW_ROUTE } from './CatalogRoutes';
 
 /** 目录页的固定标记；tools/ci/release-scan.sh 查 Release 产物里不得出现它（Debug / Staging 必须命中）。 */
 export const COULI_COMPONENT_CATALOG: string = 'COULI_COMPONENT_CATALOG_DS01_7f3a9c51e2';
 
 export const CATALOG_ROUTE: string = 'CouliComponentCatalog';
+export { CATALOG_NAV_DEMO_TITLE } from './CatalogRoutes';
 export const COMPARE_SEARCH: string = 'CouliCompareSearch';
 export const COMPARE_STRESS: string = 'CouliCompareProductCardStress';
 export const COMPARE_PRODUCT: string = 'CouliCompareProduct';
@@ -22,8 +30,10 @@ export const COMPARE_WALLET: string = 'CouliCompareWallet';
 export const COMPARE_ME: string = 'CouliCompareMe';
 export const COMPARE_SEARCH_EMPTY: string = 'CouliCompareSearchEmpty';
 
+
 export const CATALOG_ROUTES: string[] = [
-  CATALOG_ROUTE, COMPARE_SEARCH, COMPARE_STRESS, COMPARE_PRODUCT, COMPARE_WALLET, COMPARE_ME, COMPARE_SEARCH_EMPTY
+  CATALOG_ROUTE, COMPARE_SEARCH, COMPARE_STRESS, COMPARE_PRODUCT, COMPARE_WALLET, COMPARE_ME, COMPARE_SEARCH_EMPTY,
+  CATALOG_DETAIL_ROUTE, CATALOG_NAV_DEMO_ROUTE, DS01_REVIEW_ROUTE
 ];
 
 function tabItems(): TabBarItem[] {
@@ -31,9 +41,9 @@ function tabItems(): TabBarItem[] {
   return CatalogText.tabs.map((label: string, i: number) => new TabBarItem(label, icons[i]));
 }
 
-/** 目录页入口（英文开发字样）+ 全部组件状态。 */
+/** DS-01 评审核对区（原目录页正文，英文开发字样）：R1/R2 核对样例、对照页入口。DS-02 起从目录索引底部进入。 */
 @ComponentV2
-export struct ComponentCatalog {
+export struct Ds01ReviewPage {
   @Param pathStack: NavPathStack = new NavPathStack();
   @Local amountHidden: boolean = false;
   @Local sheetShown: boolean = false;
@@ -381,7 +391,7 @@ export struct ComponentCatalog {
             dragBar: false,
             height: SheetSize.FIT_CONTENT,
             backgroundColor: Color.Transparent,
-            maskColor: CouliShadow.mask(CouliColors.textPrimary),
+            maskColor: CouliColors.overlayScrim,
             onDisappear: () => {
               this.sheetShown = false;
               CouliFocusReturn.to(this.getUIContext(), 'catalog-open-sheet');
@@ -621,11 +631,7 @@ export struct CompareProduct {
 
   build() {
     Column() {
-      NavBar({
-        title: CatalogText.productTitle, backLabel: CatalogText.back, onBack: () => {
-          this.pathStack.pop();
-        }
-      })
+      NavBar({ title: CatalogText.productTitle, backLabel: CatalogText.back })
       Scroll() {
         Column({ space: CouliSpacing.space3 }) {
           Stack() {
@@ -706,11 +712,7 @@ export struct CompareWallet {
 
   build() {
     Column() {
-      NavBar({
-        title: CatalogText.wallet, backLabel: CatalogText.back, onBack: () => {
-          this.pathStack.pop();
-        }
-      })
+      NavBar({ title: CatalogText.wallet, backLabel: CatalogText.back })
       Scroll() {
         Column({ space: CouliSpacing.space3 }) {
           WalletHeroCard({
@@ -908,5 +910,139 @@ export struct CompareSearchEmpty {
     CatalogPage({ selectedTab: 0 }) {
       this.body()
     }
+  }
+}
+
+/**
+ * 组件目录索引（DS-02）：按组件清单 §3.1–§3.7、§4 分组列出 61 个组件（数据来自 CatalogManifest），点进去一个组件一屏；
+ * 顶部浅 / 深、100% / 200% 切换（作用于整个应用：ApplicationContext.setColorMode / setFontSizeScale）。底部是 DS-01 的评审核对区与对照页。
+ */
+@ComponentV2
+export struct ComponentCatalog {
+  @Param pathStack: NavPathStack = new NavPathStack();
+  private readonly onLaunch: () => void = () => {
+    this.openLaunched();
+  };
+
+  aboutToAppear(): void {
+    CatalogLaunch.shared.attach(this.onLaunch);
+  }
+
+  aboutToDisappear(): void {
+    CatalogLaunch.shared.detach(this.onLaunch);
+  }
+
+  /** 直达（CatalogLaunch）：回到本索引再打开同一个真实详情页；不带动画，状态与从索引点进去相同。 */
+  private openLaunched(): void {
+    const name: string = CatalogLaunch.shared.take();
+    if (name.length === 0) {
+      return;
+    }
+    this.pathStack.popToName(CATALOG_ROUTE, false);
+    this.pathStack.pushPathByName(CATALOG_DETAIL_ROUTE, name, false);
+  }
+
+  private inGroup(group: string): CatalogComponent[] {
+    return CATALOG_COMPONENTS.filter((c: CatalogComponent): boolean => c.group === group);
+  }
+
+  @Builder
+  compareLink(label: string, route: string) {
+    CouliButton({
+      text: label,
+      variant: CouliButtonVariant.SECONDARY,
+      fullWidth: true,
+      onTap: () => {
+        this.pathStack.pushPathByName(route, null);
+      }
+    })
+  }
+
+  build() {
+    Column() {
+      CatalogToolbar()
+      Scroll() {
+        Column({ space: CouliSpacing.space2 }) {
+          Text(COULI_COMPONENT_CATALOG)
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+          ForEach(CATALOG_GROUPS, (group: string) => {
+            Text(group)
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary,
+                CouliFontWeight.semibold))
+              .margin({ top: CouliSpacing.space3 })
+            Column() {
+              ForEach(this.inGroup(group), (comp: CatalogComponent, index: number) => {
+                if (index > 0) {
+                  Divider().color(CouliColors.borderSubtle).margin({ left: CouliSpacing.space4 })
+                }
+                Row({ space: CouliSpacing.space2 }) {
+                  Text(comp.name)
+                    .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+                    .layoutWeight(1)
+                  Text(comp.kind + ' · ' + comp.cases().length)
+                    .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+                  SymbolGlyph($r('sys.symbol.chevron_right'))
+                    .fontSize(CouliTypography.body.fontSize)
+                    .fontColor([CouliColors.textSecondary])
+                }
+                .width('100%')
+                .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+                .padding({ left: CouliSpacing.space4, right: CouliSpacing.space3 })
+                .id('catalog-entry/' + comp.name)
+                .accessibilityGroup(true)
+                .onClick(() => {
+                  this.pathStack.pushPathByName(CATALOG_DETAIL_ROUTE, comp.name);
+                })
+              }, (comp: CatalogComponent) => comp.name)
+            }
+            .backgroundColor(CouliColors.backgroundSurface)
+            .borderRadius(CouliRadius.card)
+          }, (group: string) => group)
+          Text('DS-01')
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary,
+              CouliFontWeight.semibold))
+            .margin({ top: CouliSpacing.space3 })
+          this.compareLink('DS-01 review samples', DS01_REVIEW_ROUTE)
+          this.compareLink('Search', COMPARE_SEARCH)
+          this.compareLink('ProductCardStress', COMPARE_STRESS)
+          this.compareLink('Product', COMPARE_PRODUCT)
+          this.compareLink('Wallet', COMPARE_WALLET)
+          this.compareLink('Me', COMPARE_ME)
+          this.compareLink('SearchEmpty', COMPARE_SEARCH_EMPTY)
+        }
+        .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, bottom: CouliSpacing.space8 })
+        .alignItems(HorizontalAlign.Start)
+      }
+      .id('catalog-index')
+      .layoutWeight(1)
+      .width('100%')
+      .align(Alignment.Top)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(CouliColors.backgroundCanvas)
+  }
+}
+
+/** NavBar 样例的真实二级页：顶部是组件库的 NavBar（系统标题栏与返回按钮），按返回回到目录详情。 */
+@ComponentV2
+export struct CatalogNavDemo {
+  build() {
+    Column() {
+      NavBar({
+        title: CATALOG_NAV_DEMO_TITLE,
+        backLabel: CatalogText.back,
+        navId: 'catalog-nav-demo-bar'
+      })
+      Column({ space: CouliSpacing.space3 }) {
+        Text('组件库 NavBar：系统 Navigation 标题栏（Mini）与系统返回按钮，返回图标、标题位置与高度随系统；点返回按钮与按系统返回一样，由本路由页出栈回到 NavBar 详情。')
+          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+      }
+      .padding(CouliSpacing.space4)
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
   }
 }

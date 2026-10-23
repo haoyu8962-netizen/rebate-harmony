@@ -527,8 +527,7 @@ export struct OrderDetailView {
 
   build() {
     Column() {
-      NavBar({ title: this.t(OrderKeys.DETAIL_TITLE), backLabel: this.t(OrderKeys.DETAIL_BACK),
-        onBack: () => this.config.onBack() })
+      NavBar({ title: this.t(OrderKeys.DETAIL_TITLE), backLabel: this.t(OrderKeys.DETAIL_BACK) })
         .backgroundColor(CouliColors.backgroundCanvas)
       if (this.model.phase === OrderPhase.IDLE) {
         // 会话已变（R1-01）：旧账号的详情已清空，页面随即移出导航栈；这一帧什么都不显示。

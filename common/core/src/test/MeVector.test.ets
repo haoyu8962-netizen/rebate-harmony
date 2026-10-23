@@ -56,7 +56,7 @@
 
 import { describe, it, expect } from '@ohos/hypium';
 import { Routes } from 'generated';
-import { CouliFormat } from 'designsystem';
+import { CouliFormat } from 'designsystem/src/main/ets/format/CouliFormat';
 import { ME_VECTORS_JSON, ME_PERMISSIONS_JSON } from './MeVectorsData';
 import {
   MeJson,

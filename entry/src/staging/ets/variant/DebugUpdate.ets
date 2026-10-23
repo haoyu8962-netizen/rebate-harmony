@@ -7,7 +7,9 @@ import {
   AppConfig, DebugCapabilities, DebugCapability, EnvironmentSource, parseAppEnvironment, AppEnvironment,
   UpdateCheckAdapter, UpdateCheckOutcome, UpdateChecker, UpdateCheckResult
 } from 'core';
-import { AppVersionCheckExample } from 'generated';
+// DS-02：调试导出直接从 generated 的 src/staging/ets/DebugOnly 取，不经 generated 总入口——entry 的 UiTest 包与本应用同 bundle、ArkTS 模块按名字共用，
+// 测试包先加载的 generated 总入口是 Release 版（依赖一律取 default target），经总入口取调试导出会在设备测试时找不到而崩溃。
+import { AppVersionCheckExample } from 'generated/src/staging/ets/DebugOnly';
 
 /** 调试场景（五种，任务书 §2.2）。 */
 export enum DebugUpdateScenario {

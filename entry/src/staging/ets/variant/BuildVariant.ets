@@ -14,7 +14,10 @@ import {
   ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
-import { DebugRoutes, DesignTokens, RouteSpec } from 'generated';
+// DS-02：调试导出直接从 generated 的 src/staging/ets/DebugOnly 取，不经 generated 总入口——entry 的 UiTest 包与本应用同 bundle、ArkTS 模块按名字共用，
+// 测试包先加载的 generated 总入口是 Release 版（依赖一律取 default target），经总入口取调试导出会在设备测试时找不到而崩溃。
+import { DesignTokens, RouteSpec } from 'generated';
+import { DebugRoutes } from 'generated/src/staging/ets/DebugOnly';
 import { DEBUG_PANEL_ROUTE, DebugPanel } from './DebugPanel';
 import { DEBUG_CONFORMANCE_ORIGIN, DEBUG_WEB_ROUTE, DebugWebPage, DebugWebTarget } from './DebugBridge';
 import { DebugUpdateChecker } from './DebugUpdate';
@@ -33,10 +36,13 @@ import { AppLogin } from '../../../main/ets/login/AppLogin';
 import { AppClipboard } from '../../../main/ets/clipboard/AppClipboard';
 import { AppHome } from '../../../main/ets/home/AppHome';
 import {
-  CATALOG_ROUTE, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
+  CATALOG_DETAIL_ROUTE, CATALOG_NAV_DEMO_ROUTE, CATALOG_ROUTE, CatalogNavDemo, DS01_REVIEW_ROUTE,
+  Ds01ReviewPage, COMPARE_ME, COMPARE_PRODUCT, COMPARE_SEARCH, COMPARE_SEARCH_EMPTY, COMPARE_STRESS, COMPARE_WALLET,
   CompareMe, CompareProduct, CompareProductCardStress, CompareSearch, CompareSearchEmpty, CompareWallet,
   ComponentCatalog
 } from '../catalog/ComponentCatalog';
+import { CatalogDetail } from '../catalog/CatalogDetail';
+import { CATALOG_LAUNCH_KEY, CatalogLaunch } from '../catalog/CatalogLaunch';
 
 // BuildProfile.BUILD_MODE_NAME 在生成文件里是字面量类型，先放宽为 string 再比较。
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
@@ -314,6 +320,8 @@ export class BuildVariant {
       const hv: number = Number(height);
       BuildVariant.debugViewportHeight = !Number.isNaN(hv) && hv >= 320 && hv <= 1200 ? hv : 0;
     }
+    // DS-02：`--ps couli.ds02.component <清单组件名>` 让已打开的组件目录直达该组件详情（设备测试用，见 CatalogLaunch）。
+    CatalogLaunch.shared.request(want.parameters?.[CATALOG_LAUNCH_KEY]);
     // APP-05a：`--pd couli_debug_fake_server 1` 打开本机假服务（登录冒烟与截图；不连任何地址）。
     // F-HM-13：开关落进调试偏好（couli_debug_launch），杀进程后从图标 / 不带参数冷启动、系统回收后恢复页面时仍按上次的开关；
     // 不这样做时恢复的搜索页请求发往 .invalid 占位地址，一律「出了点问题」且重试无效（假服务没开）。`--pd couli_debug_fake_server 0` 关掉。
@@ -560,6 +568,32 @@ export function VariantDestination(name: string, param: Object) {
     }
     .title('Components')
     .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === CATALOG_DETAIL_ROUTE) {
+    // DS-02：一个组件一屏（参数为组件名）。
+    NavDestination() {
+      CatalogDetail({ component: typeof param === 'string' ? param as string : '' })
+    }
+    .title(typeof param === 'string' ? param as string : '')
+    .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === CATALOG_NAV_DEMO_ROUTE) {
+    // DS-02 NavBar 样例：真实二级页，标题栏就是组件库交付的 NavBar（系统 Navigation 标题栏 + 系统返回按钮），与业务页面同一种接法
+    // （路由页 hideTitleBar，内容最上方放 NavBar；系统返回键 / 手势由本路由页处理）。
+    NavDestination() {
+      Column() {
+        CatalogNavDemo()
+      }
+      .width('100%')
+      .height('100%')
+      .id('catalog-nav-destination')
+    }
+    .hideTitleBar(true)
+    .backgroundColor(CouliColors.backgroundCanvas)
+  } else if (name === DS01_REVIEW_ROUTE) {
+    NavDestination() {
+      CatalogHost({ route: name })
+    }
+    .title('DS-01 review')
+    .backgroundColor(CouliColors.backgroundCanvas)
   } else if (name === COMPARE_SEARCH || name === COMPARE_STRESS || name === COMPARE_PRODUCT
     || name === COMPARE_WALLET || name === COMPARE_ME || name === COMPARE_SEARCH_EMPTY) {
     // 设计对照页：不显示系统标题栏，整页按画板拼出。
@@ -601,6 +635,8 @@ struct CatalogHost {
   build() {
     if (this.route === CATALOG_ROUTE) {
       ComponentCatalog({ pathStack: this.stack })
+    } else if (this.route === DS01_REVIEW_ROUTE) {
+      Ds01ReviewPage({ pathStack: this.stack })
     } else if (this.route === COMPARE_SEARCH) {
       CompareSearch()
     } else if (this.route === COMPARE_STRESS) {

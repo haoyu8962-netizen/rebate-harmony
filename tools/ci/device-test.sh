@@ -1,8 +1,9 @@
 #!/bin/bash
 # 设备测试（ohosTest）执行器：签名 → 装到鸿蒙模拟器 / 真机 → aa test → 解析结果（FU-HM-0718 第 1 轮修复 R1-01）。
 #
-# 用法：tools/ci/device-test.sh <ohosTest.hap> <模块名> <工作目录>
-#   <ohosTest.hap>  hvigorw -p module=<m>@ohosTest -p isOhosTest=true genOnDeviceTestHap 产出的未签名包
+# 用法：tools/ci/device-test.sh <ohosTest.hap> <模块名> <工作目录> [被测应用.hap]
+#   DS-02 的 UiTest 需要真实 EntryAbility：可选应用包与测试包使用同一临时签名，先装应用再装测试模块。
+#   <ohosTest.hap>  HAP 用 assembleHap，HAR 用 genOnDeviceTestHap；均指定 module=<m>@ohosTest / isOhosTest=true
 #   <模块名>        ohosTest 的 module.name（如 core_test）
 #   <工作目录>      放签名材料与结果（ASCII 路径；脚本结束时删掉签名材料）
 #
@@ -15,13 +16,14 @@
 # 退出码：0 通过；1 失败（没有设备、签名 / 安装失败、有用例失败或没有汇总）；2 用法错误。
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-    echo "用法：device-test.sh <ohosTest.hap> <模块名> <工作目录>" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    echo "用法：device-test.sh <ohosTest.hap> <模块名> <工作目录> [被测应用.hap]" >&2
     exit 2
 fi
 HAP="$1"
 MODULE="$2"
 WORK="$3"
+APPLICATION_HAP="${4:-}"
 DEVECO_HOME="${DEVECO_HOME:-/Applications/DevEco-Studio.app/Contents}"
 TOOLCHAINS="${DEVECO_SDK_HOME:-$DEVECO_HOME/sdk}/default/openharmony/toolchains"
 HDC="$TOOLCHAINS/hdc"
@@ -50,6 +52,12 @@ BUNDLE="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["app"]
 HAP_MODULE="$(unzip -p "$HAP" module.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["module"]["name"])')" \
     || die "从 $HAP 读模块名失败"
 [ "$HAP_MODULE" = "$MODULE" ] || die "测试包的模块名是 ${HAP_MODULE}，不是 ${MODULE}"
+if [ -n "$APPLICATION_HAP" ]; then
+    [ -f "$APPLICATION_HAP" ] || die "找不到被测应用包 $APPLICATION_HAP"
+    APPLICATION_BUNDLE="$(unzip -p "$APPLICATION_HAP" module.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["bundleName"])')" \
+        || die "读取被测应用包元信息失败"
+    [ "$APPLICATION_BUNDLE" = "$BUNDLE" ] || die "被测应用与测试包 bundleName 不同"
+fi
 
 # ---------------------------------------------------------------- 设备
 DEVICE="${COULI_HM_DEVICE:-}"
@@ -107,9 +115,20 @@ PY
     -keyPwd 123456 -appCertFile "$SIGN/app-chain.pem" -profileFile "$SIGN/profile.p7b" -inFile "$HAP" \
     -signAlg SHA256withECDSA -keystoreFile "$SIGN/ks.p12" -keystorePwd 123456 -outFile "$SIGN/signed.hap" >/dev/null \
     || die "签测试包失败"
+if [ -n "$APPLICATION_HAP" ]; then
+    "$JAVA_BIN/java" -jar "$LIB/hap-sign-tool.jar" sign-app -mode localSign -keyAlias "openharmony application release" \
+        -keyPwd 123456 -appCertFile "$SIGN/app-chain.pem" -profileFile "$SIGN/profile.p7b" -inFile "$APPLICATION_HAP" \
+        -signAlg SHA256withECDSA -keystoreFile "$SIGN/ks.p12" -keystorePwd 123456 -outFile "$SIGN/application.hap" >/dev/null \
+        || die "签被测应用包失败"
+fi
 
 # ---------------------------------------------------------------- 安装、执行
 with_timeout 60 "$HDC" -t "$DEVICE" uninstall "$BUNDLE" >/dev/null 2>&1 || true
+if [ -n "$APPLICATION_HAP" ]; then
+    APPLICATION_INSTALL="$(with_timeout 120 "$HDC" -t "$DEVICE" install -r "$SIGN/application.hap" 2>&1 | tr -d '\r' || true)"
+    printf '%s\n' "$APPLICATION_INSTALL"
+    printf '%s' "$APPLICATION_INSTALL" | grep -q "install bundle successfully" || die "安装被测应用失败"
+fi
 INSTALL="$(with_timeout 120 "$HDC" -t "$DEVICE" install -r "$SIGN/signed.hap" 2>&1 | tr -d '\r' || true)"
 printf '%s\n' "$INSTALL"
 printf '%s' "$INSTALL" | grep -q "install bundle successfully" || die "安装测试包失败"
@@ -119,8 +138,14 @@ hs uitest uiInput swipe 640 2400 640 800 300 >/dev/null 2>&1 || true
 hs power-shell setmode 602 >/dev/null 2>&1 || true
 RESULT="$WORK/aa-test-$MODULE.log"
 rc=0
-with_timeout 600 "$HDC" -t "$DEVICE" shell aa test -b "$BUNDLE" -m "$MODULE" -s unittest OpenHarmonyTestRunner \
-    -s timeout 60000 >"$RESULT" 2>&1 || rc=$?
+started_seconds=$SECONDS
+# Hypium 1.0.24 只支持统一单例上限；entry 的大组件及每个 ProductCard 变体给足 600s。
+# 也覆盖直接调用此脚本的路径；整轮 900s 验收门槛仍在下方独立检查。
+case_timeout="${COULI_HM_TEST_CASE_TIMEOUT:-60000}"
+if [ "$MODULE" = entry_test ]; then case_timeout=600000; fi
+with_timeout "${COULI_HM_TEST_TOTAL_TIMEOUT:-600}" "$HDC" -t "$DEVICE" shell aa test -b "$BUNDLE" -m "$MODULE" -s unittest OpenHarmonyTestRunner \
+    -s timeout "$case_timeout" >"$RESULT" 2>&1 || rc=$?
+elapsed_seconds=$((SECONDS - started_seconds))
 with_timeout 60 "$HDC" -t "$DEVICE" uninstall "$BUNDLE" >/dev/null 2>&1 || true
 tr -d '\r' <"$RESULT" >"$RESULT.txt"
 mv "$RESULT.txt" "$RESULT"
@@ -148,4 +173,8 @@ sys.exit(0 if m and int(m.group(1)) > 0 and m.group(2) == "0" and m.group(3) == 
     "$SUMMARY" || die "有用例失败或没有汇总：${SUMMARY:-无汇总}"
 grep -q "OHOS_REPORT_CODE: 0" "$RESULT" || die "aa test 没有报告 OHOS_REPORT_CODE: 0"
 grep -q "TestFinished-ResultCode: 0" "$RESULT" || die "aa test 没有报告 TestFinished-ResultCode: 0"
-echo "DEVICE_TEST_PASS device=${DEVICE} model=${MODEL:-unknown} api=${API} ${SUMMARY}"
+if [ "$MODULE" = entry_test ]; then
+    [ "$elapsed_seconds" -le 900 ] || die "DS-02 entry 设备整轮超过 900 秒：${elapsed_seconds}"
+    python3 "$(dirname "$0")/ds02/check_device_result.py" "$RESULT" || die "DS-02 设备用例未全部通过"
+fi
+echo "DEVICE_TEST_PASS elapsed_seconds=${elapsed_seconds} device=${DEVICE} model=${MODEL:-unknown} api=${API} ${SUMMARY}"

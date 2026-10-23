@@ -54,8 +54,6 @@ export struct PhoneChangeView {
   @Param @Require controller: PhoneChangeController;
   @Param @Require texts: MeTexts;
   @Param stepUpViewport: number = 0;
-  @Event onBack: () => void = () => {
-  };
   @Local model: PhoneChangeModel = new PhoneChangeModel();
   private snap: PhoneChangeSnapshot = new PhoneChangeSnapshot();
   private stepUpController: StepUpController | null = null;
@@ -660,8 +658,7 @@ export struct PhoneChangeView {
         },
         footer: () => {
           this.footer()
-        },
-        onBack: () => this.onBack()
+        }
       })
     }
     .width('100%')

@@ -5,7 +5,9 @@ import {
   ExternalNavDecision, ExternalNavFrame, ExternalNavHooks, ExternalNavOutcome, ExternalNavPolicy, ExternalNavStyle,
   ExternalNoticeKey, ExternalPageNavigator, ExternalPageOptions, ExternalUnionOutcome, WebBackPolicy, WebFullScreen
 } from 'core';
-import { CouliColors, CouliIcon, CouliInteraction, CouliSpacing, CouliTypography, ErrorState } from 'designsystem';
+import {
+  CouliColorMode, CouliColors, CouliIcon, CouliInteraction, CouliSpacing, CouliTypography, ErrorState
+} from 'designsystem';
 import { DefaultTexts } from 'generated';
 
 const LOAD_FAILED_KEY: string = 'external_page.load_failed';
@@ -87,22 +89,33 @@ export class ExternalWebState {
   @Trace fullScreen: boolean = false;
 }
 
-/** 标题栏配色（nav_style，R3-03）：light 用画布底色与主文字色，dark 用深底浅字。 */
-class ExternalTitleColors {
-  readonly background: string;
-  readonly text: string;
-  readonly subtitle: string;
+/**
+ * 标题栏配色（nav_style，R3-03）：light 用画布底色与主文字色，dark 用深底浅字。
+ * 评审 r1 R1-02：资源随系统深浅换值，dark 样式不能固定用「text.primary 作底 + text.inverse 作字」——应用深色下 text.primary
+ * 变成浅米色（#F2EEE6），与白字只有 1.16:1。改为按当前深浅选语义组合（CouliColorMode，深浅切换时重新取）：
+ * - light 样式：background.canvas 底 + text.primary 字 + text.secondary 副标题（两套资源各自成对，浅 / 深都是同一组合）；
+ * - dark 样式 + 系统浅色：text.primary（墨棕）作深底 + text.inverse 白字与副标题；
+ * - dark 样式 + 系统深色：background.surface（深色面）作底 + text.primary（深色下为浅字）+ text.secondary 副标题。
+ * 返回 / 关闭图标与主文字同色。四种组合的对比度见 DS-02 交回「评审 r1 修复」。
+ */
+export class ExternalTitleColors {
+  readonly background: ResourceColor;
+  readonly text: ResourceColor;
+  readonly subtitle: ResourceColor;
 
-  constructor(background: string, text: string, subtitle: string) {
+  constructor(background: ResourceColor, text: ResourceColor, subtitle: ResourceColor) {
     this.background = background;
     this.text = text;
     this.subtitle = subtitle;
   }
 
-  static of(navStyle: string): ExternalTitleColors {
-    return navStyle === ExternalNavStyle.DARK ?
-      new ExternalTitleColors(CouliColors.textPrimary, CouliColors.textInverse, CouliColors.textInverse) :
-      new ExternalTitleColors(CouliColors.backgroundCanvas, CouliColors.textPrimary, CouliColors.textSecondary);
+  static of(navStyle: string, dark: boolean): ExternalTitleColors {
+    if (navStyle !== ExternalNavStyle.DARK) {
+      return new ExternalTitleColors(CouliColors.backgroundCanvas, CouliColors.textPrimary, CouliColors.textSecondary);
+    }
+    return dark ?
+      new ExternalTitleColors(CouliColors.backgroundSurface, CouliColors.textPrimary, CouliColors.textSecondary) :
+      new ExternalTitleColors(CouliColors.textPrimary, CouliColors.textInverse, CouliColors.textInverse);
   }
 }
 
@@ -127,12 +140,10 @@ export struct ExternalWebView {
   @Local state: ExternalWebState = new ExternalWebState();
   private controller: webview.WebviewController = new webview.WebviewController();
   private navigator: ExternalPageNavigator | null = null;
-  private colors: ExternalTitleColors = ExternalTitleColors.of(ExternalNavStyle.LIGHT);
   /** 网页全屏（状态在 core WebFullScreen）：R1-09 起一律拒绝元素全屏、标题栏保持；退出与系统返回的恢复逻辑保留。 */
   private fullScreen: WebFullScreen = new WebFullScreen((on: boolean): void => this.fullScreenWindow(on));
 
   aboutToAppear(): void {
-    this.colors = ExternalTitleColors.of(this.config.navStyle);
     this.fullScreen.onChange = (active: boolean): void => {
       this.state.fullScreen = active;
     };
@@ -395,11 +406,16 @@ export struct ExternalWebView {
     return ExternalPageNavigator.hostOf(url);
   }
 
+  /** 当前深浅下的标题栏配色（在 build 里读 CouliColorMode，深浅切换时同一页面重新取色）。 */
+  private titleColors(): ExternalTitleColors {
+    return ExternalTitleColors.of(this.config.navStyle, CouliColorMode.shared().dark);
+  }
+
   @Builder
   titleBar() {
     Row() {
       Button({ type: ButtonType.Normal, stateEffect: true }) {
-        CouliIcon({ name: 'back', iconSize: 24, color: this.colors.text })
+        CouliIcon({ name: 'back', iconSize: 24, color: this.titleColors().text })
       }
       .width(CouliInteraction.minTouchTarget)
       .height(CouliInteraction.minTouchTarget)
@@ -409,14 +425,14 @@ export struct ExternalWebView {
       Column() {
         Text(this.state.host)
           .fontSize(CouliTypography.body.fontSize)
-          .fontColor(this.colors.text)
+          .fontColor(this.titleColors().text)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .textAlign(TextAlign.Center)
         if (this.config.title.length > 0) {
           Text(this.config.title)
             .fontSize(CouliTypography.footnote.fontSize)
-            .fontColor(this.colors.subtitle)
+            .fontColor(this.titleColors().subtitle)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .textAlign(TextAlign.Center)
@@ -425,7 +441,7 @@ export struct ExternalWebView {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Center)
       Button({ type: ButtonType.Normal, stateEffect: true }) {
-        CouliIcon({ name: 'close', iconSize: 24, color: this.colors.text })
+        CouliIcon({ name: 'close', iconSize: 24, color: this.titleColors().text })
       }
       .width(CouliInteraction.minTouchTarget)
       .height(CouliInteraction.minTouchTarget)
@@ -436,7 +452,7 @@ export struct ExternalWebView {
     .width('100%')
     .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
     .padding({ left: CouliSpacing.space1, right: CouliSpacing.space1 })
-    .backgroundColor(this.colors.background)
+    .backgroundColor(this.titleColors().background)
   }
 
   build() {

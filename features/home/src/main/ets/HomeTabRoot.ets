@@ -4,7 +4,7 @@ import {
   HomePopupPresenter, HomePopupTicket, HomeRenderTicket, HomeShowing, HomeSnapshot
 } from 'core';
 import {
-  CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliShadow, CouliSpacing,
+  CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing,
   CouliTextModifier,
   CouliTypography, DisclaimerFooter, DisclaimerMode, ErrorState, ProductCardData
 } from 'designsystem';
@@ -60,7 +60,7 @@ class ArkPopupPresenter implements HomePopupPresenter {
           alignment: DialogAlignment.Center,
           isModal: true,
           autoCancel: true,
-          maskColor: CouliShadow.mask(CouliColors.textPrimary),
+          maskColor: CouliColors.overlayScrim,
           onWillDismiss: (action: DismissDialogAction) => {
             // 返回键 / 点遮罩：提交本实例绑定的票据，只收起本实例（不经出口去取当前控制器）。
             onWillDismiss();

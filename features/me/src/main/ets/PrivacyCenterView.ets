@@ -331,8 +331,7 @@ export struct PrivacyCenterView {
       scrollId: 'privacy_scroll',
       content: () => {
         this.content()
-      },
-      onBack: () => this.config.onBack()
+      }
     })
   }
 }

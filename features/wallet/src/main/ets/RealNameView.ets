@@ -244,7 +244,7 @@ export struct RealNamePage {
 
   build() {
     Column() {
-      NavBar({ title: this.t('realname.title'), backLabel: this.t('wallet.back'), onBack: () => this.config.onBack() })
+      NavBar({ title: this.t('realname.title'), backLabel: this.t('wallet.back') })
         .backgroundColor(CouliColors.backgroundCanvas)
       Scroll(this.formScroller) {
         Column({ space: CouliSpacing.space3 }) {
@@ -473,7 +473,7 @@ export struct LaborAgreementPage {
 
   build() {
     Column() {
-      NavBar({ title: this.t('labor.title'), backLabel: this.t('wallet.back'), onBack: () => this.config.onBack() })
+      NavBar({ title: this.t('labor.title'), backLabel: this.t('wallet.back') })
         .backgroundColor(CouliColors.backgroundCanvas)
       Scroll() {
         Column({ space: CouliSpacing.space3 }) {

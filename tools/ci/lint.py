@@ -32,6 +32,10 @@
     HM-LINT-9 webview-navbar-size  APP-04 R4-01：TrustedWebView.ets 的标题栏 navBar() 里不得出现 Image 组件或百分比高度。
                                    标题栏只有最小高度，百分比高度会参照整页、把标题栏撑满并挤掉 layoutWeight(1) 的网页区域；
                                    背景图只能用 backgroundImage 等背景属性（不参与尺寸测量）
+    HM-LINT-11 theme-drift         DS-02：designsystem 的 resources/base|dark 颜色资源与 theme/CouliThemeTokens.ets 与令牌源副本
+                                   specs/design-tokens.v0.4.0.json 不一致（tools/codegen/gen_theme.py --check；只在检查仓库本身时）
+    [design-system-required]       DS-02 G1 警告（不计入违反、不改退出码）：features / entry 直接用 Checkbox / Toggle / Radio /
+                                   TextInput / TextArea / Search / .bindSheet / openCustomDialog / showToast，应改用组件库
     HM-LINT-10 debug-mock-gate     F-X-02：entry/src/staging 里只有 DebugFakeServer.ets 能读 DebugFakeServer.enabled。其余调试替身
                                    一律经 DebugFakeServer.mockGate（假服务打开 且 当前环境允许 MOCK_DATA，每次使用时重新判断），
                                    切到 prod 后不给假数据。FU-HM-0711b R1-06、R2-03：检查真实的属性访问，认导入别名
@@ -77,6 +81,21 @@ FAKE_FLAG_OWNER = "entry/src/staging/ets/variant/DebugFakeServer.ets"
 # HM-LINT-10 的范围（FU-HM-0718 第 3 项）：这个目录下每个文件都要有归属——源码交给 TypeScript 解析器（.ets 按 ArkTS、.ts 按 TS，
 # hm10-scan.js 按扩展名选 ScriptKind），资源数据文件不含可执行代码、不扫描，其余一律「不支持」→ exit 4。
 HM10_SCOPE = "entry/src/staging"
+# DS-02 G1（组件清单 §6，先警告后失败）：features / entry 的页面直接用这些系统控件时报警告 [design-system-required]，不计入违反、
+# 不改退出码；组件库（common/designsystem）可以用。按解析器给出的「去掉注释与字符串」的代码匹配，前面是标识符字符的
+# （如 MyCheckbox(）不算。bindSheet 只认成员调用 .bindSheet(；openCustomDialog / showToast 认成员或直接调用。
+DESIGN_SYSTEM_REQUIRED = [
+    ("Checkbox", re.compile(r"(?<![A-Za-z0-9_$.])Checkbox\s*\(")),
+    ("Toggle", re.compile(r"(?<![A-Za-z0-9_$.])Toggle\s*\(")),
+    ("Radio", re.compile(r"(?<![A-Za-z0-9_$.])Radio\s*\(")),
+    ("TextInput", re.compile(r"(?<![A-Za-z0-9_$.])TextInput\s*\(")),
+    ("TextArea", re.compile(r"(?<![A-Za-z0-9_$.])TextArea\s*\(")),
+    ("Search", re.compile(r"(?<![A-Za-z0-9_$.])Search\s*\(")),
+    ("bindSheet", re.compile(r"\.\s*bindSheet\s*\(")),
+    ("openCustomDialog", re.compile(r"(?<![A-Za-z0-9_$])openCustomDialog\s*\(")),
+    ("showToast", re.compile(r"(?<![A-Za-z0-9_$])showToast\s*\(")),
+]
+DESIGN_SYSTEM_REQUIRED_SCOPES = ("features/", "entry/")
 HM10_SOURCE_SUFFIXES = (".ets", ".ts")
 HM10_DATA_SUFFIXES = (".json", ".json5", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
 # Finder 元数据（不含代码；镜像同步也排除它），不算不支持的文件。
@@ -777,7 +796,35 @@ def line_of(code, pos):
     return code.count("\n", 0, pos) + 1
 
 
-def lint(root):
+def blank_strings(code):
+    """把字符串与模板字面量的内容换成空格（换行保留，行号不变）。code 已由解析器去掉注释；G1 警告只看真正的调用。"""
+    out = []
+    i = 0
+    n = len(code)
+    while i < n:
+        ch = code[i]
+        if ch in "'\"`":
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n and code[i] != quote:
+                if code[i] == "\\" and i + 1 < n:
+                    out.append(" " if code[i + 1] != "\n" else "\n")
+                    out.append(" ")
+                    i += 2
+                    continue
+                out.append("\n" if code[i] == "\n" else " ")
+                i += 1
+            if i < n:
+                out.append(quote)
+                i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def lint(root, warnings=None):
     problems = []
 
     def report(rule, path, line, msg):
@@ -905,6 +952,13 @@ def lint(root):
                        "承载 WebView 容器的页面要用 NavDestination.onBackPressed 把系统返回交给容器（%d 个容器、%d 处 onBackPressed，R1-11）"
                        % (uses, backs))
 
+        if warnings is not None and rel.startswith(DESIGN_SYSTEM_REQUIRED_SCOPES):
+            bare = blank_strings(code)
+            for control, pattern in DESIGN_SYSTEM_REQUIRED:
+                for m in pattern.finditer(bare):
+                    warnings.append("%s:%d: [design-system-required] 页面直接使用系统控件 %s；改用组件库（common/designsystem）的对应组件"
+                                    "（组件清单 §6 G1，本阶段只警告）" % (rel, line_of(bare, m.start()), control))
+
         if in_feature:
             own = rel.split("/")[1]
             for imp in imports:
@@ -929,6 +983,18 @@ def lint(root):
     return problems, hm10_incomplete
 
 
+def theme_drift():
+    """HM-LINT-11 theme-drift（DS-02）：designsystem 的浅 / 深颜色资源与主题数据必须与令牌源副本一致（tools/codegen/gen_theme.py --check）。
+    gen.py 与 verify.sh 冻结在 DS-02 测试指纹里，这一检查挂在 lint.py 检查仓库本身时（--root 的样例目录不查）。"""
+    sys.path.insert(0, os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "tools", "codegen"))
+    try:
+        import gen_theme
+        drift = gen_theme.check()
+    except Exception as e:  # 生成器自身出错（源缺失、格式不对）同样算违反
+        return ["tools/codegen/gen_theme.py:1: HM-LINT-11 主题生成器失败：%s" % e]
+    return ["%s:1: HM-LINT-11 与令牌源副本不一致（运行 python3 tools/codegen/gen_theme.py）" % rel for rel in drift]
+
+
 def main(argv):
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     args = argv[1:]
@@ -941,17 +1007,26 @@ def main(argv):
         except HM10ToolchainError as e:
             print("HM-LINT-10 扫描器不可用：%s" % e, file=sys.stderr)
             return 3
+    own_root = True
     if args[:1] == ["--root"] and len(args) == 2:
         root = os.path.abspath(args[1])
+        own_root = False
     elif args:
         print("用法：lint.py [--root <目录>] | --self-test-hm10 | --hm10-toolchain", file=sys.stderr)
         return 2
+    warnings = []
     try:
-        problems, incomplete = lint(root)
+        problems, incomplete = lint(root, warnings)
     except HM10ToolchainError as e:
         # 1 留给「有违规」；工具链不可用是另一种失败（verify.sh 的 lint-fixtures 不会把它当成「拦下」）。
         print("lint.py：HM-LINT-10 的 TypeScript 扫描器不可用，lint 失败（不退化为手写词法启发式）：%s" % e, file=sys.stderr)
         return 3
+    for w in warnings:
+        print(w)
+    if warnings:
+        print("lint.py：%d 处 [design-system-required] 警告（不影响退出码）" % len(warnings), file=sys.stderr)
+    if own_root:
+        problems.extend(theme_drift())
     for p in problems:
         print(p)
     if incomplete:

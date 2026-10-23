@@ -607,8 +607,7 @@ export struct PayoutAccountPage {
 
   build() {
     Column() {
-      NavBar({ title: this.t('payout_account.title'), backLabel: this.t('wallet.back'),
-        onBack: () => this.config.onBack() })
+      NavBar({ title: this.t('payout_account.title'), backLabel: this.t('wallet.back') })
         .backgroundColor(CouliColors.backgroundCanvas)
       if (this.model.body === FundPageLayout.IDLE) {
         Column().layoutWeight(1)

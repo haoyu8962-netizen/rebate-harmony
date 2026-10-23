@@ -586,8 +586,7 @@ export struct AppealView {
       },
       footer: () => {
         this.footer()
-      },
-      onBack: () => this.config.onBack()
+      }
     })
   }
 }

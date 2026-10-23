@@ -3,7 +3,7 @@
 // ClipboardController.receiveShare（Want action + 取内容函数；取内容用可控延迟的替身代替 systemShare.getSharedData）。样例全部是演示数据。
 // R1-03 的按钮用 designsystem 真实的 CouliFixedTap（ClipboardPromptBar / ClipboardNotice / CouliSheetPanel 的 onClick 就是它）。
 import { describe, it, expect } from '@ohos/hypium';
-import { CouliFixedTap } from 'designsystem';
+import { CouliFixedTap } from 'designsystem/Logic';
 import {
   ApiClientSearchPort, ClipboardController, ClipboardDeps, ClipboardPromptBinding, ClipboardPromptView,
   ClipboardReadPolicy, ClipboardResultBinding, ClipboardResultView, ClipboardSensitive, ClipboardSnapshot, GuardState,

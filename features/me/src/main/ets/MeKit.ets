@@ -90,7 +90,7 @@ function meEmptyBuilder() {
 }
 
 /**
- * 二级页骨架：NavBar（返回在左，命中区 48）+ 可滚动内容区（大屏限宽居中，03 §10.4）+ 可选底部固定操作区。
+ * 二级页骨架：NavBar（系统标题栏与返回；返回交给宿主路由页 onBackPressed，DS-02 r1）+ 可滚动内容区（大屏限宽居中，03 §10.4）+ 可选底部固定操作区。
  */
 @ComponentV2
 export struct MePageFrame {
@@ -101,16 +101,13 @@ export struct MePageFrame {
   @BuilderParam content: () => void = meEmptyBuilder;
   @BuilderParam footer: () => void = meEmptyBuilder;
   @Param scroller: Scroller = new Scroller();
-  @Event onBack: () => void = () => {
-  };
 
   build() {
     Column() {
       NavBar({
         title: this.title,
         backLabel: this.backLabel,
-        showBack: this.showBack,
-        onBack: () => this.onBack()
+        showBack: this.showBack
       })
       Scroll(this.scroller) {
         Column({ space: CouliSpacing.space3 }) {

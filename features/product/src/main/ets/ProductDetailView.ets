@@ -410,7 +410,7 @@ export struct ProductDetailView {
 
   build() {
     Column() {
-      NavBar({ title: this.t(ProductKeys.TITLE), backLabel: this.t(ProductKeys.BACK), onBack: () => this.config.onBack() })
+      NavBar({ title: this.t(ProductKeys.TITLE), backLabel: this.t(ProductKeys.BACK) })
         .backgroundColor(CouliColors.backgroundCanvas)
       if (this.model.phase === ProductPhase.LOADING) {
         this.loading()

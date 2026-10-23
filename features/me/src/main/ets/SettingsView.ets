@@ -1183,8 +1183,7 @@ export struct SettingsView {
         PhoneChangeView({
           controller: this.phoneCtl as PhoneChangeController,
           texts: this.config.texts,
-          stepUpViewport: this.config.stepUpViewport,
-          onBack: () => this.phoneBack()
+          stepUpViewport: this.config.stepUpViewport
         })
       } else if (this.model.sub === SUB_NICKNAME) {
         MePageFrame({
@@ -1196,8 +1195,7 @@ export struct SettingsView {
           },
           footer: () => {
             this.nicknameFooter()
-          },
-          onBack: () => this.closeSub()
+          }
         })
       } else if (this.model.sub === SUB_NOTIFY) {
         MePageFrame({
@@ -1206,8 +1204,7 @@ export struct SettingsView {
           scrollId: 'notify_scroll',
           content: () => {
             this.notifyContent()
-          },
-          onBack: () => this.closeSub()
+          }
         })
       } else {
         MePageFrame({
@@ -1216,8 +1213,7 @@ export struct SettingsView {
           scrollId: 'settings_scroll',
           content: () => {
             this.mainContent()
-          },
-          onBack: () => this.config.onBack()
+          }
         })
       }
     }

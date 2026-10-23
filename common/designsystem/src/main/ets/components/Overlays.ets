@@ -6,7 +6,7 @@ import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliButton, CouliButtonVariant } from './Basics';
 import { CouliIcon } from './CouliIcon';
 import { CouliDialogLink, CouliLinkSegments, CouliTextSegment } from './CodeCells';
-import { CouliFixedTap } from './Clipboard';
+import { CouliFixedTap } from '../logic/CouliFixedTap';
 import { CouliTextModifier } from './CouliText';
 import { CouliFontScale } from './FontScale';
 import { CouliModalFns, CouliModalInstance } from './ModalInstance';
@@ -67,6 +67,9 @@ export struct CouliDialogPanel {
   @Param maxPanelHeight: Length = '100%';
   /** 标题 id：打开时焦点进入标题（adaptation-a11y-spec §8）。 */
   @Param titleId: string = 'couli-dialog-title';
+  /** 正文 Text 与主按钮的组件 id（DS-02 目录页与设备测试定位用）；空串不设。 */
+  @Param messageId: string = '';
+  @Param primaryId: string = '';
   /**
    * 正文里做成链接的文字（R1-13：如 LoginAgreeConfirm 的《用户协议》《隐私政策》）：每个链接单独可点、读屏单独聚焦
    * （超链接角色），命中区不低于 48vp；点了交给 onLink(id)。
@@ -155,6 +158,7 @@ export struct CouliDialogPanel {
             Text(this.message)
               .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
               .width('100%')
+              .id(this.messageId.length > 0 ? this.messageId : undefined)
           }
         }
         .flexShrink(1)
@@ -192,6 +196,7 @@ export struct CouliDialogPanel {
           CouliButton({
             text: this.primaryText,
             fullWidth: true,
+            buttonId: this.primaryId,
             onTap: () => {
               this.onPrimary();
             }
@@ -225,6 +230,7 @@ export struct CouliDialogPanel {
           CouliButton({
             text: this.primaryText,
             fullWidth: this.secondaryText.length === 0,
+            buttonId: this.primaryId,
             onTap: () => {
               this.onPrimary();
             }
@@ -262,6 +268,9 @@ export class CouliDialogOptions {
   backDismisses: boolean = false;
   /** 关闭后焦点回到的控件 id（打开弹窗的按钮；CouliButton 的 buttonId）。 */
   returnFocusId: string = '';
+  /** 正文 Text 与主按钮的组件 id（DS-02 目录页定位用）；空串不设。 */
+  messageId: string = '';
+  primaryId: string = '';
   /** 正文里做成链接的文字（见 CouliDialogPanel.links）。点链接先关弹窗，再调 onLink(id)。 */
   links: CouliDialogLink[] = [];
   /** 正文下方的信息块（见 CouliDialogPanel.detailLabel）。 */
@@ -303,6 +312,8 @@ function dialogBuilder(params: DialogParams) {
     CouliDialogPanel({
       title: params.options.title,
       message: params.options.message,
+      messageId: params.options.messageId,
+      primaryId: params.options.primaryId,
       primaryText: params.options.primaryText,
       secondaryText: params.options.secondaryText,
       maxPanelHeight: params.maxHeight,
@@ -409,9 +420,9 @@ export class CouliDialog {
   }
 }
 
-/** 遮罩色：墨棕 #28251F × 0.4（GUIDE §2「遮罩」）。 */
+/** 遮罩色：T3 color.overlay.scrim（浅色墨棕 × 0.4、深色黑 × 0.55；资源随深色换值）。 */
 export class CouliShadowMask {
-  static readonly color: string = CouliShadow.mask(CouliColors.textPrimary);
+  static readonly color: ResourceColor = CouliColors.overlayScrim;
 }
 
 /**

@@ -20,9 +20,6 @@ const AMOUNT_GRID_ALWAYS_STACK_SCALE: number = 2;
 const MEASURE_SLACK_RATIO: number = 1.06;
 const MEASURE_SLACK_VP: number = 2;
 
-/** 商品卡大字号阈值（保守取 130%）：价格区改占整卡宽、网格改单列（编排者第 2 轮裁定，三端统一）。 */
-export const LARGE_TEXT_SCALE: number = 1.3;
-
 export enum AmountTone {
   /** 普通金额（余额、实付等）：墨棕。 */
   NORMAL = 'normal',

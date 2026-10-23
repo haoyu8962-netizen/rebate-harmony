@@ -12,6 +12,12 @@
   // - staging（Debug / Staging）：sourceRoots = src/staging —— 环境切换面板（COULI_DEBUG_PANEL）、DebugRoutes。
   // src/main 里用 'entry/ets/variant/BuildVariant' 引用，由 hvigor 按 target 选目录，编译期剔除，不靠运行时 if。
   "targets": [
+    // DS-02 UiTest：只供 assembleHap -p isOhosTest=true，真实目录必须来自 staging。
+    {
+      "name": "ohosTest",
+      "source": { "sourceRoots": ["./src/staging"] },
+      "resource": { "directories": ["./src/ohosTest/resources", "./src/staging/resources", "./src/main/resources"] }
+    },
     {
       "name": "default",
       "source": { "sourceRoots": ["./src/release"] }

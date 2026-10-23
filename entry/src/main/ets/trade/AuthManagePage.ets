@@ -146,9 +146,7 @@ export struct AuthManagePage {
   build() {
     NavDestination() {
       Column() {
-        NavBar({ title: t(AuthManageKeys.TITLE), backLabel: t(AuthManageKeys.BACK), onBack: () => {
-          this.queryNavigationInfo()?.pathStack.pop();
-        } })
+        NavBar({ title: t(AuthManageKeys.TITLE), backLabel: t(AuthManageKeys.BACK) })
         if (this.model.state.phase === AuthManagePhase.LOADING) {
           Column({ space: CouliSpacing.space3 }) {
             SkeletonBlock({ blockWidth: '100%', blockHeight: 56 })

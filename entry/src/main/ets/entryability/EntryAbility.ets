@@ -23,6 +23,7 @@ import { AppHome } from '../home/AppHome';
 import { AppAgent } from '../agent/AppAgent';
 import { AppAccount } from '../account/AppAccount';
 import { AgentVariant } from 'entry/ets/agent/AgentVariant';
+import { CouliTheme } from 'designsystem';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -32,9 +33,10 @@ export default class EntryAbility extends UIAbility {
   private environmentReady: Promise<EnvironmentGate> | null = null;
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    // 强制浅色（TECH-22）：鸿蒙没有在 app.json5 / module.json5 里固定浅色的配置项，官方做法是应用级 setColorMode。
+    // DS-02（00 D35，令牌 v0.4.0 带深色）：不再强制浅色（原 TECH-22 setColorMode(COLOR_MODE_LIGHT)），应用跟随系统深浅；
+    // 颜色经 designsystem 的 resources/base 与 resources/dark 自动换值。显式写 NOT_SET（跟随系统）。
     try {
-      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'setColorMode failed: %{public}s', JSON.stringify(e));
     }
@@ -198,6 +200,8 @@ export default class EntryAbility extends UIAbility {
         hilog.error(DOMAIN, TAG, 'environment bootstrap failed: %{public}s', JSON.stringify(e));
       }
     }
+    // DS-02：系统组件主题按令牌映射（51 个角色，资源随深色换值），在首页加载前设置。
+    CouliTheme.install(this.context);
     // RootPage 按 AppConfig.gate() 决定显示正常首屏还是阻断页（BLOCKED 时不进入正常界面）。
     windowStage.loadContent('pages/RootPage', (err) => {
       if (err.code) {

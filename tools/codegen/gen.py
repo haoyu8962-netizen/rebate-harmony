@@ -76,6 +76,7 @@ import re
 import shutil
 import sys
 import tempfile
+from ds02_test_data import build_test_outputs
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SNAPSHOT = os.path.join(ROOT, "contracts", "snapshot")
@@ -1862,6 +1863,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "TestDebugRoutes.ets"):
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
+    outputs.update(build_test_outputs(ROOT))
     outputs[os.path.join(MODULE, "Index.ets")] = INDEX % index_exports(outputs, main)
     return outputs
 

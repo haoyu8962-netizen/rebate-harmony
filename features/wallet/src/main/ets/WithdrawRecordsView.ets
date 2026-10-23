@@ -430,8 +430,7 @@ export struct WithdrawRecordsView {
 
   build() {
     Column() {
-      NavBar({ title: this.t('withdraw_records.title'), backLabel: this.t('wallet.back'),
-        onBack: () => this.config.onBack() })
+      NavBar({ title: this.t('withdraw_records.title'), backLabel: this.t('wallet.back') })
         .backgroundColor(CouliColors.backgroundCanvas)
       if (this.model.phase === RecordsPhase.IDLE) {
         Column().layoutWeight(1)

@@ -13,7 +13,8 @@ import {
   RouteTable, SessionTokenSet, SettingsItems, SmsSendDeadlines, StackNavigator, StepUpController, StepUpSheetFit,
   TransportRequest, TransportResponse, UpdateCheckStatus, UpdateState, WalletSession
 } from '../../Index';
-import { CouliFormat, StepUpPanelFit } from 'designsystem';
+import { CouliFormat } from 'designsystem/src/main/ets/format/CouliFormat';
+import { StepUpPanelFit } from 'designsystem/Logic';
 import { RouteSpec } from 'generated';
 import { Deferred, envelope, flush, header, Rig, waitUntil } from './NetworkTestRig';
 import { ParamStack, TAB_ROOTS } from './OrderIntegration.test';

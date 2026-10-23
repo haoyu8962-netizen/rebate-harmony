@@ -630,8 +630,7 @@ export struct DeleteAccountView {
         },
         footer: () => {
           this.footer()
-        },
-        onBack: () => this.config.onBack()
+        }
       })
     }
     .width('100%')

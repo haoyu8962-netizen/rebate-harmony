@@ -1,5 +1,8 @@
-import { ColorMetrics, LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics } from '@kit.ArkUI';
 import { DesignTokens, ShadowLayerToken } from 'generated';
+import { couliColorResource } from './CouliColors';
+import { CouliColorMode } from './components/ColorMode';
+import { CouliThemeTokens } from './theme/CouliThemeTokens';
 
 function metric(table: Map<string, number>, key: string, group: string): number {
   const value: number | undefined = table.get(key);
@@ -52,27 +55,59 @@ export class CouliComponentMetrics {
   /** 焦点环 focus.width / focus.offset。 */
   static readonly focusWidth: number = metric(DesignTokens.focus, 'width', 'focus');
   static readonly focusOffset: number = metric(DesignTokens.focus, 'offset', 'focus');
+  // DS-02 新增组件令牌 T4、T6–T12（令牌 v0.4.0，CouliThemeTokens.component；契约快照仍是 v0.3.0）。
+  static readonly iconSmall: number = metric(CouliThemeTokens.component, 'icon.small', 'component');
+  static readonly iconInline: number = metric(CouliThemeTokens.component, 'icon.inline', 'component');
+  static readonly iconMedium: number = metric(CouliThemeTokens.component, 'icon.medium', 'component');
+  static readonly fieldMinHeight: number = metric(CouliThemeTokens.component, 'field.min-height', 'component');
+  static readonly codeCellHeight: number = metric(CouliThemeTokens.component, 'code-cell.height', 'component');
+  static readonly checkboxSize: number = metric(CouliThemeTokens.component, 'checkbox.size', 'component');
+  static readonly checkboxMaxScale: number = metric(CouliThemeTokens.component, 'checkbox.max-scale', 'component');
+  static readonly chipHeight: number = metric(CouliThemeTokens.component, 'chip.height', 'component');
+  static readonly tabIndicatorHeight: number = metric(CouliThemeTokens.component, 'tab-indicator.height', 'component');
+  static readonly tagMinHeight: number = metric(CouliThemeTokens.component, 'tag.min-height', 'component');
+  static readonly platformBadgeMinHeight: number =
+    metric(CouliThemeTokens.component, 'platform-badge.min-height', 'component');
+  static readonly countBadgeSize: number = metric(CouliThemeTokens.component, 'count-badge.size', 'component');
+  static readonly imageList: number = metric(CouliThemeTokens.component, 'image.list', 'component');
+  static readonly gridCellMinHeight: number = metric(CouliThemeTokens.component, 'grid-cell.min-height', 'component');
+  static readonly oauthSize: number = metric(CouliThemeTokens.component, 'oauth.size', 'component');
+  static readonly oauthGap: number = metric(CouliThemeTokens.component, 'oauth.gap', 'component');
 }
 
 /**
  * 可见焦点样式（adaptation-a11y-spec §8；令牌 color.focus.ring、focus.width、focus.offset）：
  * 2vp 松叶绿实线、距控件 2vp，只在键盘 / 辅助输入获得焦点时由系统绘制。
+ * DS-02 评审 r1 R1-03：FocusBoxStyle 只收解析好的 ColorMetrics，资源不会随深浅重解析；`box` 按 CouliColorMode 当前深浅取
+ * focus.ring 的浅 / 深两套值（浅 #26735B、深 #5DBB97，来自令牌 v0.4.0），在 build 里读取即随深浅切换重新取色。
  */
 export class CouliFocus {
-  static readonly box: FocusBoxStyle = CouliFocus.build();
+  private static readonly lightBox: FocusBoxStyle = CouliFocus.build(false);
+  private static readonly darkBox: FocusBoxStyle = CouliFocus.build(true);
 
-  private static build(): FocusBoxStyle {
-    const hex: string = DesignTokens.colors.get('focus.ring') ?? '#26735B';
+  static get box(): FocusBoxStyle {
+    return CouliColorMode.shared().dark ? CouliFocus.darkBox : CouliFocus.lightBox;
+  }
+
+  /** 指定深浅的焦点样式（核对与目录展示用）。 */
+  static boxFor(dark: boolean): FocusBoxStyle {
+    return dark ? CouliFocus.darkBox : CouliFocus.lightBox;
+  }
+
+  private static build(dark: boolean): FocusBoxStyle {
     const style: FocusBoxStyle = {
       margin: LengthMetrics.vp(CouliComponentMetrics.focusOffset),
-      strokeColor: ColorMetrics.numeric(parseInt('FF' + hex.substring(1), 16)),
+      strokeColor: CouliColorMode.metrics('focus.ring', dark),
       strokeWidth: LengthMetrics.vp(CouliComponentMetrics.focusWidth)
     };
     return style;
   }
 }
 
-/** 阴影令牌 shadow.card / shadow.floating → ArkUI ShadowOptions（颜色按不透明度换成 #AARRGGBB）。 */
+/**
+ * 阴影令牌 shadow.card / shadow.floating → ArkUI ShadowOptions。DS-02：颜色取资源 shadow_card / shadow_floating（令牌 v0.4.0 的
+ * 颜色 × 不透明度，浅 / 深两套，gen_theme.py 生成），深色自动换成黑色阴影；半径与偏移两套相同。
+ */
 export class CouliShadow {
   static readonly card: ShadowOptions = CouliShadow.options('card');
   static readonly floating: ShadowOptions = CouliShadow.options('floating');
@@ -97,7 +132,7 @@ export class CouliShadow {
     // CSS blur 半径 ≈ ArkUI shadow radius（模糊半径，vp）；spread 令牌全为 0，ArkUI 不支持 spread。
     const shadow: ShadowOptions = {
       radius: l.blur,
-      color: CouliShadow.argb(l.color, l.opacity),
+      color: couliColorResource('shadow_' + name),
       offsetX: l.x,
       offsetY: l.y
     };

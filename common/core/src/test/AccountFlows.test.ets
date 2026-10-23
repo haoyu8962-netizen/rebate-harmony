@@ -8,7 +8,7 @@ import {
   RouteTable, SettingsItems, StepUpController, StepUpSheetFit, TransportRequest, TransportResponse, ApiClientWalletPort,
   RetryAfterGate, AccountSensitiveFlow, AccountClick, AccountIdentity, AccountStep, DeletionSummary, SmsResendClock
 } from '../../Index';
-import { StepUpPanelFit } from 'designsystem';
+import { StepUpPanelFit } from 'designsystem/Logic';
 import { RouteSpec } from 'generated';
 import { Deferred, envelope, header } from './NetworkTestRig';
 import {

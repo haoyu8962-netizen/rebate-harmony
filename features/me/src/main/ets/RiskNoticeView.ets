@@ -326,11 +326,6 @@ export struct RiskNoticeView {
       },
       footer: () => {
         this.footer()
-      },
-      onBack: () => {
-        if (this.showBack()) {
-          this.config.onBack();
-        }
       }
     })
   }

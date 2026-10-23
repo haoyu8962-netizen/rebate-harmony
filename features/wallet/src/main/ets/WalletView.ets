@@ -290,7 +290,7 @@ export struct WalletView {
 
   build() {
     Column() {
-      NavBar({ title: this.t('wallet.title'), backLabel: this.t('wallet.back'), onBack: () => this.config.onBack() })
+      NavBar({ title: this.t('wallet.title'), backLabel: this.t('wallet.back') })
         .backgroundColor(CouliColors.backgroundCanvas)
       if (this.model.phase === WalletPhase.IDLE) {
         Column().layoutWeight(1)

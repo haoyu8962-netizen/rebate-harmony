@@ -35,6 +35,9 @@
    `src/release`；不靠运行时 if。core 的边界：`src/main` 只有环境枚举、prod 端点、只读的当前环境（`EnvironmentSource`）、
    本机数据清理注册表与启动对账（Release 也要用）；运行中切换环境（`EnvironmentSwitcher`）、调试面板选择的持久化、
    `DebugCapabilities` 只在 `src/staging`。检查：`tools/ci/release-scan.sh`（Release 不命中、Debug / Staging 全部命中）。
-8. **强制浅色**：没有静态配置项，在 `EntryAbility.onCreate` 用 `ApplicationContext.setColorMode(COLOR_MODE_LIGHT)`；
-   不放 `dark/` 资源目录。
+8. **浅 / 深两套（DS-02 起，00 D35、令牌 v0.4.0）**：应用跟随系统深浅（`EntryAbility.onCreate` 设 `COLOR_MODE_NOT_SET`）；颜色令牌在
+   `common/designsystem/src/main/resources/base|dark/element/color.json`（`tools/codegen/gen_theme.py` 生成，`lint.py` 的 HM-LINT-11 查漂移），
+   页面与组件只用 `CouliColors.*`（资源）、不写色值；系统组件主题经 `CouliTheme.install()`（`ThemeControl.setDefaultTheme`）。
+   designsystem 总入口里引资源只用变量拼名（`couliColorResource`），字面量 `$r` 会让 core 本机单测编译报 Unknown resource type（F-HM-57）。
+   原「强制浅色、不放 dark/」作废。
 9. **文字用 fp、尺寸用 vp**：字号随系统字体大小缩放（03 §10.4），命中区下限 48vp。

@@ -1,0 +1,21 @@
+{
+  "module": {
+    "name": "entry_test",
+    "type": "feature",
+    "deviceTypes": [
+      "phone"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:ds02_test_pages",
+    "abilities": [
+      {
+        "name": "Ds02R1Ability",
+        "srcEntry": "./ets/testability/Ds02R1Ability.ets",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": false
+      }
+    ]
+  }
+}

@@ -116,8 +116,7 @@ export struct AboutView {
       scrollId: 'about_scroll',
       content: () => {
         this.content()
-      },
-      onBack: () => this.config.onBack()
+      }
     })
   }
 }

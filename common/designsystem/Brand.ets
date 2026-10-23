@@ -3,3 +3,5 @@
 // 但 core 的本机单测把 designsystem 当 devDependency 引入时只带 core 自己的资源，从 Index 一并导出会让 core 单测编译报
 // 「Unknown resource type 'media'」。页面用：import { CouliLogo, CouliLogoVariant } from 'designsystem/Brand'。
 export { CouliLogo, CouliLogoVariant, CouliLogoSpec } from './src/main/ets/components/CouliLogo';
+// DS-02：登录页品牌标识 BrandMark（Logo 主图形 56）同理只从这里导出。
+export { BrandMark } from './src/main/ets/components/BrandMark';

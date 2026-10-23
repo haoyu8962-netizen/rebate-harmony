@@ -1,3 +1,4 @@
+import ds02FocusTest from './Ds02Focus.test';
 import designTokensMappingTest from './DesignTokensMapping.test';
 import formatVectorTest from './FormatVector.test';
 import priceModelEdgeTest from './PriceModelEdge.test';
@@ -10,6 +11,8 @@ import app06bReviewR1Test from './App06bReviewR1.test';
 import app06bReviewR2Test from './App06bReviewR2.test';
 import followupHM0607Test from './FollowupHM0607.test';
 import followupHM0710Test from './FollowupHM0710.test';
+import ds02ControlsTest from './Ds02Controls.test';
+import ds02ThemeTest from './Ds02Theme.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -24,4 +27,7 @@ export default function testsuite() {
   app06bReviewR2Test();
   followupHM0607Test();
   followupHM0710Test();
+  ds02ControlsTest();
+  ds02ThemeTest();
+  ds02FocusTest();
 }
