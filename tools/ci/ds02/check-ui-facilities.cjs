@@ -63,6 +63,32 @@ activeDelegator = delegator;
 // 同一个测试 Driver 的方法转发到当前情景；设施专用，不修改设备测试导出。
 const driverProxy = new Proxy({}, { get: (_target, key) => (...args) => activeDriver[key](...args) });
 const cache = new Map();
+// 同一 entry_test 里其他任务登记的套件（F-X-25 等）：名单写死；只核对注册名，不在 DS-02 设施里执行其用例体。
+// 其依赖（产品包 core / web、任务专用 rig 等）一律给惰性桩、不加载；DS-02 文件仍走下方严格加载器，
+// 未登记的套件文件同样走严格加载器，其额外用例会进入 DS-02 名单比对而失败。
+const FOREIGN_SUITES = new Map([
+  [path.join(testRoot, 'AuthChangeDevice.test.ets'), { task: 'F-X-25', names: [
+    'E01_real_trusted_storage_is_gone_after_account_switch_and_old_document_received_event',
+    'E02_I6_only_external_real_arkweb_http_cache_survives_auth_cleanup',
+    // F-X-25 t1（D10-279）：新方案「先拆后清再建」的设备用例。
+    'E04_I6_no_arg_cookie_clear_keeps_incognito_external_cookie',
+    'E05_R3_04_production_sandbox_owner_mismatch_cleans_before_first_trusted_load',
+    'E06_covered_host_tears_down_while_covered_and_shows_clean_new_document_after_pop',
+    // F-X-25 t4（评审新 r1 NR1-01，合并门槛）：旧文档 beacon / keepalive 的迟到 Set-Cookie。
+    'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
+  ] }],
+]);
+const foreignCases = [];
+const foreignHooks = [];
+const inert = new Proxy(function inert() {}, { get: () => inert, apply: () => inert, construct: () => inert });
+function foreignRequire(filename, name) {
+  const task = FOREIGN_SUITES.get(filename).task;
+  if (name !== '@ohos/hypium') return inert;
+  const hook = kind => fn => foreignHooks.push({ task, kind, fn });
+  return { expect: () => inert, describe: (_name, fn) => fn(),
+    it: (name, _flags, fn) => foreignCases.push({ task, file: filename, name, fn }),
+    beforeAll: hook('beforeAll'), afterAll: hook('afterAll'), beforeEach: hook('beforeEach'), afterEach: hook('afterEach') };
+}
 function load(filename, transform) {
   if (!transform && cache.has(filename)) return cache.get(filename);
   const original = fs.readFileSync(filename, 'utf8');
@@ -71,6 +97,7 @@ function load(filename, transform) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
   const module = { exports: {} };
   function localRequire(name) {
+    if (FOREIGN_SUITES.has(filename)) return foreignRequire(filename, name);
     if (name === '@ohos/hypium') return { expect, describe: (_name, fn) => fn(),
       it: (name, _flags, fn) => cases.push({ name, fn }), beforeAll: fn => beforeHooks.push(fn), afterAll: () => {},
       beforeEach: fn => beforeEachHooks.push(fn), afterEach: fn => afterEachHooks.push(fn) };
@@ -94,6 +121,57 @@ function load(filename, transform) {
     .runInThisContext()(localRequire, module, module.exports);
   if (!transform) cache.set(filename, module.exports);
   return module.exports;
+}
+
+// DS-02 名单：严格加载器注册的用例必须与 158 条完全相等（一条不少、各一次、无清单外用例）——与原规则同一断言。
+// 其他任务：只允许 FOREIGN_SUITES 中登记的套件文件，且每个存在的登记套件必须被 List.test 注册、名单完全相等，
+// 不得与 DS-02 名字重名。与 check_device_result.py「158 条必跑、允许增补」一致，但增补受白名单约束。
+function checkRegistration(ds02Names, foreign, expected) {
+  assert.deepEqual([...ds02Names].sort(), expected, 'DS-02 strict-loader registrations must equal the 158 required cases');
+  const required = new Set(expected);
+  for (const test of foreign) {
+    assert.ok(!required.has(test.name), 'foreign suite must not register a DS-02 case name: ' + test.name);
+  }
+  for (const [file, suite] of FOREIGN_SUITES) {
+    if (!fs.existsSync(file)) continue;
+    const names = foreign.filter(test => test.file === file).map(test => test.name).sort();
+    assert.deepEqual(names, [...suite.names].sort(), suite.task + ' suite registrations must equal its fixed list');
+  }
+  assert.ok(foreign.every(test => FOREIGN_SUITES.has(test.file)), 'foreign case from unregistered file');
+}
+
+// 注册规则的反例：缺一条 / 重复一条 / 未登记额外用例 / 登记套件多一条或少一条 / 重名 / 登记套件未注册，全部必须失败。
+async function registrationMutants(expected) {
+  const ds02 = cases.map(test => test.name);
+  const file = path.join(testRoot, 'AuthChangeDevice.test.ets');
+  const foreign = foreignCases.filter(test => test.file === file);
+  const extra = { task: 'F-X-25', file, name: 'E99_unlisted', fn: () => {} };
+  const mutants = {
+    'ds02-missing': [ds02.slice(1), foreign],
+    'ds02-duplicate': [[...ds02, ds02[0]], foreign],
+    'unregistered-extra-case': [[...ds02, 'E99_unlisted'], foreign],
+    'foreign-extra-case': [ds02, [...foreign, extra]],
+    'foreign-missing-case': [ds02, foreign.slice(1)],
+    'foreign-duplicate-case': [ds02, [...foreign, foreign[0]]],
+    'foreign-reuses-ds02-name': [ds02, [...foreign, { ...extra, name: ds02[0] }]],
+    'foreign-suite-not-registered': [ds02, []],
+    'foreign-from-unregistered-file': [ds02, [...foreign, { ...extra, file: path.join(testRoot, 'Other.test.ets') }]],
+  };
+  for (const [label, [names, foreignList]] of Object.entries(mutants)) {
+    assert.throws(() => checkRegistration(names, foreignList, expected), assert.AssertionError, label);
+  }
+  // 真实加载器：DS-02 文件引入非 DS-02 包仍被拒；未登记套件（复制 F-X-25 套件为别名文件）走严格加载器同样被拒。
+  assert.throws(() => load(path.join(testRoot, 'Ds02Expected.ets'), source => "import { ApiResult } from 'core';\n" + source +
+    '\nexport const touch = ApiResult;'), /core/);
+  const suite = FOREIGN_SUITES.get(file);
+  const before = cases.length;
+  FOREIGN_SUITES.delete(file);
+  try {
+    assert.throws(() => load(file, source => source), error => error instanceof assert.AssertionError && error.message === 'core');
+  } finally { FOREIGN_SUITES.set(file, suite); }
+  assert.equal(cases.length, before);
+  console.log('REFERENCE_ONLY registration mutants killed: ' + Object.keys(mutants).length +
+    ' list mutants + DS-02 foreign import + unregistered suite path');
 }
 
 function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
@@ -198,8 +276,11 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   load(path.join(testRoot, 'List.test.ets')).default();
   const expected = JSON.parse(execFileSync('python3', ['-c',
     'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names; print(json.dumps(sorted(expected_names())))', __dirname], { encoding: 'utf8' }));
-  assert.deepEqual(cases.map(test => test.name).sort(), expected);
+  checkRegistration(cases.map(test => test.name), foreignCases, expected);
   console.log('REFERENCE_ONLY registration: all 158 required cases registered exactly once');
+  console.log('REFERENCE_ONLY registration: other registered suites ' + [...FOREIGN_SUITES.values()]
+    .map(suite => suite.task + '=' + suite.names.length).join(',') + ' match their fixed lists; not executed here');
+  await registrationMutants(expected);
   assert.equal(beforeEachHooks.length, 2);
   assert.equal(afterEachHooks.length, 2);
   await require('./check-ui-session.cjs')({ load, testRoot, beforeEachHooks, afterEachHooks,

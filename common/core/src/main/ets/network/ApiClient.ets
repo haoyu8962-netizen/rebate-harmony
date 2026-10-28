@@ -750,6 +750,10 @@ export class ApiClient {
   private ownerKnown: boolean = false;
   /** 绑定时未决存储的 resetGeneration：之后未决存储被整体清掉（切环境 cleanAll，令牌也一并清除）就不再沿用。 */
   private ownerStoreResets: number = 0;
+  /** 会话可能变了的观察者（F-X-25：可信 WebView 切号处理）。 */
+  private readonly sessionWatchers: ((cleared: boolean) => void)[] = [];
+  /** 登录保存新令牌之前的放行检查（F-X-25 R2-04：可信 Web 的待清标记必须先落盘）。 */
+  private readonly saveGuards: ((account: string | null) => boolean)[] = [];
 
   constructor(deps: ApiClientDeps) {
     this.deps = deps;
@@ -795,6 +799,8 @@ export class ApiClient {
       }
       entry.abort();
     }
+    // F-X-25（I5）：作废 = 切环境 / 撤回同意 / 覆盖安装对账开始清会话（凭据门此刻可能已关），按明确清除通知。
+    this.notifySession(true);
   }
 
   /**
@@ -866,6 +872,62 @@ export class ApiClient {
     // R2-02：会话在登录流程以外换了，之前绑定的归属不再可信；下面可读时现读重新绑定，读不了就按游客计。
     this.ownerKnown = false;
     this.syncPendingAccount();
+    this.notifySession();
+  }
+
+  /**
+   * 观察「会话可能变了」（F-X-25）：登录 / 刷新保存令牌、按世代清会话、10404 与刷新失败清会话、onSessionChanged、作废之后同步
+   * 回调（令牌存储自己丢弃会话时在读取之外补一次）。不带身份。cleared=false 只是唤醒：观察者自己读 sessionIdentity 判定是否
+   * 真的换了身份（读不出 = 未知，不等于登出），重复唤醒必须无副作用。cleared=true 是「已明确清除会话」：作废（切环境、撤回同意、
+   * 覆盖安装对账）、按世代清会话、10404 / 刷新失败清会话、令牌清理器或令牌存储丢弃会话之后——此刻凭据门可能已关，观察者
+   * 不得为此再读凭据（F-X-25 I5）。返回取消观察的函数。
+   */
+  watchSession(listener: (cleared: boolean) => void): () => void {
+    this.sessionWatchers.push(listener);
+    return (): void => {
+      const index: number = this.sessionWatchers.indexOf(listener);
+      if (index >= 0) {
+        this.sessionWatchers.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * 登录保存新令牌之前的放行检查（F-X-25 R2-04）：参数是新会话的账号；任一检查返回 false 或抛错，这次登录按令牌写不进处理
+   * （session_save_failed，新令牌不落盘、当前会话原样保留）。用于「先持久写可信 Web 待清标记，再保存新会话」：标记写不进时
+   * 新会话不得生效，否则杀进程后冷启动会按新身份加载旧账号的 Web 数据。刷新不经过它（账号不变）。返回取消的函数。
+   */
+  guardSessionSave(guard: (account: string | null) => boolean): () => void {
+    this.saveGuards.push(guard);
+    return (): void => {
+      const index: number = this.saveGuards.indexOf(guard);
+      if (index >= 0) {
+        this.saveGuards.splice(index, 1);
+      }
+    };
+  }
+
+  private sessionSaveAdmitted(account: string | null): boolean {
+    for (const guard of this.saveGuards.slice()) {
+      try {
+        if (!guard(account)) {
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private notifySession(cleared: boolean = false): void {
+    for (const listener of this.sessionWatchers.slice()) {
+      try {
+        listener(cleared);
+      } catch (e) {
+        // 观察者出错不影响会话处理。
+      }
+    }
   }
 
   /**
@@ -924,6 +986,7 @@ export class ApiClient {
     } catch (e) {
       // 清理出口出错不影响已清除的会话。
     }
+    this.notifySession(true);
     return true;
   }
 
@@ -1731,6 +1794,8 @@ export class ApiClient {
       this.endSessionGeneration();
     }
     this.observeOwner(null);
+    // F-X-25：明确清除（I5）。可能在令牌存储的读取之内——放到这次同步区之后（观察者不为此读凭据，只是不在读取中重入）。
+    Promise.resolve().then((): void => this.notifySession(true));
   }
 
   /** 记下凭据可读时读到的会话账号（只在可读的读取点调用；不为它另读凭据）。 */
@@ -2336,6 +2401,8 @@ export class ApiClient {
         if (lost !== null) {
           return this.lostResult(lost);
         }
+        // F-X-25：清除前先让观察者确认原会话（之后的唤醒才能判出登出）。
+        this.notifySession();
         let hadSession: boolean = false;
         try {
           hadSession = this.deps.tokens.accessToken() !== null || this.deps.tokens.refreshToken() !== null;
@@ -2352,6 +2419,7 @@ export class ApiClient {
         // R2-02：本客户端清了会话：已绑定的会话归属为游客（不靠下面的现读，读不了时也成立）。
         this.observeOwner(null);
         this.syncPendingAccount();
+        this.notifySession(true);
         // F-HM-09（APP-05a 共性 18）：业务请求直接收到 10404 也是会话失效，和刷新失败一样交 App 的会话级回调——普通状态经
         // Router 打开 Login 并提示失效，强更状态停在 ForceUpdate（sessionFailureEffect 读这一刻的强更状态）。
         // 不靠发起页自己处理 Effect（搜索等页面不认识它）。登出请求回 10404 是用户自己在退出，不跳登录（LoginService 完成登出清理）。
@@ -2725,6 +2793,12 @@ export class ApiClient {
     if (login) {
       this.loginSerial++;
       this.endSessionGeneration();
+      // F-X-25：保存前先让观察者确认原会话（冷启动后还没确认过身份时，游客 → 登录也要能判出变化）。
+      this.notifySession();
+      // F-X-25 R2-04：换号时可信 Web 的待清标记先落盘；写不进则新会话不落盘（与令牌写不进同口径）。
+      if (!this.sessionSaveAdmitted(set.account)) {
+        return LocalRejectReason.SESSION_SAVE_FAILED;
+      }
     }
     try {
       this.deps.tokens.save(set);
@@ -2743,6 +2817,7 @@ export class ApiClient {
       this.lineage.set(usedAccess, set.accessToken);
     }
     this.restrictedScopeIssued(set.scope);
+    this.notifySession();
     return null;
   }
 
@@ -2959,6 +3034,8 @@ export class ApiClient {
         // 这轮按 session_changed 结算等待者，不清当前会话、不发会话级 Effect。
         result = RefreshOutcome.of(RefreshOutcome.SESSION_CHANGED);
       } else if (outcome.kind === RefreshOutcome.FAILED) {
+        // F-X-25：记下失败令牌、清除之前先让观察者确认原会话（之后的唤醒才能判出登出）。
+        this.notifySession();
         this.failedAccessToken = round.usedAccess;
         const clearedGeneration: number = this.sessionGeneration;
         let cleanupFailed: boolean = false;
@@ -2971,6 +3048,7 @@ export class ApiClient {
         // R2-02：本客户端清了会话：已绑定的会话归属为游客（不靠下面的现读，读不了时也成立）。
         this.observeOwner(null);
         this.syncPendingAccount();
+        this.notifySession(true);
         const effect: ErrorEffect = this.sessionFailureEffect();
         result = new RefreshOutcome(RefreshOutcome.FAILED, null, effect, cleanupFailed);
         this.clearedGeneration = round.generation;

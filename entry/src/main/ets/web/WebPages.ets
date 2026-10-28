@@ -36,6 +36,9 @@ export struct AppWebPage {
     .hideTitleBar(true)
     .backgroundColor(CouliColors.backgroundCanvas)
     .onBackPressed((): boolean => this.config !== null && this.config.systemBack())
+    // F-X-25：被别的页面压着时，切号清理的新 Web 可能等不到挂上——按延期处理，不判失败（D10-279 b）。
+    .onShown((): void => this.config?.hostVisible(true))
+    .onHidden((): void => this.config?.hostVisible(false))
     // 共性 47：路由一确定出栈就同步撤销调用、停止加载（onWillDisappear 早于退场动画；只被盖住时不触发）。
     .onWillDisappear((): void => {
       this.config?.teardown();

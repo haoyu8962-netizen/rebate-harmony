@@ -293,5 +293,162 @@
     "userGesture 布尔值不能验证最近一秒的时间边界、伪造手势和时钟来源；events 只验名称，不能证明 data 不含令牌、设备标识或剪贴板，以及 app.resume/app.pause 的 data={}。",
     "cases.ts 指定 login→gesture→params；parseEnvelope 的独立参数校验不能被 Host 提前返回而覆盖这个顺序，宿主接线须另测。其他多种拒绝条件同时命中的优先级未规定，本组尽量隔离条件。",
     "本次只输出四份文件文本，未写文件、未编译运行三端测试。实现者需注册 iOS BridgeHostTests target、Android JUnit4/serialization 测试依赖，以及鸿蒙 gen.py 生成 BridgeVectorsData.ets 并在 List.test.ets 调用 bridgeVectorTest。适配层只能转型转发，不得复制判定规则或读取 expect。"
-  ]
+  ],
+  "authChangeFx25": {
+    "version": 1,
+    "source": "NATIVE/F-X-25/brief.md",
+    "delivery": "all mounted trusted documents, including covered/background documents; immediate delivery selected by these tests",
+    "cases": [
+      {
+        "id": "D01_token_refresh",
+        "prev": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "next": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "expected": "none",
+        "logged_in": null
+      },
+      {
+        "id": "D02_same_account_new_epoch",
+        "prev": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "next": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-b"
+        },
+        "expected": "notify",
+        "logged_in": true
+      },
+      {
+        "id": "D03_switch_account",
+        "prev": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "next": {
+          "known": true,
+          "account": "user-b",
+          "loginEpoch": "epoch-b"
+        },
+        "expected": "notifyReload",
+        "logged_in": true
+      },
+      {
+        "id": "D04_logout",
+        "prev": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "next": {
+          "known": true,
+          "account": null,
+          "loginEpoch": null
+        },
+        "expected": "notifyReload",
+        "logged_in": false
+      },
+      {
+        "id": "D05_login",
+        "prev": {
+          "known": true,
+          "account": null,
+          "loginEpoch": null
+        },
+        "next": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "expected": "notifyReload",
+        "logged_in": true
+      },
+      {
+        "id": "D06_cold_start",
+        "prev": {
+          "known": false,
+          "account": null,
+          "loginEpoch": null
+        },
+        "next": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "expected": "none",
+        "logged_in": null
+      },
+      {
+        "id": "D07_cold_guest",
+        "prev": {
+          "known": false,
+          "account": null,
+          "loginEpoch": null
+        },
+        "next": {
+          "known": true,
+          "account": null,
+          "loginEpoch": null
+        },
+        "expected": "none",
+        "logged_in": null
+      },
+      {
+        "id": "D08_unreadable_is_not_logout",
+        "prev": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "next": {
+          "known": false,
+          "account": null,
+          "loginEpoch": null
+        },
+        "expected": "none",
+        "logged_in": null
+      },
+      {
+        "id": "D09_guest_unchanged",
+        "prev": {
+          "known": true,
+          "account": null,
+          "loginEpoch": null
+        },
+        "next": {
+          "known": true,
+          "account": null,
+          "loginEpoch": null
+        },
+        "expected": "none",
+        "logged_in": null
+      },
+      {
+        "id": "D10_account_changes_same_epoch",
+        "prev": {
+          "known": true,
+          "account": "user-a",
+          "loginEpoch": "epoch-a"
+        },
+        "next": {
+          "known": true,
+          "account": "user-b",
+          "loginEpoch": "epoch-a"
+        },
+        "expected": "notifyReload",
+        "logged_in": true
+      }
+    ]
+  }
 }

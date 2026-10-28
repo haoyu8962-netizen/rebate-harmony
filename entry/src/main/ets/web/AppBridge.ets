@@ -7,10 +7,12 @@ import {
   BridgeStatePort, ClientEvent, ConfigSnapshot, ConfigStore, EnvironmentGate, EnvironmentSwitchGate,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
   GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
-  PrivacyState, RouteRequest, RouteSource, RouteTargetAllowlist, UpdateCheckStatus, UpdateState
+  FileSlot, FileTrustedAuthJournal, FileTrustedWebOwnerRecord, PrivacyState, RouteRequest, RouteSource, RouteTargetAllowlist, SessionIdentity,
+  SessionLoginEpochs, TrustedAuthJournal, TrustedAuthPage, TrustedAuthSync, TrustedWebOwnerRecord, UpdateCheckStatus,
+  UpdateState
 } from 'core';
 import { BundledConfig } from 'generated';
-import { BridgeEnvInfo, ExternalWebConfig, TrustedWebConfig } from 'web';
+import { BridgeEnvInfo, ExternalWebConfig, TrustedWebConfig, TrustedWebProfile } from 'web';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppLogin } from '../login/AppLogin';
@@ -281,6 +283,63 @@ export class AppBridge {
 
   static attach(context: common.UIAbilityContext): void {
     AppBridge.context = context;
+    // F-X-25：切号处理随 App 启动建立（没有在开容器时登出 / 换号也要清可信 Web 存储；上次没清完的在任何可信页面加载前补清）。
+    AppBridge.trustedAuth(AppNetwork.client, AppNetwork.tokens);
+  }
+
+  /** 「Web 数据待清理」标记文件（沙盒 filesDir，F-X-25 I3；切环境 / 撤回同意的本机清理不删它）。 */
+  private static readonly WEB_PENDING_FILE: string = 'couli_trusted_web.pending';
+  /** 「可信 Web 数据归属」记录文件（F-X-25 R2-04 第二道防线；同在沙盒 filesDir）。 */
+  private static readonly WEB_OWNER_FILE: string = 'couli_trusted_web.owner';
+
+  /** 每个 ApiClient 一份切号处理（F-X-25）。 */
+  private static readonly authSyncs: Map<ApiClient, TrustedAuthSync> = new Map<ApiClient, TrustedAuthSync>();
+
+  /**
+   * 可信 WebView 的切号处理（F-X-25，D10-131；判定与调度在 core TrustedAuthSync / AuthChangeDecision）：观察 ApiClient 的会话
+   * 唤醒，身份快照与订单、钱包、首页同一入口（ApiClient.sessionIdentity + 持久化登录世代）。client 为 null（未组合）时没有。
+   */
+  static trustedAuth(client: ApiClient | null, epochs: SessionLoginEpochs | null,
+    pending: TrustedAuthJournal | null = null, owner: TrustedWebOwnerRecord | null = null): TrustedAuthSync | null {
+    if (client === null) {
+      return null;
+    }
+    const existing: TrustedAuthSync | undefined = AppBridge.authSyncs.get(client);
+    if (existing !== undefined) {
+      return existing;
+    }
+    // 待清理标记存储缺失是配置错误（I3）：抛出，由调用方失败可见（可信页面不加载），绝不改用内存记录。
+    const journal: TrustedAuthJournal = pending ?? AppBridge.webPendingJournal();
+    // 归属记录与生产标记同在沙盒；注入标记存储（测试夹具）时由调用方显式给（缺省没有）。
+    const ownerRecord: TrustedWebOwnerRecord | null = pending === null ? AppBridge.webOwnerRecord() : owner;
+    const sync: TrustedAuthSync = new TrustedAuthSync((): SessionIdentity => client.sessionIdentity(epochs),
+      new TrustedWebProfile(), journal, ownerRecord);
+    client.watchSession((cleared: boolean): void => sync.changed(cleared));
+    // R2-04：登录换号时先把待清标记写盘，写不进则新会话不落盘。
+    client.guardSessionSave((account: string | null): boolean => sync.admit(account));
+    AppBridge.authSyncs.set(client, sync);
+    return sync;
+  }
+
+  /**
+   * 生产的待清理标记：沙盒文件（FileSlot 原子写）。App 在 EntryAbility.onCreate 里先 attach 再有任何页面，所以生产上总有沙盒
+   * 目录。还没 attach（没有可落盘的位置）即配置错误（F-X-25 I3 严格）：抛出，不用任何进程内记录兜底。
+   */
+  private static webPendingJournal(): TrustedAuthJournal {
+    const context: common.UIAbilityContext | null = AppBridge.context;
+    if (context !== null && context !== undefined) {
+      return new FileTrustedAuthJournal(FileSlot.at(context.filesDir, AppBridge.WEB_PENDING_FILE));
+    }
+    throw new Error('trusted web pending store unavailable (AppBridge not attached)');
+  }
+
+  /** 生产的 Web 数据归属记录（沙盒文件）；调用时机同 webPendingJournal（标记已建成，context 必在）。 */
+  private static webOwnerRecord(): TrustedWebOwnerRecord {
+    const context: common.UIAbilityContext | null = AppBridge.context;
+    if (context !== null && context !== undefined) {
+      return new FileTrustedWebOwnerRecord(FileSlot.at(context.filesDir, AppBridge.WEB_OWNER_FILE));
+    }
+    throw new Error('trusted web owner record unavailable (AppBridge not attached)');
   }
 
   static envInfo(): BridgeEnvInfo {
@@ -301,9 +360,13 @@ export class AppBridge {
     return new BridgeEnvInfo(AppNetwork.appVersion, build, os, HARMONY_CHANNEL);
   }
 
-  /** 可信容器配置（WebPage 路由；Debug 一致性入口传自己的 state）。 */
+  /**
+   * 可信容器配置（WebPage 路由；Debug 一致性入口传自己的 state）。authClient / authEpochs：切号处理观察的 ApiClient 与登录世代
+   * 来源（F-X-25），缺省为 App 的 AppNetwork。
+   */
   static trustedConfig(url: string, fromForceUpdatePage: boolean, onClose: () => void,
-    state: BridgeStatePort = new AppBridgeState(fromForceUpdatePage)): TrustedWebConfig {
+    state: BridgeStatePort = new AppBridgeState(fromForceUpdatePage), authClient: ApiClient | null = null,
+    authEpochs: SessionLoginEpochs | null = null, authPending: TrustedAuthJournal | null = null): TrustedWebConfig {
     const containerId: string = AppBridge.nextContainerId();
     const config: TrustedWebConfig = new TrustedWebConfig(url, AppBridge.createHost('WebPage', state, containerId),
       (): string[] => state.trustedOrigins(), AppBridge.envInfo());
@@ -323,7 +386,122 @@ export class AppBridge {
       return store === null ? (): void => {
       } : store.subscribe((_s: ConfigSnapshot): void => changed());
     };
+    // F-X-25：切号时通知并（账号变化 / 登出）清理可信 Web 存储后重载本容器。切号处理建不起来（如待清理标记存储缺失）时
+    // wireAuth 失败可见（I3 严格）；其余接线出错时容器照常打开（不因此白屏）。
+    try {
+      AppBridge.wireAuth(config, authClient, authEpochs, authPending);
+    } catch (e) {
+      config.whenAuthSettled = (): Promise<boolean> => Promise.resolve(false);
+    }
     return config;
+  }
+
+  /**
+   * 切号处理接不上（F-X-25 I3 严格）：容器一出现即隔离并显示可重试错误页，完成屏障为 false。「重试」重新接线：仍接不上则
+   * 保持错误；接上后把在开容器登记到切号处理——有待清理（含冷启动标记）时由它清完再重载，没有时直接加载入口。
+   */
+  private static wireAuthFailed(config: TrustedWebConfig, authClient: ApiClient | null,
+    authEpochs: SessionLoginEpochs | null, authPending: TrustedAuthJournal | null): void {
+    const pages: TrustedAuthPage[] = [];
+    const unwatch: Map<TrustedAuthPage, () => void> = new Map<TrustedAuthPage, () => void>();
+    let live: TrustedAuthSync | null = null;
+    config.watchAuth = (page: TrustedAuthPage): () => void => {
+      const current: TrustedAuthSync | null = live;
+      if (current !== null) {
+        unwatch.set(page, current.attach(page));
+      } else {
+        if (pages.indexOf(page) < 0) {
+          pages.push(page);
+        }
+        page.isolate();
+        page.block();
+      }
+      return (): void => {
+        const index: number = pages.indexOf(page);
+        if (index >= 0) {
+          pages.splice(index, 1);
+        }
+        const off: (() => void) | undefined = unwatch.get(page);
+        unwatch.delete(page);
+        if (off !== undefined) {
+          off();
+        }
+      };
+    };
+    config.whenAuthSettled = (): Promise<boolean> => live === null ? Promise.resolve(false) : live.settled();
+    config.retryAuth = (): Promise<boolean> => {
+      if (live !== null) {
+        return live.retry();
+      }
+      let sync: TrustedAuthSync | null = null;
+      try {
+        sync = authClient === null ?
+          AppBridge.trustedAuth(AppNetwork.client, authEpochs ?? AppNetwork.tokens, authPending) :
+          AppBridge.trustedAuth(authClient, authEpochs, authPending);
+      } catch (e) {
+        sync = null;
+      }
+      if (sync === null) {
+        return Promise.resolve(false);
+      }
+      const ready: TrustedAuthSync = sync;
+      live = ready;
+      const waiting: TrustedAuthPage[] = pages.splice(0, pages.length);
+      for (const page of waiting) {
+        unwatch.set(page, ready.attach(page));
+      }
+      if (!ready.busy()) {
+        // 没有待清理：照「先拆再建」把每个容器的 Web 换到新控制器上再加载入口（不在接线失败时的控制器上解除隔离）；
+        // 哪一步失败都保持隔离、显示错误页。
+        for (const page of waiting) {
+          AppBridge.reopen(page);
+        }
+      }
+      return ready.settled();
+    };
+  }
+
+  /**
+   * 接线恢复、且没有待清理时重开一个被阻断的容器（wireAuthFailed）：拆（旧 Web 下树、旧控制器失效）→ 新控制器挂空白载体 →
+   * 允许解除 → 加载入口。不挂 Web 的容器（入口被拒）只按被拒显示。任一步失败保持隔离、显示错误页。
+   */
+  private static reopen(page: TrustedAuthPage): void {
+    let web: boolean = false;
+    try {
+      web = page.rendersWeb();
+    } catch (e) {
+      web = false;
+    }
+    const carrier: Promise<void> = web ?
+      page.discardDocument().then((): Promise<void> => page.mountFresh()) : Promise.resolve();
+    carrier.then((): Promise<void> => {
+      page.release();
+      return page.reload();
+    }).catch((): void => page.block());
+  }
+
+  /**
+   * 把容器接到切号处理（F-X-25）：client 为 null 时用 App 的 AppNetwork（未组合时不接）。切号处理建不起来（待清理标记存储
+   * 缺失等，I3 严格）时不用任何兜底：容器隔离、不加载可信页面，只显示可重试的错误页。
+   */
+  private static wireAuth(config: TrustedWebConfig, authClient: ApiClient | null,
+    authEpochs: SessionLoginEpochs | null, authPending: TrustedAuthJournal | null): void {
+    let auth: TrustedAuthSync | null = null;
+    try {
+      auth = authClient === null ?
+        AppBridge.trustedAuth(AppNetwork.client, authEpochs ?? AppNetwork.tokens, authPending) :
+        AppBridge.trustedAuth(authClient, authEpochs, authPending);
+    } catch (e) {
+      AppBridge.wireAuthFailed(config, authClient, authEpochs, authPending);
+      return;
+    }
+    if (auth === null) {
+      return;
+    }
+    const sync: TrustedAuthSync = auth;
+    config.watchAuth = (page: TrustedAuthPage): () => void => sync.attach(page);
+    config.whenAuthSettled = (): Promise<boolean> => sync.settled();
+    config.retryAuth = (): Promise<boolean> => sync.retry();
   }
 
   private static readonly containers: Map<TrustedWebConfig, string> = new Map<TrustedWebConfig, string>();

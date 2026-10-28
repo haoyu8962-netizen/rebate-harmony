@@ -14,6 +14,11 @@ export {
   BridgeApiPort, BridgeRoutePort, BridgeRouteOpening, BridgeRouteDecider, BridgeBinding, BridgeHandlers
 } from './BridgeHandlers';
 export { BridgeFrames, BridgePageSession } from './BridgeFrames';
+export { AuthChangeDecision } from './AuthChangeDecision';
+export {
+  FileTrustedAuthJournal, FileTrustedWebOwnerRecord, TrustedAuthJournal, TrustedAuthPage, TrustedAuthStore, TrustedAuthSync,
+  TrustedWebOwnerRecord
+} from './TrustedAuthSync';
 export { BridgeOriginsVerifier, PendingContractBridgeOriginsVerifier, BridgeOrigins } from './BridgeOrigins';
 export {
   ExternalNavFrame, ExternalUnionOutcome, ExternalNoticeKey, ExternalNavOutcome, ExternalNavHooks, AuthPageRules,

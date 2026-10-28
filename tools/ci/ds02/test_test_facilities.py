@@ -120,6 +120,15 @@ if [ "$PROBE" = device-fails ]; then exit 1; fi
 echo 'DEVICE_TEST_PASS simulated_only'
 ''')
             device.chmod(0o755)
+            # F-X-25 t2：entry 测试包构建前后的「与被测应用同源」步骤（tools/ci/ohostest-app-source.cjs）；假 node 只记回执。
+            (folder / 'bin').mkdir()
+            fake_node = folder / 'bin/node'
+            fake_node.write_text('''#!/bin/bash
+set -eu
+case "$1" in */tools/ci/ohostest-app-source.cjs) ;; *) exit 9 ;; esac
+printf 'same-source|%s\\n' "$2" >> "$ROOT/build-receipts"
+''')
+            fake_node.chmod(0o755)
             script = folder / 'probe.sh'
             script.write_text('''#!/bin/bash
 set -euo pipefail
@@ -129,6 +138,7 @@ BUILD_DIR="$ROOT"
 OUT_DIR="$ROOT"
 LOG_DIR="$ROOT"
 HVIGORW=fake_hvigor
+NODE_BIN="$ROOT/bin"
 API_COMPAT_PATTERN=unreachable
 step() { :; }
 record() { :; }
@@ -163,7 +173,8 @@ run_device_tests core common/core core_test
                 self.assertEqual(result.returncode, 0 if probe == 'ok' else 1, result.stdout + result.stderr)
                 if probe == 'ok':
                     self.assertEqual((folder / 'build-receipts').read_text().splitlines(),
-                                     ['core|genOnDeviceTestHap|default', 'entry|assembleHap|staging'])
+                                     ['core|genOnDeviceTestHap|default', 'same-source|apply', 'entry|assembleHap|staging',
+                                      'same-source|restore', 'same-source|check'])
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||', 'entry_test|' + tmp + '/Staging.hap|600000|1800'])
                 print('REFERENCE_ONLY verify dispatch: ' + probe)

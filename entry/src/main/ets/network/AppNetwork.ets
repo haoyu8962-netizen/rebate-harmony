@@ -4,7 +4,7 @@ import {
   ApiAppIdentity, ApiClient, ApiClientDeps, AppConfig, AssetSecureStore, ClientPlatformRaw, DeviceIdentityCleaner, FileSlot,
   DeviceRegistry, EnvironmentEndpoints, EnvironmentSwitchGate, ErrorEffect, HttpTransport, NetworkComposition, NetworkContext, OdidReader, PendingKeysCleaner,
   PendingKeyBackend, PendingKeyStore, PreferencesSlot, PrivacyState, PrivacyStateRaw, SecureDeviceCredentialStore,
-  SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionIdentity, SessionTokens, SessionTokensCleaner,
+  SecurePendingKeyBackend, SecureSessionTokens, SessionEffectHost, SessionEffectRouting, SessionIdentity, SessionTokensCleaner,
   UpdateNetworkPort, UpdateState
 } from 'core';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
@@ -71,7 +71,6 @@ export class AppNetwork {
   private static instance: ApiClient | null = null;
   private static updateHandler: (() => void) | null = null;
   private static registry: DeviceRegistry | null = null;
-  private static sessionTokens: SessionTokens | null = null;
   private static secureTokens: SecureSessionTokens | null = null;
   private static versionName: string = '';
 
@@ -85,9 +84,9 @@ export class AppNetwork {
     return AppNetwork.registry;
   }
 
-  /** 会话令牌（compose 之前为 null；埋点只读账号标识）。 */
-  static get tokens(): SessionTokens | null {
-    return AppNetwork.sessionTokens;
+  /** 会话令牌（compose 之前为 null；埋点只读账号标识；切号处理读持久化登录世代，F-X-25）。 */
+  static get tokens(): SecureSessionTokens | null {
+    return AppNetwork.secureTokens;
   }
 
   /**
@@ -131,7 +130,6 @@ export class AppNetwork {
     // F-HM-34：撤销标记另在沙盒文件里记一份（Asset 整体不可写时跨进程撤销，F-AND-32）。
     const tokens: SecureSessionTokens = new SecureSessionTokens(new AssetSecureStore('couli_session'),
       FileSlot.at(context.filesDir, SESSION_REVOKED_FILE));
-    AppNetwork.sessionTokens = tokens;
     AppNetwork.secureTokens = tokens;
     // APP-05b：Debug / Staging 打开本机假服务时，未决记录放内存（模拟器的 Asset 不支持批量查询，step-up 操作发不出）；
     // Release 恒为 Asset。

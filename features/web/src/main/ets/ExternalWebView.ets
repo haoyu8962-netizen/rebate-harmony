@@ -57,6 +57,8 @@ export class ExternalWebConfig {
   searchLabel: string = '';
   onSearch: () => void = () => {
   };
+  /** 宿主自己持有的控制器（缺省由容器新建；与 TrustedWebConfig.controller 同形）。容器仍以 incognitoMode 创建 Web。 */
+  controller: webview.WebviewController | null = null;
 
   constructor(options: ExternalPageOptions, policy: ExternalNavPolicy, linkPatterns: () => string | null,
     userAgentSuffix: string, hooks: ExternalNavHooks = new ExternalNavHooks()) {
@@ -144,6 +146,9 @@ export struct ExternalWebView {
   private fullScreen: WebFullScreen = new WebFullScreen((on: boolean): void => this.fullScreenWindow(on));
 
   aboutToAppear(): void {
+    if (this.config.controller !== null) {
+      this.controller = this.config.controller;
+    }
     this.fullScreen.onChange = (active: boolean): void => {
       this.state.fullScreen = active;
     };

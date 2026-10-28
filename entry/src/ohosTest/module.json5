@@ -15,6 +15,13 @@
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
         "exported": false
+      },
+      {
+        "name": "Fx25TestAbility",
+        "srcEntry": "./ets/testability/Fx25TestAbility.ets",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": false
       }
     ]
   }

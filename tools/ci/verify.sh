@@ -374,6 +374,13 @@ BDM_SUMMARY="$(grep -E '^Tests run' "$LOG_DIR/bridge-disabled-methods-test.log" 
 [ -n "$BDM_SUMMARY" ] || fail_fast "bridge-disabled-methods-test" "没有测试汇总行"
 record "bridge-disabled-methods-test" PASS "$BDM_SUMMARY"
 
+step "F-X-25 切号通知与可信 Web 存储测试（Node）"
+"$NODE_BIN/node" "$ROOT/tools/ci/fx25-auth-change-test.js" >"$LOG_DIR/fx25-auth-change-test.log" 2>&1 \
+    || { tail -60 "$LOG_DIR/fx25-auth-change-test.log" || true; fail_fast "fx25-auth-change-test" "见 ${LOG_DIR}/fx25-auth-change-test.log"; }
+grep -E '^(PASS|FAIL) |^Registered:' "$LOG_DIR/fx25-auth-change-test.log" || true
+record "fx25-auth-change-test" PASS "实际生产声明、生命周期和 Core 判定用例"
+
+
 # ---------------------------------------------------------------- 3. SDK 版本（规划 D5）
 step "SDK 版本：compile/target = 已装 SDK（API 24），compatible = API 20"
 SDK_VERSION="$(python3 - "$SDK_PKG" "$ROOT/build-profile.json5" <<'PY'
@@ -621,12 +628,29 @@ run_device_tests() {
     local hap="$BUILD_DIR/$dir/build/$test_product/outputs/ohosTest/$module-ohosTest-unsigned.hap"
     step "设备测试：${module}（ohosTest，${test_module}）"
     rm -f "$hap"
+    # F-X-25 t2：测试包装在被测应用旁边（同一 bundle）时，它带进来的 core / generated 必须与应用同源，否则运行时同名模块
+    # （&core/Index&1.0.0）解析到测试包那一份 Release 版，Staging 应用缺 DebugCapabilities 等导出被杀（App died）。hvigor 测试模式
+    # 下依赖只能取 default target，所以只在构建镜像里、只在构建测试包期间把这些模块的 default 源码临时换成应用 target 的
+    # （tools/ci/ohostest-app-source.cjs；构建完立刻还原，随后核对测试包里的源码记录）。仓库文件不动。
+    if [ -n "$application_hap" ]; then
+        "$NODE_BIN/node" "$ROOT/tools/ci/ohostest-app-source.cjs" apply "$BUILD_DIR" "$test_product" "$module" \
+            || fail_fast "device-test $module" "测试包同源准备失败"
+    fi
     if ! (cd "$BUILD_DIR" && "$HVIGORW" --mode module -p module="$module@ohosTest" -p isOhosTest=true -p product="$test_product" \
         -p buildMode=debug "$test_task" --no-daemon) >"$log" 2>&1; then
+        [ -z "$application_hap" ] || "$NODE_BIN/node" "$ROOT/tools/ci/ohostest-app-source.cjs" restore "$BUILD_DIR" || true
         show_matches "ERROR|Error Message|error" "$log" 30
         fail_fast "device-test $module" "测试包构建失败，见 $log"
     fi
+    if [ -n "$application_hap" ]; then
+        "$NODE_BIN/node" "$ROOT/tools/ci/ohostest-app-source.cjs" restore "$BUILD_DIR" \
+            || fail_fast "device-test $module" "构建镜像的模块配置还原失败"
+    fi
     [ -f "$hap" ] || fail_fast "device-test $module" "构建成功但找不到 $hap"
+    if [ -n "$application_hap" ]; then
+        "$NODE_BIN/node" "$ROOT/tools/ci/ohostest-app-source.cjs" check "$BUILD_DIR" "$test_product" "$module" "$hap" \
+            || fail_fast "device-test $module" "测试包与被测应用 $application_hap 不同源"
+    fi
     grep -q "Finished :${module}:ohosTest@OhosTestCompileArkTS" "$log" \
         || fail_fast "device-test $module" "日志里没有 ${module}:ohosTest@OhosTestCompileArkTS 的编译记录"
     if api_compat_hits "$log"; then

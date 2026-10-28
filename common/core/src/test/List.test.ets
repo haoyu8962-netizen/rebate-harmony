@@ -1,3 +1,5 @@
+import authChangeDecisionTest from './AuthChangeDecision.test';
+import trustedWebRecordsFx25Test from './TrustedWebRecordsFX25.test';
 import followupHM0729Test from './FollowupHM0729.test';
 import environmentConfigTest from './EnvironmentConfig.test';
 import clientCoreBridgeDisabledTest from './ClientCoreBridgeDisabled.test';
@@ -129,6 +131,8 @@ import { TestDebugRoutes } from './TestDebugRoutes';
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
   installAgentVectorWiring();
+  authChangeDecisionTest();
+  trustedWebRecordsFx25Test();
   environmentConfigTest();
   // 本机单测按 default target（Release 源码）编译；Router 向量按 Debug / Staging 构建判定（含 debug_only 路由，
   // isDebugBuild 由向量给出），所以像 entry 的 staging 构建那样注册调试路由表（测试副本，gen.py 生成）。

@@ -155,11 +155,16 @@ export struct DebugWebPage {
   @Param assumeLoggedIn: boolean = false;
   private config: TrustedWebConfig | null = null;
   private dumper: ResultDumper = new ResultDumper();
-  private controller: webview.WebviewController = new webview.WebviewController();
+  /** 容器当前绑定的控制器（切号换新控制器后跟着换；TrustedWebConfig.onController 报来）。 */
+  private controller: webview.WebviewController | null = null;
 
   /** 调试探针：读页面里的表达式（只在本调试入口；容器本身不提供这类接口）。 */
   private debugProbe(expression: string): Promise<string> {
-    return this.controller.runJavaScript(expression);
+    const current: webview.WebviewController | null = this.controller;
+    if (current === null) {
+      return Promise.reject(new Error('trusted web controller not attached yet'));
+    }
+    return current.runJavaScript(expression);
   }
 
   aboutToAppear(): void {
@@ -172,7 +177,9 @@ export struct DebugWebPage {
     const config: TrustedWebConfig = AppBridge.trustedConfig(this.url, false, (): void => {
       this.queryNavigationInfo()?.pathStack.pop();
     }, new DebugBridgeState(overrides));
-    config.controller = this.controller;
+    config.onController = (attached: webview.WebviewController): void => {
+      this.controller = attached;
+    };
     this.dumper.attach((expression: string): Promise<string> => this.debugProbe(expression));
     this.config = config;
   }
