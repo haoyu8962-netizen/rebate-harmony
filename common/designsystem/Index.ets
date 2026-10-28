@@ -19,7 +19,8 @@ export { CouliTextModifier, TABULAR_FEATURE } from './src/main/ets/components/Co
 export { CouliIcon, CouliIconPaths } from './src/main/ets/components/CouliIcon';
 // BRAND-01：品牌 Logo 取用入口不从这里导出，见 Brand.ets（import { CouliLogo } from 'designsystem/Brand'）。
 export {
-  CouliButton, CouliButtonVariant, CouliButtonSize, PlatformBadge, CouliChip, CouliChipTone, MatchBadge, AiLabel
+  CouliButton, CouliButtonVariant, CouliButtonSize, PlatformBadge, PlatformIcon, CouliChip, CouliChipTone, MatchBadge,
+  AiLabel
 } from './src/main/ets/components/Basics';
 export {
   PriceTag, PriceTagSize, RebateTag, RebateTagSize, EstNetLine, DisclaimerFooter, DisclaimerMode, BuyButton,
@@ -64,7 +65,7 @@ export {
   CheckboxMetrics, ChoiceState, SingleSelection, LoginProvider, LoginRowModel, OAuthAction, SheetDismissPolicy,
   SheetDismissReason, couliTouchTarget, CHECKBOX_IMAGE_BADGE_SIZE
 } from './src/main/ets/components/ControlModels';
-export { PlatformIconSource } from './src/main/ets/components/PlatformIconSource';
+export { PlatformIconSource, PlatformIconSize } from './src/main/ets/components/PlatformIconSource';
 export {
   CouliCheckbox, CouliCheckboxRow, CouliRadio, CouliSwitch, Segmented, FilterChip, FilterChipStyle, CouliIconButton,
   CouliIconButtonKind

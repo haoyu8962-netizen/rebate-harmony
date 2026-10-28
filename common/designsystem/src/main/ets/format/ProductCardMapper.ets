@@ -68,6 +68,7 @@ export class ProductCardMapper {
     const d: ProductCardData = new ProductCardData();
     const platform: string = stringOrEmpty(card['platform']);
     const basis: string = stringOrEmpty(card['rebate_basis']);
+    d.platformCode = platform;
     d.platformLabel = texts.text(ProductCardKeys.platform(platform));
     d.title = stringOrEmpty(card['title']);
     d.imageLabel = texts.text(ProductCardKeys.IMAGE_LABEL);

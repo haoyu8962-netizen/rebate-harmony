@@ -93,6 +93,7 @@ class CardInput {
 
 function card(i: CardInput): ProductCardData {
   const d: ProductCardData = new ProductCardData();
+  d.platformCode = i.platform;
   d.platformLabel = i.platformLabel;
   d.title = i.title;
   d.imageLabel = CatalogText.imageLabel;

@@ -107,6 +107,7 @@ export struct HomeClipboardArea {
           text: this.model.promptText,
           detail: this.model.promptDetail,
           badge: this.model.promptBadge,
+          badgePlatform: this.model.promptBadgePlatform,
           barLabel: this.model.promptLabel,
           actionText: ClipboardDraftTexts.text('clipboard.share_prompt.action'),
           actionLabel: ClipboardDraftTexts.text('clipboard.share_prompt.action'),

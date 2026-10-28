@@ -91,7 +91,9 @@ class ResourceAssertionStrength(unittest.TestCase):
         self.assertFalse(ability['exported'])
         self.assertTrue((test_root / ability['srcEntry']).is_file())
         pages = json.loads((test_root / 'resources/base/profile/ds02_test_pages.json').read_text())['src']
-        self.assertEqual(pages, ['pages/Ds02R1Fixture'])
+        # F-X-05a 追加测试宿主页 Fx05aFixture（Fx05aAbility）；DS-02 宿主仍是第一项。F-X-25 的 Fx25TestAbility 走命名路由、不进页面 profile（变基到 7d5ebe7 合并）。
+        self.assertEqual(pages, ['pages/Ds02R1Fixture', 'pages/Fx05aFixture'])
+        self.assertEqual([a['name'] for a in module['abilities']], ['Ds02R1Ability', 'Fx25TestAbility', 'Fx05aAbility'])
         self.assertTrue((test_root / 'ets' / (pages[0] + '.ets')).is_file())
         runner = (test_root / 'ets/testrunner/OpenHarmonyTestRunner.ets').read_text()
         self.assertIn("import('../test/List.test')", runner)
@@ -101,6 +103,8 @@ class ResourceAssertionStrength(unittest.TestCase):
             for p in (root / folder).rglob('*'):
                 if p.is_file() and p.suffix in ['.ets', '.json', '.json5']:
                     self.assertNotIn('Ds02R1Ability', p.read_text(), str(p))
+                    self.assertNotIn('Fx05aAbility', p.read_text(), str(p))
+                    self.assertNotIn('Fx05aFixture', p.read_text(), str(p))
 
     def test_verify_dispatches_hap_and_har_and_requires_device_execution(self):
         root = Path(__file__).resolve().parents[3]
@@ -197,7 +201,9 @@ run_device_tests core common/core core_test
 
     def test_device_report_requires_every_case_once_and_successful_finish(self):
         names = sorted(expected_names())
-        self.assertEqual(len(names), 158)
+        # DS-02 158 条 + F-X-05a 9 条（tools/ci/fx05a/fixtures/device-cases.txt；v3 加剪贴板天猫徽标 1 条，评审 r1 R1-01）。
+        self.assertEqual(len(names), 167)
+        self.assertIn('fx05a_r1_clipboard_tmall_badge_text_only_others_keep_official_icon', names)
 
         def report(case_names, failed='', footer=True):
             events = []
@@ -211,8 +217,11 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 158)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 158)
+        self.assertEqual(validate(report(names)), 167)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 167)
+        for missing in [name for name in names if name.startswith('fx05a_')]:
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                validate(report([name for name in names if name != missing]))
         # 12 个变体/主题任意漏一个都必须报红，旧聚合名不能抵账。
         product_names = [name for name in names if name.startswith('render_all_declared_states_ProductCard_')]
         self.assertEqual(len(product_names), 12)

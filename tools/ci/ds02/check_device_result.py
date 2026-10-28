@@ -34,6 +34,9 @@ def expected_names():
     names.update('real_semantic_resources_' + name for name in ['light', 'dark', 'restored'])
     names.update({'r1_readonly_blocks_focused_keyboard_paste_and_clear', 'r1_tabbar_system_tabs_selection_changes', 'r1_share_six_materials_four_columns_at_320vp', 'r1_navbar_system_nodes_and_host_back_interception', 'r1_filterchip_48vp_disjoint_and_edge_tap', 'r1_segment_same_instance_light_dark_light_pixels'})
     names.add('r2_tabbar_click_veto_sync_and_replaced_selected_entry')
+    # F-X-05a：平台内置图标的设备用例（名单与 entry/src/ohosTest/ets/test/Fx05aUi.test.ets 的 FX05A_DEVICE_CASES 一致）。
+    names.update(line.strip() for line in (Path(__file__).parents[1] / 'fx05a/fixtures/device-cases.txt').read_text().splitlines()
+                 if line.strip() and not line.startswith('#'))
     return names
 
 

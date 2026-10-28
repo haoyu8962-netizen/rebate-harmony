@@ -1,0 +1,81 @@
+{
+  "_note": "F-X-05a 测试数据：couli design/icons/platform/ 官方原图（git show 只读生成，2026-10-27）。产品清单不得覆盖本文件。",
+  "source_repo": "couli",
+  "source_dir": "design/icons/platform/",
+  "added_in_commit": "5baa49cb89857d595c9ebc3ed87e0c032dc131fd",
+  "verified_at_origin_main": "736d24c50f574d1ecd1adedc16ce01b6832812e7",
+  "files": {
+    "taobao.png": {
+      "sha256": "d987c0084948eeeada4da71bce00653a9eb2e5743149adb4b25587adb573a4ea",
+      "bytes": 34046,
+      "width": 224,
+      "height": 224
+    },
+    "jd.png": {
+      "sha256": "574f09c6bdfc99fa91e814a07e5fd569618060065fa723165059586b0e79766c",
+      "bytes": 6565,
+      "width": 224,
+      "height": 224
+    },
+    "pinduoduo.png": {
+      "sha256": "6b9ff1c90ef7c168ecda69b56e5b33ab609a7883a910688aeeee8ca8ee07997d",
+      "bytes": 9935,
+      "width": 224,
+      "height": 224
+    },
+    "vip.png": {
+      "sha256": "456f08146a062d5d473d0afd5bcd0834ffb998fb1c68214b5f63d4cfbd921ffc",
+      "bytes": 3839,
+      "width": 224,
+      "height": 224
+    },
+    "douyin.png": {
+      "sha256": "5f953c7cc1c0d170797c2594c9985fbed83fe074091a05755526e10f5e0d6934",
+      "bytes": 15269,
+      "width": 224,
+      "height": 224
+    },
+    "douyin-white.png": {
+      "sha256": "96f1f823f2f794b2845824763f302125590e240faf8456410fe843aada8b9dcb",
+      "bytes": 13704,
+      "width": 224,
+      "height": 224
+    },
+    "meituan.png": {
+      "sha256": "cc903df41d19b3d64ec7ba865b2bd153fcf216f9484b6af8d893ae5295174efc",
+      "bytes": 15745,
+      "width": 224,
+      "height": 224
+    },
+    "eleme.png": {
+      "sha256": "339ac42dee1c281abddcea1a4ec0064eb1afeb17af27f28b81583ed6a277d05e",
+      "bytes": 17592,
+      "width": 224,
+      "height": 224
+    },
+    "fliggy.png": {
+      "sha256": "f2d4b6800645c512f486ad880d357adb81a65dc07bef54048e8aa0854c42e9b9",
+      "bytes": 18335,
+      "width": 224,
+      "height": 224
+    },
+    "didi.png": {
+      "sha256": "99fe6bd2d354bba2b1846e6f9734de1214ee16c8af3c4d7ed8cc2a0c6e3ba81d",
+      "bytes": 11409,
+      "width": 224,
+      "height": 224
+    }
+  },
+  "required_builtin": {
+    "taobao": "taobao.png",
+    "jd": "jd.png",
+    "pdd": "pinduoduo.png"
+  },
+  "missing_keys": [
+    "tmall",
+    "wechat",
+    "wechat_pay",
+    "alipay",
+    "wecom"
+  ]
+}

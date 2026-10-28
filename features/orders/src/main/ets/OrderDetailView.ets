@@ -398,7 +398,7 @@ export struct OrderDetailView {
   productCard(view: OrderView) {
     Column({ space: CouliSpacing.space3 }) {
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween, alignItems: ItemAlign.Center }) {
-        PlatformBadge({ label: view.platformName })
+        PlatformBadge({ label: view.platformName, platform: view.platformCode })
         if (this.model.productRoute.length > 0) {
           Row({ space: CouliSpacing.space1 }) {
             Text(this.t(OrderKeys.VIEW_PRODUCT))

@@ -139,7 +139,7 @@ export struct PasteEntry {
  * 首页剪贴板提示条（HomeClipboard / HomeClipboardInvite）：白底圆角 16 浮起卡，左文案 14/600，右浅灰胶囊按钮与独立【关闭】（命中区 48）。
  * 出现时播报一次（liveRegion 由调用方 CouliAnnounce 播报）；按钮读屏名由 actionLabel 给（邀请条为「粘贴并绑定邀请人」）。
  * 鸿蒙只在商品入口的 PasteButton 读到邀请内容后出邀请确认（读取已完成，这里的按钮不再读剪贴板，是普通按钮）。
- * FU-CLIP C7：系统分享提示条另带 badge（平台标签，鸿蒙没有平台 logo 资源时用文字标签）与 detail（第二行：平台名 + 缩略主机），
+ * FU-CLIP C7：系统分享提示条另带 badge（平台标签；F-X-05a 起按 badgePlatform 带内置官方图标，暂缺平台只有文字）与 detail（第二行：平台名 + 缩略主机），
  * 文字区整体读作 barLabel（「检测到淘宝商品链接，查返利」）；按钮的读屏名不变。字号放大时文字换行、不截断。
  */
 @ComponentV2
@@ -147,6 +147,8 @@ export struct ClipboardPromptBar {
   @Param text: string = '';
   @Param detail: string = '';
   @Param badge: string = '';
+  /** 平台标签的平台标识键（F-X-05a：有内置图时标签带 14vp 官方图标；暂缺 / 未知只显示文字）。 */
+  @Param badgePlatform: string = '';
   @Param barLabel: string = '';
   @Param actionText: string = '';
   @Param actionLabel: string = '';
@@ -175,7 +177,9 @@ export struct ClipboardPromptBar {
             .id(this.barId + '_text')
           Row({ space: CouliSpacing.space1 }) {
             if (this.badge.length > 0) {
-              PlatformBadge({ label: this.badge })
+              // 文字区整体读 barLabel（已含平台名）：标签自身对读屏隐藏，平台名不重复读。
+              PlatformBadge({ label: this.badge, platform: this.badgePlatform })
+                .accessibilityLevel('no-hide-descendants')
             }
             if (this.detail.length > 0) {
               Text(this.detail)

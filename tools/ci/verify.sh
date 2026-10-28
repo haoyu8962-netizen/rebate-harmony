@@ -245,6 +245,19 @@ step "DS-02 组件资源 / 守卫 / 目录隔离宿主测试"
 python3 "$ROOT/tools/ci/ds02/test_host.py" || fail_fast "ds02-host" "见上方用例断言"
 record "ds02-host" PASS
 
+# F-X-05a：平台内置图标（资源逐字节 = couli 原图、清单 / README、读屏隐藏与不着色守卫、接线、F-DS-01 挂起、设备用例名单）。
+# 先自测（合规参照件全过、13 种错误实现逐个打红），再查本仓库；纯逻辑断言另用 node 跑真实源码。
+step "F-X-05a 平台图标宿主检查"
+python3 "$ROOT/tools/ci/fx05a/check_platform_icons.py" --self-test || fail_fast "fx05a-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/fx05a/check_platform_icons.py" || fail_fast "fx05a-host" "见上方违反项"
+node "$ROOT/tools/ci/fx05a/run-unit.cjs" --self-test || fail_fast "fx05a-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/fx05a/run-unit.cjs" || fail_fast "fx05a-logic" "见上方真实产品断言"
+# v3（评审 r1 R1-01）：剪贴板徽标图标键（天猫只显示文字）——core Hypium 套件 + entry 设备宿主逻辑的 node 执行。
+node "$ROOT/tools/ci/fx05a/run-clipboard.cjs" --self-test || fail_fast "fx05a-clipboard 自测" "见上方输出"
+node "$ROOT/tools/ci/fx05a/run-clipboard.cjs" || fail_fast "fx05a-clipboard" "剪贴板徽标图标键断言失败（天猫不得配淘宝图），见上方输出"
+node "$ROOT/tools/ci/fx05a/check-arkts.cjs" --real || fail_fast "fx05a-arkts" "F-X-05a 测试文件 ArkTS 严格检查失败"
+record "F-X-05a 宿主检查" PASS "资源 / 源码 / 接线 / 纯逻辑 / ArkTS"
+
 step "DS-02 纯逻辑与测试设施自测"
 node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"
 PYTHONPATH="$ROOT/tools/codegen:$ROOT/tools/ci/ds02${PYTHONPATH:+:$PYTHONPATH}" \
@@ -689,6 +702,11 @@ if "$ROOT/tools/ci/release-scan.sh" "$OUT_DIR/Release.hap"; then
 else
     fail_fast "release-scan Release" "exit $?（1 = 含调试残留，2 = 扫描出错）"
 fi
+
+step "F-X-05a：Release 包内平台图字节与清单一致（V7）"
+python3 "$ROOT/tools/ci/fx05a/check_platform_icons.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "fx05a-hap" "Release 包内平台图与源文件不一致或混入清单 / 替身，见上方输出"
+record "F-X-05a Release 平台图" PASS "包内字节 = couli 原图"
 
 for cfg in Staging Debug; do
     step "release-scan --self-test：$cfg 必须命中全部标记"

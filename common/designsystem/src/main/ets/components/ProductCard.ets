@@ -112,6 +112,8 @@ export enum ProductCardVariant {
 
 /** 商品卡内容（全部是已格式化的文字与模型；卡片不做计算）。 */
 export class ProductCardData {
+  /** 平台标识键（契约 card.platform 原值，如 taobao / jd / pdd）；F-X-05a：标题前徽标按它取内置官方图标。 */
+  platformCode: string = '';
   platformLabel: string = '';
   title: string = '';
   /** 图片占位里的文字（字段为空、加载中、加载失败时显示）。 */
@@ -242,7 +244,9 @@ export struct ProductCard {
         .maxLines(style === TextStyleKind.LARGE ? 3 : 2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
-      PlatformBadge({ label: this.data.platformLabel })
+      // 标题组整体读「平台，标题」：徽标自身对读屏隐藏，平台名不重复读（F-X-05a V2）。
+      PlatformBadge({ label: this.data.platformLabel, platform: this.data.platformCode })
+        .accessibilityLevel('no-hide-descendants')
         .margin({ top: style === TextStyleKind.LARGE ? 2 : 0 })
         .onAreaChange((_old: Area, now: Area) => {
           this.badgeWidth = now.width as number;

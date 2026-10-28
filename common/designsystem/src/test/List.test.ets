@@ -13,6 +13,8 @@ import followupHM0607Test from './FollowupHM0607.test';
 import followupHM0710Test from './FollowupHM0710.test';
 import ds02ControlsTest from './Ds02Controls.test';
 import ds02ThemeTest from './Ds02Theme.test';
+import fx05aPlatformIconTest from './Fx05aPlatformIcon.test';
+import fx05aWiringTest from './Fx05aWiring.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -30,4 +32,6 @@ export default function testsuite() {
   ds02ControlsTest();
   ds02ThemeTest();
   ds02FocusTest();
+  fx05aPlatformIconTest();
+  fx05aWiringTest();
 }

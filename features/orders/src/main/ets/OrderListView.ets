@@ -729,7 +729,7 @@ export struct OrderListView {
   card(view: OrderView) {
     Column({ space: CouliSpacing.space3 }) {
       Row() {
-        PlatformBadge({ label: view.platformName })
+        PlatformBadge({ label: view.platformName, platform: view.platformCode })
         Blank()
         Text(view.timeText)
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined, true))

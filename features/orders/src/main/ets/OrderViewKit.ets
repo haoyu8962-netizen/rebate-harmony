@@ -103,6 +103,8 @@ export class OrderView {
   readonly orderId: string;
   readonly status: string;
   readonly platformName: string;
+  /** 平台标识键（契约 platform 原值；F-X-05a：PlatformBadge 按它取内置官方图标，未知编码只显示文字）。 */
+  readonly platformCode: string;
   readonly timeText: string;
   /** 标题（is_other_product 时为「好友购买的其他商品」；null 标题为空串，标题区留空）。 */
   readonly title: string;
@@ -135,6 +137,7 @@ export class OrderView {
     this.orderId = OrderJson.text(raw, 'order_id') ?? '';
     this.status = OrderStatus.ofItem(raw);
     const platform: string = OrderJson.text(raw, 'platform') ?? '';
+    this.platformCode = platform;
     this.platformName = texts.text(OrderKeys.platform(platform));
     const paid: number | null = OrderJson.millis(OrderJson.text(raw, 'paid_at'));
     this.timeText = paid === null ? '' : CouliFormat.timeListPast(paid, nowMs);

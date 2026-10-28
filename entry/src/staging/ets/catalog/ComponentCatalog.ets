@@ -302,8 +302,8 @@ export struct Ds01ReviewPage {
         this.section('PlatformBadge / Chip / MatchBadge / AiLabel')
         Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space1),
           cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-          PlatformBadge({ label: CatalogText.taobao })
-          PlatformBadge({ label: CatalogText.pdd })
+          PlatformBadge({ label: CatalogText.taobao, platform: 'taobao' })
+          PlatformBadge({ label: CatalogText.pdd, platform: 'pdd' })
           CouliChip({ label: PriceTerms.presale })
           CouliChip({ label: PriceTerms.hasCouponTag })
           CouliChip({ label: CatalogText.estimated, tone: CouliChipTone.MUTED, icon: 'clock' })

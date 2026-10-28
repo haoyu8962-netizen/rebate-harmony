@@ -3,7 +3,7 @@ import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliSpacing, Cou
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
-import { PlatformIconSource } from './PlatformIconSource';
+import { PlatformIconSize, PlatformIconSource } from './PlatformIconSource';
 
 export enum CouliButtonVariant {
   /** 主按钮：狸橙底白字（一个区域一个）。 */
@@ -160,41 +160,70 @@ export struct CouliButton {
   }
 }
 
-/** 平台标识内置图的资源（文件名去扩展名；资源名按变量拼出，原因见 couliColorResource）。 */
-function platformMedia(file: string): Resource {
-  return $r('app.media.' + file.substring(0, file.lastIndexOf('.')));
+/** 平台标识内置图的资源（资源名按变量拼出，原因见 couliColorResource）。 */
+function platformMedia(mediaName: string): Resource {
+  return $r('app.media.' + mediaName);
+}
+
+/**
+ * 平台官方图标（F-X-05a）：按平台标识键取内置原图（PlatformIconSource，design/icons/platform/ 原样字节），
+ * 两档边长 14（徽标）/ 44（APP-11v 金刚区）是同一张图。图标是装饰，对读屏隐藏；不着色、不滤色，深色模式下原样显示。
+ * 没有内置图的编码（暂缺、未知、空）什么都不画、不占位。
+ * remoteUrl 为 F-X-05（后台下发替换图）预留：本任务一律显示内置图，远程加载与失败回内置在 F-X-05 做。
+ */
+@ComponentV2
+export struct PlatformIcon {
+  /** 平台标识键（taobao / jd / pdd …）。 */
+  @Param platform: string = '';
+  @Param iconSize: PlatformIconSize = PlatformIconSize.BADGE;
+  /** F-X-05 预留：远程图地址，可空；本任务不使用。 */
+  @Param remoteUrl: string = '';
+
+  build() {
+    if (PlatformIconSource.hasBuiltin(this.platform)) {
+      Image(platformMedia(PlatformIconSource.mediaName(this.platform)))
+        .width(this.iconSize)
+        .height(this.iconSize)
+        .objectFit(ImageFit.Contain)
+        .accessibilityLevel('no')
+    }
+  }
 }
 
 /**
  * 平台来源标签（GUIDE §7.1）：白底 + 1px 装饰描边、灰棕字、胶囊、最小高 20（T11）；字号放大时增高不截断。
- * DS-02：淘宝 / 京东 / 拼多多前面放内置官方图（PlatformIconSource，design/icons/platform/ 原图，图标高 = 说明字号），
- * 其他平台（天猫、抖音、唯品会、未知）只放文字（占位）。不传 platform 时与 DS-01 一样只有文字。
+ * F-X-05a：有内置官方图的平台（淘宝 / 京东 / 拼多多）在名字左侧放 14vp 图标（PlatformIcon 同一入口），左内边距 4、图文间距 4、右内边距 8；
+ * 暂缺（天猫等）、未知或空编码只显示文字，尺寸与不传 platform 的旧调用完全一样（左右内边距 8），不画占位。
+ * 读屏：整个徽标成组只读平台中文名一次（根节点 accessibilityText），文字子节点与图标都对读屏隐藏。
  */
 @ComponentV2
 export struct PlatformBadge {
   @Param label: string = '';
-  /** 平台标识键（taobao / jd / pdd …）；空串不放图。 */
+  /** 平台标识键（taobao / jd / pdd …）；空串、暂缺或未知只显示文字。 */
   @Param platform: string = '';
+  /** F-X-05 预留：远程图地址，可空；本任务一律显示内置图。 */
+  @Param remoteUrl: string = '';
 
   build() {
     Row({ space: CouliSpacing.space1 }) {
-      if (PlatformIconSource.builtin(this.platform).length > 0) {
-        Image(platformMedia(PlatformIconSource.builtin(this.platform)))
-          .width(CouliTypography.caption.fontSize)
-          .height(CouliTypography.caption.fontSize)
-          .objectFit(ImageFit.Contain)
-          .accessibilityLevel('no')
+      if (PlatformIconSource.hasBuiltin(this.platform)) {
+        PlatformIcon({ platform: this.platform, iconSize: PlatformIconSize.BADGE, remoteUrl: this.remoteUrl })
       }
       Text(this.label)
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.sourceText))
         .maxLines(1)
+        .accessibilityLevel('no')
     }
-    .padding({ left: this.platform.length > 0 ? CouliSpacing.space1 : CouliSpacing.space2, right: CouliSpacing.space2 })
+    .padding({
+      left: PlatformIconSource.hasBuiltin(this.platform) ? CouliSpacing.space1 : CouliSpacing.space2,
+      right: CouliSpacing.space2
+    })
     .constraintSize({ minHeight: CouliComponentMetrics.platformBadgeMinHeight })
     .backgroundColor(CouliColors.sourceBackground)
     .border({ width: CouliComponentMetrics.controlBorderWidth, color: CouliColors.sourceBorder })
     .borderRadius(CouliRadius.pill)
     .accessibilityGroup(true)
+    .accessibilityText(this.label)
   }
 }
 

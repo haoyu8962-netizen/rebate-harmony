@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "source_repo": "couli",
+  "source_dir": "design/icons/platform/",
+  "source_commit": "5baa49cb89857d595c9ebc3ed87e0c032dc131fd",
+  "files": [
+    {
+      "resource": "base/media/taobao.png",
+      "media_name": "taobao",
+      "platform_key": "taobao",
+      "source_file": "taobao.png",
+      "source_sha256": "d987c0084948eeeada4da71bce00653a9eb2e5743149adb4b25587adb573a4ea",
+      "sha256": "d987c0084948eeeada4da71bce00653a9eb2e5743149adb4b25587adb573a4ea",
+      "bytes": 34046,
+      "width": 224,
+      "height": 224,
+      "transform": "identity"
+    },
+    {
+      "resource": "base/media/jd.png",
+      "media_name": "jd",
+      "platform_key": "jd",
+      "source_file": "jd.png",
+      "source_sha256": "574f09c6bdfc99fa91e814a07e5fd569618060065fa723165059586b0e79766c",
+      "sha256": "574f09c6bdfc99fa91e814a07e5fd569618060065fa723165059586b0e79766c",
+      "bytes": 6565,
+      "width": 224,
+      "height": 224,
+      "transform": "identity"
+    },
+    {
+      "resource": "base/media/pinduoduo.png",
+      "media_name": "pinduoduo",
+      "platform_key": "pdd",
+      "source_file": "pinduoduo.png",
+      "source_sha256": "6b9ff1c90ef7c168ecda69b56e5b33ab609a7883a910688aeeee8ca8ee07997d",
+      "sha256": "6b9ff1c90ef7c168ecda69b56e5b33ab609a7883a910688aeeee8ca8ee07997d",
+      "bytes": 9935,
+      "width": 224,
+      "height": 224,
+      "transform": "identity"
+    }
+  ],
+  "missing": [
+    "tmall",
+    "wechat",
+    "wechat_pay",
+    "alipay",
+    "wecom"
+  ]
+}

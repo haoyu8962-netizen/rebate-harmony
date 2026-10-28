@@ -195,6 +195,8 @@ export {
   ClipboardCandidate, ClipboardCandidates, ClipboardPromptInfo, ClipboardPromptDisplay, ClipboardSelfWriteLedger,
   ClipboardTitlePolicy, ClipboardBridgeRead, ShareImportPayload, ShareImportDecision, ShareImportAction, SharePromptTexts
 } from './src/main/ets/clipboard/Clipboard';
+// F-X-05a R1-01：分享提示条平台标签的图标键（tmall.com 候选 platform 仍是 taobao，标签图标键为 tmall）。
+export { ClipboardBadgeIcon } from './src/main/ets/clipboard/ClipboardBadgeIcon';
 // FU-CLIP：剪贴板本机记录加盐（向量 specs/clipboard-candidates-vectors.json）。
 export {
   ClipboardFingerprint, ClipboardSaltRead, ClipboardSaltStore, MemoryClipboardSaltStore, SecureClipboardSaltStore,

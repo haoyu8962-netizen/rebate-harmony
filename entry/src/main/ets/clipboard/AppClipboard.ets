@@ -4,7 +4,8 @@ import { systemShare } from '@kit.ShareKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AssetSecureStore, ClipboardController,
+  ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AssetSecureStore, ClipboardBadgeIcon,
+  ClipboardController,
   ClipboardDeps, ClipboardFingerprint, ClipboardHashStore, ClipboardNoticeText, ClipboardPromptBinding,
   ClipboardPromptInfo, ClipboardPromptView, ClipboardReadPolicy, ClipboardResultBinding, SecureClipboardSaltStore,
   SharePromptTexts, SharedTextRecord,
@@ -173,8 +174,10 @@ export class ClipboardUiModel {
   @Trace promptKind: string = '';
   /** 分享提示条第二行：平台名 + 缩略候选（K26）；邀请条为空。 */
   @Trace promptDetail: string = '';
-  /** 平台标签（鸿蒙没有平台 logo 资源，用 PlatformBadge 文字标签）。 */
+  /** 平台标签的显示名（PlatformBadge 文字）。 */
   @Trace promptBadge: string = '';
+  /** 平台标签的图标键（F-X-05a：PlatformBadge 按它取内置官方图标；天猫链接为 tmall，见 ClipboardBadgeIcon）。 */
+  @Trace promptBadgePlatform: string = '';
   /** 整条读屏文字（分享条：「检测到淘宝商品链接，查返利」）。 */
   @Trace promptLabel: string = '';
   @Trace resultSerial: number = 0;
@@ -493,6 +496,7 @@ export class AppClipboard {
       m.promptKind = '';
       m.promptDetail = '';
       m.promptBadge = '';
+      m.promptBadgePlatform = '';
       m.promptLabel = '';
       m.promptBinding = null;
     } else if (s.prompt.id !== m.promptId) {
@@ -506,6 +510,8 @@ export class AppClipboard {
         m.promptText = texts.title;
         m.promptDetail = texts.detail;
         m.promptBadge = texts.badge;
+        // 图标键按命中的白名单项派生：tmall.com 候选 platform 是 taobao，标签图标用 tmall（暂缺图，只显示文字），R1-01。
+        m.promptBadgePlatform = ClipboardBadgeIcon.of(info);
         m.promptLabel = texts.label;
       } else {
         const vars: Map<string, string> = new Map<string, string>();
@@ -513,6 +519,7 @@ export class AppClipboard {
         m.promptText = ClipboardDraftTexts.format('clipboard.invite_prompt', vars);
         m.promptDetail = '';
         m.promptBadge = '';
+        m.promptBadgePlatform = '';
         m.promptLabel = m.promptText;
       }
       m.promptId = s.prompt.id;

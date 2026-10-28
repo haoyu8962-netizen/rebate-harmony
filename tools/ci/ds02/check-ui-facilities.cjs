@@ -277,7 +277,7 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   const expected = JSON.parse(execFileSync('python3', ['-c',
     'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names; print(json.dumps(sorted(expected_names())))', __dirname], { encoding: 'utf8' }));
   checkRegistration(cases.map(test => test.name), foreignCases, expected);
-  console.log('REFERENCE_ONLY registration: all 158 required cases registered exactly once');
+  console.log('REFERENCE_ONLY registration: all ' + expected.length + ' required cases registered exactly once');
   console.log('REFERENCE_ONLY registration: other registered suites ' + [...FOREIGN_SUITES.values()]
     .map(suite => suite.task + '=' + suite.names.length).join(',') + ' match their fixed lists; not executed here');
   await registrationMutants(expected);

@@ -15,7 +15,7 @@ export {
   CheckboxMetrics, ChoiceState, SingleSelection, LoginProvider, LoginRowModel, OAuthAction, SheetDismissPolicy,
   SheetDismissReason, couliTouchTarget, CHECKBOX_IMAGE_BADGE_SIZE
 } from './src/main/ets/components/ControlModels';
-export { PlatformIconSource } from './src/main/ets/components/PlatformIconSource';
+export { PlatformIconSource, PlatformIconSize } from './src/main/ets/components/PlatformIconSource';
 export { LARGE_TEXT_SCALE } from './src/main/ets/logic/TextScale';
 export { StepUpPanelFit } from './src/main/ets/logic/StepUpPanelFit';
 export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
