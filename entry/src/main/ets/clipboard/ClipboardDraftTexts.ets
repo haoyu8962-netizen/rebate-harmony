@@ -20,9 +20,9 @@ export class ClipboardDraftTexts {
     m.set('clipboard.invite_prompt.action', '粘贴');
     m.set('clipboard.invite_prompt.action_label', '粘贴并绑定邀请人');
     m.set('clipboard.prompt.close', '关闭');
-    // ---- 首页「粘贴链接，先查返利」卡（HomeClipboard / Main / HomeGuest）
-    m.set('clipboard.home_card.title', '粘贴链接，先查返利');
-    m.set('clipboard.home_card.subtitle', '支持淘宝、京东、拼多多');
+    // ---- 首页常驻粘贴卡标题（Main-v3 / HomeGuest-v3「粘贴查返利」；BR-ID-16：卡标题即系统粘贴按钮的说明；三端同键）。
+    //      副标题「支持淘宝、京东、拼多多」已由负责人 10-21 删除（HM-07v H5）。
+    m.set('clipboard.paste_hint', '粘贴查返利');
     // ---- SearchTyping 粘贴入口旁的说明文字（系统按钮旁边的说明，BR-ID-16「粘贴查返利」）
     m.set('clipboard.paste_entry.hint', '复制了商品链接？点下方按钮识别并查返利');
     // ---- 30132 的【用商品名搜索】（BR-TEXT-14 表 A；ShareHubInvalid 的提示样式）

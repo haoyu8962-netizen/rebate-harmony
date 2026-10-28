@@ -13,6 +13,979 @@
     "既有测试与比较器：rebate-ios@99680bd、rebate-android@4c667c6、rebate-harmony@d8df60c"
   ],
   "goldenPages": {
+    "main_v3": {
+      "page_key": "home",
+      "version": 31,
+      "sections": [
+        {
+          "id": "icons",
+          "type": "icon_grid",
+          "version": 1,
+          "props": {
+            "columns": 5,
+            "rows": 2
+          },
+          "data_source": {
+            "kind": "static",
+            "items": [
+              {
+                "icon": "builtin:platform.taobao",
+                "title": "淘宝",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "platform": "taobao"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:platform.jd",
+                "title": "京东",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "platform": "jd"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:platform.pdd",
+                "title": "拼多多",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "platform": "pdd"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.supermarket",
+                "title": "超市百货",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "超市百货"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.fresh",
+                "title": "食品生鲜",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "食品生鲜"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.baby",
+                "title": "母婴用品",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "母婴用品"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.beauty",
+                "title": "美妆个护",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "美妆个护"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.household",
+                "title": "家居日用",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "家居日用"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.electronics",
+                "title": "数码家电",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "数码家电"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:guide",
+                "title": "新人指南",
+                "action": {
+                  "route": "Help"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "scroll",
+          "type": "product_scroll",
+          "version": 1,
+          "props": {
+            "title": "今日精选",
+            "more_action": {
+              "route": "Search",
+              "params": {
+                "q": "今日精选"
+              }
+            }
+          },
+          "data_source": {
+            "kind": "product_pool",
+            "pool_id": "test_pool_scroll",
+            "limit": 20
+          },
+          "ad_label": "推广"
+        },
+        {
+          "id": "activities",
+          "type": "activity_entry",
+          "version": 1,
+          "props": {},
+          "data_source": {
+            "kind": "static",
+            "items": [
+              {
+                "title": "新人怎么拿返利",
+                "subtitle": "三步看懂",
+                "action": {
+                  "route": "Help"
+                }
+              },
+              {
+                "title": "订单没显示怎么办",
+                "subtitle": "填订单号找回",
+                "action": {
+                  "route": "FindOrder"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "grid",
+          "type": "product_grid",
+          "version": 1,
+          "props": {
+            "columns": 2,
+            "title": "超市百货"
+          },
+          "data_source": {
+            "kind": "product_pool",
+            "pool_id": "test_pool_grid",
+            "limit": 20
+          },
+          "ad_label": "推广"
+        },
+        {
+          "id": "feed",
+          "type": "feed_infinite",
+          "version": 1,
+          "data_source": {
+            "kind": "union_material",
+            "platforms": [
+              "taobao",
+              "jd",
+              "pdd"
+            ],
+            "mix": "interleave"
+          }
+        }
+      ],
+      "sectionItems": {
+        "scroll": {
+          "items": [
+            {
+              "product_key": "taobao:visual-0",
+              "item_ref": "v1.visual.p0.sig",
+              "platform": "taobao",
+              "title": "林间果 每日坚果 30袋",
+              "image": "https://img.example.test/home-v3/0.png",
+              "shop_name": "样例店铺",
+              "price_fen": 2290,
+              "coupon_fen": 300,
+              "final_price_fen": 1990,
+              "est_net_price_fen": 1880,
+              "rebate_min_fen": 110,
+              "rebate_max_fen": 110,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-0",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "jd:visual-1",
+              "item_ref": "v1.visual.p1.sig",
+              "platform": "jd",
+              "title": "洁澄 洗衣液 3kg 薰衣草香",
+              "image": "https://img.example.test/home-v3/1.png",
+              "shop_name": "样例店铺",
+              "price_fen": 2680,
+              "coupon_fen": 0,
+              "final_price_fen": 2680,
+              "est_net_price_fen": 2590,
+              "rebate_min_fen": 90,
+              "rebate_max_fen": 90,
+              "rebate_basis": "normal",
+              "benefit_tags": [],
+              "is_presale": false,
+              "link_id": "visual-1",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "jd_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "taobao:visual-2",
+              "item_ref": "v1.visual.p2.sig",
+              "platform": "taobao",
+              "title": "加厚双层",
+              "image": "https://img.example.test/home-v3/2.png",
+              "shop_name": "样例店铺",
+              "price_fen": 980,
+              "coupon_fen": 100,
+              "final_price_fen": 880,
+              "est_net_price_fen": 838,
+              "rebate_min_fen": 42,
+              "rebate_max_fen": 42,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-2",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            }
+          ],
+          "next_cursor": null
+        },
+        "grid": {
+          "items": [
+            {
+              "product_key": "taobao:visual-3",
+              "item_ref": "v1.visual.p3.sig",
+              "platform": "taobao",
+              "title": "洗衣凝珠 52 颗 持久留香 低泡易漂",
+              "image": "https://img.example.test/home-v3/3.png",
+              "shop_name": "样例店铺",
+              "price_fen": 1860,
+              "coupon_fen": 300,
+              "final_price_fen": 1560,
+              "est_net_price_fen": 1482,
+              "rebate_min_fen": 78,
+              "rebate_max_fen": 78,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-3",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "jd:visual-4",
+              "item_ref": "v1.visual.p4.sig",
+              "platform": "jd",
+              "title": "电动牙刷替换刷头 4 支装 软毛通用款",
+              "image": "https://img.example.test/home-v3/4.png",
+              "shop_name": "样例店铺",
+              "price_fen": 3200,
+              "coupon_fen": 0,
+              "final_price_fen": 3200,
+              "est_net_price_fen": 3040,
+              "rebate_min_fen": 160,
+              "rebate_max_fen": 160,
+              "rebate_basis": "normal",
+              "benefit_tags": [],
+              "is_presale": false,
+              "link_id": "visual-4",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "jd_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            }
+          ],
+          "next_cursor": null
+        },
+        "feed": {
+          "items": [
+            {
+              "product_key": "taobao:visual-5",
+              "item_ref": "v1.visual.p5.sig",
+              "platform": "taobao",
+              "title": "抽纸 3 层 120 抽 × 24 包 家用整箱装",
+              "image": "https://img.example.test/home-v3/5.png",
+              "shop_name": "样例店铺",
+              "price_fen": 1734,
+              "coupon_fen": 500,
+              "final_price_fen": 1234,
+              "est_net_price_fen": 1178,
+              "rebate_min_fen": 56,
+              "rebate_max_fen": 56,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-5",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "jd:visual-6",
+              "item_ref": "v1.visual.p6.sig",
+              "platform": "jd",
+              "title": "保温杯 500ml 不锈钢 带茶隔",
+              "image": "https://img.example.test/home-v3/6.png",
+              "shop_name": "样例店铺",
+              "price_fen": 4560,
+              "coupon_fen": 0,
+              "final_price_fen": 4560,
+              "est_net_price_fen": 4326,
+              "rebate_min_fen": 234,
+              "rebate_max_fen": 234,
+              "rebate_basis": "normal",
+              "benefit_tags": [],
+              "is_presale": false,
+              "link_id": "visual-6",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "jd_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "pdd:visual-7",
+              "item_ref": "v1.visual.p7.sig",
+              "platform": "pdd",
+              "title": "厨房纸巾 4 卷 加厚 吸油吸水",
+              "image": "https://img.example.test/home-v3/7.png",
+              "shop_name": "样例店铺",
+              "price_fen": 1290,
+              "coupon_fen": 300,
+              "final_price_fen": 990,
+              "est_net_price_fen": 960,
+              "rebate_min_fen": 30,
+              "rebate_max_fen": 30,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-7",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "pdd_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "taobao:visual-8",
+              "item_ref": "v1.visual.p8.sig",
+              "platform": "taobao",
+              "title": "东北长粒香大米 10kg 新米 预售款",
+              "image": "https://img.example.test/home-v3/8.png",
+              "shop_name": "样例店铺",
+              "price_fen": 8800,
+              "coupon_fen": 0,
+              "final_price_fen": 8800,
+              "est_net_price_fen": 8479,
+              "rebate_min_fen": 321,
+              "rebate_max_fen": 321,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "预售"
+              ],
+              "is_presale": true,
+              "link_id": "visual-8",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            }
+          ],
+          "next_cursor": null
+        }
+      }
+    },
+    "guest_v3": {
+      "page_key": "home",
+      "version": 31,
+      "sections": [
+        {
+          "id": "icons",
+          "type": "icon_grid",
+          "version": 1,
+          "props": {
+            "columns": 5,
+            "rows": 2
+          },
+          "data_source": {
+            "kind": "static",
+            "items": [
+              {
+                "icon": "builtin:platform.taobao",
+                "title": "淘宝",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "platform": "taobao"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:platform.jd",
+                "title": "京东",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "platform": "jd"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:platform.pdd",
+                "title": "拼多多",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "platform": "pdd"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.supermarket",
+                "title": "超市百货",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "超市百货"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.fresh",
+                "title": "食品生鲜",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "食品生鲜"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.baby",
+                "title": "母婴用品",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "母婴用品"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.beauty",
+                "title": "美妆个护",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "美妆个护"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.household",
+                "title": "家居日用",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "家居日用"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:category.electronics",
+                "title": "数码家电",
+                "action": {
+                  "route": "Search",
+                  "params": {
+                    "q": "数码家电"
+                  }
+                }
+              },
+              {
+                "icon": "builtin:guide",
+                "title": "新人指南",
+                "action": {
+                  "route": "Help"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "scroll",
+          "type": "product_scroll",
+          "version": 1,
+          "props": {
+            "title": "今日精选",
+            "more_action": {
+              "route": "Search",
+              "params": {
+                "q": "今日精选"
+              }
+            }
+          },
+          "data_source": {
+            "kind": "product_pool",
+            "pool_id": "test_pool_scroll",
+            "limit": 20
+          },
+          "ad_label": "推广"
+        },
+        {
+          "id": "activities",
+          "type": "activity_entry",
+          "version": 1,
+          "props": {},
+          "data_source": {
+            "kind": "static",
+            "items": [
+              {
+                "title": "新人怎么拿返利",
+                "subtitle": "三步看懂",
+                "action": {
+                  "route": "Help"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "grid",
+          "type": "product_grid",
+          "version": 1,
+          "props": {
+            "columns": 2,
+            "title": "超市百货"
+          },
+          "data_source": {
+            "kind": "product_pool",
+            "pool_id": "test_pool_grid",
+            "limit": 20
+          },
+          "ad_label": "推广"
+        },
+        {
+          "id": "feed",
+          "type": "feed_infinite",
+          "version": 1,
+          "data_source": {
+            "kind": "union_material",
+            "platforms": [
+              "taobao",
+              "jd",
+              "pdd"
+            ],
+            "mix": "interleave"
+          }
+        }
+      ],
+      "sectionItems": {
+        "scroll": {
+          "items": [
+            {
+              "product_key": "taobao:visual-0",
+              "item_ref": "v1.visual.p0.sig",
+              "platform": "taobao",
+              "title": "林间果 每日坚果 30袋",
+              "image": "https://img.example.test/home-v3/0.png",
+              "shop_name": "样例店铺",
+              "price_fen": 2290,
+              "coupon_fen": 300,
+              "final_price_fen": 1990,
+              "est_net_price_fen": 1880,
+              "rebate_min_fen": 110,
+              "rebate_max_fen": 110,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-0",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "jd:visual-1",
+              "item_ref": "v1.visual.p1.sig",
+              "platform": "jd",
+              "title": "洁澄 洗衣液 3kg 薰衣草香",
+              "image": "https://img.example.test/home-v3/1.png",
+              "shop_name": "样例店铺",
+              "price_fen": 2680,
+              "coupon_fen": 0,
+              "final_price_fen": 2680,
+              "est_net_price_fen": 2590,
+              "rebate_min_fen": 90,
+              "rebate_max_fen": 90,
+              "rebate_basis": "normal",
+              "benefit_tags": [],
+              "is_presale": false,
+              "link_id": "visual-1",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "jd_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "taobao:visual-2",
+              "item_ref": "v1.visual.p2.sig",
+              "platform": "taobao",
+              "title": "加厚双层",
+              "image": "https://img.example.test/home-v3/2.png",
+              "shop_name": "样例店铺",
+              "price_fen": 980,
+              "coupon_fen": 100,
+              "final_price_fen": 880,
+              "est_net_price_fen": 838,
+              "rebate_min_fen": 42,
+              "rebate_max_fen": 42,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-2",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            }
+          ],
+          "next_cursor": null
+        },
+        "grid": {
+          "items": [
+            {
+              "product_key": "taobao:visual-3",
+              "item_ref": "v1.visual.p3.sig",
+              "platform": "taobao",
+              "title": "洗衣凝珠 52 颗 持久留香 低泡易漂",
+              "image": "https://img.example.test/home-v3/3.png",
+              "shop_name": "样例店铺",
+              "price_fen": 1860,
+              "coupon_fen": 300,
+              "final_price_fen": 1560,
+              "est_net_price_fen": 1482,
+              "rebate_min_fen": 78,
+              "rebate_max_fen": 78,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-3",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "jd:visual-4",
+              "item_ref": "v1.visual.p4.sig",
+              "platform": "jd",
+              "title": "电动牙刷替换刷头 4 支装 软毛通用款",
+              "image": "https://img.example.test/home-v3/4.png",
+              "shop_name": "样例店铺",
+              "price_fen": 3200,
+              "coupon_fen": 0,
+              "final_price_fen": 3200,
+              "est_net_price_fen": 3040,
+              "rebate_min_fen": 160,
+              "rebate_max_fen": 160,
+              "rebate_basis": "normal",
+              "benefit_tags": [],
+              "is_presale": false,
+              "link_id": "visual-4",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "jd_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            }
+          ],
+          "next_cursor": null
+        },
+        "feed": {
+          "items": [
+            {
+              "product_key": "taobao:visual-5",
+              "item_ref": "v1.visual.p5.sig",
+              "platform": "taobao",
+              "title": "抽纸 3 层 120 抽 × 24 包 家用整箱装",
+              "image": "https://img.example.test/home-v3/5.png",
+              "shop_name": "样例店铺",
+              "price_fen": 1734,
+              "coupon_fen": 500,
+              "final_price_fen": 1234,
+              "est_net_price_fen": 1178,
+              "rebate_min_fen": 56,
+              "rebate_max_fen": 56,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-5",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "jd:visual-6",
+              "item_ref": "v1.visual.p6.sig",
+              "platform": "jd",
+              "title": "保温杯 500ml 不锈钢 带茶隔",
+              "image": "https://img.example.test/home-v3/6.png",
+              "shop_name": "样例店铺",
+              "price_fen": 4560,
+              "coupon_fen": 0,
+              "final_price_fen": 4560,
+              "est_net_price_fen": 4326,
+              "rebate_min_fen": 234,
+              "rebate_max_fen": 234,
+              "rebate_basis": "normal",
+              "benefit_tags": [],
+              "is_presale": false,
+              "link_id": "visual-6",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "jd_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "pdd:visual-7",
+              "item_ref": "v1.visual.p7.sig",
+              "platform": "pdd",
+              "title": "厨房纸巾 4 卷 加厚 吸油吸水",
+              "image": "https://img.example.test/home-v3/7.png",
+              "shop_name": "样例店铺",
+              "price_fen": 1290,
+              "coupon_fen": 300,
+              "final_price_fen": 990,
+              "est_net_price_fen": 960,
+              "rebate_min_fen": 30,
+              "rebate_max_fen": 30,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "有券"
+              ],
+              "is_presale": false,
+              "link_id": "visual-7",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "pdd_union",
+              "disclaimer_keys": [
+                "price_basis",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            },
+            {
+              "product_key": "taobao:visual-8",
+              "item_ref": "v1.visual.p8.sig",
+              "platform": "taobao",
+              "title": "东北长粒香大米 10kg 新米 预售款",
+              "image": "https://img.example.test/home-v3/8.png",
+              "shop_name": "样例店铺",
+              "price_fen": 8800,
+              "coupon_fen": 0,
+              "final_price_fen": 8800,
+              "est_net_price_fen": 8479,
+              "rebate_min_fen": 321,
+              "rebate_max_fen": 321,
+              "rebate_basis": "normal",
+              "benefit_tags": [
+                "预售"
+              ],
+              "is_presale": true,
+              "link_id": "visual-8",
+              "cta": {
+                "text_key": "btn.buy"
+              },
+              "quoted_at": "2026-10-10T10:00:00+08:00",
+              "stale": false,
+              "age_sec": 30,
+              "source": "taobao_union",
+              "disclaimer_keys": [
+                "price_basis.general",
+                "rebate_estimate"
+              ],
+              "availability": "ok"
+            }
+          ],
+          "next_cursor": null
+        }
+      }
+    },
     "default_home": {
       "page_key": "home",
       "version": 1,
@@ -46,8 +1019,8 @@
           "data_source": {
             "kind": "static",
             "items": [
-              {"title": "新人怎么拿返利", "action": {"route": "Help"}},
-              {"title": "订单没显示怎么办", "action": {"route": "FindOrder"}}
+              {"title": "新人怎么拿返利", "subtitle": "三步看懂", "action": {"route": "Help"}},
+              {"title": "订单没显示怎么办", "subtitle": "填订单号找回", "action": {"route": "FindOrder"}}
             ]
           }
         }

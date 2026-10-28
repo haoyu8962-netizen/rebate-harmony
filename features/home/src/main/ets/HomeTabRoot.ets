@@ -1,18 +1,27 @@
 import { ComponentContent } from '@kit.ArkUI';
 import {
-  AgentEntryVisibility, HomeCardType, HomeCardView, HomeDraftTexts, HomeFixedArea, HomeNoticeItem, HomePopupDialogHost, HomePopupImageTicket,
-  HomePopupPresenter, HomePopupTicket, HomeRenderTicket, HomeShowing, HomeSnapshot
+  AgentEntryVisibility, HomeCardType, HomeCardView, HomeDraftTexts, HomeFixedArea, HomeNativeRows, HomeNoticeItem,
+  HomePopupDialogHost, HomePopupImageTicket, HomePopupPresenter, HomePopupTicket, HomeRenderTicket, HomeShowing, HomeSnapshot
 } from 'core';
 import {
-  CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing,
-  CouliTextModifier,
-  CouliTypography, DisclaimerFooter, DisclaimerMode, ErrorState, ProductCardData
+  CouliColors, CouliFocus, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
+  ContentColumn, CouliTextModifier, CouliTypography, ErrorState, PriceTerms, ProductCardData
 } from 'designsystem';
+import { HomeGuestValueCard } from './HomeTiles';
 import {
   HomeActivityCard, HomeBannerCard, HomeFeedFooter, HomeIconGridCard, HomeNoticeCard, HomePopupView,
   HomeProductGridCard, HomeProductScrollCard
 } from './HomeCards';
 import { HomeScreenModel, HomeScreenPort } from './HomeScreenModel';
+
+/**
+ * 固定搜索行里入口与【问 AI】的左右内边距、入口图标与文字间距（vp）：376vp 设备比画板窄 14vp，各收 2vp（画板 12 / 8），
+ * 让占位「搜商品名，或粘贴商品链接」在 376 宽单行放下（放不下时照常折行，不截断）。
+ */
+const SEARCH_INSET: number = 10;
+const SEARCH_ICON_GAP: number = 6;
+/** 搜索占位最多显示的行数（评审 r1 R1-03；三端口径见交回「评审 r1 修复」）。 */
+export const SEARCH_PLACEHOLDER_MAX_LINES: number = 2;
 
 /** 弹窗对话框的参数（ComponentContent 按值传入：票据 + 执行出口）。 */
 class HomePopupDialogParams {
@@ -113,17 +122,19 @@ class ArkPopupPresenter implements HomePopupPresenter {
 
 /**
  * 首页的出口（entry 设置；本模块不 import entry）。
- * - 搜索入口（APP-06a，经 Router 打开 Search）、【问 AI】（经 Router 打开 AgentChat）；
- * - 剪贴板区（APP-07 / FU-CLIP：粘贴卡、邀请确认条、结果提示、分享提示条；entry 给，基本模式不给）：固定区里搜索框下方（G26，位置不变）；
- * - 首页 SDUI 的页面状态（model，APP-11）；基本模式的顶部提示（basicNotice）与 Debug / Staging 的开发信息（footer）也放进首页列表，
- *   随内容一起滚动（与改造前 AppShell 的滚动层级一致）。
+ * - 搜索入口（APP-06a，经 Router 打开 Search）、【问 AI】（经 Router 打开 AgentChat）；搜索行固定在列表外（HM-07v H-V02）。
+ * - 剪贴板两行（APP-07 / FU-CLIP；entry 给，基本模式不给）：clipboardPrompt = 邀请 / 分享提示条；clipboardPaste = 常驻粘贴卡 +
+ *   内联结果 + 识别卡半屏宿主。游客价值卡夹在两者之间（H6）。
+ * - openLogin：游客价值卡【登录领返利】（经 Router 打开 Login，入口 in_app；基本模式由 EntryGuard 先弹隐私，H-V07）。
+ * - 首页 SDUI 的页面状态（model，APP-11）；基本模式的顶部提示（basicNotice）与 Debug / Staging 的开发信息（footer）也放进首页列表。
  */
 export class HomeActions {
-  /** 搜索框占位文字（entry 从文案表取）。 */
-  static searchLabel: string = '';
   static openSearch: () => void = () => {
   };
-  static clipboardArea: WrappedBuilder<[]> | null = null;
+  static openLogin: () => void = () => {
+  };
+  static clipboardPrompt: WrappedBuilder<[]> | null = null;
+  static clipboardPaste: WrappedBuilder<[]> | null = null;
   static model: HomeScreenModel = new HomeScreenModel();
   static basicNotice: WrappedBuilder<[]> | null = null;
   static footer: WrappedBuilder<[]> | null = null;
@@ -174,24 +185,32 @@ export struct HomeTabRoot {
   private unsubscribeAskAi: (() => void) | null = null;
   private refreshSeq: number = 0;
   private scroller: Scroller = new Scroller();
+  /** 首页根视图宽（vp，onAreaChange 量到）：内容列宽由 ContentColumn 纯函数定（≥600 限宽 600 居中，D3 / D10-405）。 */
+  @Local rootWidth: number = 0;
+
+  /** 内容列宽：搜索行与列表同一个值（左右对齐）；还没量到时铺满，由 maxWidth 兜底。 */
+  private columnWidth(): Length {
+    const w: number = ContentColumn.width(this.rootWidth);
+    return w > 0 ? w : '100%';
+  }
 
   private snap(): HomeSnapshot {
     return this.model.snapshot;
   }
 
+  private fixed(): HomeFixedArea {
+    return HomeFixedArea.of(this.model.basicMode, this.preview, this.model.guest);
+  }
+
   private rows(): HomeRow[] {
     const s: HomeSnapshot = this.snap();
     const t: HomeRenderTicket = s.ticket;
-    const fixed: HomeFixedArea = HomeFixedArea.of(this.model.basicMode, this.preview);
     const out: HomeRow[] = [];
-    if (fixed.basicNotice && HomeActions.basicNotice !== null) {
-      out.push(new HomeRow('basic', 'basic', null, t));
-    }
-    if (fixed.search) {
-      out.push(new HomeRow('search', 'search', null, t));
-    }
-    if (fixed.clipboard && HomeActions.clipboardArea !== null) {
-      out.push(new HomeRow('clipboard', 'clipboard', null, t));
+    // 原生行（HM-07v H1）：基本模式提示 → 提示条 → 游客价值卡 → 粘贴卡；搜索行固定在列表外（H-V02），不在这里。
+    for (const k of HomeNativeRows.of(this.fixed())) {
+      if (this.nativeAvailable(k)) {
+        out.push(new HomeRow(k, k, null, t));
+      }
     }
     if (s.showing === HomeShowing.LOAD_FAILED) {
       out.push(new HomeRow('failed:' + t.key, 'failed', null, t));
@@ -199,13 +218,13 @@ export struct HomeTabRoot {
       for (const v of s.cards) {
         if (!v.hidden) {
           // 键里带上渲染票据与这张卡的数据版本：ForEach 对同键的行不重新传参，数据源翻页、公告关闭 / 到期后要换键才会重画（只重画这一张）。
-          const key: string = t.key + ':' + v.card.id + ':' + HomeTabRoot.dataKey(v);
+          const key: string = HomeNativeRows.cardKey(t.key, v.card.id, HomeTabRoot.dataKey(v));
           // 信息流首屏失败（没有商品）：只留底部重试行，不画空卡（R1-05）。
           if (!(v.card.type === HomeCardType.FEED_INFINITE && v.products.length === 0)) {
             out.push(new HomeRow(key, v.card.type, v, t));
           }
           if (v.card.type === HomeCardType.FEED_INFINITE) {
-            out.push(new HomeRow(key + ':footer', 'feed_footer', v, t));
+            out.push(new HomeRow(key + '|footer', 'feed_footer', v, t));
           }
         }
       }
@@ -219,6 +238,32 @@ export struct HomeTabRoot {
       out.push(new HomeRow('footer', 'footer', null, t));
     }
     return out;
+  }
+
+  private nativeAvailable(k: string): boolean {
+    if (k === HomeNativeRows.BASIC) {
+      return HomeActions.basicNotice !== null;
+    }
+    if (k === HomeNativeRows.PROMPT) {
+      return HomeActions.clipboardPrompt !== null;
+    }
+    if (k === HomeNativeRows.PASTE) {
+      return HomeActions.clipboardPaste !== null;
+    }
+    return true;
+  }
+
+  /** 行下方间距（区块间距 12，Main-v3）：提示条行自己在有内容时留间距（没有提示时不留缝）；页脚、尾部不留。 */
+  private static gapAfter(kind: string): number {
+    if (kind === HomeNativeRows.PROMPT || kind === 'disclaimer' || kind === 'footer' || kind === 'tail'
+      || kind === 'feed_footer') {
+      return 0;
+    }
+    return CouliSpacing.space3;
+  }
+
+  private static isCard(r: HomeRow): boolean {
+    return r.view !== null && r.kind !== 'feed_footer';
   }
 
   private static dataKey(v: HomeCardView): string {
@@ -242,27 +287,38 @@ export struct HomeTabRoot {
         }
       }
     }
-    return lines;
+    // Main-v3 页脚：价格口径句在前、返利口径句在后（同一屏去重后的顺序，内容不变）。
+    const basis: string[] = lines.filter((l: string): boolean => l === PriceTerms.priceBasis || l === PriceTerms.priceBasisGeneral);
+    return basis.concat(lines.filter((l: string): boolean => basis.indexOf(l) < 0));
   }
 
+  /**
+   * 固定搜索行（Main-v3，H2 / H3，H-V02）：在列表外、不随列表滚动、不在下拉刷新范围内；与内容列同宽（限宽 600 居中、左右 16）。
+   * 左「搜索入口」（按钮语义；20 搜索图标 + 占位 17 次文字色；1 描边 border.control、圆角 12、命中 48）；
+   * 右【问 AI】浅底次按钮（brand.subtle 底、brand.emphasis 14/600、20 对话图标、命中 48），随 agent.entry.visible 显隐。
+   */
   @Builder
   searchRow() {
     Row({ space: CouliSpacing.space2 }) {
-      Row({ space: CouliSpacing.space2 }) {
+      Row({ space: SEARCH_ICON_GAP }) {
         CouliIcon({ name: 'search', iconSize: 20, color: CouliColors.textSecondary })
-        Text(HomeActions.searchLabel)
+        Text(HomeDraftTexts.text('search.placeholder'))
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
+          // 评审 r1 R1-03：占位只是提示（不是金额或按钮字，03 §10.4 的「不截断」不约束它），大字号下最多 2 行、末尾省略，
+          // 固定搜索行不至于吃掉四分之一屏；入口仍是按钮语义，读屏名是完整占位（accessibilityText）。
+          .maxLines(SEARCH_PLACEHOLDER_MAX_LINES)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
       }
       .layoutWeight(1)
       .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-      .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
+      .padding({ left: SEARCH_INSET, right: SEARCH_INSET })
       .borderRadius(CouliRadius.button)
       .border({ width: 1, color: CouliColors.borderControl })
       .backgroundColor(CouliColors.backgroundSurface)
       .id('home_search_entry')
       .accessibilityGroup(true)
-      .accessibilityText(HomeActions.searchLabel)
+      .accessibilityText(HomeDraftTexts.text('search.placeholder'))
       .accessibilityRole(AccessibilityRoleType.BUTTON)
       .focusable(true)
       .focusBox(CouliFocus.box)
@@ -270,12 +326,13 @@ export struct HomeTabRoot {
       // G56（FU-HM-0715）：agent.entry.visible=false 时与底部 AI 助手 Tab 一起隐藏（搜索框占满一行）。
       if (this.askAiVisible) {
         Row({ space: CouliSpacing.space1 }) {
-          CouliIcon({ name: 'chat', iconSize: 18, color: CouliColors.brandEmphasis })
+          CouliIcon({ name: 'chat', iconSize: 20, color: CouliColors.brandEmphasis })
           Text(HomeDraftTexts.text('home.ask_ai'))
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis))
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis,
+              CouliFontWeight.semibold))
         }
-        .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-        .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
+        .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+        .padding({ left: SEARCH_INSET, right: SEARCH_INSET })
         .borderRadius(CouliRadius.button)
         .backgroundColor(CouliColors.brandSubtle)
         .id('home_ask_ai')
@@ -286,7 +343,32 @@ export struct HomeTabRoot {
         .onClick(() => this.model.port.askAi())
       }
     }
+    .width(this.columnWidth())
+    .constraintSize({ maxWidth: ContentColumn.MAX_WIDTH })
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2,
+      bottom: CouliSpacing.space2 })
+    .id('home_search_row')
+  }
+
+  /** 口径页脚（Main-v3，H13）：列表最底，1 分隔线 + 每句一行 12 次文字；无 i 图标、无卡底。只在有商品时出现（不变）。 */
+  @Builder
+  disclaimerFooter() {
+    Column() {
+      Divider()
+        .strokeWidth(1)
+        .color(CouliColors.borderSubtle)
+      Column({ space: CouliSpacing.space1 }) {
+        ForEach(this.disclaimerLines(), (line: string) => {
+          Text(line)
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+            .width('100%')
+        }, (line: string, index: number) => index + line)
+      }
+      .width('100%')
+      .padding({ top: CouliSpacing.space2, bottom: CouliSpacing.space2 })
+    }
     .width('100%')
+    .id('home_disclaimer_footer')
   }
 
   @Builder
@@ -311,12 +393,14 @@ export struct HomeTabRoot {
 
   @Builder
   row(r: HomeRow) {
-    if (r.kind === 'basic') {
+    if (r.kind === HomeNativeRows.BASIC) {
       (HomeActions.basicNotice as WrappedBuilder<[]>).builder()
-    } else if (r.kind === 'search') {
-      this.searchRow()
-    } else if (r.kind === 'clipboard') {
-      (HomeActions.clipboardArea as WrappedBuilder<[]>).builder()
+    } else if (r.kind === HomeNativeRows.PROMPT) {
+      (HomeActions.clipboardPrompt as WrappedBuilder<[]>).builder()
+    } else if (r.kind === HomeNativeRows.GUEST_VALUE) {
+      HomeGuestValueCard({ onLogin: () => HomeActions.openLogin() })
+    } else if (r.kind === HomeNativeRows.PASTE) {
+      (HomeActions.clipboardPaste as WrappedBuilder<[]>).builder()
     } else if (r.kind === 'failed') {
       this.loadFailed(r.ticket)
     } else if (r.kind === 'tail') {
@@ -324,7 +408,7 @@ export struct HomeTabRoot {
     } else if (r.kind === 'footer') {
       (HomeActions.footer as WrappedBuilder<[]>).builder()
     } else if (r.kind === 'disclaimer') {
-      DisclaimerFooter({ lines: this.disclaimerLines(), mode: DisclaimerMode.FULL })
+      this.disclaimerFooter()
     } else if (r.kind === HomeCardType.BANNER) {
       HomeBannerCard({ item: r.view, port: this.model.port,
         autoplay: this.model.active && !this.model.screenReader })
@@ -432,17 +516,28 @@ export struct HomeTabRoot {
   @Builder
   listOf(t: HomeRenderTicket) {
     Refresh({ refreshing: this.refreshing }) {
-      List({ space: CouliSpacing.space3, scroller: this.scroller }) {
+      List({ space: 0, scroller: this.scroller }) {
         ForEach(this.rows(), (r: HomeRow) => {
           ListItem() {
-            this.row(r)
+            if (HomeTabRoot.isCard(r)) {
+              // 每张 SDUI 卡的根节点带稳定 id（home_section_<section id>），范围就是卡本身（不含下方间距）。
+              Column() {
+                this.row(r)
+              }
+              .width('100%')
+              .id('home_section_' + (r.view as HomeCardView).card.id)
+            } else {
+              this.row(r)
+            }
           }
           .width('100%')
+          .padding({ bottom: HomeTabRoot.gapAfter(r.kind) })
         }, (r: HomeRow) => r.key)
       }
-      .width('100%')
+      .id('home_list')
+      .width(this.columnWidth())
       .height('100%')
-      .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
+      .constraintSize({ maxWidth: ContentColumn.MAX_WIDTH })
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space1,
         bottom: CouliSpacing.space4 })
       .scrollBar(BarState.Off)
@@ -459,7 +554,9 @@ export struct HomeTabRoot {
         }
       })
     }
-    .width('100%')
+    // 内容列（D3）：Refresh 与列表同宽、在 Stack（alignContent Top = 顶部居中）里水平居中。
+    .width(this.columnWidth())
+    .constraintSize({ maxWidth: ContentColumn.MAX_WIDTH })
     .height('100%')
     .refreshOffset(64)
     .pullToRefresh(!this.preview && !this.snap().refreshDisabled)
@@ -502,15 +599,27 @@ export struct HomeTabRoot {
   }
 
   build() {
-    Stack({ alignContent: Alignment.Top }) {
-      ForEach(this.renderTickets(), (t: HomeRenderTicket) => {
-        this.listOf(t)
-      }, (t: HomeRenderTicket) => t.key)
-      this.popupPrefetch()
+    Column() {
+      // 固定搜索行（H-V02）：列表外，不随票据重建、不在下拉刷新范围内；基本模式与草稿预览没有（基本模式顶栏在 AppShell）。
+      if (this.fixed().search) {
+        this.searchRow()
+      }
+      Stack({ alignContent: Alignment.Top }) {
+        ForEach(this.renderTickets(), (t: HomeRenderTicket) => {
+          this.listOf(t)
+        }, (t: HomeRenderTicket) => t.key)
+        this.popupPrefetch()
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .alignContent(Alignment.Top)
     }
     .width('100%')
     .height('100%')
-    .alignContent(Alignment.Top)
+    .alignItems(HorizontalAlign.Center)
+    .onAreaChange((_old: Area, now: Area) => {
+      this.rootWidth = now.width as number;
+    })
     // 全局置灰只作用于首页根视图（03 §6.2 第 8 步，G27）。
     .grayscale(this.model.grayscale ? 1 : 0)
   }

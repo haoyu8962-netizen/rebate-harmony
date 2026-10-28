@@ -6,8 +6,8 @@ import { DefaultTexts } from 'generated';
 import { ApiOutcome, ApiResult } from '../network/ApiClient';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { trace6Of, withTrace6 } from '../search/SearchController';
-import { HomeAction, HomeNoticeItem } from './HomeModels';
-import { NoticeFilter } from './HomePolicies';
+import { HomeAction, HomeBuiltinIcon, HomeNoticeItem } from './HomeModels';
+import { HomeLevel, NoticeFilter } from './HomePolicies';
 
 /** 一次渲染的归属：控制器编号 + 内容换代编号（换一份页面配置加一）。 */
 export class HomeRenderTicket {
@@ -154,24 +154,110 @@ export class HomePopupTicket {
   }
 }
 
-/** 首页固定区（R1-08）：基本模式提示与「无搜索固定区」只看真实隐私状态；只读（强更检查未知）不隐藏搜索与剪贴板区。 */
+/**
+ * 首页固定区（R1-08）：基本模式提示与「无搜索固定区」只看真实隐私状态；只读（强更检查未知）不隐藏搜索与剪贴板区。
+ * HM-07v（APP-11v）：guestValue = 游客价值卡（HomeGuest-v3）：基本模式不论身份都显示（H-V07，同 HomeGuest-v3 底稿）；
+ * 否则只对游客显示；草稿预览没有。guest 由 AppHome 每次状态同步按身份档写入（登录后同步即隐藏）。
+ */
 export class HomeFixedArea {
   readonly basicNotice: boolean;
   readonly search: boolean;
   readonly clipboard: boolean;
+  readonly guestValue: boolean;
 
-  constructor(basicNotice: boolean, search: boolean, clipboard: boolean) {
+  constructor(basicNotice: boolean, search: boolean, clipboard: boolean, guestValue: boolean = false) {
     this.basicNotice = basicNotice;
     this.search = search;
     this.clipboard = clipboard;
+    this.guestValue = guestValue;
   }
 
-  /** basicMode：隐私结论是基本模式；preview：草稿预览（没有固定区）；readonly 只限制规定操作，这里不用。 */
-  static of(basicMode: boolean, preview: boolean): HomeFixedArea {
+  /** basicMode：隐私结论是基本模式；preview：草稿预览（没有固定区）；guest：当前身份是游客（缺省 false：漏传不显示价值卡）。 */
+  static of(basicMode: boolean, preview: boolean, guest: boolean = false): HomeFixedArea {
     if (preview) {
-      return new HomeFixedArea(false, false, false);
+      return new HomeFixedArea(false, false, false, false);
     }
-    return basicMode ? new HomeFixedArea(true, false, false) : new HomeFixedArea(false, true, true);
+    return basicMode ? new HomeFixedArea(true, false, false, true) : new HomeFixedArea(false, true, true, guest);
+  }
+
+  /** 身份档是不是游客（HomeIdentity.level）：只有 GUEST 为真；MEMBER、BASIC、未知都为假。 */
+  static isGuest(level: string): boolean {
+    return level === HomeLevel.GUEST;
+  }
+}
+
+/**
+ * 首页列表里的原生行（HM-07v H1 / H-V02）：搜索行固定在列表外，不在这里。顺序即显示顺序：
+ * 基本模式提示 → 剪贴板提示条（邀请 / 分享）→ 游客价值卡 → 粘贴卡（含内联结果与识别卡半屏宿主）。
+ * 键在 native: 命名空间；SDUI 卡片行键（cardKey）以 card: 开头，section id 取任何值都不会落进 native:（共性 24）。
+ */
+export class HomeNativeRows {
+  static readonly BASIC: string = 'native:basic';
+  static readonly PROMPT: string = 'native:prompt';
+  static readonly GUEST_VALUE: string = 'native:guest_value';
+  static readonly PASTE: string = 'native:paste';
+
+  static of(fixed: HomeFixedArea): string[] {
+    const out: string[] = [];
+    if (fixed.basicNotice) {
+      out.push(HomeNativeRows.BASIC);
+    }
+    if (fixed.clipboard) {
+      out.push(HomeNativeRows.PROMPT);
+    }
+    if (fixed.guestValue) {
+      out.push(HomeNativeRows.GUEST_VALUE);
+    }
+    if (fixed.clipboard) {
+      out.push(HomeNativeRows.PASTE);
+    }
+    return out;
+  }
+
+  /**
+   * SDUI 卡片行键：渲染票据 + section id + 数据版本（票据或数据换代都换键，整行重建，R1-02）。section id 用长度前缀写入，
+   * 任何字符（含冒号）都不会与相邻字段拼出同一个键。
+   */
+  static cardKey(ticketKey: string, sectionId: string, dataKey: string): string {
+    return 'card:' + ticketKey + '|' + sectionId.length + ':' + sectionId + '|' + dataKey;
+  }
+}
+
+/**
+ * 金刚区一格的图怎么画（G-V01 / H8）：
+ * - builtin:platform.<键>：包内有官方平台图（F-X-05a PlatformIconSource，键 taobao / jd / pdd）→ PLATFORM_IMAGE；
+ *   暂缺（天猫等）或键不对（文件名 pinduoduo 不是标识键）→ PLATFORM_TEXT（图块里写平台名，不借别家的图）；
+ * - builtin:<已知类目 / 指南> → GLYPH（凑狸自有线性图标，G-V08）；其他 builtin: → PLACEHOLDER（不当网络地址去加载）；
+ * - 其余当下发图 → REMOTE；加载失败 → PLACEHOLDER（只换占位底，格子与格名保留）。
+ */
+export class HomeIconArt {
+  static readonly REMOTE: string = 'remote';
+  static readonly PLATFORM_IMAGE: string = 'platform_image';
+  static readonly PLATFORM_TEXT: string = 'platform_text';
+  static readonly GLYPH: string = 'glyph';
+  static readonly PLACEHOLDER: string = 'placeholder';
+  private static readonly PLATFORM_PREFIX: string = 'builtin:platform.';
+
+  static platformOf(icon: string): string | null {
+    if (!icon.startsWith(HomeIconArt.PLATFORM_PREFIX)) {
+      return null;
+    }
+    const key: string = icon.substring(HomeIconArt.PLATFORM_PREFIX.length);
+    return key.length > 0 ? key : null;
+  }
+
+  static kind(icon: string, remoteFailed: boolean, hasBuiltin: (platform: string) => boolean): string {
+    const platform: string | null = HomeIconArt.platformOf(icon);
+    if (platform !== null) {
+      return hasBuiltin(platform) ? HomeIconArt.PLATFORM_IMAGE : HomeIconArt.PLATFORM_TEXT;
+    }
+    if (icon.startsWith(HomeBuiltinIcon.PREFIX)) {
+      return HomeBuiltinIcon.nameOf(icon) !== null ? HomeIconArt.GLYPH : HomeIconArt.PLACEHOLDER;
+    }
+    if (icon.trim().length === 0 || remoteFailed) {
+      return HomeIconArt.PLACEHOLDER;
+    }
+    return HomeIconArt.REMOTE;
   }
 }
 

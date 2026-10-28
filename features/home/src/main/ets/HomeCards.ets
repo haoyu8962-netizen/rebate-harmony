@@ -4,20 +4,26 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
   HomeAction, HomeActivityItem, HomeAdLabel, HomeBannerItem, HomeBuiltinIcon, HomeCard, HomeCardView,
-  HomeDraftTexts, HomeIconItem, HomeNoticeDisplay, HomeNoticeRow, HomePopupTicket, HomeProductRow, HomeTap
+  HomeDraftTexts, HomeIconArt, HomeIconItem, HomeNoticeDisplay, HomeNoticeRow, HomePopupTicket, HomeProductRow, HomeTap
 } from 'core';
 import {
-  CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier,
-  CouliTypography, CouliFontWeight, ProductCard, ProductCardData, ProductCardVariant, CouliFontScale
+  CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier,
+  CouliTypography, CouliFontWeight, PlatformIcon, PlatformIconSize, PlatformIconSource, ProductCard, ProductCardData,
+  ProductCardMeasure, ProductCardVariant, ProductGridLayout, CouliFontScale
 } from 'designsystem';
 import { HomeScreenPort } from './HomeScreenModel';
+import { homeAdChip, HomeScrollTile } from './HomeTiles';
 
-/** 首页卡片的外框（白底圆角卡）。 */
+/** 首页卡片的外框（白底圆角 16 卡，内边距 16，Main-v3）。 */
 const CARD_PADDING: number = 16;
 /** 金刚区图标视觉边长（命中区按整格，≥48）。 */
 const ICON_BOX: number = 44;
-/** 横滑窄卡宽度。 */
-const SCROLL_CARD_WIDTH: number = 148;
+/** 金刚区每格命中区左右各扩的宽度（vp）：半个列距 space.2（8 / 2），相邻格的命中区正好在列距中线相接。 */
+const ICON_CELL_HIT_EXTEND: number = 4;
+/** 推广角标距图片左上（GUIDE §6）。 */
+const AD_INSET: number = 8;
+/** 活动入口最小高（Main-v3）。 */
+const ACTIVITY_MIN_HEIGHT: number = 72;
 
 /** 一格（轮播帧 / 金刚区格 / 双入口）与它渲染时的点击票据：ForEach 条目，回调捕获它（R1-02）。 */
 class BannerCell {
@@ -52,40 +58,15 @@ class ActivityCell {
   }
 }
 
-/** 推广角标（BR-TEXT-17：服务端字符串原样显示、读出）。 */
+/** 推广角标（BR-TEXT-17：服务端字符串原样显示、读出）：距图片左上 8（GUIDE §6）。 */
 @Builder
 function adChip(label: string) {
-  Text(label)
-    .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2 })
-    .constraintSize({ minHeight: CouliSpacing.space5 })
-    .backgroundColor(CouliColors.backgroundSurface)
-    .border({ width: 1, color: CouliColors.borderSubtle })
-    .borderRadius(CouliRadius.pill)
-    .accessibilityText(label)
-    .margin(CouliSpacing.space3)
+  homeAdChip(label, AD_INSET)
 }
 
-/** 包内图标（G17）：平台用 PlatformBadge 文字（没有平台 logo 资源），类目与指南用设计系统已有线性图标。 */
-function builtinIconName(name: string): string {
-  switch (name) {
-    case 'category.supermarket':
-      return 'orders';
-    case 'category.fresh':
-      return 'heart';
-    case 'category.baby':
-      return 'user';
-    case 'category.beauty':
-      return 'star';
-    case 'category.household':
-      return 'home';
-    case 'category.electronics':
-      return 'trend';
-    case 'guide':
-      return 'help';
-    default:
-      return 'image';
-  }
+/** 包内类目 / 指南图标（G-V08）：凑狸自有线性图标（Main-v3 画板 SVG，CouliIconPaths 同名）。 */
+function builtinGlyph(name: string): string {
+  return name.startsWith('category.') || name === 'guide' ? name : 'image';
 }
 
 @ComponentV2
@@ -196,6 +177,8 @@ export struct HomeIconGridCard {
   @Param item: HomeCardView | null = null;
   @Param port: HomeScreenPort | null = null;
   @Local failed: Set<string> = new Set<string>();
+  /** 格宽（vp，第一格 onAreaChange 量到；各格等宽）：用来把命中区横向扩到列距中线。 */
+  @Local cellWidth: number = 0;
 
   private cells(): IconCell[] {
     const v: HomeCardView | null = this.item;
@@ -204,6 +187,14 @@ export struct HomeIconGridCard {
     }
     const view: HomeCardView = v as HomeCardView;
     return view.card.icons.map((c: HomeIconItem, i: number): IconCell => new IconCell(c, view.iconTaps[i]));
+  }
+
+  /** 每格命中区：格宽量到之前按自身大小，量到之后左右各扩 4（半个列距）。 */
+  private hitRegion(): Rectangle {
+    if (this.cellWidth <= 0) {
+      return { x: 0, y: 0, width: '100%', height: '100%' };
+    }
+    return { x: -ICON_CELL_HIT_EXTEND, y: 0, width: this.cellWidth + 2 * ICON_CELL_HIT_EXTEND, height: '100%' };
   }
 
   private columns(): number {
@@ -218,50 +209,67 @@ export struct HomeIconGridCard {
     return parts.join(' ');
   }
 
+  private art(cell: HomeIconItem): string {
+    return HomeIconArt.kind(cell.icon, this.failed.has(cell.icon), PlatformIconSource.hasBuiltin);
+  }
+
+  /**
+   * 格图（G-V01 / G-V08，H8）：平台格是 F-X-05a 官方平台图 44（不改色、不描边、深色不变）；暂缺平台写平台名；
+   * 类目 / 指南是 44 圆角 12 的 background.canvas 底 + 24 线性图标（主文字色）；下发图失败只换占位底。图块对读屏隐藏。
+   */
   @Builder
   icon(cell: HomeIconItem) {
-    Stack() {
-      if (HomeBuiltinIcon.nameOf(cell.icon) !== null && (HomeBuiltinIcon.nameOf(cell.icon) as string).startsWith('platform.')) {
-        // 平台格：没有平台 logo 资源（G17 写「PlatformBadge 内置图」，鸿蒙 PlatformBadge 是文字标签）：同色文字标识，自适应缩小不截断。
-        Text(cell.title)
-          .fontSize(CouliTypography.caption.fontSize)
-          .fontColor(CouliColors.sourceText)
-          .fontWeight(CouliFontWeight.semibold)
-          .maxLines(1)
-          .minFontSize(8)
-          .maxFontSize(CouliTypography.caption.fontSize)
-          // 图标块内的平台名是标识（下方另有随字号放大的格名），不随系统字号放大，免得在 44 见方里被截断。
-          .maxFontScale(1)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ left: 2, right: 2 })
-      } else if (HomeBuiltinIcon.nameOf(cell.icon) !== null) {
-        CouliIcon({ name: builtinIconName(HomeBuiltinIcon.nameOf(cell.icon) as string), iconSize: 24,
-          color: CouliColors.textPrimary })
-      } else if (!this.failed.has(cell.icon)) {
-        Image(this.port === null ? cell.icon : (this.port as HomeScreenPort).image(cell.icon))
-          .width('100%')
-          .height('100%')
-          .objectFit(ImageFit.Cover)
-          .draggable(false)
-          .onError(() => {
-            const next: Set<string> = new Set<string>(this.failed);
-            next.add(cell.icon);
-            this.failed = next;
-          })
+    if (this.art(cell) === HomeIconArt.PLATFORM_IMAGE) {
+      Stack() {
+        PlatformIcon({ platform: HomeIconArt.platformOf(cell.icon) ?? '', iconSize: PlatformIconSize.GRID })
       }
+      .width(ICON_BOX)
+      .height(ICON_BOX)
+      .accessibilityLevel('no-hide-descendants')
+    } else {
+      Stack() {
+        if (this.art(cell) === HomeIconArt.PLATFORM_TEXT) {
+          // 暂缺官方图的平台：图块里写平台名（标识，不随系统字号放大，免得在 44 见方里被截断）。
+          Text(cell.title)
+            .fontSize(CouliTypography.caption.fontSize)
+            .fontColor(CouliColors.sourceText)
+            .fontWeight(CouliFontWeight.semibold)
+            .maxLines(1)
+            .minFontSize(8)
+            .maxFontSize(CouliTypography.caption.fontSize)
+            .maxFontScale(1)
+            .textAlign(TextAlign.Center)
+            .width('100%')
+            .padding({ left: 2, right: 2 })
+        } else if (this.art(cell) === HomeIconArt.GLYPH) {
+          CouliIcon({ name: builtinGlyph(HomeBuiltinIcon.nameOf(cell.icon) as string), iconSize: 24,
+            color: CouliColors.textPrimary })
+        } else if (this.art(cell) === HomeIconArt.REMOTE) {
+          Image(this.port === null ? cell.icon : (this.port as HomeScreenPort).image(cell.icon))
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Cover)
+            .draggable(false)
+            .onError(() => {
+              const next: Set<string> = new Set<string>(this.failed);
+              next.add(cell.icon);
+              this.failed = next;
+            })
+        }
+      }
+      .width(ICON_BOX)
+      .height(ICON_BOX)
+      .borderRadius(CouliRadius.button)
+      .backgroundColor(this.art(cell) === HomeIconArt.PLACEHOLDER ? CouliColors.backgroundPlaceholder
+        : CouliColors.backgroundCanvas)
+      .clip(true)
+      .accessibilityLevel('no-hide-descendants')
     }
-    .width(ICON_BOX)
-    .height(ICON_BOX)
-    .borderRadius(CouliRadius.button)
-    .backgroundColor(CouliColors.backgroundPlaceholder)
-    .clip(true)
-    .accessibilityLevel('no')
   }
 
   build() {
     Grid() {
-      ForEach(this.cells(), (ic: IconCell) => {
+      ForEach(this.cells(), (ic: IconCell, index: number) => {
         GridItem() {
           Column({ space: CouliSpacing.space1 }) {
             Stack({ alignContent: Alignment.TopEnd }) {
@@ -276,7 +284,7 @@ export struct HomeIconGridCard {
               }
             }
             Text(ic.cell.title)
-              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+              .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
               .textAlign(TextAlign.Center)
               // 不截断：320 宽、200% 字号时按字换行，完整可见（APP-05a 第 7 条）。
               .wordBreak(WordBreak.BREAK_ALL)
@@ -284,7 +292,14 @@ export struct HomeIconGridCard {
           }
           .width('100%')
           .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-          .padding({ top: CouliSpacing.space1, bottom: CouliSpacing.space1 })
+          // 评审 r1 R1-02：命中区扩展见下方 GridItem.responseRegion（按格宽量）。
+          .responseRegion(this.hitRegion())
+          .onAreaChange((_old: Area, now: Area) => {
+            if (index === 0) {
+              this.cellWidth = now.width as number;
+            }
+          })
+          .id('home_icon_cell_' + index)
           // 只有图标的格也有读屏名（adaptation-a11y-spec §9）：整格一个节点，读标题（与角标）。
           .accessibilityGroup(true)
           .accessibilityText(ic.cell.title + (ic.cell.badge !== null ? ' ' + (ic.cell.badge as string) : ''))
@@ -295,24 +310,33 @@ export struct HomeIconGridCard {
             this.port?.open(ic.tap);
           })
         }
+        // 评审 r1 R1-02：列距 8 让 320 宽每格只有 44.8vp（< 48）：GridItem 与格节点的命中区左右各扩半个列距（4），
+        // 相邻格的命中区正好在列距中线相接、不重叠；Grid 有 16 的内边距，扩出去的部分仍在卡内。视觉与组件框不变。
+        .responseRegion(this.hitRegion())
       }, (ic: IconCell) => ic.tap.owner + ':' + ic.tap.render + ':' + ic.tap.slot + ':' + ic.cell.title)
     }
-    // 列数按 props 的 columns（不随屏宽增加）。
+    // 列数按 props 的 columns（不随屏宽增加）；行距 16、列距 8（Main-v3）。
     .columnsTemplate(this.template())
-    .rowsGap(CouliSpacing.space3)
+    .rowsGap(CouliSpacing.space4)
+    .columnsGap(CouliSpacing.space2)
     .width('100%')
     .padding(CARD_PADDING)
     .backgroundColor(CouliColors.backgroundSurface)
     .borderRadius(CouliRadius.card)
+    .shadow(CouliShadow.card)
   }
 }
 
-/** 一张首页商品卡（网格卡 / 横滑窄卡：GRID 变体，没有购买按钮，G13）+ 推广角标。点卡进 ProductDetail。 */
+/**
+ * 一张首页商品卡（网格卡 / 信息流卡：共用 ProductCard GRID，没有购买按钮，G13）+ 推广角标。点卡进 ProductDetail。
+ * inset：放在段卡（超市百货白卡）里，卡本身不再画白底与阴影（H-V08）；信息流每件是独立白卡（inset = false）。
+ */
 @ComponentV2
 export struct HomeProductTile {
   @Param product: Record<string, Object> = {};
   @Param sectionAdLabel: string | null = null;
   @Param data: ProductCardData = new ProductCardData();
+  @Param inset: boolean = false;
   @Event onOpen: () => void = () => {
   };
 
@@ -322,9 +346,10 @@ export struct HomeProductTile {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ProductCard({ data: this.data, variant: ProductCardVariant.GRID })
+      ProductCard({ data: this.data, variant: ProductCardVariant.GRID, inset: this.inset })
       if (this.label() !== null) {
-        adChip(this.label() as string)
+        // 角标在图片左上 8：独立白卡有 8 的内边距，所以离卡边 16。
+        homeAdChip(this.label() as string, this.inset ? AD_INSET : AD_INSET + CouliSpacing.space2)
       }
     }
     .width('100%')
@@ -339,18 +364,28 @@ export function productAction(p: Record<string, Object>): HomeAction | null {
   return HomeCardView.productAction(p);
 }
 
+/** 段标题 17/600（Main-v3「今日精选」「超市百货」）。 */
 @Builder
 function sectionTitle(title: string) {
   Text(title)
-    .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary, CouliFontWeight.semibold))
+    .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary, CouliFontWeight.semibold))
     .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
     .layoutWeight(1)
 }
 
+/**
+ * 今日精选（product_scroll，H9）：整段放进白卡；标题行与【更多 ›】（命中 48）在卡内；横滑区左对齐卡内边距、右侧出血到卡边；
+ * 横滑卡用首页私有 HomeScrollTile（不显示标题与来源标签），卡宽按金额量宽（≥144）。
+ */
 @ComponentV2
 export struct HomeProductScrollCard {
   @Param item: HomeCardView | null = null;
   @Param port: HomeScreenPort | null = null;
+  @Local fontScale: CouliFontScale = CouliFontScale.shared();
+
+  aboutToAppear(): void {
+    CouliFontScale.attach(this.getUIContext());
+  }
 
   private rows(): HomeProductRow[] {
     return this.item === null ? [] : (this.item as HomeCardView).productRows;
@@ -359,6 +394,15 @@ export struct HomeProductScrollCard {
   private moreTaps(): HomeTap[] {
     const t: HomeTap | null = this.item === null ? null : (this.item as HomeCardView).moreTap;
     return t === null ? [] : [t];
+  }
+
+  private dataOf(row: HomeProductRow): ProductCardData {
+    return this.port === null ? new ProductCardData() : (this.port as HomeScreenPort).productCard(row.product);
+  }
+
+  private tileWidth(): number {
+    return ProductCardMeasure.scrollTileWidth(this.getUIContext(), this.rows().map((r: HomeProductRow): ProductCardData =>
+    this.dataOf(r)), this.fontScale.scale);
   }
 
   build() {
@@ -371,7 +415,9 @@ export struct HomeProductScrollCard {
               .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis))
             CouliIcon({ name: 'chevron', iconSize: 16, color: CouliColors.brandEmphasis })
           }
+          .justifyContent(FlexAlign.End)
           .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+          .id('home_more_' + (this.item?.card.id ?? ''))
           .accessibilityGroup(true)
           .accessibilityText(HomeDraftTexts.text('home.more'))
           .accessibilityRole(AccessibilityRoleType.BUTTON)
@@ -383,26 +429,26 @@ export struct HomeProductScrollCard {
         }, (more: HomeTap) => more.owner + ':' + more.render)
       }
       .width('100%')
+      .padding({ right: CARD_PADDING })
       Scroll() {
         Row({ space: CouliSpacing.space3 }) {
-          ForEach(this.rows(), (row: HomeProductRow) => {
-            Column() {
-              HomeProductTile({
-                product: row.product,
-                sectionAdLabel: this.item?.card.sectionAdLabel ?? null,
-                data: this.port === null ? new ProductCardData() : (this.port as HomeScreenPort).productCard(row.product),
-                onOpen: () => {
-                  if (row.tap !== null) {
-                    this.port?.open(row.tap as HomeTap);
-                  }
+          ForEach(this.rows(), (row: HomeProductRow, index: number) => {
+            HomeScrollTile({
+              data: this.dataOf(row),
+              adLabel: HomeAdLabel.of(this.item?.card.sectionAdLabel ?? null, row.product['ad_label']),
+              tileWidth: this.tileWidth(),
+              tileId: 'home_scroll_tile_' + index,
+              onOpen: () => {
+                if (row.tap !== null) {
+                  this.port?.open(row.tap as HomeTap);
                 }
-              })
-            }
-            .width(SCROLL_CARD_WIDTH)
+              }
+            })
           }, (row: HomeProductRow) => (row.tap?.owner ?? 0) + ':' + (row.tap?.render ?? 0) + ':' + row.slot + ':'
             + String(row.product['product_key']))
         }
         .alignItems(VerticalAlign.Top)
+        .padding({ right: CARD_PADDING })
       }
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
@@ -410,13 +456,20 @@ export struct HomeProductScrollCard {
       .align(Alignment.Start)
     }
     .width('100%')
-    .padding(CARD_PADDING)
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: CARD_PADDING, top: CARD_PADDING, bottom: CARD_PADDING })
     .backgroundColor(CouliColors.backgroundSurface)
     .borderRadius(CouliRadius.card)
+    .shadow(CouliShadow.card)
+    .clip(true)
   }
 }
 
-/** 商品网格（product_grid 与 feed_infinite 共用）：列数按 columns；200% 字号或太窄时改单列（与 DesignSystem 网格同一口径）。 */
+/**
+ * 商品网格（product_grid 与 feed_infinite 共用，H11 / H12）：列数一律用组件库 ProductGridLayout（与 DesignSystem 网格同一口径：
+ * 可用宽放不下两列、字号放大超过阈值或只有 1 件时整组单列）；product_grid 整段放进白卡、卡内网格卡不再卡套卡；
+ * feed_infinite 每件一张独立白卡（不包段卡）。
+ */
 @ComponentV2
 export struct HomeProductGridCard {
   @Param item: HomeCardView | null = null;
@@ -435,8 +488,29 @@ export struct HomeProductGridCard {
 
   private columns(): number {
     const wanted: number = this.feed ? 2 : (this.item?.card.columns ?? 2);
-    const narrow: boolean = this.gridWidth > 0 && this.gridWidth < 2 * 150 + CouliSpacing.space3;
-    return wanted === 1 || narrow || this.fontScale.scale > 1.5 ? 1 : 2;
+    if (wanted === 1) {
+      return 1;
+    }
+    return ProductGridLayout.columns(this.rows().length, this.gridWidth, this.fontScale.scale, this.minColumn());
+  }
+
+  /**
+   * 每列最窄宽度（编排 D10-405）：段卡内网格（超市百货）按卡内不能拆的内容（主价行、副行、返利块）实际所需宽度定，常规字号下
+   * 376 / 390 宽出两列（同画板与 Android）；内容在当前宽度与字号下确实放不下才退单列（字号 > 1.3 倍时组件库照旧单列）。
+   * 信息流（独立白卡，有 8 的内边距）用组件库缺省 160。量不到内容（0）时也用缺省。
+   */
+  private minColumn(): number {
+    if (this.feed) {
+      return ProductGridLayout.MIN_COLUMN;
+    }
+    const need: number = ProductCardMeasure.gridMinColumn(this.getUIContext(), this.rows().map((r: HomeProductRow):
+      ProductCardData => this.port === null ? new ProductCardData() : (this.port as HomeScreenPort).productCard(r.product)),
+      this.fontScale.scale);
+    return need > 0 ? need : ProductGridLayout.MIN_COLUMN;
+  }
+
+  private tilePrefix(): string {
+    return this.feed ? 'home_feed_tile_' : 'home_grid_tile_';
   }
 
   build() {
@@ -449,12 +523,13 @@ export struct HomeProductGridCard {
       }
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space3),
         cross: LengthMetrics.vp(CouliSpacing.space3) } }) {
-        ForEach(this.rows(), (row: HomeProductRow) => {
+        ForEach(this.rows(), (row: HomeProductRow, index: number) => {
           Column() {
             HomeProductTile({
               product: row.product,
               sectionAdLabel: this.item?.card.sectionAdLabel ?? null,
               data: this.port === null ? new ProductCardData() : (this.port as HomeScreenPort).productCard(row.product),
+              inset: !this.feed,
               onOpen: () => {
                 // 渲染时的点击票据（ForEach 条目）。
                 if (row.tap !== null) {
@@ -464,6 +539,7 @@ export struct HomeProductGridCard {
             })
           }
           .width(this.columns() === 1 ? '100%' : 'calc(50% - 6vp)')
+          .id(this.tilePrefix() + index)
         }, (row: HomeProductRow) => (row.tap?.owner ?? 0) + ':' + (row.tap?.render ?? 0) + ':' + row.slot + ':'
           + String(row.product['product_key']))
       }
@@ -474,9 +550,11 @@ export struct HomeProductGridCard {
       })
     }
     .width('100%')
+    .alignItems(HorizontalAlign.Start)
     .padding(this.feed ? 0 : CARD_PADDING)
     .backgroundColor(this.feed ? Color.Transparent : CouliColors.backgroundSurface)
     .borderRadius(CouliRadius.card)
+    .shadow(this.feed ? { radius: 0, color: Color.Transparent } : CouliShadow.card)
   }
 }
 
@@ -500,9 +578,10 @@ export struct HomeActivityCard {
   }
 
   build() {
+    // Main-v3：2 列等宽白卡，最小高 72、内边距 12；标题 14/600 + 副标题 12 次文字；装饰（步骤点 / 圆底图标）无字段，不做（G-V04）。
     Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space3),
       cross: LengthMetrics.vp(CouliSpacing.space3) } }) {
-      ForEach(this.cells(), (ac: ActivityCell) => {
+      ForEach(this.cells(), (ac: ActivityCell, index: number) => {
         Column({ space: CouliSpacing.space1 }) {
           if (ac.entry.image !== null) {
             Image(this.port === null ? ac.entry.image as string :
@@ -516,21 +595,23 @@ export struct HomeActivityCard {
           }
           if (ac.entry.title !== null) {
             Text(ac.entry.title as string)
-              .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary,
                 CouliFontWeight.semibold))
           }
           if (ac.entry.subtitle !== null) {
             Text(ac.entry.subtitle as string)
-              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+              .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
           }
         }
         .alignItems(HorizontalAlign.Start)
-        .flexGrow(1)
-        .flexBasis(this.entries().length >= 2 ? 140 : '100%')
-        .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-        .padding(CARD_PADDING)
+        .justifyContent(FlexAlign.Center)
+        .width(this.entries().length >= 2 ? 'calc(50% - 6vp)' : '100%')
+        .constraintSize({ minHeight: ACTIVITY_MIN_HEIGHT })
+        .padding(CouliSpacing.space3)
         .backgroundColor(CouliColors.backgroundSurface)
         .borderRadius(CouliRadius.card)
+        .shadow(CouliShadow.card)
+        .id('home_activity_' + index)
         .accessibilityGroup(true)
         .accessibilityText((ac.entry.title ?? HomeDraftTexts.text('home.image.default_alt')) +
           (ac.entry.subtitle !== null ? ' ' + (ac.entry.subtitle as string) : ''))
@@ -594,6 +675,7 @@ export struct HomeNoticeCard {
         .width(CouliInteraction.minTouchTarget)
         .height(CouliInteraction.minTouchTarget)
         .backgroundColor(Color.Transparent)
+        .id('home_notice_close')
         .accessibilityText(HomeDraftTexts.text('home.notice.close'))
         .focusBox(CouliFocus.box)
         .onClick(() => {
@@ -606,7 +688,8 @@ export struct HomeNoticeCard {
     }
     .width('100%')
     .padding({ left: CouliSpacing.space3 })
-    .backgroundColor(CouliColors.backgroundSurface)
+    // 第 1 批定稿首页没有公告条（无定稿）：按令牌推导 brand.subtle 底、圆角 16（H15）。
+    .backgroundColor(CouliColors.brandSubtle)
     .borderRadius(CouliRadius.card)
   }
 

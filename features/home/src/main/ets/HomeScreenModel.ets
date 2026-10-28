@@ -117,5 +117,7 @@ export class HomeScreenModel {
   @Trace active: boolean = true;
   /** 真实隐私状态是基本模式（R1-08：固定区与基本模式提示只看它，不看只读）。 */
   @Trace basicMode: boolean = false;
+  /** HM-07v：当前身份是游客（AppHome 每次状态同步按身份档写入；登录后同步即 false，游客价值卡随之消失）。 */
+  @Trace guest: boolean = false;
   port: HomeScreenPort = new NoopPort();
 }

@@ -15,6 +15,7 @@ import ds02ControlsTest from './Ds02Controls.test';
 import ds02ThemeTest from './Ds02Theme.test';
 import fx05aPlatformIconTest from './Fx05aPlatformIcon.test';
 import fx05aWiringTest from './Fx05aWiring.test';
+import hm07vHomeTileTest from './Hm07vHomeTile.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -34,4 +35,5 @@ export default function testsuite() {
   ds02FocusTest();
   fx05aPlatformIconTest();
   fx05aWiringTest();
+  hm07vHomeTileTest();
 }

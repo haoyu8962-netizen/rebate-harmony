@@ -5,6 +5,9 @@ import { PlatformBadge } from './Basics';
 import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
 import { CouliFixedTap } from '../logic/CouliFixedTap';
+import { LARGE_TEXT_SCALE } from '../logic/TextScale';
+import { PriceTerms } from '../format/PriceTerms';
+import { CouliFontScale } from './FontScale';
 
 /** PasteButton 的视觉高（命中区 ≥ 48：系统安全控件按自身尺寸响应，所以视觉高就取 48）。 */
 const PASTE_HEIGHT: number = 48;
@@ -21,8 +24,13 @@ export struct CouliPasteButton {
   @Param buttonId: string = '';
   /** 整行宽（SearchTyping 的整行按钮）；否则按内容宽的胶囊。 */
   @Param fullWidth: boolean = false;
-  /** 品牌浅底（SearchTyping、首页粘贴卡里的白底胶囊用 false）。 */
+  /** 品牌浅底（SearchTyping 用；false 为白底胶囊）。 */
   @Param tinted: boolean = true;
+  /**
+   * 实心主按钮配色（HM-07v H5，首页粘贴卡）：主按钮底 + 主按钮字 / 图标（对比度足够，系统安全控件不拒绝授权）。
+   * 只换颜色，文字与图标仍是系统枚举（BR-ID-16：鸿蒙不换成「粘贴查返利」）。
+   */
+  @Param solid: boolean = false;
   @Event onResult: (success: boolean) => void = (_s: boolean) => {
   };
 
@@ -30,9 +38,10 @@ export struct CouliPasteButton {
     PasteButton({ icon: PasteIconStyle.LINES, text: PasteDescription.PASTE, buttonType: ButtonType.Capsule })
       .fontSize(CouliTypography.body.fontSize as Dimension)
       .fontWeight(FontWeight.Medium)
-      .fontColor(CouliColors.brandEmphasis)
-      .iconColor(CouliColors.brandEmphasis)
-      .backgroundColor(this.tinted ? CouliColors.brandSubtle : CouliColors.backgroundSurface)
+      .fontColor(this.solid ? CouliColors.buttonPrimaryDefaultText : CouliColors.brandEmphasis)
+      .iconColor(this.solid ? CouliColors.buttonPrimaryDefaultText : CouliColors.brandEmphasis)
+      .backgroundColor(this.solid ? CouliColors.buttonPrimaryDefaultBackground
+        : (this.tinted ? CouliColors.brandSubtle : CouliColors.backgroundSurface))
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2,
         bottom: CouliSpacing.space2 })
       .width(this.fullWidth ? '100%' : 'auto')
@@ -45,9 +54,78 @@ export struct CouliPasteButton {
   }
 }
 
+/** 首页粘贴卡最小高（Main-v3 约 132）。 */
+const PASTE_CARD_MIN_HEIGHT: number = 132;
+/** 示意插图尺寸（Main-v3 的 132×112 视口）。 */
+const PASTE_ART_WIDTH: number = 132;
+const PASTE_ART_HEIGHT: number = 112;
+/** 卡宽小于此值时不画插图（按钮列留足宽度）。 */
+const PASTE_ART_MIN_CARD: number = 300;
+
+/**
+ * 首页粘贴卡右侧的示意插图「链接 → 带预估返的卡」（照 Main-v3 132×112 SVG 用形状重画，颜色全部取令牌，深色随令牌）。
+ * 纯装饰：整块对读屏隐藏（no-hide-descendants），不可点。
+ */
+@Builder
+function pasteIllustration() {
+  Stack({ alignContent: Alignment.TopStart }) {
+    Circle({ width: 116, height: 116 })
+      .fill(CouliColors.backgroundSurface)
+      .opacity(0.55)
+      .position({ x: 18, y: -2 })
+    Rect({ width: 104, height: 36 })
+      .radius(10)
+      .fill(CouliColors.backgroundSurface)
+      .stroke(CouliColors.borderSubtle)
+      .position({ x: 10, y: 10 })
+    Stack() {
+      CouliIcon({ name: 'link', iconSize: 22, color: CouliColors.brandEmphasis })
+    }
+    .position({ x: 18, y: 17 })
+    Rect({ width: 56, height: 5 }).radius(2.5).fill(CouliColors.borderSubtle).position({ x: 46, y: 20 })
+    Rect({ width: 36, height: 5 }).radius(2.5).fill(CouliColors.borderSubtle).position({ x: 46, y: 30 })
+    Column() {
+      Rect({ width: 1.75, height: 7 }).fill(CouliColors.borderControl)
+      CouliIcon({ name: 'chevron-down', iconSize: 12, color: CouliColors.borderControl })
+        .margin({ top: -6 })
+    }
+    .position({ x: 56, y: 50 })
+    Rect({ width: 116, height: 42 })
+      .radius(10)
+      .fill(CouliColors.backgroundSurface)
+      .stroke(CouliColors.borderSubtle)
+      .position({ x: 10, y: 64 })
+    Rect({ width: 26, height: 26 }).radius(6).fill(CouliColors.backgroundPlaceholder).position({ x: 18, y: 72 })
+    Rect({ width: 14, height: 16 }).radius(2).fill(CouliColors.backgroundSurface).position({ x: 24, y: 78 })
+    Rect({ width: 14, height: 6 }).fill(CouliColors.statusSuccessText).position({ x: 24, y: 88 })
+    Rect({ width: 54, height: 5 }).radius(2.5).fill(CouliColors.borderSubtle).position({ x: 50, y: 74 })
+    Row({ space: 2 }) {
+      CouliIcon({ name: 'clock', iconSize: 9, color: CouliColors.rebateText })
+      Text(PriceTerms.rebate)
+        .fontSize(9)
+        .fontWeight(CouliFontWeight.semibold)
+        .fontColor(CouliColors.rebateText)
+        .maxFontScale(1)
+    }
+    .width(68)
+    .height(15)
+    .padding({ left: 4 })
+    .borderRadius(7.5)
+    .backgroundColor(CouliColors.rebateBackground)
+    .position({ x: 50, y: 84 })
+  }
+  .width(PASTE_ART_WIDTH)
+  .height(PASTE_ART_HEIGHT)
+  .accessibilityLevel('no-hide-descendants')
+  .hitTestBehavior(HitTestMode.None)
+}
+
 /** PasteEntry 的版式。 */
 export enum PasteEntryStyle {
-  /** 首页「粘贴链接，先查返利」卡：品牌浅底圆角卡 + 标题 17/600 + 副标题 12 + 系统粘贴胶囊（白底）。 */
+  /**
+   * 首页常驻粘贴卡（Main-v3 / HomeGuest-v3，HM-07v H5）：品牌浅底圆角 16、高约 132；左列标题 17/600（卡标题即按钮说明，
+   * BR-ID-16）+ 下方实心系统粘贴按钮；右侧「链接 → 带预估返的卡」示意插图（装饰，读屏隐藏，不压按钮）。无副标题。
+   */
   CARD = 'card',
   /** SearchTyping「粘贴查返利」：白卡内上方说明文字 12 + 整行系统粘贴按钮（品牌浅底）。 */
   ROW = 'row'
@@ -68,33 +146,50 @@ export struct PasteEntry {
   @Param entryId: string = '';
   @Event onResult: (success: boolean) => void = (_s: boolean) => {
   };
+  @Local cardWidth: number = 0;
+  @Local fontScale: CouliFontScale = CouliFontScale.shared();
+
+  aboutToAppear(): void {
+    CouliFontScale.attach(this.getUIContext());
+  }
 
   @Builder
   card() {
     Row({ space: CouliSpacing.space3 }) {
-      Column({ space: CouliSpacing.space1 }) {
+      Column({ space: CouliSpacing.space4 }) {
         Text(this.title)
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary, CouliFontWeight.semibold))
-        Text(this.subtitle)
-          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+        if (this.subtitle.length > 0) {
+          Text(this.subtitle)
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+        }
+        CouliPasteButton({
+          disabled: this.disabled,
+          buttonId: this.entryId + '_paste',
+          solid: true,
+          onResult: (success: boolean) => this.onResult(success)
+        })
       }
       .alignItems(HorizontalAlign.Start)
+      .justifyContent(FlexAlign.Center)
       .layoutWeight(1)
-      .accessibilityGroup(true)
-      .accessibilityText(this.title + ' ' + this.subtitle)
-      CouliPasteButton({
-        disabled: this.disabled,
-        buttonId: this.entryId + '_paste',
-        tinted: false,
-        onResult: (success: boolean) => this.onResult(success)
-      })
+      // 插图在 200% 字号或卡太窄时不画（不挤按钮、不压按钮：安全控件被遮挡会拒绝授权，brief-harmony §3.2）。
+      if (this.fontScale.scale <= LARGE_TEXT_SCALE && this.cardWidth >= PASTE_ART_MIN_CARD) {
+        pasteIllustration()
+      }
     }
     .width('100%')
-    .padding(CouliSpacing.space4)
+    .constraintSize({ minHeight: PASTE_CARD_MIN_HEIGHT })
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space3, top: CouliSpacing.space4,
+      bottom: CouliSpacing.space4 })
     .borderRadius(CouliRadius.card)
     .backgroundColor(CouliColors.brandSubtle)
     .alignItems(VerticalAlign.Center)
     .id(this.entryId)
+    .onAreaChange((_old: Area, now: Area) => {
+      this.cardWidth = now.width as number;
+      CouliFontScale.refresh();
+    })
   }
 
   @Builder

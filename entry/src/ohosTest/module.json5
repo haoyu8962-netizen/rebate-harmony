@@ -29,6 +29,13 @@
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
         "exported": false
+      },
+      {
+        "name": "Hm07vAbility",
+        "srcEntry": "./ets/testability/Hm07vAbility.ets",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": false
       }
     ]
   }

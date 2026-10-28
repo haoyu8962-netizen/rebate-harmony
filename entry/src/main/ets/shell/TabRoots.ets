@@ -1,9 +1,8 @@
 import { HomeActions, homeTabRootBuilder } from 'home';
 import { AppRouting } from '../routing/AppRouting';
-import { SearchDraftTexts } from '../search/SearchDraftTexts';
 import { TabBarItem } from 'designsystem';
 import { ShellDraftTexts } from './ShellDraftTexts';
-import { homeClipboardBuilder } from '../clipboard/ClipboardViews';
+import { homeClipboardPasteBuilder, homeClipboardPromptBuilder } from '../clipboard/ClipboardViews';
 
 /** 一个底部 Tab：根页的路由名（routes.json）、名称、图标。 */
 export class ShellTab {
@@ -82,13 +81,18 @@ export class TabRootRegistry {
   }
 
   private static build(): Map<string, WrappedBuilder<[boolean]>> {
-    // 首页的搜索入口（APP-06a）：经 Router 打开 Search（auth=none；基本模式按 EntryGuard 只读打开）。
-    HomeActions.searchLabel = SearchDraftTexts.text('search.placeholder');
+    // 首页的搜索入口（APP-06a）：经 Router 打开 Search（auth=none；基本模式按 EntryGuard 只读打开）。占位文案首页自己取
+    // （HomeDraftTexts search.placeholder，HM-07v H-V03）。
     HomeActions.openSearch = (): void => {
       AppRouting.shared.openInApp('Search');
     };
-    // APP-07：首页剪贴板区（粘贴卡、邀请确认条、结果提示）在搜索框下方；基本模式（只读首页）不显示、不读。
-    HomeActions.clipboardArea = wrapBuilder(homeClipboardBuilder);
+    // HM-07v H4：游客价值卡【登录领返利】经 Router 打开登录页（入口 in_app；基本模式由 EntryGuard 先弹隐私，客户端不特判）。
+    HomeActions.openLogin = (): void => {
+      AppRouting.shared.openInApp('Login');
+    };
+    // APP-07 / HM-07v H6：首页剪贴板两行（提示条；粘贴卡 + 结果 + 识别卡半屏），游客价值卡夹在中间；基本模式（只读首页）不显示、不读。
+    HomeActions.clipboardPrompt = wrapBuilder(homeClipboardPromptBuilder);
+    HomeActions.clipboardPaste = wrapBuilder(homeClipboardPasteBuilder);
     // 「我的」页（APP-12）：授权管理与钱包入口在正式「我的」页的宫格里（取代 APP-06b / APP-09 的冒烟入口），都经 Router。
     const m: Map<string, WrappedBuilder<[boolean]>> = new Map<string, WrappedBuilder<[boolean]>>();
     m.set('Home', wrapBuilder(homeTabRootBuilder));

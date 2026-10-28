@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """只自测资源断言与生成器漂移设施；不把参考件当产品实现通过。"""
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from unittest.mock import patch
 import test_host as host_tests
 from test_host import assert_resource_palette, assert_resource_free_logic, ROOT, palette, argb
 import gen
-from check_device_result import expected_names, validate
+from check_device_result import expected_names, validate, FX25_DEVICE_CASES
 
 
 class ResourceAssertionStrength(unittest.TestCase):
@@ -92,8 +93,11 @@ class ResourceAssertionStrength(unittest.TestCase):
         self.assertTrue((test_root / ability['srcEntry']).is_file())
         pages = json.loads((test_root / 'resources/base/profile/ds02_test_pages.json').read_text())['src']
         # F-X-05a 追加测试宿主页 Fx05aFixture（Fx05aAbility）；DS-02 宿主仍是第一项。F-X-25 的 Fx25TestAbility 走命名路由、不进页面 profile（变基到 7d5ebe7 合并）。
-        self.assertEqual(pages, ['pages/Ds02R1Fixture', 'pages/Fx05aFixture'])
-        self.assertEqual([a['name'] for a in module['abilities']], ['Ds02R1Ability', 'Fx25TestAbility', 'Fx05aAbility'])
+        # HM-07v-a 测试 v3（评审 r1 R1-01）追加横滑卡宿主页 Hm07vTileFixture（Hm07vAbility），同样只在测试 HAP。
+        self.assertEqual(pages, ['pages/Ds02R1Fixture', 'pages/Fx05aFixture', 'pages/Hm07vTileFixture'])
+        self.assertEqual([a['name'] for a in module['abilities']],
+                         ['Ds02R1Ability', 'Fx25TestAbility', 'Fx05aAbility', 'Hm07vAbility'])
+        self.assertFalse(module['abilities'][3]['exported'])
         self.assertTrue((test_root / 'ets' / (pages[0] + '.ets')).is_file())
         runner = (test_root / 'ets/testrunner/OpenHarmonyTestRunner.ets').read_text()
         self.assertIn("import('../test/List.test')", runner)
@@ -105,6 +109,8 @@ class ResourceAssertionStrength(unittest.TestCase):
                     self.assertNotIn('Ds02R1Ability', p.read_text(), str(p))
                     self.assertNotIn('Fx05aAbility', p.read_text(), str(p))
                     self.assertNotIn('Fx05aFixture', p.read_text(), str(p))
+                    self.assertNotIn('Hm07vAbility', p.read_text(), str(p))
+                    self.assertNotIn('Hm07vTileFixture', p.read_text(), str(p))
 
     def test_verify_dispatches_hap_and_har_and_requires_device_execution(self):
         root = Path(__file__).resolve().parents[3]
@@ -119,8 +125,10 @@ class ResourceAssertionStrength(unittest.TestCase):
             device.write_text('''#!/bin/bash
 set -eu
 [ -f "$1" ]
-printf '%s\\n' "$2|$4|${COULI_HM_TEST_CASE_TIMEOUT:-}|${COULI_HM_TEST_TOTAL_TIMEOUT:-}" >> "$ROOT/device-receipts"
+printf '%s\\n' "$2|$4|${COULI_HM_TEST_CASE_TIMEOUT:-}|${COULI_HM_TEST_TOTAL_TIMEOUT:-}|${COULI_HM_TEST_FILTER:-}|${COULI_HM_DEVICE_SET:-}|$(basename "$3")" >> "$ROOT/device-receipts"
 if [ "$PROBE" = device-fails ]; then exit 1; fi
+# HM-07v-a 拆步（D10-405 D4）：第二个 entry 步失败也必须让 verify 失败。
+if [ "$PROBE" = hm07va-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = hm07va ]; then exit 1; fi
 echo 'DEVICE_TEST_PASS simulated_only'
 ''')
             device.chmod(0o755)
@@ -169,7 +177,7 @@ fake_hvigor() {
 run_device_tests() {''' + function + '''
 run_device_tests core common/core core_test
 ''' + entry_dispatch + '\n')
-            for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails']:
+            for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails', 'hm07va-step-fails']:
                 for receipt in ['build-receipts', 'device-receipts']:
                     (folder / receipt).unlink(missing_ok=True)
                 result = subprocess.run(['bash', str(script), tmp, probe], capture_output=True, text=True,
@@ -179,8 +187,15 @@ run_device_tests core common/core core_test
                     self.assertEqual((folder / 'build-receipts').read_text().splitlines(),
                                      ['core|genOnDeviceTestHap|default', 'same-source|apply', 'entry|assembleHap|staging',
                                       'same-source|restore', 'same-source|check'])
+                    # 测试包只构建一次（上面 build-receipts 里 entry 只有一行）；entry 分两步各跑一次，各自 1800 秒、各自名单、
+                    # 各自工作目录（HM-07v-a，编排 D10-405 D4）。
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
-                                     ['core_test|||', 'entry_test|' + tmp + '/Staging.hap|600000|1800'])
+                                     ['core_test|||||all|device-test',
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|notClass=Hm07vHomeUi|main|device-test',
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
+                                      'device-test-entry-hm07va'])
+                if probe == 'hm07va-step-fails':
+                    self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 print('REFERENCE_ONLY verify dispatch: ' + probe)
 
     def test_device_timeout_defaults_and_explicit_override(self):
@@ -201,8 +216,12 @@ run_device_tests core common/core core_test
 
     def test_device_report_requires_every_case_once_and_successful_finish(self):
         names = sorted(expected_names())
-        # DS-02 158 条 + F-X-05a 9 条（tools/ci/fx05a/fixtures/device-cases.txt；v3 加剪贴板天猫徽标 1 条，评审 r1 R1-01）。
-        self.assertEqual(len(names), 167)
+        # 合集（--set all）：DS-02 158 条 + F-X-05a 9 条（tools/ci/fx05a/fixtures/device-cases.txt；v3 加剪贴板天猫徽标 1 条，
+        # 评审 r1 R1-01）+ F-X-25 6 条（AuthChangeDevice_FX25）+ HM-07v-a 17 条（tools/ci/hm07v/fixtures/device-cases.txt；测试 v3 加横滑卡 amount_unknown 1 条（R1-01）、320 金刚区命中区 1 条（R1-02））。
+        self.assertEqual(len(names), 190)
+        self.assertEqual(len([name for name in names if name.startswith('hm07va_')]), 17)
+        self.assertIn('hm07va_scroll_tile_amount_unknown_hides_price_shows_label_and_reads_no_price', names)
+        self.assertIn('hm07va_w320_icon_cells_hit_region_48vp_and_not_overlapping', names)
         self.assertIn('fx05a_r1_clipboard_tmall_badge_text_only_others_keep_official_icon', names)
 
         def report(case_names, failed='', footer=True):
@@ -217,9 +236,10 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 167)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 167)
-        for missing in [name for name in names if name.startswith('fx05a_')]:
+        self.assertEqual(validate(report(names)), 190)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 190)
+        for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
+                        or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
         # 12 个变体/主题任意漏一个都必须报红，旧聚合名不能抵账。
@@ -245,6 +265,58 @@ run_device_tests core common/core core_test
             with self.subTest(reason=reason), self.assertRaises(ValueError):
                 validate(text)
             print('REFERENCE_ONLY device report rejected: ' + reason)
+
+    def test_split_entry_steps_each_require_their_own_list(self):
+        """HM-07v-a（编排 D10-405 D4）：entry 两个设备步各自的必跑名单；合集 = 两份之和，互不相交，原 167 条一条不少。"""
+        main, hm07va, every = expected_names('main'), expected_names('hm07va'), expected_names('all')
+        self.assertEqual(len(main), 173)
+        self.assertEqual(len(hm07va), 17)
+        self.assertEqual(main | hm07va, every)
+        self.assertEqual(main & hm07va, set())
+        self.assertTrue(all(name.startswith('hm07va_') for name in hm07va))
+        self.assertFalse(any(name.startswith('hm07va_') for name in main))
+        self.assertEqual(set(FX25_DEVICE_CASES) & main, set(FX25_DEVICE_CASES))
+        # F-X-25 名单与套件里声明的 it() 一致（防止改名后这里成了空要求）。
+        root = Path(__file__).resolve().parents[3]
+        suite = (root / 'entry/src/ohosTest/ets/test/AuthChangeDevice.test.ets').read_text()
+        self.assertEqual(sorted(re.findall(r"\bit\('(E\d\d_[A-Za-z0-9_]+)'", suite)), sorted(FX25_DEVICE_CASES))
+        facilities = (root / 'tools/ci/ds02/check-ui-facilities.cjs').read_text()
+        for name in FX25_DEVICE_CASES:
+            self.assertIn("'" + name + "'", facilities)
+
+        def report(case_names, failed=''):
+            events = []
+            for name in case_names:
+                events += ['OHOS_REPORT_STATUS: test=' + name, 'OHOS_REPORT_STATUS_CODE: 1',
+                           'OHOS_REPORT_STATUS: test=' + name,
+                           'OHOS_REPORT_STATUS_CODE: ' + ('-2' if name == failed else '0')]
+            events += [f'Tests run: {len(case_names)}, Failure: 0, Error: 0, Pass: {len(case_names)}',
+                       'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
+            return '\n'.join(events)
+
+        self.assertEqual(validate(report(sorted(main)), 'main'), 173)
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 173)
+        self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
+        bad = {
+            # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
+            **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
+            'main-with-hm07va-case': (report(sorted(main) + sorted(hm07va)[:1]), 'main'),
+            'main-failed': (report(sorted(main), failed=sorted(main)[0]), 'main'),
+            # 单独步：17 条缺一条、多跑别的套件、有失败都红。
+            **{'hm07va-missing-' + name: (report(sorted(hm07va - {name})), 'hm07va') for name in sorted(hm07va)},
+            'hm07va-with-ds02-case': (report(sorted(hm07va) + sorted(main)[:1]), 'hm07va'),
+            'hm07va-with-future-case': (report(sorted(hm07va) + ['future_extra_test']), 'hm07va'),
+            'hm07va-failed': (report(sorted(hm07va), failed=sorted(hm07va)[0]), 'hm07va'),
+            'hm07va-only-summary': ('Tests run: 17, Failure: 0, Error: 0, Pass: 17', 'hm07va'),
+            'main-report-checked-as-hm07va': (report(sorted(main)), 'hm07va'),
+            'hm07va-report-checked-as-main': (report(sorted(hm07va)), 'main'),
+        }
+        for reason, (text, chosen) in bad.items():
+            with self.subTest(reason=reason), self.assertRaises(ValueError):
+                validate(text, chosen)
+        with self.assertRaises(ValueError):
+            expected_names('unknown')
+        print('REFERENCE_ONLY split device reports rejected: %d' % len(bad))
 
     def test_generator_check_covers_both_test_data_outputs(self):
         outputs = gen.build_outputs()

@@ -258,6 +258,14 @@ node "$ROOT/tools/ci/fx05a/run-clipboard.cjs" || fail_fast "fx05a-clipboard" "�
 node "$ROOT/tools/ci/fx05a/check-arkts.cjs" --real || fail_fast "fx05a-arkts" "F-X-05a 测试文件 ArkTS 严格检查失败"
 record "F-X-05a 宿主检查" PASS "资源 / 源码 / 接线 / 纯逻辑 / ArkTS"
 
+# HM-07v-a（首页视觉 a 段）：fixture 与 Android / iOS 逐字一致、设备必跑名单、深色启动参数只在 Debug / Staging（H-V06）、
+# 网格 / 搜索行 / 价值卡 / 平台格接线。先自测（12 种错误实现逐个打红），再查本仓库；ArkTS 严格检查用真实产品源码。
+step "HM-07v-a 首页视觉宿主检查"
+python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --self-test || fail_fast "hm07v-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" || fail_fast "hm07v-host" "见上方违反项"
+node "$ROOT/tools/ci/hm07v/check-arkts.cjs" --real || fail_fast "hm07v-arkts" "HM-07v-a 测试文件 ArkTS 严格检查失败"
+record "HM-07v-a 宿主检查" PASS "fixture / 名单 / 深色入口 / 接线 / ArkTS"
+
 step "DS-02 纯逻辑与测试设施自测"
 node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"
 PYTHONPATH="$ROOT/tools/codegen:$ROOT/tools/ci/ds02${PYTHONPATH:+:$PYTHONPATH}" \
@@ -633,13 +641,24 @@ run_unit_tests designsystem common/designsystem America/Los_Angeles
 # 安装、aa test 并解析结果。**没有已连接的设备 / 模拟器就失败，不跳过**（先启动 DevEco 模拟器，或设 COULI_HM_DEVICE）。
 # 注意：测试包与应用同包名（com.couli.hm），device-test.sh 会先卸掉设备上已装的应用，跑完再卸掉测试包。
 run_device_tests() {
-    # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name
+    # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name $4 product $5 被测应用包
+    # $6 步骤名（同一测试包分多步跑时区分日志与工作目录；缺省 = 模块名）$7 Hypium 套件过滤（class=… / notClass=…；缺省全部）
+    # $8 entry_test 必跑名单（main / hm07va / all，见 ds02/check_device_result.py）
+    # HM-07v-a（编排 D10-405 D4）：同一模块第二步复用第一步构建好的测试包（同包），只重新签名、卸载重装、执行。
     local module="$1" dir="$2" test_module="$3" log="$LOG_DIR/device-test-build-$1.log" code
     local test_product="${4:-default}" application_hap="${5:-}"
+    local label="${6:-$1}" test_filter="${7:-}" device_set="${8:-all}"
     local test_task="genOnDeviceTestHap"
     if [ "$module" = entry ]; then test_task="assembleHap"; fi
     local hap="$BUILD_DIR/$dir/build/$test_product/outputs/ohosTest/$module-ohosTest-unsigned.hap"
-    step "设备测试：${module}（ohosTest，${test_module}）"
+    step "设备测试：${label}（ohosTest，${test_module}${test_filter:+，$test_filter}）"
+    case "${DEVICE_TEST_BUILT:- }" in
+        *" $module "*)
+            [ -f "$hap" ] || fail_fast "device-test $label" "复用的测试包不见了：$hap"
+            run_device_test_hap "$module" "$test_module" "$hap" "$application_hap" "$label" "$test_filter" "$device_set"
+            return
+            ;;
+    esac
     rm -f "$hap"
     # F-X-25 t2：测试包装在被测应用旁边（同一 bundle）时，它带进来的 core / generated 必须与应用同源，否则运行时同名模块
     # （&core/Index&1.0.0）解析到测试包那一份 Release 版，Staging 应用缺 DebugCapabilities 等导出被杀（App died）。hvigor 测试模式
@@ -670,24 +689,38 @@ run_device_tests() {
         show_matches "$API_COMPAT_PATTERN" "$log" 20
         fail_fast "device-test $module" "测试包用到了高于 API 20 的接口，见 $log"
     fi
-    local out="$OUT_DIR/device-test-$module.log"
-    if "$ROOT/tools/ci/device-test.sh" "$hap" "$test_module" "$OUT_DIR/device-test" "$application_hap" >"$out" 2>&1; then
+    DEVICE_TEST_BUILT="${DEVICE_TEST_BUILT:- }$module "
+    run_device_test_hap "$module" "$test_module" "$hap" "$application_hap" "$label" "$test_filter" "$device_set"
+}
+run_device_test_hap() {
+    # $1 模块名 $2 ohosTest 的 module.name $3 测试包 $4 被测应用包 $5 步骤名 $6 套件过滤 $7 必跑名单
+    local module="$1" test_module="$2" hap="$3" application_hap="$4" label="$5" code
+    local out="$OUT_DIR/device-test-$label.log" work="$OUT_DIR/device-test"
+    # 每一步独立工作目录（aa test 结果文件同名，分步时不能互相覆盖）。
+    if [ "$label" != "$module" ]; then work="$OUT_DIR/device-test-$label"; fi
+    if COULI_HM_TEST_FILTER="$6" COULI_HM_DEVICE_SET="$7" \
+        "$ROOT/tools/ci/device-test.sh" "$hap" "$test_module" "$work" "$application_hap" >"$out" 2>&1; then
         code=0
     else
         code=$?
     fi
     cat "$out"
     if [ "$code" -ne 0 ]; then
-        fail_fast "device-test $module" "exit ${code}（没有设备、安装失败或有用例失败），见 $out"
+        fail_fast "device-test $label" "exit ${code}（没有设备、安装失败、有用例失败或超过 1800 秒），见 $out"
     fi
     local pass
     pass="$({ grep -E '^DEVICE_TEST_PASS' "$out" || true; } | tail -1)"
-    [ -n "$pass" ] || fail_fast "device-test $module" "device-test.sh 退出 0 但没有 DEVICE_TEST_PASS 行"
-    record "device-test $module" PASS "${pass#DEVICE_TEST_PASS }"
+    [ -n "$pass" ] || fail_fast "device-test $label" "device-test.sh 退出 0 但没有 DEVICE_TEST_PASS 行"
+    record "device-test $label" PASS "${pass#DEVICE_TEST_PASS }"
 }
 run_device_tests core common/core core_test
+# HM-07v-a（编排 D10-405 D4、测试 v2 T0）：entry 拆成两个设备步，同锁、同一个测试包，各自计时、各自 1800 秒门槛、各自必跑名单：
+#   entry         DS-02 158 + F-X-05a 9 + F-X-25 6 = 173 条（排除 Hm07vHomeUi 套件）
+#   entry-hm07va  HM-07v-a 17 条（只跑 Hm07vHomeUi 套件）；device-test.sh 先卸载再装，从未同意隐私的冷启动开始（不受前一步状态影响）
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap"
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi main
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 
 # ---------------------------------------------------------------- 8. Release 制品扫描
 export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"
@@ -707,6 +740,15 @@ step "F-X-05a：Release 包内平台图字节与清单一致（V7）"
 python3 "$ROOT/tools/ci/fx05a/check_platform_icons.py" --hap "$OUT_DIR/Release.hap" \
     || fail_fast "fx05a-hap" "Release 包内平台图与源文件不一致或混入清单 / 替身，见上方输出"
 record "F-X-05a Release 平台图" PASS "包内字节 = couli 原图"
+
+step "HM-07v-a：深色启动参数 Release 不含、Staging / Debug 含（H-V06）"
+python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "hm07v-hap Release" "Release 制品含 couli_debug_color_mode，见上方输出"
+for cfg in Staging Debug; do
+    python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --hap-staging "$OUT_DIR/$cfg.hap" \
+        || fail_fast "hm07v-hap $cfg" "$cfg 制品缺 couli_debug_color_mode"
+done
+record "HM-07v-a 深色入口制品检查" PASS "Release 不含；Staging / Debug 含"
 
 for cfg in Staging Debug; do
     step "release-scan --self-test：$cfg 必须命中全部标记"

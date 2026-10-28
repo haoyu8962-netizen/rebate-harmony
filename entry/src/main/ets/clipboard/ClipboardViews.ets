@@ -86,21 +86,19 @@ function resultNotice(model: ClipboardUiModel, id: string) {
 }
 
 /**
- * 首页剪贴板区（HomeClipboard / HomeClipboardInvite、Main / HomeGuest 的「粘贴链接，先查返利」卡）：挂在首页 Tab 根页的固定位置
- * （首页 SDUI 在 APP-11）。鸿蒙没有自动提示条：粘贴卡是系统 PasteButton；读到邀请内容（游客）才出邀请确认条。大屏限宽 600 居中
- * （共性第 8 条；外层首页已是滚动容器）。
+ * 首页剪贴板提示条行（HomeClipboardInvite / FU-CLIP C7 系统分享，HM-07v H6）：在固定搜索行下、游客价值卡上。鸿蒙没有自动提示条：
+ * 读到邀请内容（游客）才出邀请确认条；系统分享到达出分享提示条。没有提示时这一行高 0、不留缝（有提示时自带下方 12 间距）。
  */
 @ComponentV2
-export struct HomeClipboardArea {
+export struct HomeClipboardPrompt {
   @Local model: ClipboardUiModel = AppClipboard.shared.uiModel;
 
-  @Builder
-  sheet() {
-    ClipboardCardListSheet()
+  private shown(): boolean {
+    return this.model.promptId > 0 && this.model.promptEntry === HOME_ENTRY;
   }
 
   build() {
-    Column({ space: CouliSpacing.space3 }) {
+    Column() {
       if (this.model.promptId > 0 && this.model.promptEntry === HOME_ENTRY && this.model.promptKind === SHARE_KIND) {
         // FU-CLIP C6 / C7：系统分享提示条（平台标签 + 缩略候选，点了才 parse；共享 busy 与 42901 禁用期都置灰，执行层另拦）
         ClipboardPromptBar({
@@ -131,10 +129,31 @@ export struct HomeClipboardArea {
           onClose: this.model.promptCloseAction()
         })
       }
+    }
+    .width('100%')
+    .padding({ bottom: this.shown() ? CouliSpacing.space3 : 0 })
+  }
+}
+
+/**
+ * 首页常驻粘贴卡行（Main-v3 / HomeGuest-v3「粘贴查返利」，HM-07v H5）：一张卡、一个系统 PasteButton（只调底色与圆角，文字图标由系统给）；
+ * 卡标题即按钮说明（clipboard.paste_hint，BR-ID-16）；无副标题。卡下是结果内联提示；识别卡半屏（bindSheet）挂在这一行，
+ * 状态由模型驱动（sheetFor(HOME_ENTRY)，onDisappear 交回 sheetCloseAction，列表按票据重建不改变这一口径）。
+ */
+@ComponentV2
+export struct HomeClipboardPaste {
+  @Local model: ClipboardUiModel = AppClipboard.shared.uiModel;
+
+  @Builder
+  sheet() {
+    ClipboardCardListSheet()
+  }
+
+  build() {
+    Column({ space: CouliSpacing.space3 }) {
       PasteEntry({
         entryStyle: PasteEntryStyle.CARD,
-        title: ClipboardDraftTexts.text('clipboard.home_card.title'),
-        subtitle: ClipboardDraftTexts.text('clipboard.home_card.subtitle'),
+        title: ClipboardDraftTexts.text('clipboard.paste_hint'),
         disabled: this.model.blocked || this.model.busy,
         entryId: 'home_paste_card',
         onResult: (success: boolean) => {
@@ -217,8 +236,13 @@ export struct SearchPasteArea {
   }
 }
 
-/** 首页 Tab 根页的剪贴板区（HomeActions.clipboardArea 用 wrapBuilder 登记）。 */
+/** 首页列表里的剪贴板两行（HomeActions.clipboardPrompt / clipboardPaste 用 wrapBuilder 登记）。 */
 @Builder
-export function homeClipboardBuilder() {
-  HomeClipboardArea()
+export function homeClipboardPromptBuilder() {
+  HomeClipboardPrompt()
+}
+
+@Builder
+export function homeClipboardPasteBuilder() {
+  HomeClipboardPaste()
 }

@@ -149,6 +149,8 @@ markers = [
     # 场景启动参数键，以及首页草稿预览页 HomePreview 的标记（entry/src/staging/ets/home/HomePreviewPage.ets；路由名 HomePreview 由下面
     # routes.json 的 debug_only 路由覆盖）。
     "COULI_FAKE_HOME_SERVER_APP11_5e8c21", "couli_debug_home_scene", "COULI_HOME_PREVIEW_APP11_9b4d27",
+    # HM-07v（H-V06，D10-119）：首页深色截图的启动参数键（entry/src/staging/ets/variant/BuildVariant.ets），Release 必须不含。
+    "couli_debug_color_mode",
     # APP-10：Agent 四个待定 operation 的本机假服务（common/core/src/staging/ets/agent/AgentFakeService.ets）、fixture 原文表
     # （entry/src/staging/ets/variant/AgentFixtures.ets，gen.py 生成）与启动参数键（entry/src/staging/ets/agent/AgentVariant.ets）。
     "COULI_AGENT_FAKE_APP10_7d3e15", "AgentFakeService", "couli_debug_agent_fixture",

@@ -345,7 +345,7 @@ export {
 } from './src/main/ets/home/HomeController';
 export {
   HomeRenderTicket, HomeTap, HomeNoticeCloseTicket, HomeNoticeRow, HomeProductRow, HomeSectionTicket, HomePopupImageTicket,
-  HomePopupTicket, HomeFixedArea, HomeNoticeDisplay, HomeErrorText
+  HomePopupTicket, HomeFixedArea, HomeNoticeDisplay, HomeErrorText, HomeNativeRows, HomeIconArt
 } from './src/main/ets/home/HomeTickets';
 export { HomeDraftTexts } from './src/main/ets/home/HomeDraftTexts';
 export { HomeSignal, HomeSignalHub, HomeVisibilityHub, TabWillChangeRegistry } from './src/main/ets/home/HomeSignals';

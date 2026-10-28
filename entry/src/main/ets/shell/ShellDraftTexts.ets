@@ -61,8 +61,6 @@ export class ShellDraftTexts {
 
   // ---------------------------------------------------------------- 基本模式页（BasicMode.dc.html）
 
-  /** TODO(N-16) 待法务定稿，不得提审。基本模式页顶部搜索框的占位文字。 */
-  static readonly BASIC_SEARCH_PLACEHOLDER: string = '搜索商品';
   /** TODO(N-16) 待法务定稿，不得提审。只有图标的【设置】按钮的读屏名称。 */
   static readonly SETTINGS: string = '设置';
 

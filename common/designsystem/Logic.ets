@@ -19,4 +19,5 @@ export { PlatformIconSource, PlatformIconSize } from './src/main/ets/components/
 export { LARGE_TEXT_SCALE } from './src/main/ets/logic/TextScale';
 export { StepUpPanelFit } from './src/main/ets/logic/StepUpPanelFit';
 export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
+export { ContentColumn } from './src/main/ets/logic/ContentColumn';
 export { CouliFixedTap } from './src/main/ets/logic/CouliFixedTap';

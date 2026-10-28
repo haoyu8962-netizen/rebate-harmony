@@ -26,6 +26,12 @@ export class HomeDraftTexts {
     m.set('home.banner.position', '第 {n} 张，共 {total} 张');
     // 加载失败版式（StateLoadFailed）的标题（照设计稿）。
     m.set('home.load_failed.title', '加载失败');
+    // HM-07v（APP-11v，G-V09 / H-V03）：首页与基本模式首页搜索入口占位（照 Main-v3 / HomeGuest-v3；三端同键同字）。
+    // TODO(G-V09) 08 表 C 未登记 search.placeholder，契约补键后改读 DefaultTexts；搜索页输入框仍用自己的草稿（到搜索页视觉任务再定）。
+    m.set('search.placeholder', '搜商品名，或粘贴商品链接');
+    // 游客价值卡（HomeGuest-v3；BR-TEXT-14 表 C 已登记，契约未有）。TODO(CT-16f)
+    m.set('home.guest_value.desc', '下单前先在凑狸查返利');
+    m.set('home.guest_value.login', '登录领返利');
     return m;
   }
 

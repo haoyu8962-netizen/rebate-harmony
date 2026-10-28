@@ -1,6 +1,6 @@
-import { PrivacyDecision } from 'core';
+import { HomeDraftTexts, PrivacyDecision } from 'core';
 import {
-  CouliButton, CouliButtonSize, CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
+  CouliButton, CouliButtonSize, CouliColors, CouliFocus, CouliIcon, CouliInteraction, ContentColumn, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliTypography, TabBar
 } from 'designsystem';
 import { DefaultTexts } from 'generated';
@@ -111,8 +111,11 @@ export struct AppShell {
     Row({ space: CouliSpacing.space2 }) {
       Row({ space: CouliSpacing.space2 }) {
         CouliIcon({ name: 'search', iconSize: 20, color: CouliColors.textSecondary })
-        Text(ShellDraftTexts.BASIC_SEARCH_PLACEHOLDER)
+        Text(HomeDraftTexts.text('search.placeholder'))
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
+          // 与首页搜索入口同口径（评审 r1 R1-03）：大字号下最多 2 行、末尾省略；读屏名是完整占位。
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
       }
       .layoutWeight(1)
@@ -124,6 +127,7 @@ export struct AppShell {
       .borderRadius(CouliRadius.button)
       .responseRegion({ x: 0, y: -2, width: '100%', height: TOP_CONTROL_HEIGHT + 4 })
       .accessibilityGroup(true)
+      .accessibilityText(HomeDraftTexts.text('search.placeholder'))
       .accessibilityRole(AccessibilityRoleType.BUTTON)
       .focusable(true)
       .focusBox(CouliFocus.box)
@@ -145,6 +149,8 @@ export struct AppShell {
       })
     }
     .width('100%')
+    // HM-07v（APP-11v Android 评审 r1 S2-4）：基本模式顶栏与首页内容列同宽（限宽 600 居中）。
+    .constraintSize({ maxWidth: ContentColumn.MAX_WIDTH })
     .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2,
       bottom: CouliSpacing.space2 })
   }

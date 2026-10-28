@@ -5,7 +5,8 @@ import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   AgentEntryVisibility, ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
-  HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeIdentity, HomeLevel,
+  HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeFixedArea, HomeIdentity,
+  HomeLevel,
   HomeLkgReconciler, HomeSyncOutcome, SessionIdentity, HomeIdentityRead, HomeIdentitySource,
   HomeLkgBackend, HomeLkgStore, HomeLocalStore, HomeNoticeCloseTicket, HomePendingLedger, HomePopupImageTicket,
   HomePopupTicket, HomePrefsBackend, HomeRenderTicket, HomeSectionTicket, HomeShowing, HomeSignalHub, HomeSnapshot,
@@ -445,6 +446,8 @@ export class AppHome {
     }
     const old: HomeController | null = this.current;
     const read: HomeIdentityRead = this.identity.now();
+    // HM-07v：游客价值卡只看身份档，每次同步都写（在 outcome.keep 提前返回之前：身份变了但页面保留时也要立即消失）。
+    this.model.guest = HomeFixedArea.isGuest(read.home.level);
     const outcome: HomeSyncOutcome = this.reconciler.syncWith(old === null ? null : old.boundIdentity.key, read.home,
       read.identity, store, (): void => this.invalidate());
     if (outcome.keep) {

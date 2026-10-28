@@ -274,8 +274,10 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
 
 (async () => {
   load(path.join(testRoot, 'List.test.ets')).default();
+  // HM-07v-a 测试 v2：check_device_result 的合集把 F-X-25 6 条也列为设备必跑（FX25_DEVICE_CASES）；这里比的是严格加载器注册名，
+  // F-X-25 走上方 FOREIGN_SUITES 固定名单（与 FX25_DEVICE_CASES 一致由 test_test_facilities.py 守），所以从合集里减掉再比。
   const expected = JSON.parse(execFileSync('python3', ['-c',
-    'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names; print(json.dumps(sorted(expected_names())))', __dirname], { encoding: 'utf8' }));
+    'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names, FX25_DEVICE_CASES; print(json.dumps(sorted(expected_names() - set(FX25_DEVICE_CASES))))', __dirname], { encoding: 'utf8' }));
   checkRegistration(cases.map(test => test.name), foreignCases, expected);
   console.log('REFERENCE_ONLY registration: all ' + expected.length + ' required cases registered exactly once');
   console.log('REFERENCE_ONLY registration: other registered suites ' + [...FOREIGN_SUITES.values()]

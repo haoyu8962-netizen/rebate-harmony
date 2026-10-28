@@ -14,6 +14,10 @@
 # 结果：aa test 输出里必须有 Hypium 汇总「Tests run: N, Failure: 0, Error: 0, Pass: N」（N ≥ 1）、OHOS_REPORT_CODE: 0 与
 # TestFinished-ResultCode: 0（aa test 自身的退出码在拉不起测试时也是 0，不可信）。
 # 退出码：0 通过；1 失败（没有设备、签名 / 安装失败、有用例失败或没有汇总）；2 用法错误。
+# HM-07v-a（编排 D10-405 D4 / 测试 v2 T0）：同一测试包可按 Hypium 套件分步跑——
+#   COULI_HM_TEST_FILTER  class=<套件名> 或 notClass=<套件名>（逗号分隔多个；空 = 全部套件），原样传给 aa test 的 -s class / -s notClass；
+#   COULI_HM_DEVICE_SET   entry_test 结果按哪份必跑名单核对（main / hm07va / all，缺省 all），见 ds02/check_device_result.py。
+# 每一步都先卸载再装（应用数据清空、首启前状态），所以分出去的步从「未同意隐私、冷启动」开始，不受前一步留下的状态影响。
 set -euo pipefail
 
 if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
@@ -43,6 +47,19 @@ with_timeout() {
 }
 
 [ -f "$HAP" ] || die "找不到测试包 $HAP"
+TEST_FILTER="${COULI_HM_TEST_FILTER:-}"
+DEVICE_SET="${COULI_HM_DEVICE_SET:-all}"
+FILTER_ARGS=()
+if [ -n "$TEST_FILTER" ]; then
+    case "$TEST_FILTER" in
+        class=*|notClass=*) ;;
+        *) die "COULI_HM_TEST_FILTER 只认 class=<套件> / notClass=<套件>：$TEST_FILTER" ;;
+    esac
+    filter_value="${TEST_FILTER#*=}"
+    [[ "$filter_value" =~ ^[A-Za-z][A-Za-z0-9_]*(,[A-Za-z][A-Za-z0-9_]*)*$ ]] || die "套件名不合法：$filter_value"
+    FILTER_ARGS=(-s "${TEST_FILTER%%=*}" "$filter_value")
+fi
+case "$DEVICE_SET" in main|hm07va|all) ;; *) die "COULI_HM_DEVICE_SET 只认 main / hm07va / all：$DEVICE_SET" ;; esac
 for tool in "$HDC" "$JAVA_BIN/java" "$JAVA_BIN/keytool" "$LIB/hap-sign-tool.jar" "$LIB/OpenHarmony.p12" \
     "$LIB/UnsgnedDebugProfileTemplate.json" "$LIB/OpenHarmonyProfileDebug.pem"; do
     [ -e "$tool" ] || die "找不到 ${tool}（设 DEVECO_HOME）"
@@ -144,7 +161,7 @@ started_seconds=$SECONDS
 case_timeout="${COULI_HM_TEST_CASE_TIMEOUT:-60000}"
 if [ "$MODULE" = entry_test ]; then case_timeout=600000; fi
 with_timeout "${COULI_HM_TEST_TOTAL_TIMEOUT:-600}" "$HDC" -t "$DEVICE" shell aa test -b "$BUNDLE" -m "$MODULE" -s unittest OpenHarmonyTestRunner \
-    -s timeout "$case_timeout" >"$RESULT" 2>&1 || rc=$?
+    -s timeout "$case_timeout" ${FILTER_ARGS[@]+"${FILTER_ARGS[@]}"} >"$RESULT" 2>&1 || rc=$?
 elapsed_seconds=$((SECONDS - started_seconds))
 with_timeout 60 "$HDC" -t "$DEVICE" uninstall "$BUNDLE" >/dev/null 2>&1 || true
 tr -d '\r' <"$RESULT" >"$RESULT.txt"
@@ -174,7 +191,9 @@ sys.exit(0 if m and int(m.group(1)) > 0 and m.group(2) == "0" and m.group(3) == 
 grep -q "OHOS_REPORT_CODE: 0" "$RESULT" || die "aa test 没有报告 OHOS_REPORT_CODE: 0"
 grep -q "TestFinished-ResultCode: 0" "$RESULT" || die "aa test 没有报告 TestFinished-ResultCode: 0"
 if [ "$MODULE" = entry_test ]; then
-    [ "$elapsed_seconds" -le 1800 ] || die "DS-02 entry 设备整轮超过 1800 秒：${elapsed_seconds}"
-    python3 "$(dirname "$0")/ds02/check_device_result.py" "$RESULT" || die "DS-02 设备用例未全部通过"
+    # 1800 秒门槛（D10-232）对每一步各自适用（D10-405 D4：拆步不放宽）。
+    [ "$elapsed_seconds" -le 1800 ] || die "entry 设备步（${DEVICE_SET}）超过 1800 秒：${elapsed_seconds}"
+    python3 "$(dirname "$0")/ds02/check_device_result.py" "$RESULT" --set "$DEVICE_SET" \
+        || die "entry 设备步（${DEVICE_SET}）必跑用例未全部通过"
 fi
-echo "DEVICE_TEST_PASS elapsed_seconds=${elapsed_seconds} device=${DEVICE} model=${MODEL:-unknown} api=${API} ${SUMMARY}"
+echo "DEVICE_TEST_PASS set=${DEVICE_SET} filter=${TEST_FILTER:-none} elapsed_seconds=${elapsed_seconds} device=${DEVICE} model=${MODEL:-unknown} api=${API} ${SUMMARY}"

@@ -5,3 +5,4 @@ export {
   HomeBannerCard, HomeIconGridCard, HomeProductTile, HomeProductScrollCard, HomeProductGridCard, HomeActivityCard,
   HomeNoticeCard, HomeFeedFooter, HomePopupView, productAction
 } from './src/main/ets/HomeCards';
+export { HomeScrollTile, HomeGuestValueCard } from './src/main/ets/HomeTiles';

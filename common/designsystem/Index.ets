@@ -28,9 +28,11 @@ export {
 } from './src/main/ets/components/Price';
 export {
   ProductCard, ProductCardData, ProductCardTags, ProductCardVariant, ProductTag, SkeletonProductCard, SkeletonBlock,
-  ProductCardGrid, ProductCardA11y
+  ProductCardGrid, ProductCardA11y, GridRebateBlock
 } from './src/main/ets/components/ProductCard';
+export { ProductCardMeasure, SCROLL_TILE_MIN_WIDTH } from './src/main/ets/components/ProductCardMeasure';
 export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
+export { ContentColumn } from './src/main/ets/logic/ContentColumn';
 export { SearchDisclaimers } from './src/main/ets/format/SearchDisclaimers';
 export {
   AmountGrid, AmountGridItem, AmountGridLayout, AmountMeasure, AmountTone, WalletHeroCard, EntryGrid, EntryGridItem

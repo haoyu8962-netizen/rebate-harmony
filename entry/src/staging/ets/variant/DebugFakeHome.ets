@@ -44,6 +44,11 @@ function imageMap(): Map<string, string> {
   m.set('https://img.example.com/higher.png', IMG_BANNER_B);
   m.set('https://img.example.com/icon-a.png', IMG_PRODUCT2);
   m.set('https://img.example.com/icon-b.png', IMG_PRODUCT3);
+  // HM-07v（H-V04）：main_v3 / guest_v3 的 sectionItems 测试图片地址 → 本机色块（9 件轮流取 6 张色块）。
+  const blocks: string[] = [IMG_PRODUCT0, IMG_PRODUCT1, IMG_PRODUCT2, IMG_PRODUCT3, IMG_PRODUCT4, IMG_PRODUCT5];
+  for (let i: number = 0; i < 9; i++) {
+    m.set('https://img.example.test/home-v3/' + i + '.png', blocks[i % blocks.length]);
+  }
   return m;
 }
 
@@ -173,7 +178,18 @@ function goldenPage(name: string): string | null {
   try {
     const pages: Record<string, Object> = JSON.parse(HOME_GOLDEN_PAGES_JSON) as Record<string, Object>;
     const page: Object | undefined = pages[name];
-    return page === undefined ? null : JSON.stringify(page);
+    if (page === undefined) {
+      return null;
+    }
+    // sectionItems 是测试数据（商品段的 listSectionItems 回答），不是页面配置的一部分：下发页面时去掉。
+    const src: Record<string, Object> = page as Record<string, Object>;
+    const copy: Record<string, Object> = {};
+    for (const key of Object.keys(src)) {
+      if (key !== 'sectionItems') {
+        copy[key] = src[key];
+      }
+    }
+    return JSON.stringify(copy);
   } catch (e) {
     return null;
   }
@@ -311,6 +327,11 @@ export class DebugFakeHome implements HomeContractPort {
     // 只带 section 与游标（不带频道、排序参数，AC-S1-90 ③）。
     DebugFakeHome.lastItemsQuery = 'section=' + sectionId + (cursor === null ? '' : '&cursor=' + cursor);
     await DebugFakeHome.wait(300);
+    // HM-07v（H-V04）：golden:<页> 场景优先回该页 sectionItems[section]（三端同一份向量数据，截图与设备用例的商品照画板样例）。
+    const golden: string | null = goldenItems(DebugFakeHome.scene, sectionId, cursor);
+    if (golden !== null) {
+      return ok(golden);
+    }
     let items: FakeProduct[] = [];
     let next: string | null = null;
     if (sectionId === 'today' || sectionId === 'scroll') {
@@ -360,5 +381,33 @@ export class DebugFakeHome implements HomeContractPort {
       + '{"id":"draft_v2","type":"banner","version":2,"props":{"height_ratio":0.4},"data_source":{"kind":"static","items":[]}}'
       + (token === 'popup' ? ',' + POPUP : '') + ']}';
     return draft;
+  }
+}
+
+/**
+ * golden:<页> 场景下该页 sectionItems[sectionId] 的回答（{"items":[…],"next_cursor":…} 原样）；没有这一页 / 这一段时为 null
+ * （回落到本机假商品）。只回第一页：带游标的翻页请求回空页。
+ */
+function goldenItems(scene: string, sectionId: string, cursor: string | null): string | null {
+  if (!scene.startsWith(DebugFakeHome.GOLDEN_PREFIX)) {
+    return null;
+  }
+  try {
+    const pages: Record<string, Object> = JSON.parse(HOME_GOLDEN_PAGES_JSON) as Record<string, Object>;
+    const page: Object | undefined = pages[scene.substring(DebugFakeHome.GOLDEN_PREFIX.length)];
+    if (page === undefined) {
+      return null;
+    }
+    const all: Object | undefined = (page as Record<string, Object>)['sectionItems'];
+    if (all === undefined) {
+      return null;
+    }
+    const one: Object | undefined = (all as Record<string, Object>)[sectionId];
+    if (one === undefined) {
+      return null;
+    }
+    return cursor === null ? JSON.stringify(one) : '{"items":[],"next_cursor":null}';
+  } catch (e) {
+    return null;
   }
 }

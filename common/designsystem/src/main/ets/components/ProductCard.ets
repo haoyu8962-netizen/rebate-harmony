@@ -3,18 +3,20 @@ import { CouliColors } from '../CouliColors';
 import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTextStyle, CouliTypography } from '../CouliTypography';
 import {
-  BuyButtonModel, CardAmountMask, PresaleDisplay, PriceTagContent, PriceTagModel, RebateTagContent, RebateTagModel
+  BuyButtonModel, CardAmountMask, PresaleDisplay, PriceTagContent, PriceTagModel, RebateKind, RebateTagContent,
+  RebateTagModel
 } from '../format/PriceModels';
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliChip, CouliChipTone, PlatformBadge } from './Basics';
 import { LARGE_TEXT_SCALE } from '../logic/TextScale';
 import { productGridTwoColumnMinWidth } from '../logic/ProductGridLayout';
 import { CouliFontScale } from './FontScale';
-import { CouliTextModifier } from './CouliText';
+import { CouliTextModifier, TABULAR_FEATURE } from './CouliText';
 import {
   BuyButton, BuyButtonState, DisclaimerFooter, DisclaimerMode, EstNetLine, PriceTag, PriceTagSize, RebateTag,
-  RebateTagSize
+  RebateTagSize, rangeBreakable
 } from './Price';
+import { CouliIcon } from './CouliIcon';
 
 enum TextStyleKind {
   LIST = 'list',
@@ -97,6 +99,37 @@ export class ProductCardA11y {
   static showsPlaceholder(imageUrl: string, loaded: boolean, failed: boolean): boolean {
     return imageUrl.length === 0 || !loaded || failed;
   }
+
+  /**
+   * 首页横滑卡（HM-07v H9）的整卡读屏名：横滑卡不显示标题与来源标签（Main-v3），读屏仍读「[推广标识]，平台，标题，价格，返利」。
+   * 推广标识是服务端原文（BR-TEXT-17，去首尾空白，空则不读）；价格按 PriceTagModel 的读法（含副行、预售与预售说明）；
+   * 价格不可用只读提示句、不读任何金额（BR-PRICE-01）；amount_unknown 不读价格、只读「可返利，金额以订单为准」（BR-PRICE-08）；
+   * 平台 not_launched 不读返利（共性 31）；金额隐藏按 CardAmountMask。
+   * 不拼图片占位文字、口径 i 的读屏名等装饰。
+   */
+  static scrollTileLabel(data: ProductCardData, adLabel: string | null): string {
+    const parts: string[] = [];
+    const ad: string = adLabel === null ? '' : adLabel.trim();
+    if (ad.length > 0) {
+      parts.push(ad);
+    }
+    parts.push(data.platformLabel);
+    parts.push(data.title);
+    if (data.priceUnavailable) {
+      parts.push(data.priceUnavailableText);
+    } else if (data.rebate.kindRaw === 'unknown') {
+      // amount_unknown（BR-PRICE-08）：不读任何价格，只读「可返利，金额以订单为准」（平台 not_launched 时连它也不读）。
+      if (!data.rebateHidden) {
+        parts.push(data.rebate.spokenText);
+      }
+    } else {
+      parts.push(PriceTagModel.spoken(data.price, true, PresaleDisplay.INLINE));
+      if (!data.rebateHidden) {
+        parts.push(CardAmountMask.rebate(data.rebate, data.amountHidden).spokenText);
+      }
+    }
+    return parts.filter((p: string): boolean => p.length > 0).join(PriceTerms.comma);
+  }
 }
 
 export enum ProductCardVariant {
@@ -168,6 +201,10 @@ export struct ProductCard {
   @Param variant: ProductCardVariant = ProductCardVariant.LIST;
   /** 网格卡也画购买按钮（Agent 卡片 layout=grid 时要能直接购买，03 §7.4；首页等网格默认不画）。 */
   @Param showBuy: boolean = false;
+  /**
+   * 网格卡放在首页段卡（白卡）里（HM-07v H11 / H-V08）：不再画自己的白底、阴影与内边距（卡套卡），只留内容；默认 false 不变。
+   */
+  @Param inset: boolean = false;
   @Event onBuy: () => void = () => {
   };
   @Local badgeWidth: number = 0;
@@ -456,31 +493,46 @@ export struct ProductCard {
       if (!this.noPrice()) {
         PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })
         this.subLines(false)
-        // 网格卡的价格口径 i 按钮（单卡 i，BR-PRICE-03）。
-        Row() {
-          DisclaimerFooter({
-            lines: this.data.disclaimerLines,
-            mode: DisclaimerMode.CARD,
-            buttonLabel: this.data.disclaimerButtonLabel,
-            noteTitle: this.data.disclaimerTitle,
-            noteCloseText: this.data.disclaimerCloseText
-          })
+        if (!this.showsRebate()) {
+          // 不显示返利块（暂无返利、平台 not_launched）时，价格口径 i 仍保留在价格副行下（BR-PRICE-03；APP-11v Android 评审 r1 S1）。
+          Row() {
+            this.gridInfo()
+          }
+          .padding({ left: CouliSpacing.space3 })
         }
-        .padding({ left: CouliSpacing.space3 })
       }
       if (this.showsRebate()) {
-        RebateTag({ content: this.rebate(), tagSize: RebateTagSize.BLOCK, inList: true })
+        // 窄卡返利块两行（GUIDE §6）：「钟表 + 预估返 + 口径 i」一行、金额一行（H-V08：i 进返利块首行，命中区 48 不撑高行）。
+        GridRebateBlock({
+          content: this.rebate(),
+          // 不显示价格（amount_unknown）时不放口径 i（与改版前 GRID 一致：PriceTag、副行、i 都不放）。
+          lines: this.noPrice() ? [] : this.data.disclaimerLines,
+          buttonLabel: this.data.disclaimerButtonLabel,
+          noteTitle: this.data.disclaimerTitle,
+          noteCloseText: this.data.disclaimerCloseText
+        })
       }
       if (this.showBuy) {
         this.buyButton()
       }
     }
     .alignItems(HorizontalAlign.Start)
-    .padding(CouliSpacing.space2)
-    .backgroundColor(CouliColors.backgroundSurface)
-    .borderRadius(CouliRadius.card)
-    .shadow(CouliShadow.card)
+    .padding(this.inset ? 0 : CouliSpacing.space2)
+    .backgroundColor(this.inset ? Color.Transparent : CouliColors.backgroundSurface)
+    .borderRadius(this.inset ? 0 : CouliRadius.card)
+    .shadow(this.inset ? { radius: 0, color: Color.Transparent } : CouliShadow.card)
     .width('100%')
+  }
+
+  @Builder
+  gridInfo() {
+    DisclaimerFooter({
+      lines: this.data.disclaimerLines,
+      mode: DisclaimerMode.CARD,
+      buttonLabel: this.data.disclaimerButtonLabel,
+      noteTitle: this.data.disclaimerTitle,
+      noteCloseText: this.data.disclaimerCloseText
+    })
   }
 
   @Builder
@@ -548,6 +600,89 @@ export struct ProductCard {
     } else {
       this.listCard()
     }
+  }
+}
+
+/**
+ * 窄卡返利块（GUIDE §6「窄卡返利标签两行结构」；首页网格卡、信息流卡与首页横滑卡共用，HM-07v H-V08）：
+ * 第一行「钟表 + 预估返」+ 右端口径 i（视觉 16、命中区 48，用负外边距不撑高这一行）、第二行完整金额（区间只在破折号处折行）。
+ * 读屏：钟表 + 标签 + 金额合成一项（spokenText）；i 是独立按钮。spoken = false 时这一项对读屏隐藏（外层整卡读屏名已含返利，
+ * 如首页横滑卡），i 仍可单独聚焦。「暂无返利」不用本组件（列表隐藏，BR-TEXT-10）。
+ */
+@ComponentV2
+export struct GridRebateBlock {
+  @Param content: RebateTagContent = RebateTagModel.make('no_rebate', 0, 0, false);
+  @Param lines: string[] = [];
+  @Param buttonLabel: string = '';
+  @Param noteTitle: string = '';
+  @Param noteCloseText: string = '';
+  @Param spoken: boolean = true;
+  /** 第一行（钟表 + 标签）的实际高度：i 的容器与它同高、居中，字号放大时跟着变。 */
+  @Local headHeight: number = 18;
+
+  private neutral(): boolean {
+    return this.content.kind === RebateKind.NONE;
+  }
+
+  private fg(): ResourceColor {
+    return this.neutral() ? CouliColors.statusPendingText : CouliColors.rebateText;
+  }
+
+  build() {
+    Row() {
+      Column() {
+        // 首行占满返利块内容宽、文字取剩余宽（layoutWeight）：长标签（amount_unknown「可返利，金额以订单为准」）在块内折行，
+        // 不越出卡片（HM-07v 评审 r1 修复二）；钟表图标顶部对齐首行文字。
+        Row({ space: CouliSpacing.space1 }) {
+          CouliIcon({ name: 'clock', iconSize: 14, color: this.fg() })
+            .margin({ top: 2 })
+          Text(this.content.hasAmount ? PriceTerms.rebate : this.content.text)
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, this.fg()))
+            .layoutWeight(1)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+        .onAreaChange((_old: Area, now: Area) => {
+          this.headHeight = now.height as number;
+        })
+
+        if (this.content.hasAmount) {
+          Text(rangeBreakable(this.content.amountParts))
+            .fontSize(CouliTypography.footnote.fontSize)
+            .lineHeight(CouliTypography.footnote.lineHeight)
+            .fontWeight(CouliFontWeight.bold)
+            .fontColor(this.fg())
+            .fontFeature(TABULAR_FEATURE)
+            .wordBreak(WordBreak.NORMAL)
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      .accessibilityGroup(true)
+      .accessibilityText(this.content.spokenText)
+      .accessibilityLevel(this.spoken ? 'auto' : 'no-hide-descendants')
+
+      if (this.lines.length > 0) {
+        Row() {
+          DisclaimerFooter({
+            lines: this.lines,
+            mode: DisclaimerMode.CARD,
+            buttonLabel: this.buttonLabel,
+            noteTitle: this.noteTitle,
+            noteCloseText: this.noteCloseText
+          })
+        }
+        .height(this.headHeight)
+        .alignItems(VerticalAlign.Center)
+        .margin({ right: -CouliSpacing.space2 })
+      }
+    }
+    .alignItems(VerticalAlign.Top)
+    .width('100%')
+    .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2, top: CouliSpacing.space1,
+      bottom: CouliSpacing.space1 })
+    .backgroundColor(this.neutral() ? CouliColors.statusPendingBackground : CouliColors.rebateBackground)
+    .borderRadius(CouliRadius.small)
   }
 }
 

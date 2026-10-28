@@ -1,6 +1,6 @@
 // Debug / Staging（entry 模块 staging target，product=staging）的构建变体。
 // 只在 product=staging 编译；Release 产物里没有本目录的任何代码与字符串。
-import { common, Want } from '@kit.AbilityKit';
+import { common, ConfigurationConstant, Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
@@ -46,6 +46,8 @@ import { CATALOG_LAUNCH_KEY, CatalogLaunch } from '../catalog/CatalogLaunch';
 
 // BuildProfile.BUILD_MODE_NAME 在生成文件里是字面量类型，先放宽为 string 再比较。
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
+/** HM-07v H-V06：深色截图启动参数键（只在 Debug / Staging）。 */
+const DEBUG_COLOR_MODE_KEY: string = 'couli_debug_color_mode';
 
 export class BuildVariant {
   /**
@@ -302,6 +304,32 @@ export class BuildVariant {
   }
 
   /**
+   * HM-07v（H-V06，编排 D10-119）：`--ps couli_debug_color_mode dark|light|system` 让整个应用按深 / 浅 / 跟随系统显示
+   * （ApplicationContext.setColorMode，真实配置变化，资源与 CouliColorMode 一起跟着变），用于首页深色截图与设备用例。
+   * 只在 Debug / Staging 源码集；Release 没有这个入口（release-scan.sh 标记 + hm07v 宿主检查 --hap 守）。热启动同样生效。
+   */
+  private static applyColorMode(context: common.ApplicationContext, value: Object | undefined): void {
+    if (typeof value !== 'string') {
+      return;
+    }
+    let mode: ConfigurationConstant.ColorMode;
+    if (value === 'dark') {
+      mode = ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+    } else if (value === 'light') {
+      mode = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
+    } else if (value === 'system') {
+      mode = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
+    } else {
+      return;
+    }
+    try {
+      context.setColorMode(mode);
+    } catch (e) {
+      // 设置失败时按系统深浅继续。
+    }
+  }
+
+  /**
    * 冒烟与截图用的启动参数（只在 Debug / Staging）：`aa start ... --pd couli_debug_font_scale 2` 让本次进程按该字号倍数
    * 渲染（ApplicationContext.setFontSizeScale）。用于在首启弹窗出现前就切到 200%：本机模拟器的系统字号设置不改变应用的
    * fontSizeScale（DS-01 compare-harmony §0）。只读这一个调试键，不影响 AppRouting 只认 want.uri 的规则。
@@ -501,6 +529,7 @@ export class BuildVariant {
     if (typeof scene === 'string') {
       DebugFakeServer.wechatScene = scene;
     }
+    BuildVariant.applyColorMode(context, want.parameters?.[DEBUG_COLOR_MODE_KEY]);
     const raw: Object | undefined = want.parameters?.['couli_debug_font_scale'];
     if (typeof raw !== 'string' && typeof raw !== 'number') {
       return;

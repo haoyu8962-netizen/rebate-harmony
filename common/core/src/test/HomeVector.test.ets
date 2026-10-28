@@ -549,9 +549,16 @@ function checkManifest(root: JSONObject): void {
     }
   }
   same('golden.nonempty', keys.length > 0, true);
-  same('golden.referenceCount', referenced.size, keys.length);
-  for (let i: number = 0; i < keys.length; i++) {
-    same('golden.reference.' + keys[i], referenced.has(keys[i]), true);
+  // test-change（HM-07v-a，三端同口径：Android HomeVectorTest / iOS HomeVectorTests）：goldenPages 新增的两张视觉页 main_v3、
+  // guest_v3 只供截图 / 设备用例，由 Hm07vHomeVisual.test.ets 独立解码断言；原 15 页仍必须全部进入解码向量（判定向量一条不改）。
+  const visualOnly: string[] = ['guest_v3', 'main_v3'];
+  same('golden.visualOnly.present', visualOnly.every((k: string): boolean => keys.indexOf(k) >= 0), true);
+  same('golden.visualOnly.notDecodeVectors', visualOnly.some((k: string): boolean => referenced.has(k)), false);
+  const decodePages: string[] = keys.filter((k: string): boolean => visualOnly.indexOf(k) < 0);
+  same('golden.total', keys.length, 17);
+  same('golden.referenceCount', referenced.size, decodePages.length);
+  for (let i: number = 0; i < decodePages.length; i++) {
+    same('golden.reference.' + decodePages[i], referenced.has(decodePages[i]), true);
   }
 }
 
