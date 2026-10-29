@@ -1,6 +1,7 @@
+import { ClipboardResultView } from 'core';
 import {
-  ClipboardNotice, ClipboardPromptBar, CouliColors, CouliLayout, CouliSheetPanel, CouliSpacing, PasteEntry,
-  PasteEntryStyle, ProductCard, ProductCardData, ProductCardVariant
+  ClipboardNotice, ClipboardPromptBar, CouliColors, CouliLayout, CouliSheetPanel, CouliSpacing, CouliTextModifier,
+  CouliTypography, PasteEntry, PasteEntryStyle, ProductCard, ProductCardData, ProductCardVariant
 } from 'designsystem';
 import { SearchPasteUi } from 'search';
 import { AppClipboard, ClipboardCardRow, ClipboardUiModel } from './AppClipboard';
@@ -15,6 +16,8 @@ const SHARE_KIND: string = 'share';
 @ComponentV2
 struct ClipboardCardListSheet {
   @Local model: ClipboardUiModel = AppClipboard.shared.uiModel;
+  /** 承载的 bindSheet 用系统把手（首页 H19）时不再画自绘把手。 */
+  @Param systemHandle: boolean = false;
 
   @Builder
   rows() {
@@ -36,6 +39,13 @@ struct ClipboardCardListSheet {
           .onClick(() => {
             row.open();
           })
+          // 卡下一句口径（HomeClipboardCard-v3；取这张卡 disclaimer_keys 的第一句，即价格口径）；卡内的口径 i 照旧可点开全文。
+          if ((row.data as ProductCardData).disclaimerLines.length > 0) {
+            Text((row.data as ProductCardData).disclaimerLines[0])
+              .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+              .width('100%')
+              .padding({ left: CouliSpacing.space1, right: CouliSpacing.space1 })
+          }
         } else {
           ClipboardNotice({
             text: row.errorText,
@@ -53,12 +63,23 @@ struct ClipboardCardListSheet {
     .width('100%')
   }
 
+  /** 只有一张商品卡、没有行内结果（HomeClipboardCard-v3 单张）：不显示可见标题（画板无标题），标题只作读屏名与焦点落点。 */
+  private single(): boolean {
+    return this.model.rows.length === 1 && this.model.rows[0].data !== null;
+  }
+
   build() {
     CouliSheetPanel({
       title: this.model.resultText,
       closeLabel: ClipboardDraftTexts.text('clipboard.card_list.close'),
       titleId: 'clipboard_card_list_title',
       closeKey: this.model.resultSerial,
+      // H19：首页半屏用系统把手（bindSheet 的 dragBar 开），搜索页仍自绘；单张无可见标题，关闭有稳定 id。
+      showHandle: !this.systemHandle,
+      titleVisible: !this.single(),
+      closeId: 'clipboard_card_list_close',
+      fitContent: this.systemHandle,
+      maxPanelHeight: CouliSheetPanel.maxHeight(this.getUIContext()),
       content: () => {
         this.rows()
       },
@@ -67,20 +88,26 @@ struct ClipboardCardListSheet {
   }
 }
 
-/** 发起入口下方的结果提示（30132 + 【用商品名搜索】、30131 / 42901 / 5xxxx 轻提示）。 */
+/**
+ * 发起入口下方的结果提示：① 30132（卡内版式 +【用商品名搜索】）、⑤ 网络失败（卡内版式 +【重试】，只重发本次已提取片段）、
+ * 30131 / 42901 / 5xxxx 轻提示（错误底 + 关闭）。①⑤ 不设关闭（ClipboardResultView.closable；三端口径 2026-10-24 18:39）。
+ */
 @Builder
 function resultNotice(model: ClipboardUiModel, id: string) {
   ClipboardNotice({
     text: model.resultText,
-    actionText: model.resultSearchable ? ClipboardDraftTexts.text('clipboard.search_by_name') : '',
-    // 共享 42901 禁用期与共享 busy（读取或 parse 在途，R1-04）内【用商品名搜索】置灰（共性第 31 条；执行层 searchByName 另拦）
+    actionText: model.resultSearchable ? ClipboardDraftTexts.text('clipboard.search_by_name')
+      : (model.resultRetryable ? ClipboardDraftTexts.text('external_page.retry') : ''),
+    // 共享 42901 禁用期与共享 busy（读取或 parse 在途，R1-04）内按钮置灰（共性第 31 条；执行层 searchByName / retryResult 另拦）
     actionDisabled: model.resultActionsDisabled(),
-    closeLabel: ClipboardDraftTexts.text('clipboard.notice.close'),
+    closeLabel: ClipboardResultView.closable(model.resultKind) ? ClipboardDraftTexts.text('clipboard.notice.close') : '',
     noticeId: id,
+    card: !ClipboardResultView.closable(model.resultKind),
+    icon: model.resultKind === ClipboardResultView.NETWORK_FAILED ? 'alert' : 'info',
     // 渲染键：按钮回调在渲染时固定，结果换代时随之重新登记（R1-03）
     actionKey: model.resultSerial,
-    // 渲染时取值：回调绑定的是这条提示所属的结果（共性第 18 条）
-    onAction: model.noticeSearchAction(),
+    // 渲染时取值：回调绑定的是这条提示所属的结果（共性第 18 条）；⑤ 的【重试】经 ClipboardResultBinding.retry()
+    onAction: model.resultKind === ClipboardResultView.NETWORK_FAILED ? model.noticeRetryAction() : model.noticeSearchAction(),
     onClose: model.noticeCloseAction()
   })
 }
@@ -146,7 +173,7 @@ export struct HomeClipboardPaste {
 
   @Builder
   sheet() {
-    ClipboardCardListSheet()
+    ClipboardCardListSheet({ systemHandle: true })
   }
 
   build() {
@@ -166,9 +193,13 @@ export struct HomeClipboardPaste {
     }
     .width('100%')
     .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
+    // H19（HomeClipboardCard-v3）：系统把手；单张贴内容高度（FIT_CONTENT），多张按大半屏可滚；关闭用面板右上自己的【关闭】
+    // （有稳定 id 与读屏名）。下滑 / 点遮罩 / 返回 = 关闭（onDisappear 交回 sheetCloseAction，状态由模型驱动，不放行内 @Local）。
     .bindSheet(this.model.sheetFor(HOME_ENTRY), this.sheet(), {
-      height: SheetSize.LARGE,
-      dragBar: false,
+      height: this.model.rows.length <= 1 ? SheetSize.FIT_CONTENT : SheetSize.LARGE,
+      // 多张：MEDIUM / LARGE 两档（系统把手只在多档时显示）；单张一档 FIT_CONTENT（面板贴内容，系统不画把手）。
+      detents: this.model.rows.length <= 1 ? [SheetSize.FIT_CONTENT] : [SheetSize.MEDIUM, SheetSize.LARGE],
+      dragBar: true,
       showClose: false,
       backgroundColor: CouliColors.backgroundSurface,
       onDisappear: this.model.sheetCloseAction()

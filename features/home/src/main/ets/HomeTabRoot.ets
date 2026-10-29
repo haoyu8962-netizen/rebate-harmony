@@ -4,12 +4,12 @@ import {
   HomePopupDialogHost, HomePopupImageTicket, HomePopupPresenter, HomePopupTicket, HomeRenderTicket, HomeShowing, HomeSnapshot
 } from 'core';
 import {
-  CouliColors, CouliFocus, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
+  CouliColors, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
   ContentColumn, CouliTextModifier, CouliTypography, ErrorState, PriceTerms, ProductCardData
 } from 'designsystem';
 import { HomeGuestValueCard } from './HomeTiles';
 import {
-  HomeActivityCard, HomeBannerCard, HomeFeedFooter, HomeIconGridCard, HomeNoticeCard, HomePopupView,
+  HomeActivityCard, HomeBannerCard, HomeFeedFooter, HomeIconGridCard, HomeNoticeCard, HomePopupFocus, HomePopupView,
   HomeProductGridCard, HomeProductScrollCard
 } from './HomeCards';
 import { HomeScreenModel, HomeScreenPort } from './HomeScreenModel';
@@ -34,14 +34,16 @@ class HomePopupDialogParams {
   }
 }
 
+/** 弹窗内容：大小全由 HomePopupView 按 HomePopupGeometry 定（左右各留 32、关闭层独立于图片比例），对话框只负责居中与遮罩。 */
 @Builder
 function homePopupDialog(p: HomePopupDialogParams) {
   Column() {
     HomePopupView({ ticket: p.ticket, port: p.port })
   }
-  .width('86%')
-  .constraintSize({ maxWidth: 420 })
 }
+
+/** 弹窗收起后把焦点还到首页（关闭键 / 返回 / 点遮罩；点图片跳转除外，见 HomePopupFocus）。延后一帧，等对话框的焦点层撤掉。 */
+const POPUP_FOCUS_RETURN_DELAY_MS: number = 120;
 
 /**
  * 系统模态的承载（CustomDialog：UIContext.openCustomDialog，isModal）：每个实例一份 ComponentContent，绑定打开时的弹窗票据。
@@ -77,6 +79,14 @@ class ArkPopupPresenter implements HomePopupPresenter {
           },
           onDidDisappear: () => {
             this.release(instance);
+            // 关闭后焦点回原处（brief §4-2；HM-07v-b 决定 ②）：关闭键、系统返回、点遮罩收起后回到首页搜索入口；
+            // 点图片跳转的不还原（焦点在新页面上）。读屏实际落点由真机 QA 核对。
+            if (!HomePopupFocus.consumeNavigated(ticket.key)) {
+              const ui: UIContext = this.ui;
+              setTimeout((): void => {
+                CouliFocusReturn.to(ui, HomePopupFocus.RETURN_ID);
+              }, POPUP_FOCUS_RETURN_DELAY_MS);
+            }
           }
         }).then(() => {
           resolve();

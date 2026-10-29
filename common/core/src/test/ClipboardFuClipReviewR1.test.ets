@@ -572,13 +572,15 @@ export default function clipboardFuClipReviewR1Test() {
       expect(f.controller.resultActionsBusy).assertTrue();
       old.searchByName();
       expect(f.controller.currentRoute()).assertEqual('Home');
-      expect(f.result() === old.view).assertTrue();
-      // parse 在途（旧结果仍显示）
+      // HM-07v-b test-change（D10-378；三端口径 2026-10-24 21:15「用户开始新一次手动粘贴即清旧 ①⑤ 结果卡」）：旧 ① 在开始粘贴时
+      // 已收起（原断言「旧结果仍显示」）；旧绑定的【用商品名搜索】照旧不执行（上一行），这是本用例要守的东西，不变。
+      expect(f.result() === null).assertTrue();
+      // parse 在途（旧结果已收起）
       f.pasteboard.release();
       expect(await paste).assertEqual(ManualPasteAction.PARSE);
       await flush();
       expect(f.parseCount()).assertEqual(1);
-      expect(f.result() === old.view).assertTrue();
+      expect(f.result() === null).assertTrue();
       expect(f.controller.snapshot.busy).assertTrue();
       old.searchByName();
       expect(f.controller.currentRoute()).assertEqual('Home');

@@ -10,8 +10,8 @@ export class HomeDraftTexts {
     const m: Map<string, string> = new Map<string, string>();
     // 公告条关闭按钮的读屏名（照 Main 稿）。
     m.set('home.notice.close', '关闭公告');
-    // 弹窗：读屏名（代拟）、关闭按钮读屏（代拟）。
-    m.set('home.popup.label', '活动弹窗');
+    // 弹窗：读屏名（规格 §6「首页弹窗」，G-V07；契约 alt 进锁后优先用 alt，CT-07b）、关闭按钮读屏（代拟）。
+    m.set('home.popup.label', '首页弹窗');
     m.set('home.popup.close', '关闭');
     // banner / 金刚区 / 入口图片没有 alt 时的读屏名（代拟）。
     m.set('home.image.default_alt', '活动图片');

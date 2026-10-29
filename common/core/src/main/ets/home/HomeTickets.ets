@@ -140,13 +140,17 @@ export class HomePopupTicket {
   readonly sectionId: string;
   readonly image: string;
   readonly tap: HomeTap | null;
+  /** 推广标识（section 的 ad_label，服务端原文；null 不显示）：弹窗图片左上原样显示（BR-TEXT-17，HM-07v-b A15）。 */
+  readonly adLabel: string | null;
 
-  constructor(owner: number, popupSerial: number, sectionId: string, image: string, tap: HomeTap | null) {
+  constructor(owner: number, popupSerial: number, sectionId: string, image: string, tap: HomeTap | null,
+    adLabel: string | null = null) {
     this.owner = owner;
     this.popupSerial = popupSerial;
     this.sectionId = sectionId;
     this.image = image;
     this.tap = tap;
+    this.adLabel = adLabel;
   }
 
   get key(): string {

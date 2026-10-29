@@ -16,9 +16,10 @@ export class ClipboardDraftTexts {
 
   private static build(): Map<string, string> {
     const m: Map<string, string> = new Map<string, string>();
-    // ---- HomeClipboardInvite：邀请确认条的按钮（设计稿按钮字「粘贴」；读屏名）与关闭
-    m.set('clipboard.invite_prompt.action', '粘贴');
-    m.set('clipboard.invite_prompt.action_label', '粘贴并绑定邀请人');
+    // ---- HomeClipboardInvite-v3：邀请确认条的按钮【绑定】与读屏名「绑定邀请人」（画板与 BR-INV-04；三端口径 2026-10-24 18:39）与关闭。
+    //      鸿蒙的邀请条出现时剪贴板已读完，按钮只是记待绑定码（去向逻辑不变），不再写「粘贴」。
+    m.set('clipboard.invite_prompt.action', '绑定');
+    m.set('clipboard.invite_prompt.action_label', '绑定邀请人');
     m.set('clipboard.prompt.close', '关闭');
     // ---- 首页常驻粘贴卡标题（Main-v3 / HomeGuest-v3「粘贴查返利」；BR-ID-16：卡标题即系统粘贴按钮的说明；三端同键）。
     //      副标题「支持淘宝、京东、拼多多」已由负责人 10-21 删除（HM-07v H5）。

@@ -8,6 +8,7 @@ import { CouliFixedTap } from '../logic/CouliFixedTap';
 import { LARGE_TEXT_SCALE } from '../logic/TextScale';
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliFontScale } from './FontScale';
+import { ClipboardPromptLayout } from '../logic/ClipboardPromptLayout';
 
 /** PasteButton 的视觉高（命中区 ≥ 48：系统安全控件按自身尺寸响应，所以视觉高就取 48）。 */
 const PASTE_HEIGHT: number = 48;
@@ -230,12 +231,20 @@ export struct PasteEntry {
   }
 }
 
+/** 提示条里文字栏与按钮区之间的间距（vp）。 */
+const PROMPT_GAP: number = 8;
+/** 提示条左右内边距（右侧关闭按钮自带 48 命中区，所以右边距小）。 */
+const PROMPT_PADDING_LEFT: number = 12;
+const PROMPT_PADDING_RIGHT: number = 4;
+
 /**
- * 首页剪贴板提示条（HomeClipboard / HomeClipboardInvite）：白底圆角 16 浮起卡，左文案 14/600，右浅灰胶囊按钮与独立【关闭】（命中区 48）。
- * 出现时播报一次（liveRegion 由调用方 CouliAnnounce 播报）；按钮读屏名由 actionLabel 给（邀请条为「粘贴并绑定邀请人」）。
- * 鸿蒙只在商品入口的 PasteButton 读到邀请内容后出邀请确认（读取已完成，这里的按钮不再读剪贴板，是普通按钮）。
- * FU-CLIP C7：系统分享提示条另带 badge（平台标签；F-X-05a 起按 badgePlatform 带内置官方图标，暂缺平台只有文字）与 detail（第二行：平台名 + 缩略主机），
- * 文字区整体读作 barLabel（「检测到淘宝商品链接，查返利」）；按钮的读屏名不变。字号放大时文字换行、不截断。
+ * 首页剪贴板提示条（HomeClipboardInvite-v3；FU-CLIP C7 系统分享提示条同版式）：白底圆角 16 浮起卡，左文案 14/600，右浅底按钮
+ * （brand.subtle 底 + brand.emphasis 14/600，命中 48；邀请条为【绑定】、读屏「绑定邀请人」）与独立【关闭】（命中 48）。
+ * 问句（文案最后一个全角逗号之后，如「绑定为邀请人？」）不拆行（HM-07v-b A6）：整句放不下当前行时问句另起一行；文字栏连问句都放不下
+ * （320 宽 / 200% 字号）时按钮与关闭整体移到文字下方靠右（ClipboardPromptLayout.stacked），不缩字、不截断。读屏读完整一句。
+ * 出现时播报一次（liveRegion 由调用方 CouliAnnounce 播报）。鸿蒙只在商品入口的 PasteButton 读到邀请内容后出邀请确认（读取已完成，
+ * 按钮不再读剪贴板，是普通按钮）。系统分享提示条另带 badge（平台标签，F-X-05a 官方图标）与 detail（第二行：平台名 + 缩略主机），
+ * 文字区整体读作 barLabel；按钮的读屏名不变。
  */
 @ComponentV2
 export struct ClipboardPromptBar {
@@ -256,51 +265,106 @@ export struct ClipboardPromptBar {
   };
   @Event onClose: () => void = () => {
   };
+  /** 条内容区宽（去掉左右内边距，vp）与按钮区（按钮 + 关闭）宽：量到后决定同行 / 下移、问句要不要另起一行。 */
+  @Local rowWidth: number = 0;
+  @Local actionsWidth: number = 0;
+  @Local fontScale: CouliFontScale = CouliFontScale.shared();
 
-  build() {
-    Row({ space: CouliSpacing.space2 }) {
-      if (this.detail.length === 0 && this.badge.length === 0) {
-        Text(this.text)
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary, CouliFontWeight.semibold))
-          .layoutWeight(1)
-          .id(this.barId + '_text')
-      } else {
-        Column({ space: CouliSpacing.space1 }) {
-          Text(this.text)
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary,
-              CouliFontWeight.semibold))
-            .id(this.barId + '_text')
-          Row({ space: CouliSpacing.space1 }) {
-            if (this.badge.length > 0) {
-              // 文字区整体读 barLabel（已含平台名）：标签自身对读屏隐藏，平台名不重复读。
-              PlatformBadge({ label: this.badge, platform: this.badgePlatform })
-                .accessibilityLevel('no-hide-descendants')
-            }
-            if (this.detail.length > 0) {
-              Text(this.detail)
-                .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-                .layoutWeight(1)
-                .id(this.barId + '_detail')
-            }
-          }
+  aboutToAppear(): void {
+    CouliFontScale.attach(this.getUIContext());
+  }
+
+  /** 100% 字号下 14/600 文字的宽（vp）× 当前字号倍数。 */
+  private measure(text: string): number {
+    if (text.length === 0) {
+      return 0;
+    }
+    try {
+      const ui: UIContext = this.getUIContext();
+      const px: number = ui.getMeasureUtils().measureText({
+        textContent: text, fontSize: CouliTypography.footnote.size + 'vp', fontWeight: CouliFontWeight.semibold
+      }) as number;
+      return ui.px2vp(px) * this.fontScale.scale;
+    } catch (e) {
+      return text.length * CouliTypography.footnote.size * this.fontScale.scale;
+    }
+  }
+
+  private stacked(): boolean {
+    const q: string | null = ClipboardPromptLayout.question(this.text);
+    return ClipboardPromptLayout.stacked(this.rowWidth, this.actionsWidth, q === null ? 0 : this.measure(q) + 1, PROMPT_GAP);
+  }
+
+  /** 文字栏宽（vp）：下移时为整行，同行时为整行减按钮区与间距；还没量到为 0。 */
+  private columnWidth(): number {
+    if (this.rowWidth <= 0) {
+      return 0;
+    }
+    return this.stacked() ? this.rowWidth : Math.max(0, this.rowWidth - this.actionsWidth - PROMPT_GAP);
+  }
+
+  /** 显示用的文字：整句放得下一行就原样；放不下时问句另起一行（问句本身不拆，读屏仍读 text 原句）。 */
+  private shownText(): string {
+    const q: string | null = ClipboardPromptLayout.question(this.text);
+    const width: number = this.columnWidth();
+    if (q === null || width <= 0 || this.measure(this.text) + 1 <= width) {
+      return this.text;
+    }
+    return this.text.substring(0, this.text.length - q.length) + '\n' + q;
+  }
+
+  @Builder
+  textBlock() {
+    if (this.detail.length === 0 && this.badge.length === 0) {
+      Text(this.shownText())
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary, CouliFontWeight.semibold))
+        .width('100%')
+        .accessibilityText(this.text)
+        .id(this.barId + '_text')
+    } else {
+      Column({ space: CouliSpacing.space1 }) {
+        Text(this.shownText())
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary,
+            CouliFontWeight.semibold))
           .width('100%')
-          .alignItems(VerticalAlign.Center)
+          .id(this.barId + '_text')
+        Row({ space: CouliSpacing.space1 }) {
+          if (this.badge.length > 0) {
+            // 文字区整体读 barLabel（已含平台名）：标签自身对读屏隐藏，平台名不重复读。
+            PlatformBadge({ label: this.badge, platform: this.badgePlatform })
+              .accessibilityLevel('no-hide-descendants')
+          }
+          if (this.detail.length > 0) {
+            Text(this.detail)
+              .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+              .layoutWeight(1)
+              .id(this.barId + '_detail')
+          }
         }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-        .accessibilityGroup(true)
-        .accessibilityText(this.barLabel.length > 0 ? this.barLabel : this.text + ' ' + this.detail)
-        .id(this.barId + '_body')
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
       }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .accessibilityGroup(true)
+      .accessibilityText(this.barLabel.length > 0 ? this.barLabel : this.text + ' ' + this.detail)
+      .id(this.barId + '_body')
+    }
+  }
+
+  @Builder
+  actions() {
+    Row({ space: CouliSpacing.space1 }) {
       Button({ type: ButtonType.Capsule, stateEffect: true }) {
         Text(this.actionText)
-          .attributeModifier(new CouliTextModifier(CouliTypography.caption,
-            this.disabled ? CouliColors.textSecondary : CouliColors.textPrimary))
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
+            this.disabled ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.semibold))
           .maxLines(1)
       }
       .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
-      .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
-      .backgroundColor(CouliColors.backgroundMuted)
+      .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
+      // 可用态浅底 brand.subtle（HomeClipboardInvite-v3）；禁用态（42901 / 在途）回中性底（Android b 同口径）。
+      .backgroundColor(this.disabled ? CouliColors.backgroundMuted : CouliColors.brandSubtle)
       .enabled(!this.disabled)
       .accessibilityText(this.actionLabel)
       .focusBox(CouliFocus.box)
@@ -317,21 +381,57 @@ export struct ClipboardPromptBar {
       .id(this.barId + '_close')
       .onClick(CouliFixedTap.of(this.onClose, this.actionKey))
     }
-    .width('100%')
     .alignItems(VerticalAlign.Center)
-    .padding({ left: CouliSpacing.space3, right: CouliSpacing.space1, top: CouliSpacing.space2,
+    .onAreaChange((_old: Area, now: Area) => {
+      this.actionsWidth = now.width as number;
+    })
+  }
+
+  build() {
+    Column({ space: CouliSpacing.space1 }) {
+      if (this.stacked()) {
+        Column() {
+          this.textBlock()
+        }
+        .width('100%')
+        Row() {
+          this.actions()
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      } else {
+        Row({ space: PROMPT_GAP }) {
+          Column() {
+            this.textBlock()
+          }
+          .layoutWeight(1)
+          this.actions()
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      }
+    }
+    .width('100%')
+    .padding({ left: PROMPT_PADDING_LEFT, right: PROMPT_PADDING_RIGHT, top: CouliSpacing.space2,
       bottom: CouliSpacing.space2 })
     .borderRadius(CouliRadius.card)
     .backgroundColor(CouliColors.backgroundSurface)
     .shadow(CouliShadow.floating)
+    .onAreaChange((_old: Area, now: Area) => {
+      this.rowWidth = Math.max(0, (now.width as number) - PROMPT_PADDING_LEFT - PROMPT_PADDING_RIGHT);
+      CouliFontScale.refresh();
+    })
     .id(this.barId)
   }
 }
 
 /**
- * 30132 的提示样式（ShareHubInvalid：错误底色圆角 12，图标 + 文案 +【用商品名搜索】600，窄屏换行）；actionText 为空时只有文案
- * （30131 / 42901 / 5xxxx 等轻提示也用这一块，内联在发起入口下方）。出现时由调用方播报。
- * actionDisabled：共享 42901 禁用期内【用商品名搜索】置灰（enabled(false)，APP-07 共性第 31 条），执行层另外拦截。
+ * 剪贴板结果提示（内联在发起入口下方）。两种版式：
+ * - 默认（轻提示：30131 / 42901 / 5xxxx 等，及多卡半屏里的行内结果）：错误底色圆角 12，图标 + 文案（+【用商品名搜索】链接样式）+ 关闭。
+ * - card = true（HomeClipboardResults-v3 ① 识别不了、⑤ 网络失败，HM-07v-b A18）：白卡圆角 16 + shadow.card，左 20 图标（icon）
+ *   + 文案 14 主文字色，右侧描边次按钮（【用商品名搜索】/【重试】，brand.emphasis 14/600、命中 48）；放不下时按钮整块换到下一行靠右，
+ *   文案不截断。①⑤ 不设关闭（调用方按 ClipboardResultView.closable 给 closeLabel）。
+ * actionDisabled：共享 42901 禁用期 / 在途时按钮置灰（enabled(false)，APP-07 共性第 31 条），执行层另外拦截。出现时由调用方播报。
  */
 @ComponentV2
 export struct ClipboardNotice {
@@ -340,6 +440,10 @@ export struct ClipboardNotice {
   @Param actionDisabled: boolean = false;
   @Param closeLabel: string = '';
   @Param noticeId: string = 'clipboard_notice';
+  /** 卡内版式（①⑤，HomeClipboardResults-v3）；false 为轻提示版式（默认，不变）。 */
+  @Param card: boolean = false;
+  /** 卡内版式左侧图标名（① info、⑤ alert）。 */
+  @Param icon: string = 'alert';
   /** 这条结果的编号（渲染键）：按钮回调在渲染时固定，结果换代时随之重新登记（R1-03）。 */
   @Param actionKey: number = 0;
   @Event onAction: () => void = () => {
@@ -347,7 +451,135 @@ export struct ClipboardNotice {
   @Event onClose: () => void = () => {
   };
 
+  /** 卡内版式：文字区宽（图标右侧，vp）与按钮宽，量到后决定按钮同行还是换到文字下方靠右。 */
+  @Local cardRowWidth: number = 0;
+  @Local cardActionWidth: number = 0;
+  @Local fontScale: CouliFontScale = CouliFontScale.shared();
+
+  aboutToAppear(): void {
+    CouliFontScale.attach(this.getUIContext());
+  }
+
+  /** 100% 字号下 14/400 文案一行的宽（vp）× 当前字号倍数。 */
+  private measureText(text: string): number {
+    if (text.length === 0) {
+      return 0;
+    }
+    try {
+      const ui: UIContext = this.getUIContext();
+      const px: number = ui.getMeasureUtils().measureText({
+        textContent: text, fontSize: CouliTypography.footnote.size + 'vp'
+      }) as number;
+      return ui.px2vp(px) * this.fontScale.scale;
+    } catch (e) {
+      return text.length * CouliTypography.footnote.size * this.fontScale.scale;
+    }
+  }
+
+  /** 文案一行放不下「文案 + 间距 + 按钮」时按钮换到文案下方靠右（不缩字、不截断、按钮命中区不压缩）。 */
+  private cardStacked(): boolean {
+    if (this.actionText.length === 0) {
+      return false;
+    }
+    return ClipboardPromptLayout.stacked(this.cardRowWidth, this.cardActionWidth, this.measureText(this.text) + 1,
+      CouliSpacing.space3);
+  }
+
+  @Builder
+  cardText() {
+    Text(this.text)
+      .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+      .id(this.noticeId + '_text')
+  }
+
+  @Builder
+  cardAction() {
+    Button({ type: ButtonType.Capsule, stateEffect: true }) {
+      Text(this.actionText)
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
+          this.actionDisabled ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.semibold))
+    }
+    .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
+    .backgroundColor(CouliColors.backgroundSurface)
+    .border({ width: 1, color: this.actionDisabled ? CouliColors.borderSubtle : CouliColors.borderControl })
+    .enabled(!this.actionDisabled)
+    .focusBox(CouliFocus.box)
+    .id(this.noticeId + '_action')
+    .onClick(CouliFixedTap.of(this.onAction, this.actionKey))
+    .onAreaChange((_old: Area, now: Area) => {
+      this.cardActionWidth = now.width as number;
+    })
+  }
+
+  @Builder
+  cardBody() {
+    Row({ space: CouliSpacing.space2 }) {
+      CouliIcon({ name: this.icon, iconSize: 20, color: CouliColors.textSecondary })
+        .margin({ top: 1 })
+      // 文案与按钮：一行放得下同行（按钮靠右）；放不下（320 宽 / 200% 字号）按钮换到文案下方靠右。
+      Column({ space: CouliSpacing.space2 }) {
+        if (this.cardStacked()) {
+          Row() {
+            this.cardText()
+          }
+          .width('100%')
+          Row() {
+            this.cardAction()
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+        } else {
+          Row({ space: CouliSpacing.space3 }) {
+            Row() {
+              this.cardText()
+            }
+            .layoutWeight(1)
+            if (this.actionText.length > 0) {
+              this.cardAction()
+            }
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+        }
+      }
+      .layoutWeight(1)
+      .onAreaChange((_old: Area, now: Area) => {
+        this.cardRowWidth = now.width as number;
+      })
+      if (this.closeLabel.length > 0) {
+        Button({ type: ButtonType.Normal, stateEffect: true }) {
+          CouliIcon({ name: 'close', iconSize: 18, color: CouliColors.textSecondary })
+        }
+        .width(CouliInteraction.minTouchTarget)
+        .height(CouliInteraction.minTouchTarget)
+        .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, right: -CouliSpacing.space2 })
+        .backgroundColor(Color.Transparent)
+        .accessibilityText(this.closeLabel)
+        .focusBox(CouliFocus.box)
+        .onClick(CouliFixedTap.of(this.onClose, this.actionKey))
+      }
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space3, top: CouliSpacing.space3,
+      bottom: CouliSpacing.space3 })
+    .borderRadius(CouliRadius.card)
+    .backgroundColor(CouliColors.backgroundSurface)
+    .shadow(CouliShadow.card)
+    .id(this.noticeId)
+  }
+
   build() {
+    if (this.card) {
+      this.cardBody()
+    } else {
+      this.lightBody()
+    }
+  }
+
+  @Builder
+  lightBody() {
     Row({ space: CouliSpacing.space2 }) {
       CouliIcon({ name: 'alert', iconSize: 20, color: CouliColors.statusErrorText })
         .margin({ top: 1 })

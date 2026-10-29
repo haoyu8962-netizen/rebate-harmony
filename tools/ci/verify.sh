@@ -265,6 +265,13 @@ python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --self-test || fail_fast "hm
 python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" || fail_fast "hm07v-host" "见上方违反项"
 node "$ROOT/tools/ci/hm07v/check-arkts.cjs" --real || fail_fast "hm07v-arkts" "HM-07v-a 测试文件 ArkTS 严格检查失败"
 record "HM-07v-a 宿主检查" PASS "fixture / 名单 / 深色入口 / 接线 / ArkTS"
+# HM-07v-b（首页视觉 b 段：弹窗与剪贴板浮层）：设备名单与第三个 entry 设备步、单测登记、读屏名 / 按钮字草稿、弹窗遮罩与几何接线、
+# 邀请条排法、①⑤ 关闭按类别 / ⑤ 重试接线、半屏系统把手、假服务场景词（tools/ci/hm07v/check_overlays.py），以及 b 段测试文件 ArkTS 严格检查。
+step "HM-07v-b 弹窗与剪贴板浮层宿主检查"
+python3 "$ROOT/tools/ci/hm07v/check_overlays.py" --self-test || fail_fast "hm07vb-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/hm07v/check_overlays.py" || fail_fast "hm07vb-host" "见上方违反项"
+node "$ROOT/tools/ci/hm07v/check-arkts-b.cjs" --real || fail_fast "hm07vb-arkts" "HM-07v-b 测试文件 ArkTS 严格检查失败"
+record "HM-07v-b 宿主检查" PASS "名单 / 设备步 / 草稿 / 接线 / ArkTS"
 
 step "DS-02 纯逻辑与测试设施自测"
 node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"
@@ -643,7 +650,7 @@ run_unit_tests designsystem common/designsystem America/Los_Angeles
 run_device_tests() {
     # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name $4 product $5 被测应用包
     # $6 步骤名（同一测试包分多步跑时区分日志与工作目录；缺省 = 模块名）$7 Hypium 套件过滤（class=… / notClass=…；缺省全部）
-    # $8 entry_test 必跑名单（main / hm07va / all，见 ds02/check_device_result.py）
+    # $8 entry_test 必跑名单（main / hm07va / hm07vb / all，见 ds02/check_device_result.py）
     # HM-07v-a（编排 D10-405 D4）：同一模块第二步复用第一步构建好的测试包（同包），只重新签名、卸载重装、执行。
     local module="$1" dir="$2" test_module="$3" log="$LOG_DIR/device-test-build-$1.log" code
     local test_product="${4:-default}" application_hap="${5:-}"
@@ -715,12 +722,15 @@ run_device_test_hap() {
 }
 run_device_tests core common/core core_test
 # HM-07v-a（编排 D10-405 D4、测试 v2 T0）：entry 拆成两个设备步，同锁、同一个测试包，各自计时、各自 1800 秒门槛、各自必跑名单：
-#   entry         DS-02 158 + F-X-05a 9 + F-X-25 6 = 173 条（排除 Hm07vHomeUi 套件）
+#   entry         DS-02 158 + F-X-05a 9 + F-X-25 6 = 173 条（排除 Hm07vHomeUi、Hm07vOverlayUi 两个套件）
 #   entry-hm07va  HM-07v-a 17 条（只跑 Hm07vHomeUi 套件）；device-test.sh 先卸载再装，从未同意隐私的冷启动开始（不受前一步状态影响）
+#   entry-hm07vb  HM-07v-b 11 条（只跑 Hm07vOverlayUi 套件：弹窗与剪贴板浮层）；同样先卸载再装、各自 1800 秒（D10-232 / D10-405 D4 同口径）
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07vb class=Hm07vOverlayUi hm07vb
 
 # ---------------------------------------------------------------- 8. Release 制品扫描
 export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"

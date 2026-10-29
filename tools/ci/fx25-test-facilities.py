@@ -92,10 +92,10 @@ run_device_tests core common/core core_test
                     self.assertEqual((folder / 'build-receipts').read_text().splitlines(),
                                      ['core|genOnDeviceTestHap|default', 'same-source|apply|staging|entry',
                                       'entry|assembleHap|staging', 'same-source|restore||', 'same-source|check|staging|entry'])
-                    # HM-07v-a（D10-405 D4）起 entry 分两步（main / hm07va）、同一测试包只构建一次（上面 build 回执仍只有一次），
-                    # 两步都装同一 Staging 应用、各自 1800 秒（测试 v3 同步本自测的期望；构建 / 同源回执不变）。
+                    # HM-07v-a（D10-405 D4）起 entry 分步（main / hm07va；HM-07v-b 测试 v1 加 hm07vb 共三步）、同一测试包只构建一次
+                    # （上面 build 回执仍只有一次），各步都装同一 Staging 应用、各自 1800 秒（构建 / 同源回执不变）。
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
-                                     ['core_test|||'] + ['entry_test|' + tmp + '/Staging.hap|600000|1800'] * 2)  # D10-232
+                                     ['core_test|||'] + ['entry_test|' + tmp + '/Staging.hap|600000|1800'] * 3)  # D10-232
                 if probe == 'entry-build-fails':
                     # 构建失败也要先还原构建镜像的模块配置，再报失败；不核对、不上设备。
                     self.assertEqual((folder / 'build-receipts').read_text().splitlines()[-2:],

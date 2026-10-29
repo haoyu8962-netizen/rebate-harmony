@@ -32,6 +32,7 @@ export {
 } from './src/main/ets/components/ProductCard';
 export { ProductCardMeasure, SCROLL_TILE_MIN_WIDTH } from './src/main/ets/components/ProductCardMeasure';
 export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
+export { ClipboardPromptLayout } from './src/main/ets/logic/ClipboardPromptLayout';
 export { ContentColumn } from './src/main/ets/logic/ContentColumn';
 export { SearchDisclaimers } from './src/main/ets/format/SearchDisclaimers';
 export {

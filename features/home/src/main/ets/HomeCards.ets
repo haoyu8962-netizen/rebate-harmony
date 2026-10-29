@@ -1,10 +1,11 @@
 // APP-11 首页 SDUI 的 8 种卡片渲染器（03 §6.3）：只做纯展示，所有映射与校验在 Core 解码阶段完成。
 // 回调捕获渲染时的普通值（卡片 owner、section id、坑位、动作、公告三元组），执行层只比较（APP-09 第 63 条）。
 // 本模块不放中文字面量（HM-LINT-1）：文案经 HomeDraftTexts（契约字典 → 草稿表）。
-import { LengthMetrics } from '@kit.ArkUI';
+import { display, LengthMetrics } from '@kit.ArkUI';
 import {
   HomeAction, HomeActivityItem, HomeAdLabel, HomeBannerItem, HomeBuiltinIcon, HomeCard, HomeCardView,
-  HomeDraftTexts, HomeIconArt, HomeIconItem, HomeNoticeDisplay, HomeNoticeRow, HomePopupTicket, HomeProductRow, HomeTap
+  HomeDraftTexts, HomeIconArt, HomeIconItem, HomeNoticeDisplay, HomeNoticeRow, HomePopupGeometry, HomePopupTicket, HomeProductRow,
+  HomeTap
 } from 'core';
 import {
   CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier,
@@ -776,58 +777,125 @@ export struct HomeFeedFooter {
 }
 
 /**
- * 首页弹窗（F-HOME-08、G14 ⑦⑧）：照 MainPopup 版式，只显示图片 + 关闭。关闭按钮在组件树里先于图片、与弹窗同时出现、命中区 48、
- * 不被图片遮挡；点一次即关；点遮罩、系统返回由承载它的 bindSheet（居中、onWillDismiss）关闭。读屏顺序：弹窗名 → 关闭 → 图片；
- * 模态承载使底层不进读屏，出现时焦点落到关闭按钮。回调捕获渲染时的弹窗票据（R1-02）。
+ * 弹窗关闭后焦点回原处（brief §4-2，APP-11 共性第 3 条；HM-07v-b 本线决定 ②）：关闭键、系统返回、点遮罩三条路径收起后，
+ * 承载方（HomeTabRoot ArkPopupPresenter.onDidDisappear）把焦点请求回首页搜索入口；点图片跳转（执行即关闭、焦点去新页面）
+ * 不还原——HomePopupView 在点图片时先记下这个弹窗票据，承载方收起时查到就跳过（iOS b r1 S2-3 教训）。
+ */
+export class HomePopupFocus {
+  /** 关闭后焦点回到的控件（首页固定搜索行的搜索入口）。 */
+  static readonly RETURN_ID: string = 'home_search_entry';
+  private static readonly navigated: Set<string> = new Set<string>();
+
+  static markNavigated(key: string): void {
+    HomePopupFocus.navigated.add(key);
+  }
+
+  /** 这个弹窗是不是因点图片跳转而收起（查过即清）。 */
+  static consumeNavigated(key: string): boolean {
+    const hit: boolean = HomePopupFocus.navigated.has(key);
+    HomePopupFocus.navigated.delete(key);
+    return hit;
+  }
+}
+
+/**
+ * 首页弹窗（F-HOME-08、G14 ⑦⑧；HM-07v-b A15 照 MainPopupStatic / MainPopupDark）：只有图片区 + 右上白圆关闭——无衬底卡、无标题与按钮字。
+ * 尺寸走 Core HomePopupGeometry（左右各留 32、按图片宽高比、窗口太矮收高；关闭命中区 48 贴图片右上、外框包住它，所以关闭层不随
+ * 图片比例 / 圆角裁剪变形或被裁，Android b r1 S1）。关闭视觉 40 圆底 background.surface（深浅随令牌）+ 24 关闭图标，zIndex 在图片之上；
+ * 组件树里关闭在图片之前：读屏「首页弹窗 → 关闭 → 图片」，出现时焦点到关闭。ad_label 非 null 原样显示在图片左上（BR-TEXT-17）。
+ * 遮罩、系统返回与点遮罩由承载的 CustomDialog（maskColor overlay.scrim、onWillDismiss）处理。回调捕获渲染时的弹窗票据（R1-02）。
  */
 @ComponentV2
 export struct HomePopupView {
   @Param ticket: HomePopupTicket | null = null;
   @Param port: HomeScreenPort | null = null;
+  /** 窗口宽高（vp）与图片原始宽高（加载完成前为 0 → 几何按 4:5 占位）。 */
+  @Local windowWidth: number = 0;
+  @Local windowHeight: number = 0;
+  @Local imageWidth: number = 0;
+  @Local imageHeight: number = 0;
+
+  aboutToAppear(): void {
+    try {
+      const d: display.Display = display.getDefaultDisplaySync();
+      this.windowWidth = this.getUIContext().px2vp(d.width);
+      this.windowHeight = this.getUIContext().px2vp(d.height);
+    } catch (e) {
+      // 取不到窗口尺寸：几何按 0 处理，关闭层照样完整可点。
+    }
+  }
 
   private tickets(): HomePopupTicket[] {
     return this.ticket === null ? [] : [this.ticket as HomePopupTicket];
   }
 
+  private geometry(): HomePopupGeometry {
+    return HomePopupGeometry.of(this.windowWidth, this.windowHeight, this.imageWidth, this.imageHeight);
+  }
+
   @Builder
-  body(t: HomePopupTicket) {
-    // 遮罩与点遮罩关闭由承载的 bindSheet 提供（maskColor + onWillDismiss）；这里只有弹窗卡片。
-    Column({ space: CouliSpacing.space3 }) {
-      Row() {
-        Blank()
-        Button({ type: ButtonType.Normal, stateEffect: true }) {
+  body(t: HomePopupTicket, g: HomePopupGeometry) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      // 关闭（组件树在图片之前，读屏先读关闭；zIndex 叠在图片上）
+      Button({ type: ButtonType.Normal, stateEffect: false }) {
+        Stack() {
           CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textPrimary })
         }
-        .id('home_popup_close')
-        .width(CouliInteraction.minTouchTarget)
-        .height(CouliInteraction.minTouchTarget)
-        .backgroundColor(Color.Transparent)
-        .accessibilityText(HomeDraftTexts.text('home.popup.close'))
-        .focusBox(CouliFocus.box)
-        .onClick(() => {
-          this.port?.closePopup(t);
-        })
+        .width(HomePopupGeometry.CLOSE_VISUAL)
+        .height(HomePopupGeometry.CLOSE_VISUAL)
+        .borderRadius(HomePopupGeometry.CLOSE_VISUAL / 2)
+        .backgroundColor(CouliColors.backgroundSurface)
+        .shadow(CouliShadow.card)
       }
-      .width('100%')
-      Image(this.port === null ? t.image : (this.port as HomeScreenPort).image(t.image))
-        .width('100%')
-        .constraintSize({ maxHeight: 480 })
-        .objectFit(ImageFit.Contain)
-        .borderRadius(CouliRadius.card)
-        .draggable(false)
-        .accessibilityText(HomeDraftTexts.text('home.image.default_alt'))
-        .accessibilityRole(t.tap !== null ? AccessibilityRoleType.BUTTON : AccessibilityRoleType.IMAGE)
-        .onClick(() => {
-          // 点图片执行 items[0].action（Router，in_app），执行即关闭弹窗；缺失则不可点。
-          if (t.tap !== null) {
-            this.port?.openPopup(t);
-          }
-        })
+      .id('home_popup_close')
+      .width(HomePopupGeometry.CLOSE_HIT)
+      .height(HomePopupGeometry.CLOSE_HIT)
+      .position({ x: g.closeX, y: g.closeY })
+      .zIndex(2)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText(HomeDraftTexts.text('home.popup.close'))
+      .focusBox(CouliFocus.box)
+      .onClick(() => {
+        this.port?.closePopup(t);
+      })
+      Stack({ alignContent: Alignment.TopStart }) {
+        Image(this.port === null ? t.image : (this.port as HomeScreenPort).image(t.image))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .draggable(false)
+          .onComplete((e) => {
+            // 按图片原始宽高比定框（加载前按 4:5）；只在拿到有效尺寸时更新。
+            if (e !== undefined && e.width > 0 && e.height > 0) {
+              this.imageWidth = e.width;
+              this.imageHeight = e.height;
+            }
+          })
+        if (t.adLabel !== null && (t.adLabel as string).trim().length > 0) {
+          homeAdChip(t.adLabel as string, AD_INSET)
+        }
+      }
+      .id('home_popup_image')
+      .width(g.imageWidth)
+      .height(g.imageHeight)
+      .position({ x: g.imageX, y: g.imageY })
+      .borderRadius(CouliRadius.card)
+      .clip(true)
+      .accessibilityGroup(true)
+      .accessibilityText((t.adLabel !== null && (t.adLabel as string).trim().length > 0 ? (t.adLabel as string).trim() + ' ' : '')
+        + HomeDraftTexts.text('home.image.default_alt'))
+      .accessibilityRole(t.tap !== null ? AccessibilityRoleType.BUTTON : AccessibilityRoleType.IMAGE)
+      .onClick(() => {
+        // 点图片执行 items[0].action（Router，in_app），执行即关闭弹窗、焦点去新页面（不还原到首页）；缺失则不可点。
+        if (t.tap !== null) {
+          HomePopupFocus.markNavigated(t.key);
+          this.port?.openPopup(t);
+        }
+      })
     }
-    .width('100%')
-    .padding(CouliSpacing.space4)
-    .backgroundColor(CouliColors.backgroundSurface)
-    .borderRadius(CouliRadius.panel)
+    .id('home_popup')
+    .width(g.frameWidth)
+    .height(g.frameHeight)
     .accessibilityGroup(false)
     .accessibilityText(HomeDraftTexts.text('home.popup.label'))
     .onAppear(() => {
@@ -843,9 +911,8 @@ export struct HomePopupView {
   build() {
     Column() {
       ForEach(this.tickets(), (t: HomePopupTicket) => {
-        this.body(t)
+        this.body(t, this.geometry())
       }, (t: HomePopupTicket) => t.key)
     }
-    .width('100%')
   }
 }

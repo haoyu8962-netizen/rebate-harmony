@@ -445,6 +445,15 @@ export struct CouliSheetPanel {
    * 关闭按钮的渲染键（如剪贴板多卡弹层的结果编号）：关闭回调在渲染时固定，换代时随之重新登记，旧点击不转调新弹层的关闭（FU-CLIP R1-03）。
    */
   @Param closeKey: number = 0;
+  /**
+   * HM-07v-b（H19）可选参数，默认不变：showHandle = false 时不画自绘把手（承载的 bindSheet 用系统把手 dragBar: true）；
+   * titleVisible = false 时标题不占位、不可见，只作读屏名 / 焦点落点（识别到商品单张：画板无标题）；closeId 给关闭一个稳定 id。
+   */
+  @Param showHandle: boolean = true;
+  @Param titleVisible: boolean = true;
+  @Param closeId: string = '';
+  /** fitContent = true 时中段高度随内容（LayoutPolicy.wrapContent，仍受面板最大高约束可滚）：承载的 bindSheet 用 FIT_CONTENT 时面板贴内容。 */
+  @Param fitContent: boolean = false;
   @Event onClose: () => void = () => {
   };
 
@@ -456,9 +465,18 @@ export struct CouliSheetPanel {
     }
   }
 
-  build() {
-    // 三段：头部（把手、标题、关闭）与底部操作区固定，只有中段滚动（adaptation-a11y-spec §4）。
-    Flex({ direction: FlexDirection.Column, space: { main: LengthMetrics.vp(CouliSpacing.space4) } }) {
+  @Builder
+  body() {
+    Column() {
+      this.content()
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  panelParts() {
+    if (this.showHandle) {
       Row()
         .width(36)
         .height(CouliSpacing.space1)
@@ -467,7 +485,9 @@ export struct CouliSheetPanel {
         .alignSelf(ItemAlign.Center)
         .accessibilityLevel('no')
         .flexShrink(0)
-      Row() {
+    }
+    Row() {
+      if (this.titleVisible) {
         Text(this.title)
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
             CouliFontWeight.semibold))
@@ -479,44 +499,87 @@ export struct CouliSheetPanel {
           .onAppear(() => {
             CouliFocusReturn.to(this.getUIContext(), this.titleId);
           })
-        Button({ type: ButtonType.Normal, stateEffect: true }) {
-          CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textPrimary })
-        }
-        .width(CouliInteraction.minTouchTarget)
-        .height(CouliInteraction.minTouchTarget)
-        .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, right: -CouliSpacing.space3 })
-        .backgroundColor(Color.Transparent)
-        .accessibilityText(this.closeLabel)
-        .focusable(true)
-        .focusBox(CouliFocus.box)
-        .onClick(CouliFixedTap.of(this.onClose, this.closeKey))
+      } else {
+        // 不可见标题：0 高、不占位，只作读屏名与打开时的焦点落点（读屏读「标题」后再到关闭与正文）。
+        Text(this.title)
+          .fontSize(CouliTypography.body.fontSize)
+          .height(0)
+          .clip(true)
+          .layoutWeight(1)
+          .accessibilityText(this.title)
+          .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+          .id(this.titleId)
+          .focusable(true)
+          .onAppear(() => {
+            CouliFocusReturn.to(this.getUIContext(), this.titleId);
+          })
       }
-      .width('100%')
-      .flexShrink(0)
+      Button({ type: ButtonType.Normal, stateEffect: true }) {
+        CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textPrimary })
+      }
+      .width(CouliInteraction.minTouchTarget)
+      .height(CouliInteraction.minTouchTarget)
+      .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, right: -CouliSpacing.space3 })
+      .backgroundColor(Color.Transparent)
+      .accessibilityText(this.closeLabel)
+      .focusable(true)
+      .focusBox(CouliFocus.box)
+      .id(this.closeId)
+      .onClick(CouliFixedTap.of(this.onClose, this.closeKey))
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.End)
+    .flexShrink(0)
 
+    if (this.fitContent) {
       Scroll() {
-        Column() {
-          this.content()
-        }
-        .width('100%')
-        .alignItems(HorizontalAlign.Start)
+        this.body()
+      }
+      .height(LayoutPolicy.wrapContent)
+      .flexShrink(1)
+      .align(Alignment.TopStart)
+      .edgeEffect(EdgeEffect.None)
+    } else {
+      Scroll() {
+        this.body()
       }
       .flexShrink(1)
       .align(Alignment.TopStart)
       .edgeEffect(EdgeEffect.None)
-
-      Column() {
-        this.actions()
-      }
-      .width('100%')
-      .flexShrink(0)
     }
-    .constraintSize({ maxHeight: this.maxPanelHeight })
-    .padding({ top: CouliSpacing.space3, left: CouliSpacing.space4, right: CouliSpacing.space4,
-      bottom: CouliSpacing.space5 })
-    .backgroundColor(CouliColors.backgroundSurface)
-    .borderRadius({ topLeft: CouliRadius.panel, topRight: CouliRadius.panel })
+
+    Column() {
+      this.actions()
+    }
     .width('100%')
+    .flexShrink(0)
+  }
+
+  build() {
+    // 三段：头部（把手、标题、关闭）与底部操作区固定，只有中段滚动（adaptation-a11y-spec §4）。
+    // fitContent：面板高随内容（承载的 bindSheet 用 FIT_CONTENT 时贴内容），仍受 maxPanelHeight 约束、中段可滚。
+    if (this.fitContent) {
+      Flex({ direction: FlexDirection.Column, space: { main: LengthMetrics.vp(CouliSpacing.space4) } }) {
+        this.panelParts()
+      }
+      .height(LayoutPolicy.wrapContent)
+      .constraintSize({ maxHeight: this.maxPanelHeight })
+      .padding({ top: CouliSpacing.space3, left: CouliSpacing.space4, right: CouliSpacing.space4,
+        bottom: CouliSpacing.space5 })
+      .backgroundColor(CouliColors.backgroundSurface)
+      .borderRadius({ topLeft: CouliRadius.panel, topRight: CouliRadius.panel })
+      .width('100%')
+    } else {
+      Flex({ direction: FlexDirection.Column, space: { main: LengthMetrics.vp(CouliSpacing.space4) } }) {
+        this.panelParts()
+      }
+      .constraintSize({ maxHeight: this.maxPanelHeight })
+      .padding({ top: CouliSpacing.space3, left: CouliSpacing.space4, right: CouliSpacing.space4,
+        bottom: CouliSpacing.space5 })
+      .backgroundColor(CouliColors.backgroundSurface)
+      .borderRadius({ topLeft: CouliRadius.panel, topRight: CouliRadius.panel })
+      .width('100%')
+    }
   }
 }
 

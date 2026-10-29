@@ -6,6 +6,7 @@
 import { PendingInviteCode } from '../invite/PendingInviteCode';
 import { LocalDataCleanerRegistry } from '../config/LocalDataCleaner';
 import { ApiOutcome, ApiRequest, ApiResult, ClientScope } from '../network/ApiClient';
+import { TransportFailure } from '../network/HttpTransport';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { disableMillisOf, SearchApiPort, trace6Of, withTrace6 } from '../search/SearchController';
 import {
@@ -63,6 +64,8 @@ export class ParseOutcome {
   readonly action: ParseAction | null;
   readonly dropped: boolean;
   forceUpdate: boolean = false;
+  /** ⑤ 网络失败（传输层 timeout / disconnect / no_envelope，ClipboardRetryPolicy）：执行层出带【重试】的结果卡（HM-07v-b A18）。 */
+  retryable: boolean = false;
 
   constructor(action: ParseAction | null, dropped: boolean = false) {
     this.action = action;
@@ -159,12 +162,32 @@ export class ParseInputService {
       failed.textKey = result.effect === null || result.effect.textKey === null ? ParseResultAction.GENERIC_KEY
         : result.effect.textKey;
       failed.showTrace6 = false;
-      return new ParseOutcome(failed);
+      const outcome: ParseOutcome = new ParseOutcome(failed);
+      // 文案仍是统一错误（网络层 Effect / error.50001，与 iOS b 同）；只有传输失败（超时、断网、无外壳）标为可重试 ⑤。
+      outcome.retryable = ClipboardRetryPolicy.retryable(result.outcome, result.failure);
+      return outcome;
     }
     // 本地拒绝（归属失效、撤回、切换环境）、304 等：不出卡、不提示
     return new ParseOutcome(null, true);
   }
 
+}
+
+/**
+ * ⑤【重试】出现条件（三端口径 2026-10-24 21:15，HM-07v-b A18）：只有网络层判为 NETWORK_ERROR 且传输失败原因是超时、断网、
+ * 无外壳（网关错误页等）时出——这些情况重发同一片段有望成功；取消（归属失效、撤回同意、切换环境）、刷新无结论、清会话失败、
+ * 流协议错误不出；业务错误（含 5xxxx）、成功（含空结果）、本地拒绝、304 都不出。精确匹配，不做大小写 / 空白归一。
+ */
+export class ClipboardRetryPolicy {
+  static readonly NO_ENVELOPE: string = 'no_envelope';
+
+  static retryable(outcome: string, failure: string): boolean {
+    if (outcome !== ApiOutcome.NETWORK_ERROR) {
+      return false;
+    }
+    return failure === TransportFailure.TIMEOUT || failure === TransportFailure.DISCONNECT
+      || failure === ClipboardRetryPolicy.NO_ENVELOPE;
+  }
 }
 
 /**
@@ -311,6 +334,16 @@ export class ClipboardResultView {
   static readonly NOTICE: string = 'notice';
   static readonly UNRECOGNIZED: string = 'unrecognized';
   static readonly CARD_LIST: string = 'card_list';
+  /** ⑤ 网络失败（传输失败，ClipboardRetryPolicy）：卡内【重试】只重发本次已提取的片段（retryUpload），不读剪贴板。 */
+  static readonly NETWORK_FAILED: string = 'network_failed';
+
+  /**
+   * 结果卡有没有【关闭】（三端口径 2026-10-24 18:39）：①（识别不了）与 ⑤（网络失败）是卡内版式、不设关闭，靠新一次粘贴或离开页面
+   * 收起；轻提示（30131 / 42901 / 5xxxx）保留关闭；多卡半屏的关闭在半屏自身。
+   */
+  static closable(kind: string): boolean {
+    return kind !== ClipboardResultView.UNRECOGNIZED && kind !== ClipboardResultView.NETWORK_FAILED;
+  }
 
   readonly kind: string;
   readonly serial: number;
@@ -324,6 +357,10 @@ export class ClipboardResultView {
   rows: ParseRow[] = [];
   /** SearchTyping 本页搜索框（30132 的【用商品名搜索】直接填进本页并搜索，rule-gaps A15）；首页为 null。 */
   fill: ((q: string) => void) | null = null;
+  /** ⑤ 的重发材料：本次已提取的上传片段与「」标题、scene（只在内存，随结果作废；不保存剪贴板原文）。其余类别为 null。 */
+  retryUpload: string | null = null;
+  retryTitle: string | null = null;
+  retryScene: string = ParseInputService.SCENE_CLIPBOARD;
 
   constructor(kind: string, serial: number, entry: string) {
     this.kind = kind;
@@ -1082,6 +1119,9 @@ export class ClipboardController {
       return PasteOutcome.BUSY;
     }
     const ticket: OwnerTicket = this.capture();
+    // 三端口径 2026-10-24 21:15（iOS b r1 S2-2）：新一次手动粘贴被受理（临时授权成功、未被拦）即同步收起旧 ① / ⑤ 结果卡，
+    // 不等读取与 parse 的结果——没有新结果的粘贴（空剪贴板、纯邀请内容、App 自写）后旧卡也不留。轻提示与提示条不动。
+    this.clearCardResult();
     this.state.busy = true;
     this.emit();
     const text: string | null = await this.readOnce();
@@ -1512,8 +1552,50 @@ export class ClipboardController {
         this.deps.forceUpdate(null);
         return;
       }
+      if (outcome.retryable) {
+        this.showNetworkFailed(outcome.action as ParseAction, upload, title, scene, entry, fill);
+        return;
+      }
       this.act(outcome.action, entry, fill);
     });
+  }
+
+  /** ⑤：统一错误文案 + 卡内【重试】（带本次已提取片段，只在内存）。 */
+  private showNetworkFailed(action: ParseAction, upload: string, title: string | null, scene: string, entry: string,
+    fill: ((q: string) => void) | null): void {
+    const view: ClipboardResultView = this.newResult(ClipboardResultView.NETWORK_FAILED, entry);
+    view.textKey = action.textKey ?? ParseResultAction.GENERIC_KEY;
+    view.traceId = null;
+    view.fill = fill;
+    view.retryUpload = upload;
+    view.retryTitle = title;
+    view.retryScene = scene;
+    this.showResult(view);
+  }
+
+  /** 收起当前 ① / ⑤ 结果卡（新一次手动粘贴被受理时）；轻提示、多卡结果与提示条不动。 */
+  private clearCardResult(): void {
+    const current: ClipboardResultView | null = this.state.result;
+    if (current !== null && !ClipboardResultView.closable(current.kind)) {
+      this.state.result = null;
+    }
+  }
+
+  /**
+   * ⑤【重试】：view 仍是当前结果、类别为 NETWORK_FAILED、带重发片段、不在共享禁用期 / 在途、前台且同意、无敏感浮层（与粘贴同一套
+   * 归属前提）时，同步收起这张卡并用同一片段（同一「」标题、发起入口、scene 与 fill）再发 parse——不读、不写剪贴板。受理返回 true；
+   * 旧卡的迟到回调、新结果出来后的旧卡、在途时连点一律拒绝。
+   */
+  retryResult(view: ClipboardResultView): boolean {
+    if (!this.isCurrentResult(view) || view.kind !== ClipboardResultView.NETWORK_FAILED || view.retryUpload === null
+      || this.resultActionsBusy || !this.pasteAllowed(false)) {
+      return false;
+    }
+    const upload: string = view.retryUpload;
+    this.state.result = null;
+    const ticket: OwnerTicket = this.capture();
+    this.startParse(upload, view.retryTitle, ticket, view.entry, view.fill, view.retryScene);
+    return true;
   }
 
   private act(action: ParseAction, entry: string, fill: ((q: string) => void) | null): void {
@@ -1725,6 +1807,11 @@ export class ClipboardResultBinding {
   /** 多卡弹层点卡（含卡上的购买按钮）。 */
   openRow(row: ParseRow): boolean {
     return this.controller.openCard(this.view, row);
+  }
+
+  /** ⑤ 网络失败的【重试】（只重发本次已提取片段，不读剪贴板）。 */
+  retry(): boolean {
+    return this.controller.retryResult(this.view);
   }
 }
 

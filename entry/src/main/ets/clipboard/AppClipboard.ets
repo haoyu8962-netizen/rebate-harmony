@@ -185,6 +185,10 @@ export class ClipboardUiModel {
   @Trace resultEntry: string = '';
   @Trace resultText: string = '';
   @Trace resultSearchable: boolean = false;
+  /** ⑤ 网络失败：卡内【重试】（HM-07v-b A18）。 */
+  @Trace resultRetryable: boolean = false;
+  /** 结果卡有没有【关闭】（ClipboardResultView.closable：①⑤ 无关闭，轻提示有）。 */
+  @Trace resultClosable: boolean = true;
   @Trace rows: ClipboardCardRow[] = [];
   @Trace blocked: boolean = false;
   @Trace busy: boolean = false;
@@ -218,6 +222,14 @@ export class ClipboardUiModel {
     };
   }
 
+  /** ⑤【重试】：经这张结果渲染时的绑定转发（旧卡回调不作用于新结果）。 */
+  noticeRetryAction(): () => void {
+    const b: ClipboardResultBinding | null = this.resultBinding;
+    return (): void => {
+      b?.retry();
+    };
+  }
+
   noticeCloseAction(): () => void {
     const b: ClipboardResultBinding | null = this.resultBinding;
     return (): void => {
@@ -243,7 +255,7 @@ export class ClipboardUiModel {
 
   noticeFor(entry: string): boolean {
     return this.resultEntry === entry && (this.resultKind === ClipboardResultView.NOTICE
-      || this.resultKind === ClipboardResultView.UNRECOGNIZED);
+      || this.resultKind === ClipboardResultView.UNRECOGNIZED || this.resultKind === ClipboardResultView.NETWORK_FAILED);
   }
 }
 
@@ -532,6 +544,8 @@ export class AppClipboard {
       m.resultEntry = '';
       m.resultText = '';
       m.resultSearchable = false;
+      m.resultRetryable = false;
+      m.resultClosable = true;
       m.rows = [];
       m.resultBinding = null;
       this.shownCards = null;
@@ -549,6 +563,8 @@ export class AppClipboard {
     m.resultSerial = r.serial;
     m.resultEntry = r.entry;
     m.resultSearchable = r.kind === ClipboardResultView.UNRECOGNIZED;
+    m.resultRetryable = r.kind === ClipboardResultView.NETWORK_FAILED;
+    m.resultClosable = ClipboardResultView.closable(r.kind);
     m.resultText = r.kind === ClipboardResultView.CARD_LIST ? ClipboardDraftTexts.text('clipboard.card_list.title')
       : AppClipboard.noticeText(r.textKey, r.traceId);
     this.shownCards = r.kind === ClipboardResultView.CARD_LIST ? r : null;

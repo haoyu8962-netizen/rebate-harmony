@@ -1323,7 +1323,7 @@ export class HomeController {
     const popup: HomeCard | null = this.popup;
     s.popupTicket = popup === null ? null : new HomePopupTicket(this.serial, this.popupSerial, popup.id,
       popup.popupImage, popup.popupAction === null ? null :
-        new HomeTap(this.serial, -1, popup.id, 1, popup.popupAction as HomeAction));
+        new HomeTap(this.serial, -1, popup.id, 1, popup.popupAction as HomeAction), popup.sectionAdLabel);
     this.scheduleNoticeExpiry(nextExpiry);
     return s;
   }

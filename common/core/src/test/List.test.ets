@@ -1,6 +1,7 @@
 import authChangeDecisionTest from './AuthChangeDecision.test';
 import fx05aClipboardBadgeTest from './Fx05aClipboardBadge.test';
 import hm07vHomeVisualTest from './Hm07vHomeVisual.test';
+import hm07vOverlayTest from './Hm07vOverlay.test';
 import trustedWebRecordsFx25Test from './TrustedWebRecordsFX25.test';
 import followupHM0729Test from './FollowupHM0729.test';
 import environmentConfigTest from './EnvironmentConfig.test';
@@ -264,4 +265,5 @@ export default function testsuite() {
   bridgeDisabledMethodsTest();
   fx05aClipboardBadgeTest();
   hm07vHomeVisualTest();
+  hm07vOverlayTest();
 }

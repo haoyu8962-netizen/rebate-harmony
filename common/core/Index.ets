@@ -206,7 +206,7 @@ export {
   PasteboardPort, ClipboardWriter, ParseOutcome, ParseInputService, ClipboardWatcher, ProductSeeds,
   ClipboardPromptView, ClipboardResultView, ClipboardNoticeText, ClipboardSnapshot, InvitePasteOutcome, PasteOutcome, ClipboardDeps,
   ClipboardController, ClipboardResultBinding, ClipboardPromptBinding, SaltedWriteLedger, SharedTextRecord, ShareReceipt,
-  ClipboardPageMark
+  ClipboardPageMark, ClipboardRetryPolicy
 } from './src/main/ets/clipboard/ClipboardController';
 export { PurchaseModalRegistry } from './src/main/ets/clipboard/PurchaseModalRegistry';
 // orders（APP-08）：订单列表、详情与待跟单卡的纯逻辑（向量 specs/order-vectors.json）与执行层（页面在 features/orders 与 entry）。
@@ -348,6 +348,7 @@ export {
   HomePopupTicket, HomeFixedArea, HomeNoticeDisplay, HomeErrorText, HomeNativeRows, HomeIconArt
 } from './src/main/ets/home/HomeTickets';
 export { HomeDraftTexts } from './src/main/ets/home/HomeDraftTexts';
+export { HomePopupGeometry } from './src/main/ets/home/HomePopupGeometry';
 export { HomeSignal, HomeSignalHub, HomeVisibilityHub, TabWillChangeRegistry } from './src/main/ets/home/HomeSignals';
 export { HomePopupPresenter, HomePopupDialogHost } from './src/main/ets/home/HomePopupDialogHost';
 // agent（APP-10）：Agent 页的流协议纯逻辑（向量 specs/agent-vectors.json：SSE 切帧、帧与卡片解码、流归约、受限文本、页面引导与收益卡、
