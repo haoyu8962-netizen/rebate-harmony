@@ -199,6 +199,11 @@ export class ConfigStore implements ConfigLayers {
     this.startFetch();
   }
 
+  /** 有拉取在途（HM-05r：回前台的自动任务等本轮配置结算后再按 features.clipboard.auto_read.harmony 判定，服务端按端停用）。 */
+  get fetching(): boolean {
+    return this.inFlight !== 0;
+  }
+
   /** 已发出的拉取的最大编号（单调递增）。编号大于它的拉取一定在此刻之后才发出。 */
   get issuedFetchId(): number {
     return this.sequence;

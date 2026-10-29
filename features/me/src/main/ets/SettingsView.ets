@@ -4,7 +4,7 @@ import {
 } from 'core';
 import {
   CouliAnnounce, CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus,
-  CouliFocusReturn, CouliIcon, CouliInteraction, CouliSheetPanel, CouliSpacing, CouliTextModifier, CouliToast,
+  CouliFocusReturn, CouliIcon, CouliInteraction, CouliSheetPanel, CouliSpacing, CouliSwitch, CouliTextModifier, CouliToast,
   CouliTypography, PriceTerms
 } from 'designsystem';
 import {
@@ -103,6 +103,17 @@ export class SettingsPageConfig {
    */
   aiWithdraw: (identity: string, permit: () => boolean) => Promise<string> =
     (_i: string, _p: () => boolean) => Promise.resolve('');
+  /**
+   * HM-05r S4：剪贴板自动识别开关行（设备级，游客与会员同一行，基本模式不显示；行由 SettingsItems 决定）。标题 / 说明是草稿文案
+   * （settings.clipboard_auto / .desc，契约 texts 未收录）；显示用户的选择（D7，未选择显示开）；点按交执行层，打开 / 关闭直接生效（C8）。
+   */
+  clipboardTitle: () => string = () => '';
+  clipboardDesc: () => string = () => '';
+  clipboardOn: () => boolean = () => true;
+  toggleClipboard: (on: boolean) => void = (_on: boolean) => {
+  };
+  subscribeClipboard: (listener: () => void) => () => void = (_l: () => void) => () => {
+  };
 }
 
 /** 设置行的渲染时绑定（R1-06：回调用渲染时捕获的身份，执行时只比较）。 */
@@ -176,6 +187,8 @@ class SettingsModel {
   @Trace tipBlocked: boolean = false;
   @Trace nick: NicknameSnapshot | null = null;
   @Trace notify: NotifySnapshot | null = null;
+  /** HM-05r：剪贴板自动识别开关的显示（用户的选择）。 */
+  @Trace clipOn: boolean = true;
 }
 
 /** 缓存大小显示（KB / MB 取整，AC-S1-137）。 */
@@ -205,6 +218,8 @@ export struct SettingsView {
   private lastNotifySeq: number = 0;
   private tipUnsubscribe: () => void = () => {
   };
+  private clipUnsubscribe: () => void = () => {
+  };
   private disposed: boolean = false;
   /** 打开着的退出登录确认框（绑定打开时的归属；R3-02：归属变化或页面出栈时同步关掉）。 */
   private closeLogoutConfirm: () => void = () => {
@@ -232,6 +247,11 @@ export struct SettingsView {
       if (!this.disposed) {
         this.model.tipBlocked = this.config.tipBlocked();
         this.model.version++;
+      }
+    });
+    this.clipUnsubscribe = this.config.subscribeClipboard((): void => {
+      if (!this.disposed) {
+        this.model.clipOn = this.config.clipboardOn();
       }
     });
     this.reload();
@@ -269,6 +289,9 @@ export struct SettingsView {
     this.tipUnsubscribe();
     this.tipUnsubscribe = () => {
     };
+    this.clipUnsubscribe();
+    this.clipUnsubscribe = () => {
+    };
   }
 
   private t(key: string): string {
@@ -294,6 +317,7 @@ export struct SettingsView {
     m.phoneBound = this.config.phoneBound();
     m.identity = this.config.identity();
     m.tipBlocked = this.config.tipBlocked();
+    m.clipOn = this.config.clipboardOn();
     m.version++;
     this.config.cacheSize().then((bytes: number | null): void => {
       this.model.cacheText = bytes === null ? '' : cacheSizeText(bytes);
@@ -804,9 +828,64 @@ export struct SettingsView {
     .alignItems(HorizontalAlign.Start)
   }
 
+  /**
+   * HM-05r：剪贴板自动识别开关行（settings_clipboard_auto，DS CouliSwitch：标题 + 说明 + 系统 Toggle settings_clipboard_auto_toggle，
+   * 命中区整行 ≥ 48）。isOn = 用户的选择（D7）；点按交执行层直接开或关（C8）；打开写盘失败时回到「关」。
+   */
+  @Builder
+  clipboardRow(divider: boolean) {
+    Column() {
+      CouliSwitch({
+        isOn: this.model.clipOn,
+        title: this.config.clipboardTitle(),
+        subtitle: this.config.clipboardDesc(),
+        controlId: 'settings_clipboard_auto_toggle',
+        onChange: (value: boolean) => {
+          this.clipTap(value, true);
+        }
+      })
+        .padding({ top: CouliSpacing.space2, bottom: CouliSpacing.space2 })
+      if (divider) {
+        Divider().color(CouliColors.borderSubtle).strokeWidth(1)
+      }
+    }
+    .width('100%')
+    .id('settings_clipboard_auto')
+    .onClick(() => {
+      // 点在标题 / 说明上（系统开关之外）：同一个出口
+      this.clipTap(!this.model.clipOn, false);
+    })
+  }
+
+  /** 开关行的唯一出口：交执行层，再按它的结论重设显示（fromToggle：系统 Toggle 已自己翻过，先跟上再按结论回设，强制重绘）。 */
+  private clipTap(target: boolean, fromToggle: boolean): void {
+    if (this.disposed || this.model.busy) {
+      if (fromToggle) {
+        this.model.clipOn = target;
+        setTimeout(() => {
+          this.model.clipOn = this.config.clipboardOn();
+        }, 0);
+      }
+      return;
+    }
+    this.config.toggleClipboard(target);
+    const actual: boolean = this.config.clipboardOn();
+    if (fromToggle && actual !== target) {
+      this.model.clipOn = target;
+      setTimeout(() => {
+        this.model.clipOn = this.config.clipboardOn();
+      }, 0);
+      return;
+    }
+    this.model.clipOn = actual;
+  }
+
   @Builder
   groupRows(group: MeRecord) {
     ForEach(this.rowBindings(group), (b: SettingsRowBinding, index: number) => {
+      if (b.row['id'] === SettingsItems.ID_CLIPBOARD) {
+        this.clipboardRow(index < this.rows(group).length - 1)
+      } else {
       MeRow({
         label: this.label(b.row['id'] as string),
         value: this.value(b.row['id'] as string),
@@ -818,6 +897,7 @@ export struct SettingsView {
             b.bound);
         }
       })
+      }
     }, (b: SettingsRowBinding) => (b.row['id'] as string) + '_' + b.bound.id + '_' + this.model.cacheText
       + '_' + this.model.nickname + '_' + this.model.tipBlocked)
   }

@@ -142,7 +142,8 @@ export default class EntryAbility extends UIAbility {
 
   /** 回前台（含冷启动后的第一次）：距上次成功的版本检查超过复查间隔再查（03 §4.1）。 */
   onForeground(): void {
-    // APP-07：一次回前台（冷启动后的第一次也算）：鸿蒙只判定跳过，不读剪贴板。
+    // APP-07 / HM-05r：一次回前台（冷启动后的第一次也算）：协调器标记本轮；首页根页就绪后按门控（默认开启，不弹用途说明）在具备
+    // 资格且已授权时自动读取，Release 不具备资格（D1）只保留 PasteButton。
     AppClipboard.shared.onForeground();
     AppUpdate.shared.onForeground();
     // 回前台带 ETag 拉配置（03 §4.3），埋点尝试上报一次；未完成的撤回清理再试一次（R1-06）。
@@ -177,6 +178,18 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    // HM-05r：自动任务的执行条件含 WindowStage 可交互且获焦；系统权限框等造成的失焦不新建轮次、不撤销任务（只等待）
+    try {
+      windowStage.on('windowStageEvent', (event: window.WindowStageEventType) => {
+        if (event === window.WindowStageEventType.ACTIVE || event === window.WindowStageEventType.SHOWN) {
+          AppClipboard.shared.windowFocus(true);
+        } else if (event === window.WindowStageEventType.INACTIVE || event === window.WindowStageEventType.HIDDEN) {
+          AppClipboard.shared.windowFocus(false);
+        }
+      });
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, '%{public}s', 'windowStageEvent unavailable');
+    }
     this.loadRoot(windowStage);
   }
 

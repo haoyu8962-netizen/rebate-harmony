@@ -4,7 +4,8 @@
 import { common, Want } from '@kit.AbilityKit';
 import {
   HuaweiQuickLoginPort, UnavailableHuaweiAdapter, UnavailableHuaweiQuickLogin,
-  AppEnvironment, CouliPreferences, DeepLinkConfig, HomeContractPort, HttpStreamTransport, HttpTransport, JumpPorts,
+  AppEnvironment, CouliPreferences, DeepLinkConfig, HarmonyClipboardAdapter, HomeContractPort, HttpStreamTransport, HttpTransport,
+  JumpPorts,
   MeContractPort, NoPushTokenSource,
   PendingKeyBackend, PushTokenSource, RcpTransport, RouteTable, ThirdPartyAuthAdapter, UnavailableWebCodeAuthorizer,
   UnavailableWechatAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
@@ -77,6 +78,11 @@ export class BuildVariant {
   /** Release 的未决记录一律在 Asset（原样返回 SecurePendingKeyBackend）。 */
   static pendingKeyBackend(secure: PendingKeyBackend): PendingKeyBackend {
     return secure;
+  }
+
+  /** HM-05r 剪贴板适配器：Release 原样返回系统适配器（不包、不计数；staging 才计探测次数）。 */
+  static clipboardAdapter(_context: common.Context, real: HarmonyClipboardAdapter): HarmonyClipboardAdapter {
+    return real;
   }
 
   /**

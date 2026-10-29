@@ -16,7 +16,7 @@
 # 退出码：0 通过；1 失败（没有设备、签名 / 安装失败、有用例失败或没有汇总）；2 用法错误。
 # HM-07v-a（编排 D10-405 D4 / 测试 v2 T0）：同一测试包可按 Hypium 套件分步跑——
 #   COULI_HM_TEST_FILTER  class=<套件名> 或 notClass=<套件名>（逗号分隔多个；空 = 全部套件），原样传给 aa test 的 -s class / -s notClass；
-#   COULI_HM_DEVICE_SET   entry_test 结果按哪份必跑名单核对（main / hm07va / hm07vb / all，缺省 all），见 ds02/check_device_result.py。
+#   COULI_HM_DEVICE_SET   entry_test 结果按哪份必跑名单核对（main / hm07va / hm07vb / hm05r / all，缺省 all），见 ds02/check_device_result.py。
 # 每一步都先卸载再装（应用数据清空、首启前状态），所以分出去的步从「未同意隐私、冷启动」开始，不受前一步留下的状态影响。
 set -euo pipefail
 
@@ -59,7 +59,7 @@ if [ -n "$TEST_FILTER" ]; then
     [[ "$filter_value" =~ ^[A-Za-z][A-Za-z0-9_]*(,[A-Za-z][A-Za-z0-9_]*)*$ ]] || die "套件名不合法：$filter_value"
     FILTER_ARGS=(-s "${TEST_FILTER%%=*}" "$filter_value")
 fi
-case "$DEVICE_SET" in main|hm07va|hm07vb|all) ;; *) die "COULI_HM_DEVICE_SET 只认 main / hm07va / hm07vb / all：$DEVICE_SET" ;; esac
+case "$DEVICE_SET" in main|hm07va|hm07vb|hm05r|all) ;; *) die "COULI_HM_DEVICE_SET 只认 main / hm07va / hm07vb / hm05r / all：$DEVICE_SET" ;; esac
 for tool in "$HDC" "$JAVA_BIN/java" "$JAVA_BIN/keytool" "$LIB/hap-sign-tool.jar" "$LIB/OpenHarmony.p12" \
     "$LIB/UnsgnedDebugProfileTemplate.json" "$LIB/OpenHarmonyProfileDebug.pem"; do
     [ -e "$tool" ] || die "找不到 ${tool}（设 DEVECO_HOME）"

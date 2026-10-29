@@ -47,6 +47,9 @@
     common/core/src/test/ClipboardVectorsData.ets             specs/clipboard-vectors.json 全文（APP-07，Codex 写的三端共用剪贴板识别向量）
     common/core/src/test/ClipboardCandidatesVectorsData.ets   specs/clipboard-candidates-vectors.json 全文（FU-CLIP，Codex 写的三端共用商品候选、
                                                               加盐指纹、桥读取最小化与系统分享向量）
+    common/core/src/test/ClipboardHarmonyVectorsData.ets      specs/clipboard-harmony-vectors.json 全文（HM-05r，鸿蒙独有的适配器探测 / 去向 / 读取
+                                                              与升级迁移向量；测试 v3 起用途说明向量随 2026-10-30 默认开启作废）。clipboard-vectors.json 的 importGate 节另核对与 Android
+                                                              主干字节一致（只允许 D6 的 4 行 platforms 改动，见 IMPORT_GATE_*）
     common/core/src/test/OrderVectorsData.ets                 specs/order-vectors.json 全文（APP-08，Codex 写的三端共用订单列表、详情与待跟单卡向量）
     common/core/src/test/WalletVectorsData.ets                specs/wallet-vectors.json 全文（APP-09，Codex 写的三端共用钱包、提现与收款账号向量）
     common/core/src/test/MeVectorsData.ets                    specs/me-vectors.json 全文（ME_VECTORS_JSON）与契约快照
@@ -738,8 +741,48 @@ def gen_open_trade_vectors_data():
 CLIPBOARD_VECTORS = os.path.join("specs", "clipboard-vectors.json")
 
 
+# HM-05r（编排 D10-133 D9）：importGate 节由 Android 维护，鸿蒙引入字节一致的副本。基准 = rebate-android origin/main
+# 4dd38764d07e（FU-AND-0724，specs/clipboard-vectors.json 最后一次改动；373cb22 上内容相同）从 "readPolicyStatus" 行到 "readPolicy": [ 之前
+# 的 142 行原文（含 readPolicyStatus 与 importGate，每行带换行）。唯一允许的差异是 D6 的 4 行 platforms（AgentChat 两行只留 ios、
+# *_android_0724_g27 两行加 harmony）：把这 4 处还原后逐字节算 sha256 必须等于基准；Android 再改这一节时更新基准与本表，三端同步。
+IMPORT_GATE_ANDROID_SHA256 = "58870f224008e54e0507049a40d13baa5e44d3a2e6971a8ab9af7a2f6f6c9303"
+IMPORT_GATE_ANDROID_LINES = 142
+IMPORT_GATE_D6_EDITS = (
+    ('"name":"G11_agent_chat","platforms":["ios"]', '"name":"G11_agent_chat","platforms":["ios","harmony"]'),
+    ('"name":"G11_agent_chat_wait_ready","platforms":["ios"]', '"name":"G11_agent_chat_wait_ready","platforms":["ios","harmony"]'),
+    ('"name":"G11_agent_chat_android_0724_g27","platforms":["android","harmony"]',
+     '"name":"G11_agent_chat_android_0724_g27","platforms":["android"]'),
+    ('"name":"G11_agent_chat_wait_ready_android_0724_g27","platforms":["android","harmony"]',
+     '"name":"G11_agent_chat_wait_ready_android_0724_g27","platforms":["android"]'),
+)
+
+
+def check_import_gate_sync(text):
+    """clipboard-vectors.json 的 readPolicyStatus + importGate 原文与 Android 基准逐字节一致（D6 的 4 处除外）。"""
+    import hashlib
+    lines = text.split("\n")
+    try:
+        start = next(i for i, line in enumerate(lines) if line.startswith('  "readPolicyStatus"'))
+        end = next(i for i, line in enumerate(lines) if line == '  "readPolicy": [')
+    except StopIteration:
+        raise GenError("%s 缺 readPolicyStatus / importGate 节或 readPolicy 节（HM-05r D9：importGate 字节级同步 Android）" % CLIPBOARD_VECTORS)
+    if end - start != IMPORT_GATE_ANDROID_LINES:
+        raise GenError("%s importGate 节行数 %d ≠ Android 基准 %d" % (CLIPBOARD_VECTORS, end - start, IMPORT_GATE_ANDROID_LINES))
+    block = "\n".join(lines[start:end]) + "\n"
+    for harmony, android in IMPORT_GATE_D6_EDITS:
+        if block.count(harmony) != 1:
+            raise GenError("%s importGate 缺 D6 改动或重复：%s" % (CLIPBOARD_VECTORS, harmony))
+        block = block.replace(harmony, android)
+    digest = hashlib.sha256(block.encode("utf-8")).hexdigest()
+    if digest != IMPORT_GATE_ANDROID_SHA256:
+        raise GenError("%s importGate 与 Android 基准不一致（sha256 %s ≠ %s；只允许 D6 的 4 行 platforms 改动）"
+                       % (CLIPBOARD_VECTORS, digest, IMPORT_GATE_ANDROID_SHA256))
+
+
 def gen_clipboard_vectors_data():
-    """specs/clipboard-vectors.json（APP-07，Codex 先写的三端共用剪贴板识别向量）。"""
+    """specs/clipboard-vectors.json（APP-07，Codex 先写的三端共用剪贴板识别向量；HM-05r 起含 Android 同步的 importGate）。"""
+    with open(os.path.join(ROOT, CLIPBOARD_VECTORS), encoding="utf-8") as f:
+        check_import_gate_sync(f.read())
     return gen_vectors_data(CLIPBOARD_VECTORS, "CLIPBOARD_VECTORS_JSON",
                             "剪贴板识别向量（APP-07）：specs/clipboard-vectors.json 全文，供 ClipboardVector.test.ets "
                             "解析。只在 src/test，不进产物。")
@@ -753,6 +796,16 @@ def gen_clipboard_candidates_vectors_data():
     return gen_vectors_data(CLIPBOARD_CANDIDATES_VECTORS, "CLIPBOARD_CANDIDATES_VECTORS_JSON",
                             "剪贴板商品候选向量（FU-CLIP）：specs/clipboard-candidates-vectors.json 全文，供 "
                             "ClipboardCandidatesVector.test.ets 解析。只在 src/test，不进产物。")
+
+
+CLIPBOARD_HARMONY_VECTORS = os.path.join("specs", "clipboard-harmony-vectors.json")
+
+
+def gen_clipboard_harmony_vectors_data():
+    """specs/clipboard-harmony-vectors.json（HM-05r 测试 v1 / v3：鸿蒙适配器与本机旧键迁移向量，鸿蒙独有）。"""
+    return gen_vectors_data(CLIPBOARD_HARMONY_VECTORS, "CLIPBOARD_HARMONY_VECTORS_JSON",
+                            "鸿蒙剪贴板适配器与本机旧键迁移向量（HM-05r）：specs/clipboard-harmony-vectors.json 全文，供 "
+                            "Hm05rVector.test.ets 解析。只在 src/test，不进产物。")
 
 
 ORDER_VECTORS = os.path.join("specs", "order-vectors.json")
@@ -1850,6 +1903,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "ClipboardVectorsData.ets"): gen_clipboard_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "ClipboardCandidatesVectorsData.ets"):
             gen_clipboard_candidates_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "ClipboardHarmonyVectorsData.ets"): gen_clipboard_harmony_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),

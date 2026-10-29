@@ -1,0 +1,481 @@
+{
+  "version": 2,
+  "sources": [
+    "任务书：/Users/zhixing/我的项目/couli-runs/NATIVE/HM-05r/brief.md §2 S6、§6.1；编排 D10-133 D1；2026-10-30 起按 NATIVE/FU-X-CLIP-DEFAULT-ON/brief.md §1 C1–C9 / §2.1（编排 D10-423）。",
+    "规则：规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-16（2026-10-30 版：默认开启、无用途说明弹层、不以 consent_version 作门槛）、BR-ID-13 细则鸿蒙 clipboard_read 例外（48 小时节流）；docs/changes/20261030-剪贴板默认开启.md §2、§3；03 §4.6 鸿蒙段。",
+    "鸿蒙独有：本文件不是三端共用向量（三端共用的读取门槛在 specs/clipboard-vectors.json importGate，字节级同步 Android）。consentNotice（2026-10-17 用途说明半屏）随 2026-10-30 变更记录 §2 第 1、5 行作废删除；legacyMigration 只描述鸿蒙本机旧键。"
+  ],
+  "harmonyAdapter": {
+    "schemaVersion": 1,
+    "fields": {
+      "probe": "SystemClipboardAdapter.probeOf(declared, checkGrant, deniedForever)：declared = 本构建是否声明 READ_PASTEBOARD（构建期常量）；grantStatus = abilityAccessCtrl checkAccessToken 的返回（0 已授权、-1 未授权、null 表示调用抛异常、其他值按未知）；deniedForever = 权限组件记下的永久拒绝。未声明时不得调用 checkAccessToken（checkCalls=0）。",
+      "route": "HarmonyAdapterPolicy.route(trigger, probe, deniedAtMs, nowMs)：trigger foreground（门控通过、要不要程序化读取）/ notice_enable（用途说明点【开启】之后）/ settings_enable（设置页主动打开，不受节流）。结果 read / paste_button / request_permission / guide_settings / none。节流：nowMs − deniedAtMs < 48 小时（含 deniedAt 在未来）即节流，与 PermissionRequester.THROTTLE_MILLIS 同式。",
+      "read": "SystemClipboardAdapter.read()：读前再复核一次授权；只取纯文本；null / 空白 → empty；异常、未声明、复核不通过 → unavailable（不调用读取）。clip：text = 有文本、null = 无文本、blank = 只有空白、throw = 读取抛异常。"
+    },
+    "probe": [
+      {
+        "name": "not_declared_granted_status_ignored",
+        "declared": false,
+        "grantStatus": 0,
+        "deniedForever": false,
+        "expect": {
+          "probe": "not_eligible",
+          "checkCalls": 0
+        }
+      },
+      {
+        "name": "not_declared_check_would_throw",
+        "declared": false,
+        "grantStatus": null,
+        "deniedForever": false,
+        "expect": {
+          "probe": "not_eligible",
+          "checkCalls": 0
+        }
+      },
+      {
+        "name": "not_declared_denied_forever_flag",
+        "declared": false,
+        "grantStatus": -1,
+        "deniedForever": true,
+        "expect": {
+          "probe": "not_eligible",
+          "checkCalls": 0
+        }
+      },
+      {
+        "name": "declared_granted",
+        "declared": true,
+        "grantStatus": 0,
+        "deniedForever": false,
+        "expect": {
+          "probe": "eligible_granted",
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "declared_granted_stale_forever_flag",
+        "declared": true,
+        "grantStatus": 0,
+        "deniedForever": true,
+        "expect": {
+          "probe": "eligible_granted",
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "declared_denied",
+        "declared": true,
+        "grantStatus": -1,
+        "deniedForever": false,
+        "expect": {
+          "probe": "eligible_not_granted",
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "declared_denied_forever",
+        "declared": true,
+        "grantStatus": -1,
+        "deniedForever": true,
+        "expect": {
+          "probe": "eligible_denied_forever",
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "declared_check_throws",
+        "declared": true,
+        "grantStatus": null,
+        "deniedForever": false,
+        "expect": {
+          "probe": "unknown",
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "declared_unexpected_status",
+        "declared": true,
+        "grantStatus": 2,
+        "deniedForever": false,
+        "expect": {
+          "probe": "unknown",
+          "checkCalls": 1
+        }
+      }
+    ],
+    "route": [
+      {
+        "name": "foreground_eligible_granted",
+        "trigger": "foreground",
+        "probe": "eligible_granted",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "read"
+        }
+      },
+      {
+        "name": "foreground_eligible_not_granted",
+        "trigger": "foreground",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "paste_button"
+        }
+      },
+      {
+        "name": "foreground_eligible_denied_forever",
+        "trigger": "foreground",
+        "probe": "eligible_denied_forever",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "paste_button"
+        }
+      },
+      {
+        "name": "foreground_not_eligible",
+        "trigger": "foreground",
+        "probe": "not_eligible",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "paste_button"
+        }
+      },
+      {
+        "name": "foreground_unknown",
+        "trigger": "foreground",
+        "probe": "unknown",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "paste_button"
+        }
+      },
+      {
+        "name": "notice_enable_eligible_granted",
+        "trigger": "notice_enable",
+        "probe": "eligible_granted",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "notice_enable_eligible_not_granted",
+        "trigger": "notice_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "request_permission"
+        }
+      },
+      {
+        "name": "notice_enable_eligible_denied_forever",
+        "trigger": "notice_enable",
+        "probe": "eligible_denied_forever",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "guide_settings"
+        }
+      },
+      {
+        "name": "notice_enable_not_eligible",
+        "trigger": "notice_enable",
+        "probe": "not_eligible",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "notice_enable_unknown",
+        "trigger": "notice_enable",
+        "probe": "unknown",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "settings_enable_eligible_granted",
+        "trigger": "settings_enable",
+        "probe": "eligible_granted",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "settings_enable_eligible_not_granted",
+        "trigger": "settings_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "request_permission"
+        }
+      },
+      {
+        "name": "settings_enable_eligible_denied_forever",
+        "trigger": "settings_enable",
+        "probe": "eligible_denied_forever",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "guide_settings"
+        }
+      },
+      {
+        "name": "settings_enable_not_eligible",
+        "trigger": "settings_enable",
+        "probe": "not_eligible",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "settings_enable_unknown",
+        "trigger": "settings_enable",
+        "probe": "unknown",
+        "deniedAtMs": null,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "foreground_not_granted_recently_denied_still_paste_button",
+        "trigger": "foreground",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1799999999000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "paste_button"
+        }
+      },
+      {
+        "name": "foreground_granted_ignores_denied_at",
+        "trigger": "foreground",
+        "probe": "eligible_granted",
+        "deniedAtMs": 1799999999000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "read"
+        }
+      },
+      {
+        "name": "notice_enable_denied_just_now_throttled",
+        "trigger": "notice_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1800000000000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "notice_enable_denied_48h_minus_1ms_throttled",
+        "trigger": "notice_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1799827200001,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "notice_enable_denied_exactly_48h_asks_again",
+        "trigger": "notice_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1799827200000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "request_permission"
+        }
+      },
+      {
+        "name": "notice_enable_denied_48h_plus_1ms_asks_again",
+        "trigger": "notice_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1799827199999,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "request_permission"
+        }
+      },
+      {
+        "name": "notice_enable_denied_at_in_future_throttled",
+        "trigger": "notice_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1800000060000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "notice_enable_denied_forever_throttled_no_guide",
+        "trigger": "notice_enable",
+        "probe": "eligible_denied_forever",
+        "deniedAtMs": 1799999999000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      },
+      {
+        "name": "notice_enable_denied_forever_after_48h_guides",
+        "trigger": "notice_enable",
+        "probe": "eligible_denied_forever",
+        "deniedAtMs": 1799827200000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "guide_settings"
+        }
+      },
+      {
+        "name": "settings_enable_denied_just_now_not_throttled",
+        "trigger": "settings_enable",
+        "probe": "eligible_not_granted",
+        "deniedAtMs": 1800000000000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "request_permission"
+        }
+      },
+      {
+        "name": "settings_enable_denied_forever_just_now_guides",
+        "trigger": "settings_enable",
+        "probe": "eligible_denied_forever",
+        "deniedAtMs": 1800000000000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "guide_settings"
+        }
+      },
+      {
+        "name": "settings_enable_not_eligible_never_asks",
+        "trigger": "settings_enable",
+        "probe": "not_eligible",
+        "deniedAtMs": 1798272000000,
+        "nowMs": 1800000000000,
+        "expect": {
+          "route": "none"
+        }
+      }
+    ],
+    "read": [
+      {
+        "name": "not_declared_never_reads",
+        "declared": false,
+        "grantStatus": 0,
+        "clip": "text",
+        "expect": {
+          "kindRaw": "unavailable",
+          "readCalls": 0,
+          "checkCalls": 0
+        }
+      },
+      {
+        "name": "granted_text",
+        "declared": true,
+        "grantStatus": 0,
+        "clip": "text",
+        "expect": {
+          "kindRaw": "text",
+          "readCalls": 1,
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "granted_null_is_empty",
+        "declared": true,
+        "grantStatus": 0,
+        "clip": "null",
+        "expect": {
+          "kindRaw": "empty",
+          "readCalls": 1,
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "granted_blank_string_is_empty",
+        "declared": true,
+        "grantStatus": 0,
+        "clip": "blank",
+        "expect": {
+          "kindRaw": "empty",
+          "readCalls": 1,
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "granted_read_throws_is_unavailable",
+        "declared": true,
+        "grantStatus": 0,
+        "clip": "throw",
+        "expect": {
+          "kindRaw": "unavailable",
+          "readCalls": 1,
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "revoked_before_read_is_unavailable_without_reading",
+        "declared": true,
+        "grantStatus": -1,
+        "clip": "text",
+        "expect": {
+          "kindRaw": "unavailable",
+          "readCalls": 0,
+          "checkCalls": 1
+        }
+      },
+      {
+        "name": "check_throws_before_read_is_unavailable_without_reading",
+        "declared": true,
+        "grantStatus": null,
+        "clip": "text",
+        "expect": {
+          "kindRaw": "unavailable",
+          "readCalls": 0,
+          "checkCalls": 1
+        }
+      }
+    ]
+  },
+  "legacyMigration": {
+    "schemaVersion": 1,
+    "fields": {
+      "legacy": "HM-05r r3（2026-10-17 口径，未发版）实际写过的本机键与值，原样放进 preferences 文件 couli_clipboard_import（ImportPreferenceStore.FILE_NAME）后再迁移。键：import.enabled（on / off）、import.consent_version、import.consented_at、import.notice_seen_version、import.denied_at、import.pending_consents。main 0f40137 在这个文件里没有任何键（鸿蒙旧版没有剪贴板开关），按「从未选择」。",
+      "state": "变更记录 §3 第 1 条 / 任务书 C6：never ① 从未作出选择 → 开启；not_now ② 旧弹层选【暂不开启】或下滑 / 遮罩 / 返回（记过已看、没开启）→ 关闭；settings_off ③ 在设置里关闭过 → 关闭；enabled ④ 已开启 → 开启（开关值优先于已看）。",
+      "expect": "on = 迁移后开关是否开启（isAutoReadOn 与设置行显示）；storedOff = 文件里 import.enabled 是否写成 off（② 必须落盘为 off，迁移后不再靠旧键判定）；deniedAtMs = 系统拒绝节流时刻保留（C9）。每行另核：待上报队列 import.pending_consents 清掉（C3）、迁移只做一次（再迁移不写盘、残留旧键不再生效、迁移后用户改的值不被覆盖）。"
+    },
+    "cases": [
+      {"name":"main_0f40137_or_fresh_install_no_keys","state":"never","legacy":{},"expect":{"on":true,"storedOff":false,"deniedAtMs":null}},
+      {"name":"r3_withdraw_left_only_queue","state":"never","legacy":{"import.pending_consents":"[{\"type\":\"clipboard_auto_import\",\"version\":\"v1\",\"accepted_at_ms\":1799000000000}]"},"expect":{"on":true,"storedOff":false,"deniedAtMs":null}},
+      {"name":"r3_home_not_now_seen_current","state":"not_now","legacy":{"import.notice_seen_version":"v1"},"expect":{"on":false,"storedOff":true,"deniedAtMs":null}},
+      {"name":"r3_manual_dismiss_seen_with_denied_at","state":"not_now","legacy":{"import.notice_seen_version":"v1","import.denied_at":"1799990000000"},"expect":{"on":false,"storedOff":true,"deniedAtMs":1799990000000}},
+      {"name":"r3_seen_old_version_unselected","state":"not_now","legacy":{"import.notice_seen_version":"v0"},"expect":{"on":false,"storedOff":true,"deniedAtMs":null}},
+      {"name":"r3_settings_off_after_enable","state":"settings_off","legacy":{"import.enabled":"off","import.consent_version":"v1","import.consented_at":"1799000000000","import.notice_seen_version":"v1"},"expect":{"on":false,"storedOff":true,"deniedAtMs":null}},
+      {"name":"r3_settings_off_never_enabled","state":"settings_off","legacy":{"import.enabled":"off"},"expect":{"on":false,"storedOff":true,"deniedAtMs":null}},
+      {"name":"r3_off_then_new_version_seen","state":"settings_off","legacy":{"import.enabled":"off","import.consent_version":"v0","import.consented_at":"1799000000000","import.notice_seen_version":"v1"},"expect":{"on":false,"storedOff":true,"deniedAtMs":null}},
+      {"name":"r3_enabled_with_consent_and_queue","state":"enabled","legacy":{"import.enabled":"on","import.consent_version":"v1","import.consented_at":"1799000000000","import.notice_seen_version":"v1","import.pending_consents":"[{\"type\":\"clipboard_auto_import\",\"version\":\"v1\",\"accepted_at_ms\":1799000000000}]"},"expect":{"on":true,"storedOff":false,"deniedAtMs":null}},
+      {"name":"r3_enabled_without_consent_version_G47","state":"enabled","legacy":{"import.enabled":"on"},"expect":{"on":true,"storedOff":false,"deniedAtMs":null}},
+      {"name":"r3_enabled_version_changed_seen_old","state":"enabled","legacy":{"import.enabled":"on","import.consent_version":"v0","import.consented_at":"1799000000000","import.notice_seen_version":"v0"},"expect":{"on":true,"storedOff":false,"deniedAtMs":null}},
+      {"name":"r3_enabled_then_not_now_on_new_version","state":"enabled","legacy":{"import.enabled":"on","import.consent_version":"v1","import.consented_at":"1799000000000","import.notice_seen_version":"v2","import.denied_at":"1799990000000"},"expect":{"on":true,"storedOff":false,"deniedAtMs":1799990000000}}
+    ]
+  }
+}

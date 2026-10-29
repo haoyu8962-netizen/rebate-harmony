@@ -143,7 +143,10 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
     }
     // APP-12：「我的」类接口最先答（/v1/me 的 13 个字段；实名状态沿用钱包假服务的值）；APP-09：钱包类接口其次。
     // APP-13a：注销与换手机号的接口最先答（负余额摘要、未绑手机的 getMe 只在对应场景接管）。
-    const search: FakeAnswer | null = DebugFakeAccount.answer(request.url, request.method, request.body,
+    // HM-05r：剪贴板自动识别的设备级同意记录（type=clipboard_auto_import）最先答，写设备用例读的回执（2026-10-30 起客户端不再发，
+    // 回执用来断言「始终为 0」）
+    const search: FakeAnswer | null = DebugFakeClipboard.answerConsent(request.url, request.method, request.body,
+      request.headers[NetworkHeaders.SIGN]) ?? DebugFakeAccount.answer(request.url, request.method, request.body,
       request.headers[NetworkHeaders.AUTHORIZATION], request.headers[NetworkHeaders.STEP_UP_TOKEN])
       ?? DebugFakeMe.answer(request.url, request.method, request.body)
       ?? DebugFakeWallet.answer(request.url, request.method, request.body,

@@ -82,7 +82,8 @@ def check_source(root):
         errors.append('C2 verify.sh 没有 entry-hm07vb class=Hm07vOverlayUi hm07vb 设备步，或主步没排除 Hm07vOverlayUi')
     if 'hm07v/fixtures/device-cases-b.txt' not in read(root, 'tools/ci/ds02/check_device_result.py'):
         errors.append('C2 check_device_result.py 没把 HM-07v-b 用例列为必跑')
-    if 'main|hm07va|hm07vb|all)' not in read(root, 'tools/ci/device-test.sh'):
+    # HM-05r 测试 v1（D10-378 test-change）：device-test 还认 hm05r，b 段只要求 hm07vb 在认的名单里。
+    if not re.search(r'main\|hm07va\|hm07vb\|(?:[a-z0-9]+\|)*all\)', read(root, 'tools/ci/device-test.sh')):
         errors.append('C2 device-test.sh 不认 COULI_HM_DEVICE_SET=hm07vb')
     # C3 套件登记（三个 List.test.ets）。
     for rel, call in [('entry/src/ohosTest/ets/test/List.test.ets', 'hm07vOverlayUiTest'),
@@ -200,12 +201,13 @@ MUTANTS = [
      [(LEAK, None)], '', 'import { DebugFakeClipboard } from x;'),
     ('名单少一条', 'C1', CASES, 'hm07vb_overlays_never_expose_old_copy_in_reader_tree\n', '',
      [(CASES, None)], 'hm07vb_overlays_never_expose_old_copy_in_reader_tree\n', ''),
-    ('主步没排除 b 套件', 'C2', 'tools/ci/verify.sh', 'notClass=Hm07vHomeUi,Hm07vOverlayUi main', 'notClass=Hm07vHomeUi main',
-     [('tools/ci/verify.sh', None)], 'notClass=Hm07vHomeUi,Hm07vOverlayUi main', 'notClass=Hm07vHomeUi main'),
+    ('主步没排除 b 套件', 'C2', 'tools/ci/verify.sh', 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi main',
+     'notClass=Hm07vHomeUi,Hm05rConsentUi main',
+     [('tools/ci/verify.sh', None)], 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi main', 'notClass=Hm07vHomeUi,Hm05rConsentUi main'),
     ('没有 b 设备步', 'C2', 'tools/ci/verify.sh', 'entry-hm07vb class=Hm07vOverlayUi hm07vb', 'entry-hm07vb class=Hm07vOverlayUi all',
      [('tools/ci/verify.sh', None)], 'entry-hm07vb class=Hm07vOverlayUi hm07vb', 'entry-hm07vb class=Hm07vOverlayUi all'),
-    ('device-test 不认 hm07vb', 'C2', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|all)', 'main|hm07va|all)',
-     [('tools/ci/device-test.sh', None)], 'main|hm07va|hm07vb|all)', 'main|hm07va|all)'),
+    ('device-test 不认 hm07vb', 'C2', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|all)', 'main|hm07va|hm05r|all)',
+     [('tools/ci/device-test.sh', None)], 'main|hm07va|hm07vb|hm05r|all)', 'main|hm07va|hm05r|all)'),
     ('core 套件未登记', 'C3', 'common/core/src/test/List.test.ets', '  hm07vOverlayTest();\n', '',
      [('common/core/src/test/List.test.ets', None)], 'hm07vOverlayTest();', ''),
 ]

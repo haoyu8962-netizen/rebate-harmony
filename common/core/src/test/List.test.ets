@@ -2,6 +2,9 @@ import authChangeDecisionTest from './AuthChangeDecision.test';
 import fx05aClipboardBadgeTest from './Fx05aClipboardBadge.test';
 import hm07vHomeVisualTest from './Hm07vHomeVisual.test';
 import hm07vOverlayTest from './Hm07vOverlay.test';
+import hm05rVectorTest from './Hm05rVector.test';
+import hm05rLogicTest from './Hm05rLogic.test';
+import hm05rIntegrationTest from './Hm05rIntegration.test';
 import trustedWebRecordsFx25Test from './TrustedWebRecordsFX25.test';
 import followupHM0729Test from './FollowupHM0729.test';
 import environmentConfigTest from './EnvironmentConfig.test';
@@ -266,4 +269,8 @@ export default function testsuite() {
   fx05aClipboardBadgeTest();
   hm07vHomeVisualTest();
   hm07vOverlayTest();
+  // HM-05r：剪贴板改版对齐 BR-ID-16（三份向量 runner、纯逻辑、执行层集成）。
+  hm05rVectorTest();
+  hm05rLogicTest();
+  hm05rIntegrationTest();
 }

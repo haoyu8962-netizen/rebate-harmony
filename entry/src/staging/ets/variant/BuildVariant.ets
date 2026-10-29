@@ -8,7 +8,8 @@ import {
   DebugHuaweiAuthAdapter, DebugHuaweiQuickLogin, DebugHuaweiQuickLoginScene, GatedHuaweiQuickLogin, HuaweiQuickLoginPort,
   AmountMaskStore, AppConfig, AppEnvironment, CouliPreferences, DebugCapabilities, DebugCapability, DebugLaunchDeferral,
   DebugMockGate, DebugSubstitutes, DeepLinkConfig, EnvironmentSwitchGate, GatedAuthAdapter, GatedMeContractPort,
-  GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer, HomeContractPort,
+  GatedPendingKeyBackend, GatedPushTokenSource, GatedWalletContractPort, GatedWebCodeAuthorizer, HarmonyClipboardAdapter,
+  HomeContractPort,
   HomeDebugSources, HttpStreamTransport, HttpTransport, JumpPorts, MeContractPort, PendingKeyBackend, PushTokenSource, RouteAvailability,
   RouteTable,
   ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
@@ -147,6 +148,14 @@ export class BuildVariant {
    */
   static pendingKeyBackend(secure: PendingKeyBackend): PendingKeyBackend {
     return new GatedPendingKeyBackend(secure, DebugFakeServer.mockGate);
+  }
+
+  /**
+   * HM-05r 剪贴板适配器（设备用例测量）：包一层，每次 probe() 把 couli_debug_fake 的 clipboard.auto_probes 加 1 再委托 real
+   * （只记次数，不碰剪贴板内容）；read() 原样委托。Release 原样返回 real。
+   */
+  static clipboardAdapter(context: common.Context, real: HarmonyClipboardAdapter): HarmonyClipboardAdapter {
+    return DebugFakeClipboard.countingAdapter(context, real);
   }
 
   /**

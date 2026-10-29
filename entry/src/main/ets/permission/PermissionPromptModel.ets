@@ -44,6 +44,31 @@ export class PermissionPromptModel {
   onOverlayChanged: () => void = () => {
   };
 
+  /**
+   * 显示状态变化的多订阅（HM-05r S1-1：剪贴板自动任务在更新提示 / 权限说明显示时等待、收起后同轮再试）。onOverlayChanged 是首页占用的单槽回调，
+   * 其他订阅方经这里登记，互不吞掉；返回退订函数。
+   */
+  private overlayListeners: Set<() => void> = new Set<() => void>();
+
+  addOverlayListener(listener: () => void): () => void {
+    this.overlayListeners.add(listener);
+    return (): void => {
+      this.overlayListeners.delete(listener);
+    };
+  }
+
+  /** 显示状态写入后：先单槽回调（首页），再各订阅方；订阅方出错不影响其他。 */
+  private overlayChanged(): void {
+    this.onOverlayChanged();
+    this.overlayListeners.forEach((l: () => void) => {
+      try {
+        l();
+      } catch (e) {
+        // 订阅方出错不影响其他订阅
+      }
+    });
+  }
+
   get visible(): boolean {
     return this.kind !== PermissionPromptKind.NONE;
   }
@@ -56,7 +81,7 @@ export class PermissionPromptModel {
       this.primaryKey = continueKey ?? PermissionRequester.CONTINUE;
       this.secondaryKey = '';
       this.kind = PermissionPromptKind.RATIONALE;
-      this.onOverlayChanged();
+      this.overlayChanged();
     });
   }
 
@@ -66,13 +91,13 @@ export class PermissionPromptModel {
     this.primaryKey = buttonKey;
     this.secondaryKey = GUIDE_DISMISS_KEY;
     this.kind = PermissionPromptKind.GUIDE;
-    this.onOverlayChanged();
+    this.overlayChanged();
   }
 
   primary(): void {
     const kind: PermissionPromptKind = this.kind;
     this.kind = PermissionPromptKind.NONE;
-    this.onOverlayChanged();
+    this.overlayChanged();
     if (kind === PermissionPromptKind.RATIONALE) {
       const resolve: (() => void) | null = this.continueResolver;
       this.continueResolver = null;
@@ -86,6 +111,6 @@ export class PermissionPromptModel {
 
   secondary(): void {
     this.kind = PermissionPromptKind.NONE;
-    this.onOverlayChanged();
+    this.overlayChanged();
   }
 }

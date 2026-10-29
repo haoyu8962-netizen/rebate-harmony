@@ -5,7 +5,7 @@ import { DefaultTexts } from 'generated';
  * HomeClipboard、HomeClipboardInvite、SearchTyping、LoginCodeInvite、ShareHubInvalid 逐字集中放在这一处。三端同名（iOS / Android / 鸿蒙
  * ClipboardDraftTexts）。有键的（clipboard.prompt、clipboard.invite_prompt、error.*）一律读 DefaultTexts，不放这里。
  * 鸿蒙的读取按钮是系统 PasteButton（文字「粘贴」与读屏名由系统提供），所以 clipboard.prompt.action 等只用于普通按钮（邀请确认）。
- * 设置页「打开 App 自动识别剪贴板」开关只在 Android（鸿蒙没有自动识别），这里不放 settings.clipboard_auto。
+ * HM-05r 起鸿蒙也有设置页「打开 App 自动识别剪贴板」开关（BR-ID-16 2026-10-30 版：默认开启、无用途说明弹层），草稿键见下方 HM-05r 段。
  *
  * TODO(N-34) FU-CLIP 新增的 clipboard.share_prompt*、clipboard.prompt.detail* 同样是草稿（K28）。
  * TODO(N-30) 整张表都是「待定稿，不得提审」：契约补键后删除本文件、改读 DefaultTexts；提审前（QA-07）必须替换。
@@ -42,6 +42,9 @@ export class ClipboardDraftTexts {
     m.set('clipboard.prompt.detail', '{platform_name}商品链接 {display}');
     m.set('clipboard.prompt.detail.tpwd', '{platform_name}口令');
     m.set('clipboard.prompt.detail.more', '等 {count} 个');
+    // ---- HM-05r：设置页开关行（BR-TEXT-14 表 C settings.clipboard_auto / .desc；与 Android ClipboardDraftTexts 逐字相同；契约 texts 未收录，C2）
+    m.set('settings.clipboard_auto', '打开 App 自动识别剪贴板');
+    m.set('settings.clipboard_auto.desc', '开启后，在系统支持并允许时回到 App 会自动识别复制的商品链接或口令，否则可以用粘贴入口；可以随时关闭');
     return m;
   }
 

@@ -209,6 +209,14 @@ export {
   ClipboardPageMark, ClipboardRetryPolicy
 } from './src/main/ets/clipboard/ClipboardController';
 export { PurchaseModalRegistry } from './src/main/ets/clipboard/PurchaseModalRegistry';
+// HM-05r（BR-ID-16 2026-10-30 版：默认开启、无用途说明弹层；D10-133、D10-423）：设备级本机状态（三态开关 + 旧键迁移）、读取门控、
+// 自动任务协调器、鸿蒙适配器（D1）、设置开关。接口见 NATIVE/HM-05r/tests-harmony-v3-handback.md §5。
+export {
+  ImportPreferenceBackend, MemoryImportBackend, ImportPreferenceSnapshot, ImportPreferenceStore, ImportPageScope,
+  ImportEnvironment, ImportGateDecision, ImportGates, ImportTask, ImportReadResult, ImportCandidateResult,
+  ImportCoordinatorSnapshot, ImportCoordinatorPorts, ImportCoordinator, ClipboardEligibility, HarmonyClipboardAdapter,
+  ClipboardBuild, NotEligibleClipboardAdapter, SystemClipboardAdapter, HarmonyAdapterPolicy, ClipboardAutoSwitch
+} from './src/main/ets/clipboard/ClipboardImport';
 // orders（APP-08）：订单列表、详情与待跟单卡的纯逻辑（向量 specs/order-vectors.json）与执行层（页面在 features/orders 与 entry）。
 export { OrderRecord, OrderJson } from './src/main/ets/orders/OrderJson';
 export { OrderDraftTexts } from './src/main/ets/orders/OrderDraftTexts';

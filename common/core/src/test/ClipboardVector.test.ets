@@ -45,7 +45,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { CLIPBOARD_VECTORS_JSON } from './ClipboardVectorsData';
 import {
-  ClipboardReadPolicy,
   InviteCodeExtractor,
   ClipboardRules,
   ClipboardClassifier,
@@ -161,9 +160,16 @@ interface ConfirmVector extends NamedVector {
   expect: ConfirmExpected;
 }
 
+interface ReadPolicyStatus {
+  status: string;
+  replacedBy: string;
+  reason: string;
+}
+
 interface ClipboardVectors {
   version: number;
   sources: string[];
+  readPolicyStatus: ReadPolicyStatus;
   readPolicy: ReadVector[];
   inviteExtract: ExtractVector[];
   classify: ClassifyVector[];
@@ -214,41 +220,6 @@ function checkNames(group: string, rows: NamedVector[]): void {
     assertScalar(group + '.' + name + '.unique', names.has(name), false);
     names.add(name);
   }
-}
-
-function neutralState(
-  platform: string,
-  raw: Record<string, Object>
-): Record<string, Object> {
-  const state: Record<string, Object> = {
-    'overlay': 'none',
-    'configEnabled': true,
-    'webSuppressed': false,
-    'readThisForeground': false
-  };
-  if (platform === 'ios') {
-    state['iosChangeCountChanged'] = true;
-  }
-  if (platform === 'android') {
-    state['androidAutoSwitch'] = true;
-    state['androidWindowFocused'] = true;
-  }
-  const keys: string[] = Object.keys(raw);
-  for (let index: number = 0; index < keys.length; index++) {
-    const key: string = keys[index];
-    state[key] = raw[key];
-  }
-  return state;
-}
-
-function checkRead(row: ReadVector): void {
-  const label: string = 'readPolicy.' + row.name;
-  const actual = ClipboardReadPolicy.decide(
-    row.platform,
-    neutralState(row.platform, row.state)
-  );
-  assertScalar(label + '.actionRaw', actual.actionRaw, row.expect.actionRaw);
-  assertText(label + '.reasonRaw', actual.reasonRaw, row.expect.reasonRaw);
 }
 
 function checkExtract(row: ExtractVector): void {
@@ -384,12 +355,14 @@ export default function clipboardVectorTest() {
       }
     });
 
-    for (let index: number = 0; index < root.readPolicy.length; index++) {
-      const row: ReadVector = root.readPolicy[index];
-      it('readPolicy.' + row.name, 0, () => {
-        checkRead(row);
-      });
-    }
+    // HM-05r test-change（D10-378；依据 BR-ID-16 2026-10-17 改版、Android 主干 readPolicyStatus）：旧 readPolicy 80 条标 obsolete，
+    // 不再逐条当验收（原来每条一个用例，按 ClipboardReadPolicy.decide 核对）；读取门槛的验收改由 importGate 向量（Hm05rVector.test.ets）。
+    // 历史数组保留、名字仍唯一（manifest 的 checkNames）。
+    it('readPolicy_obsolete_replaced_by_importGate', 0, () => {
+      assertScalar('readPolicyStatus.status', root.readPolicyStatus.status, 'obsolete');
+      assertScalar('readPolicyStatus.replacedBy', root.readPolicyStatus.replacedBy, 'importGate');
+      assertScalar('readPolicy kept for history', root.readPolicy.length, 80);
+    });
 
     for (let index: number = 0; index < root.inviteExtract.length; index++) {
       const row: ExtractVector = root.inviteExtract[index];

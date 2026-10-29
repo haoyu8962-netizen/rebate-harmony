@@ -131,6 +131,8 @@ if [ "$PROBE" = device-fails ]; then exit 1; fi
 if [ "$PROBE" = hm07va-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = hm07va ]; then exit 1; fi
 # HM-07v-b 第三步（弹窗与剪贴板浮层）失败同样必须让 verify 失败。
 if [ "$PROBE" = hm07vb-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = hm07vb ]; then exit 1; fi
+# HM-05r 第四步（剪贴板用途说明与设置开关）失败同样必须让 verify 失败。
+if [ "$PROBE" = hm05r-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = hm05r ]; then exit 1; fi
 echo 'DEVICE_TEST_PASS simulated_only'
 ''')
             device.chmod(0o755)
@@ -179,7 +181,8 @@ fake_hvigor() {
 run_device_tests() {''' + function + '''
 run_device_tests core common/core core_test
 ''' + entry_dispatch + '\n')
-            for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails', 'hm07va-step-fails', 'hm07vb-step-fails']:
+            for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails', 'hm07va-step-fails', 'hm07vb-step-fails',
+                          'hm05r-step-fails']:
                 for receipt in ['build-receipts', 'device-receipts']:
                     (folder / receipt).unlink(missing_ok=True)
                 result = subprocess.run(['bash', str(script), tmp, probe], capture_output=True, text=True,
@@ -190,19 +193,24 @@ run_device_tests core common/core core_test
                                      ['core|genOnDeviceTestHap|default', 'same-source|apply', 'entry|assembleHap|staging',
                                       'same-source|restore', 'same-source|check'])
                     # 测试包只构建一次（上面 build-receipts 里 entry 只有一行）；entry 分三步各跑一次，各自 1800 秒、各自名单、
-                    # 各自工作目录（HM-07v-a，编排 D10-405 D4；HM-07v-b 测试 v1 加第三步 hm07vb，主步同时排除两个视觉套件）。
+                    # 各自工作目录（HM-07v-a，编排 D10-405 D4；HM-07v-b 测试 v1 加第三步 hm07vb，主步同时排除两个视觉套件；
+                    # HM-05r 测试 v1 加第四步 hm05r，主步再排除 Hm05rConsentUi）。
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||||all|device-test',
-                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|notClass=Hm07vHomeUi,Hm07vOverlayUi|main|'
-                                      'device-test',
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|'
+                                      'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi|main|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
                                       'device-test-entry-hm07va',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vOverlayUi|hm07vb|'
-                                      'device-test-entry-hm07vb'])
+                                      'device-test-entry-hm07vb',
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm05rConsentUi|hm05r|'
+                                      'device-test-entry-hm05r'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 if probe == 'hm07vb-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07vb', result.stdout)
+                if probe == 'hm05r-step-fails':
+                    self.assertIn('EXPECTED_FAILURE device-test entry-hm05r', result.stdout)
                 print('REFERENCE_ONLY verify dispatch: ' + probe)
 
     def test_device_timeout_defaults_and_explicit_override(self):
@@ -225,8 +233,11 @@ run_device_tests core common/core core_test
         names = sorted(expected_names())
         # 合集（--set all）：DS-02 158 条 + F-X-05a 9 条（tools/ci/fx05a/fixtures/device-cases.txt；v3 加剪贴板天猫徽标 1 条，
         # 评审 r1 R1-01）+ F-X-25 6 条（AuthChangeDevice_FX25）+ HM-07v-a 17 条（tools/ci/hm07v/fixtures/device-cases.txt；测试 v3 加横滑卡 amount_unknown 1 条（R1-01）、320 金刚区命中区 1 条（R1-02））
-        # + HM-07v-b 11 条（tools/ci/hm07v/fixtures/device-cases-b.txt，弹窗与剪贴板浮层）。
-        self.assertEqual(len(names), 201)
+        # + HM-07v-b 11 条（tools/ci/hm07v/fixtures/device-cases-b.txt，弹窗与剪贴板浮层）
+        # + HM-05r 11 条（tools/ci/hm05r/fixtures/device-cases.txt；测试 v1 为 9 条用途说明与设置开关，测试 v3 按 2026-10-30 默认开启
+        # 改为默认开启 / 关闭态 / 升级迁移四种旧状态 / 撤回与重新同意，共 11 条：只增不减，合集 210 → 212）。
+        self.assertEqual(len(names), 212)
+        self.assertEqual(len([name for name in names if name.startswith('hm05r_')]), 11)
         self.assertEqual(len([name for name in names if name.startswith('hm07va_')]), 17)
         self.assertEqual(len([name for name in names if name.startswith('hm07vb_')]), 11)
         self.assertIn('hm07vb_popup_image_only_close_layer_reader_focus_font200_and_dark_tokens_on_one_instance', names)
@@ -246,10 +257,10 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 201)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 201)
+        self.assertEqual(validate(report(names)), 212)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 212)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
-                        or name.startswith('hm07vb_') or name in FX25_DEVICE_CASES]:
+                        or name.startswith('hm07vb_') or name.startswith('hm05r_') or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
         # 12 个变体/主题任意漏一个都必须报红，旧聚合名不能抵账。
@@ -281,13 +292,20 @@ run_device_tests core common/core core_test
         HM-07v-b 测试 v1：加第三步 hm07vb（11 条）。"""
         main, hm07va, every = expected_names('main'), expected_names('hm07va'), expected_names('all')
         hm07vb = expected_names('hm07vb')
+        hm05r = expected_names('hm05r')
         self.assertEqual(len(main), 173)
         self.assertEqual(len(hm07va), 17)
         self.assertEqual(len(hm07vb), 11)
-        self.assertEqual(main | hm07va | hm07vb, every)
+        self.assertEqual(len(hm05r), 11)
+        self.assertEqual(main | hm07va | hm07vb | hm05r, every)
         self.assertEqual(main & hm07va, set())
         self.assertEqual(main & hm07vb, set())
         self.assertEqual(hm07va & hm07vb, set())
+        self.assertEqual((main | hm07va | hm07vb) & hm05r, set())
+        self.assertTrue(all(name.startswith('hm05r_') for name in hm05r))
+        self.assertFalse(any(name.startswith('hm05r_') for name in main))
+        consent = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Hm05rConsentUi.test.ets').read_text()
+        self.assertEqual(sorted(re.findall(r"'(hm05r_\d\d_[a-z0-9_]+)'", consent)), sorted(hm05r))
         self.assertTrue(all(name.startswith('hm07va_') for name in hm07va))
         self.assertTrue(all(name.startswith('hm07vb_') for name in hm07vb))
         self.assertFalse(any(name.startswith('hm07va_') or name.startswith('hm07vb_') for name in main))
@@ -317,6 +335,7 @@ run_device_tests core common/core core_test
         self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 173)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
+        self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
         bad = {
             # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
             **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
@@ -341,6 +360,17 @@ run_device_tests core common/core core_test
             'hm07va-report-checked-as-hm07vb': (report(sorted(hm07va)), 'hm07vb'),
             'hm07vb-report-checked-as-hm07va': (report(sorted(hm07vb)), 'hm07va'),
             'hm07vb-report-checked-as-main': (report(sorted(hm07vb)), 'main'),
+            # HM-05r 第四步：9 条缺一条、多跑别的套件、有失败都红；主步混进 hm05r 用例也红。
+            'main-with-hm05r-case': (report(sorted(main) + sorted(hm05r)[:1]), 'main'),
+            **{'hm05r-missing-' + name: (report(sorted(hm05r - {name})), 'hm05r') for name in sorted(hm05r)},
+            'hm05r-with-hm07vb-case': (report(sorted(hm05r) + sorted(hm07vb)[:1]), 'hm05r'),
+            'hm05r-with-ds02-case': (report(sorted(hm05r) + sorted(main)[:1]), 'hm05r'),
+            'hm05r-with-future-case': (report(sorted(hm05r) + ['future_extra_test']), 'hm05r'),
+            'hm05r-failed': (report(sorted(hm05r), failed=sorted(hm05r)[0]), 'hm05r'),
+            'hm05r-only-summary': ('Tests run: 9, Failure: 0, Error: 0, Pass: 9', 'hm05r'),
+            'hm05r-report-checked-as-main': (report(sorted(hm05r)), 'main'),
+            'hm05r-report-checked-as-hm07vb': (report(sorted(hm05r)), 'hm07vb'),
+            'hm07vb-report-checked-as-hm05r': (report(sorted(hm07vb)), 'hm05r'),
         }
         for reason, (text, chosen) in bad.items():
             with self.subTest(reason=reason), self.assertRaises(ValueError):

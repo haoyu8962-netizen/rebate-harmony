@@ -309,7 +309,8 @@ export default function clipboardFuClipTest() {
       expect(await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.PARSE);
       await flush();
       expect(g.parseBody()['text'] as string).assertEqual('https://u.jd.com/demo');
-      // 端键 clipboard.enabled.harmony 仍只管自动识别（鸿蒙没有），不影响手动粘贴
+      // 旧端键 clipboard.enabled.harmony 已退役（HM-05r D4：产品不再读它，自动识别只认 features.clipboard.auto_read.harmony）；配置里
+      // 即使还带着它为 false，手动粘贴照旧
       const h: ShareFixture = new ShareFixture();
       h.flags['clipboard.enabled.harmony'] = false;
       h.pasteboard.text = TB_LINK;

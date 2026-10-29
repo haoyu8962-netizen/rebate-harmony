@@ -10,6 +10,7 @@ import {
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppClipboard } from '../clipboard/AppClipboard';
+import { ClipboardDraftTexts } from '../clipboard/ClipboardDraftTexts';
 import { AppLogin } from '../login/AppLogin';
 import { AppNetwork } from '../network/AppNetwork';
 import { AppPrivacy } from '../privacy/AppPrivacy';
@@ -152,6 +153,14 @@ export struct AppSettingsPage {
     c.stepUpViewport = BuildVariant.stepUpViewportOverride();
     c.openSystemNotificationSettings = (): void => AppMe.shared.openSystemNotificationSettings();
     c.initialSub = BuildVariant.settingsInitialSub();
+    // HM-05r S4：剪贴板自动识别开关行（设备级；显示用户的选择，D7；默认开启，打开 / 关闭都直接生效、不出弹层，C8）
+    c.clipboardTitle = (): string => ClipboardDraftTexts.text('settings.clipboard_auto');
+    c.clipboardDesc = (): string => ClipboardDraftTexts.text('settings.clipboard_auto.desc');
+    c.clipboardOn = (): boolean => AppClipboard.shared.autoReadDisplayOn();
+    c.toggleClipboard = (on: boolean): void => {
+      AppClipboard.shared.toggleAutoRead(on);
+    };
+    c.subscribeClipboard = (listener: () => void): () => void => AppClipboard.shared.subscribeAutoRead(listener);
     // APP-10 G18：【撤回 AI 服务同意】只在 Agent 可用的构建与环境里显示（Release 不显示，G01）。
     c.aiWithdrawTexts = (): string[] => AppAgent.shared.withdrawAvailable() ? [
       AgentDraftTexts.text('agent.draft.withdraw.row'), AgentDraftTexts.text('agent.draft.withdraw.confirm_title'),

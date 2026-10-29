@@ -59,6 +59,31 @@ export class AppUpdate {
   /** 界面字段刷新后调用（AppHome 接到首页可见性广播，APP-11 R3-01）；缺省什么都不做。 */
   onOverlayChanged: () => void = () => {
   };
+  /**
+   * 显示状态变化的多订阅（HM-05r S1-1：剪贴板自动任务在更新提示 / 权限说明显示时等待、收起后同轮再试）。onOverlayChanged 是首页占用的单槽回调，
+   * 其他订阅方经这里登记，互不吞掉；返回退订函数。
+   */
+  private overlayListeners: Set<() => void> = new Set<() => void>();
+
+  addOverlayListener(listener: () => void): () => void {
+    this.overlayListeners.add(listener);
+    return (): void => {
+      this.overlayListeners.delete(listener);
+    };
+  }
+
+  /** 显示状态写入后：先单槽回调（首页），再各订阅方；订阅方出错不影响其他。 */
+  private overlayChanged(): void {
+    this.onOverlayChanged();
+    this.overlayListeners.forEach((l: () => void) => {
+      try {
+        l();
+      } catch (e) {
+        // 订阅方出错不影响其他订阅
+      }
+    });
+  }
+
   /** 结论或检查进度变化（EntryAbility 接上 AppRouting.stateChanged）。 */
   onChanged: () => void = () => {
   };
@@ -265,7 +290,7 @@ export class AppUpdate {
     this.targetVersion = state.targetVersion;
     this.result = store.load().result;
     // 更新提示 / 强更的显示状态可能变了（不一定经过状态同步）：交首页可见性广播比较（APP-11 R3-01）。
-    this.onOverlayChanged();
+    this.overlayChanged();
     if (notify) {
       this.onChanged();
     }

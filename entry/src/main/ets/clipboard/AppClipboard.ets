@@ -1,11 +1,12 @@
-import { common, Want } from '@kit.AbilityKit';
+import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
 import { systemShare } from '@kit.ShareKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, AssetSecureStore, ClipboardBadgeIcon,
-  ClipboardController,
+  ClipboardBuild, ClipboardController,
+  ImportGates, ImportPreferenceBackend, ImportPreferenceStore, SystemClipboardAdapter, UpdateStatusRaw,
   ClipboardDeps, ClipboardFingerprint, ClipboardHashStore, ClipboardNoticeText, ClipboardPromptBinding,
   ClipboardPromptInfo, ClipboardPromptView, ClipboardReadPolicy, ClipboardResultBinding, SecureClipboardSaltStore,
   SharePromptTexts, SharedTextRecord,
@@ -23,7 +24,9 @@ import { AppRouting } from '../routing/AppRouting';
 import { SearchDraftTexts } from '../search/SearchDraftTexts';
 import { ShellState } from '../shell/ShellState';
 import { AppUpdate } from '../update/AppUpdate';
+import { PermissionPromptModel } from '../permission/PermissionPromptModel';
 import { ClipboardDraftTexts } from './ClipboardDraftTexts';
+import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliClipboard';
@@ -116,6 +119,76 @@ class PreferencesHashStore implements ClipboardHashStore {
   }
 }
 
+/**
+ * HM-05r S1：剪贴板自动识别的设备级本机状态（preferences 单独文件 ImportPreferenceStore.FILE_NAME；不跟账号走）。一次提交里的多项
+ * 同步落盘（flushSync）；失败时把本次改动的键恢复成原值（内存实例与文件一致）再返回 false——打开回滚（设置行报失败）、关闭与迁移由
+ * ImportPreferenceStore 内存生效并退避重试（G42）。只存开关、拒绝时刻与迁移标记，没有任何剪贴板内容。
+ */
+class PreferencesImportBackend implements ImportPreferenceBackend {
+  private readonly context: common.Context;
+
+  constructor(context: common.Context) {
+    this.context = context;
+  }
+
+  private prefs(): preferences.Preferences | null {
+    try {
+      return preferences.getPreferencesSync(this.context, { name: ImportPreferenceStore.FILE_NAME });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  read(key: string): string | null {
+    const prefs: preferences.Preferences | null = this.prefs();
+    if (prefs === null) {
+      return null;
+    }
+    try {
+      const value: preferences.ValueType = prefs.getSync(key, '');
+      return typeof value === 'string' && value.length > 0 ? value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  write(changes: Map<string, string | null>): boolean {
+    const prefs: preferences.Preferences | null = this.prefs();
+    if (prefs === null) {
+      return false;
+    }
+    const before: Map<string, string | null> = new Map<string, string | null>();
+    changes.forEach((_v: string | null, key: string) => {
+      before.set(key, this.read(key));
+    });
+    try {
+      changes.forEach((value: string | null, key: string) => {
+        if (value === null) {
+          prefs.deleteSync(key);
+        } else {
+          prefs.putSync(key, value);
+        }
+      });
+      prefs.flushSync();
+      return true;
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, '%{public}s', 'clipboard import prefs write failed');
+      try {
+        before.forEach((value: string | null, key: string) => {
+          if (value === null) {
+            prefs.deleteSync(key);
+          } else {
+            prefs.putSync(key, value);
+          }
+        });
+      } catch (err) {
+        // 恢复失败：下次读按文件为准（getPreferencesSync 同一实例）；ImportPreferenceStore 仍按「没落盘」处理
+      }
+      return false;
+    }
+  }
+}
+
 /** 网络组合之前的端口：不发任何请求，按本地拒绝收口（执行层当作作废，不出提示）。 */
 class UnavailableParsePort implements SearchApiPort {
   request(_request: ApiRequest): Promise<ApiResult> {
@@ -200,6 +273,8 @@ export class ClipboardUiModel {
   @Trace resultBinding: ClipboardResultBinding | null = null;
   /** 多卡弹层的绑定：只在新的多卡结果出现时换；onDisappear 只消费它自己那个结果（换成提示或清空后迟到的关闭不清掉新结果）。 */
   @Trace sheetBinding: ClipboardResultBinding | null = null;
+  /** 设置页开关显示（D7：用户的选择；未选择显示开，C8）。 */
+  @Trace autoReadOn: boolean = true;
 
   promptConfirmAction(): () => void {
     const b: ClipboardPromptBinding | null = this.promptBinding;
@@ -262,7 +337,8 @@ export class ClipboardUiModel {
 /**
  * App 侧的剪贴板识别（APP-07 鸿蒙）：组合 Core ClipboardController（系统剪贴板、ApiClient、Router、隐私、配置、敏感浮层），
  * 把快照交给页面模型；生命周期（EntryAbility）、导航栈（StackNavigator.onStackChanged、页面出口）、Tab（ShellState）、浮层与
- * 清理（AppConfig.cleaners）在这里接上。鸿蒙没有自动识别：所有读取都来自 PasteButton。
+ * 清理（AppConfig.cleaners）在这里接上。HM-05r（BR-ID-16 2026-10-30）：回前台的自动任务默认开启，只在「开关未关 + 隐私已同意 +
+ * 具备资格且已授权」时程序化读取；Release 不具备资格（D1），读取仍只来自 PasteButton。设置开关行经这里交回执行层。
  */
 export class AppClipboard {
   static readonly shared: AppClipboard = new AppClipboard();
@@ -299,7 +375,19 @@ export class AppClipboard {
   }
 
   /** EntryAbility.onCreate（网络组合之后）。 */
+  /** 本次组合在共享单例上登记的订阅（Ability 同进程重建再组合时先退订，不累积到旧控制器上，review r2 S2-N4）。 */
+  private composeUnsubscribes: (() => void)[] = [];
+
   compose(context: common.Context): void {
+    const previous: (() => void)[] = this.composeUnsubscribes;
+    this.composeUnsubscribes = [];
+    for (const off of previous) {
+      try {
+        off();
+      } catch (e) {
+        // 退订失败不影响新组合
+      }
+    }
     const client: ApiClient | null = AppNetwork.client;
     const deps: ClipboardDeps = new ClipboardDeps(new HarmonyPasteboard(),
       client === null ? new UnavailableParsePort() : new ApiClientSearchPort(client), AppPendingInvite.shared);
@@ -323,8 +411,30 @@ export class AppClipboard {
     // 这几项变化都会走 AppRouting.stateChanged → syncClipboard → controller.sync()，就绪后的那次同步处理留着的冷启动分享
     deps.bootReady = (): boolean => AppConfig.gate() === EnvironmentGate.SETTLED
       && AppRouting.shared.privacyState !== PrivacyState.NOT_DECIDED && AppRouting.shared.presentationReady;
+    // HM-05r S1：设备级本机状态（preferences 单独文件，同步落盘；登录 / 退出 / 换号都不改它）
+    deps.importPrefs = new ImportPreferenceStore(new PreferencesImportBackend(context), (): number => Date.now());
+    // HM-05r S6 / D1：资格先看构建常量（Release 不声明 READ_PASTEBOARD → 恒 not_eligible，不调 checkAccessToken），再按
+    // abilityAccessCtrl.checkAccessToken 查实际授权；程序化读取只取纯文本（适配器截断长度）。
+    // staging 经 BuildVariant 包一层计探测次数（设备用例测量），Release 原样返回
+    deps.adapter = BuildVariant.clipboardAdapter(context, new SystemClipboardAdapter(ClipboardBuild.DECLARES_READ_PASTEBOARD,
+      (): number => AppClipboard.readGrant(context),
+      // TODO(HM-05r-b)：永久拒绝的判定随 CAP-X-02 实测与 PermissionRequester clipboard_read 一起落地；D1 下不会走到这里
+      (): boolean => false,
+      (): Promise<string | null> => new HarmonyPasteboard().readText()));
+    deps.modal = (): string => AppClipboard.modal();
+    // 首页等 Tab 根页不经 pageShown 登记：外壳就绪（导航与 Tab 已显示）即视为页面就绪
+    deps.rootReady = (): boolean => AppRouting.shared.presentationReady;
+    deps.configSettled = (): boolean => {
+      const store: ConfigStore | null = AppClientCore.shared.config;
+      return store === null || !store.fetching;
+    };
     const controller: ClipboardController = new ClipboardController(deps);
     controller.onChange = (s: ClipboardSnapshot): void => this.apply(s);
+    controller.onAutoReadChanged = (): void => this.autoReadChanged();
+    // review r1 S1-1：更新提示 / 权限说明的显示变化 → 执行层 modalChanged（模态在时自动任务等待；收起后本轮等待的尝试同轮再试）。
+    // 两者的 onOverlayChanged 是首页占用的单槽回调，这里用多订阅登记，不抢
+    this.composeUnsubscribes.push(AppUpdate.shared.addOverlayListener((): void => controller.modalChanged()));
+    this.composeUnsubscribes.push(PermissionPromptModel.shared.addOverlayListener((): void => controller.modalChanged()));
     this.controllerInstance = controller;
     // 导航栈经 Router 改动的同步出口（页面被覆盖、出栈、清栈）；系统返回等由 RootPage 的导航拦截与页面出口补上。
     AppRouting.shared.navigator.onStackChanged = (names: string[]): void => this.stackChanged(names);
@@ -337,8 +447,49 @@ export class AppClipboard {
     // FU-CLIP §2.1 第 5 条：配置变化（规则表可能收紧）时，已显示但未点击的分享提示条若候选已不被允许，同步作废
     const store: ConfigStore | null = AppClientCore.shared.config;
     if (store !== null) {
-      store.subscribe((): void => controller.rulesChanged());
+      // HM-05r：配置变化同时让本轮未决的自动任务再判一次（新下发的 auto_read 开关）
+      this.composeUnsubscribes.push(store.subscribe((): void => controller.configChanged()));
     }
+    this.uiModel.autoReadOn = controller.autoReadDisplayOn();
+  }
+
+  /** HM-05r：WindowStage 获焦 / 失焦（EntryAbility 的 windowStageEvent）。 */
+  windowFocus(focused: boolean): void {
+    this.controllerInstance?.windowFocus(focused);
+  }
+
+  // ---------------------------------------------------------------- HM-05r 设置开关
+
+  /** 设置页开关行：返回 ClipboardAutoSwitch 结论。 */
+  toggleAutoRead(on: boolean): string {
+    const controller: ClipboardController | null = this.controllerInstance;
+    return controller === null ? '' : controller.toggleAutoRead(on);
+  }
+
+  autoReadDisplayOn(): boolean {
+    const controller: ClipboardController | null = this.controllerInstance;
+    return controller !== null && controller.autoReadDisplayOn();
+  }
+
+  private autoReadListeners: Set<() => void> = new Set<() => void>();
+
+  /** 设置页订阅开关显示的变化；返回退订函数。 */
+  subscribeAutoRead(listener: () => void): () => void {
+    this.autoReadListeners.add(listener);
+    return (): void => {
+      this.autoReadListeners.delete(listener);
+    };
+  }
+
+  private autoReadChanged(): void {
+    this.uiModel.autoReadOn = this.autoReadDisplayOn();
+    this.autoReadListeners.forEach((l: () => void) => {
+      try {
+        l();
+      } catch (e) {
+        // 订阅方出错不影响其他订阅
+      }
+    });
   }
 
   // ---------------------------------------------------------------- 系统分享接收（FU-CLIP C6）
@@ -501,6 +652,7 @@ export class AppClipboard {
     const m: ClipboardUiModel = this.uiModel;
     m.blocked = s.blocked;
     m.busy = s.busy;
+    m.autoReadOn = controller.autoReadDisplayOn();
     if (s.prompt === null) {
       m.promptId = 0;
       m.promptText = '';
@@ -678,6 +830,21 @@ export class AppClipboard {
       return ClipboardSensitive.OVERLAY_FORCE_UPDATE;
     }
     return this.modals.active ? ClipboardSensitive.OVERLAY_AUTH_SHEET : ClipboardSensitive.OVERLAY_NONE;
+  }
+
+  /** 设备级同意的实际授权（D1：只经 abilityAccessCtrl.checkAccessToken；0 已授权，-1 未授权；异常由适配器按 unknown）。 */
+  private static readGrant(context: common.Context): number {
+    const atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
+    return atManager.checkAccessTokenSync(context.applicationInfo.accessTokenId, 'ohos.permission.READ_PASTEBOARD');
+  }
+
+  /** 普通互斥模态（WAIT，不弹层不读）：可关闭更新提示、权限用途说明；没有为 none。 */
+  private static modal(): string {
+    const update: AppUpdate = AppUpdate.shared;
+    if (update.showPrompt && update.statusRaw === UpdateStatusRaw.BELOW_RECOMMENDED) {
+      return 'update_prompt';
+    }
+    return PermissionPromptModel.shared.visible ? 'other_dialog' : ImportGates.MODAL_NONE;
   }
 
   /** /v1/config 的 features、share_domains、clipboard（当前 → LKG → 包内）；取不到的键不放。 */

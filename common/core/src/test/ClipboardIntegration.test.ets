@@ -197,22 +197,36 @@ class ClipFixture {
 
 export default function clipboardIntegrationTest() {
   describe('ClipboardIntegration', () => {
-    it('foreground_never_reads_on_harmony', 0, async () => {
+    // HM-05r test-change（D10-378；依据 BR-ID-16 2026-10-17 改版、编排 D10-133 D1 / D3）：原用例断言回前台判定恒为 paste_only
+    // （ClipboardWatcher 只判定、旧 readPolicy 向量），改版后旧判定退役。现含义：未开启 / 不具备资格（生产缺省适配器 not_eligible）→
+    // 回前台读取 0 次、上传 0 次、无提示条；「eligible_granted + 已开启 → 读取 1 次」见 Hm05rIntegration
+    // foreground_auto_read_only_when_enabled_and_eligible_granted。
+    // HM-05r 测试 v3 test-change（BR-ID-16 2026-10-30、变更记录 §2 第 1 行；C1）：2026-10-30 起未选择 = 默认开启，这条用例的含义收窄为
+    // 「生产缺省适配器不具备资格（D1）→ 回前台读取 0 次、上传 0 次、无提示条」；用例名保留（不改名）。末段原用 importPrefs.enable('v1')
+    // （功能同意入口，已删除）改为设置入口 setOn()。「默认开启 + eligible_granted → 读取 1 次」见 Hm05rIntegration
+    // fresh_install_privacy_agreed_home_root_foreground_reads_once_no_notice_no_consent_report_C1。
+    it('foreground_reads_nothing_when_not_enabled_or_not_eligible', 0, async () => {
       const f: ClipFixture = new ClipFixture();
       f.pasteboard.text = PRODUCT_TEXT;
-      const first: ClipboardReadDecision | null = f.controller.watcher.lastDecision;
-      expect(first !== null && first.actionRaw === ClipboardReadPolicy.ACTION_PASTE_ONLY).assertTrue();
       for (let i: number = 0; i < 3; i++) {
         f.controller.onBackground();
-        const d: ClipboardReadDecision | null = f.controller.onForeground();
-        expect(d !== null && d.actionRaw === ClipboardReadPolicy.ACTION_PASTE_ONLY).assertTrue();
+        f.controller.onForeground();
+        await flush();
       }
       // 已在前台时重复的 onForeground 不算一次回前台
-      expect(f.controller.onForeground() === null).assertTrue();
+      f.controller.onForeground();
       await flush();
       expect(f.pasteboard.reads).assertEqual(0);
       expect(f.parseCount()).assertEqual(0);
       expect(f.controller.snapshot.prompt === null).assertTrue();
+      // 已开启（真实入口）但不具备资格：仍是 0 次
+      f.controller.importPrefs.setOn();
+      f.controller.onBackground();
+      f.controller.onForeground();
+      await flush();
+      expect(f.pasteboard.reads).assertEqual(0);
+      expect(f.parseCount()).assertEqual(0);
+      expect(f.pasteboard.writes).assertEqual(0);
     });
 
     it('AC-S1-03.a_paste_button_success_reads_once_and_parses_once', 0, async () => {
@@ -276,9 +290,15 @@ export default function clipboardIntegrationTest() {
           f.standOn(route);
         }
         expect(f.top()).assertEqual(route);
+        // HM-05r test-change：原断言回前台判定 skip/sensitive（旧 ClipboardWatcher 诊断值，改版退役）；敏感页回前台不读不弹由
+        // importGate 向量 R14_* 与下方读取 0 次守住。
+        // 测试 v3 test-change（变更记录 §2 第 1、5 行：用途说明半屏移除，快照不再有 consentNotice）：「没有弹用途说明」改为「敏感页
+        // 回前台自动任务直接跳过——连降级都不走（fallbackCount 0）、不读」；2026-10-30 起默认开启，这一断言比原来更强。
         f.controller.onBackground();
-        const d: ClipboardReadDecision | null = f.controller.onForeground();
-        expect(d !== null && d.actionRaw === ClipboardReadPolicy.ACTION_SKIP && d.reasonRaw === 'sensitive').assertTrue();
+        f.controller.onForeground();
+        await flush();
+        expect(f.controller.fallbackCount).assertEqual(0);
+        expect(f.controller.readCount).assertEqual(0);
         // 敏感页上即便有入口被点到，执行层也不读
         expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_SEARCH_TYPING, true))
           .assertEqual(PasteOutcome.SKIPPED);
