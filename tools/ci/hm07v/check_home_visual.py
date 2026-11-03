@@ -95,10 +95,11 @@ def check_cases(root):
     tails = [d[-3:] for d in dispatch]
     # HM-07v-b（测试 b v1，D10-378 test-change）：主步同时排除 b 段套件 Hm07vOverlayUi，b 段另有第三步（check_overlays.py C2 守）。
     # HM-05r 测试 v1（D10-378 test-change）：主步再排除 Hm05rConsentUi，另有第四步 entry-hm05r（check_hm05r.py C2 守）。
-    if ['entry', 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi', 'main'] not in tails \
-            or ['entry-hm07va', 'class=Hm07vHomeUi', 'hm07va'] not in tails or len(dispatch) != 4:
-        errors.append('C4 verify.sh 没把 entry 拆成设备步（entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi main / '
-                      'entry-hm07va class=Hm07vHomeUi hm07va / entry-hm07vb / entry-hm05r）')
+    # APP-12v-harmony 测试 v1（D10-378 test-change）：主步再排除 Me12vUi，另有第五步 entry-me12v（check_me_visual.py C2 守）。
+    if ['entry', 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi', 'main'] not in tails \
+            or ['entry-hm07va', 'class=Hm07vHomeUi', 'hm07va'] not in tails or len(dispatch) != 5:
+        errors.append('C4 verify.sh 没把 entry 拆成设备步（entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi main / '
+                      'entry-hm07va class=Hm07vHomeUi hm07va / entry-hm07vb / entry-hm05r / entry-me12v）')
     device = read(root, 'tools/ci/device-test.sh')
     if '${FILTER_ARGS[@]+"${FILTER_ARGS[@]}"}' not in device or '--set "$DEVICE_SET"' not in device \
             or '[ "$elapsed_seconds" -le 1800 ]' not in device:
@@ -270,7 +271,8 @@ def self_test():
         ('套件没排最后', 'entry/src/ohosTest/ets/test/List.test.ets', '  hm07vHomeUiTest();\n', '', 'C3'),
         ('设备用例商品样例与 fixture 不一致', SUITE, '"price_fen":3200', '"price_fen":3300', 'C5'),
         ('entry 没拆步', 'tools/ci/verify.sh', 'entry-hm07va class=Hm07vHomeUi hm07va', 'entry', 'C4'),
-        ('原 entry 步没排除本套件', 'tools/ci/verify.sh', 'entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi main', 'entry "" all',
+        ('原 entry 步没排除本套件', 'tools/ci/verify.sh', 'entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi main',
+         'entry "" all',
          'C4'),
         ('套件过滤没传给 aa test', 'tools/ci/device-test.sh', ' ${FILTER_ARGS[@]+"${FILTER_ARGS[@]}"}', '', 'C4'),
         ('不按步核对名单', 'tools/ci/device-test.sh', ' --set "$DEVICE_SET"', '', 'C4'),

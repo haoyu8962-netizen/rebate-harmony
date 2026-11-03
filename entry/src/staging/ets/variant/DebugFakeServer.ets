@@ -141,6 +141,8 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
         this.agentRequests.delete(request);
       });
     }
+    // APP-12v：GET /v1/me 计数（不论哪个假服务答，分派前记一次）。
+    DebugFakeMe.countGet(request.url, request.method);
     // APP-12：「我的」类接口最先答（/v1/me 的 13 个字段；实名状态沿用钱包假服务的值）；APP-09：钱包类接口其次。
     // APP-13a：注销与换手机号的接口最先答（负余额摘要、未绑手机的 getMe 只在对应场景接管）。
     // HM-05r：剪贴板自动识别的设备级同意记录（type=clipboard_auto_import）最先答，写设备用例读的回执（2026-10-30 起客户端不再发，

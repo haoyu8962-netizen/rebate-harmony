@@ -6,6 +6,14 @@
 // bad（getMe 坏数据）/ frozen / frozen_none / frozen_appealing / frozen_upheld / banned / banned_appealing / banned_upheld / lifted /
 // new_category / normal_10006。banned* 与 normal_10006 场景下钱包摘要回 10006（经真实网络层落到 RiskNotice）。
 // 改昵称：含 sensitive → 20001 nickname_sensitive；本月第 4 次 → 30415。通知设置：notify_fail 场景的 PUT → 50001。
+// APP-12v（「我的」视觉设备用例与截图，数值照 specs/me-vectors.json visualMe）：new_user（R8T4WN、未绑、0/0/0、可补填）/ negative
+// （available −567、withdrawable 0）/ long（16 字昵称、9999999 / 99999999）/ slow（getMe 延迟 8 s，拍骨架；低于网络层 10 s 超时）/ offline（getMe 传输失败）/
+// rate（getMe 42901 + Retry-After 60）/ refresh_fail（每次 reset 后第一次成功、之后 50001）/ earnings（/v1/config 收益看板开关开）。
+// getMe 计数：每收到一次 GET /v1/me（任何场景、任何假服务答），preferences「couli_debug_fake」键 me.get_count 加 1（十进制字符串，
+// flushSync；只记次数不记内容；与 HM-05r clipboard.auto_probes 同一文件同一写法）。Release 没有本文件。
+import { common } from '@kit.AbilityKit';
+import { preferences } from '@kit.ArkData';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiOutcome, ApiResult, LocalRejectReason, MeContractPort, PushTokenSource, TransportFailure
 } from 'core';
@@ -15,6 +23,9 @@ import { DebugFakeWallet } from './DebugFakeWallet';
 export const DEBUG_FAKE_ME_MARKER: string = 'COULI_FAKE_ME_SERVER_APP12_8e4b27';
 export const DEBUG_ME_SCENE_KEY: string = 'couli_debug_me_scene';
 export const DEBUG_PUSH_TOKEN_MARKER: string = 'COULI_DEBUG_PUSH_TOKEN_APP12_3a9d52';
+const FAKE_FILE: string = 'couli_debug_fake';
+const GET_ME_COUNT_KEY: string = 'me.get_count';
+const LONG_NICKNAME: string = '一二三四五六七八九十一二三四五六';
 
 class FakeAppeal {
   readonly id: string;
@@ -55,6 +66,34 @@ export class DebugFakeMe implements MeContractPort {
   /** 记下的撤回 / 个性化记录条数与推送上报条数（冒烟核对；不含令牌）。 */
   static consents: number = 0;
   static pushReports: number = 0;
+  /** 写 getMe 计数用的应用上下文（BuildVariant.applyLaunchOptions 记下）。 */
+  private static context: common.Context | null = null;
+  /** refresh_fail：本次 reset 后已答过的 getMe 次数。 */
+  private static meAnswers: number = 0;
+
+  static bindContext(context: common.Context): void {
+    DebugFakeMe.context = context;
+  }
+
+  /** 每收到一次 GET /v1/me 计数加 1（DebugFakeServer.fakeSend 在分派前调；只记次数）。 */
+  static countGet(url: string, method: string): void {
+    if (method !== 'GET' || !url.split('?')[0].endsWith('/v1/me')) {
+      return;
+    }
+    const context: common.Context | null = DebugFakeMe.context;
+    if (context === null) {
+      return;
+    }
+    try {
+      const prefs: preferences.Preferences = preferences.getPreferencesSync(context, { name: FAKE_FILE });
+      const old: preferences.ValueType = prefs.getSync(GET_ME_COUNT_KEY, '');
+      const n: number = typeof old === 'string' && (old as string).length > 0 ? Number(old as string) : 0;
+      prefs.putSync(GET_ME_COUNT_KEY, String(Number.isInteger(n) ? n + 1 : 1));
+      prefs.flushSync();
+    } catch (e) {
+      hilog.warn(0x0000, 'Couli', '%{public}s', 'fake getMe count not written');
+    }
+  }
 
   static readonly SAMPLE_CONTENT: string = '这几笔订单都是我自己正常购买的，收货后没有退款，请帮忙核实。';
 
@@ -64,6 +103,7 @@ export class DebugFakeMe implements MeContractPort {
     DebugFakeMe.nickname = '凑狸用户';
     DebugFakeMe.saves = 0;
     DebugFakeMe.serviceOn = true;
+    DebugFakeMe.meAnswers = 0;
     const s: string = scene;
     if (s === 'frozen_appealing' || s === 'banned_appealing') {
       DebugFakeMe.appeals = [new FakeAppeal('AP2026100900001', 'processing', DebugFakeMe.SAMPLE_CONTENT,
@@ -104,7 +144,17 @@ export class DebugFakeMe implements MeContractPort {
   /** GET /v1/me：13 个字段齐全（实名状态与是否绑手机沿用钱包与登录假服务的值）。 */
   private static me(): FakeAnswer {
     const scene: string = DebugFakeMe.scene;
+    DebugFakeMe.meAnswers++;
     if (scene === 'error') {
+      return new FakeAnswer(50001, '{}', 300);
+    }
+    if (scene === 'offline') {
+      return new FakeAnswer(-1, '{}', 300);
+    }
+    if (scene === 'rate') {
+      return new FakeAnswer(42901, '{}', 300, '60');
+    }
+    if (scene === 'refresh_fail' && DebugFakeMe.meAnswers > 1) {
       return new FakeAnswer(50001, '{}', 300);
     }
     if (scene === 'bad') {
@@ -117,13 +167,14 @@ export class DebugFakeMe implements MeContractPort {
     }
     const r: Record<string, Object | null> = {};
     r['user_id'] = 'debug-stub-user';
-    r['nickname'] = DebugFakeMe.nickname;
+    r['nickname'] = scene === 'long' ? LONG_NICKNAME : DebugFakeMe.nickname;
     r['avatar_url'] = 'https://example.test/default-avatar.png';
-    r['invite_code'] = scene === 'minor' ? null : 'K7M3QX';
-    r['inviter_bound'] = scene !== 'unbound';
+    r['invite_code'] = scene === 'minor' ? null : (scene === 'new_user' ? 'R8T4WN' : 'K7M3QX');
+    r['inviter_bound'] = scene !== 'unbound' && scene !== 'new_user';
     const backfill: Record<string, Object | null> = {};
-    backfill['eligible'] = scene === 'unbound';
-    backfill['deadline_at'] = scene === 'unbound' ? '2026-10-12T00:00:00+08:00' : null;
+    backfill['eligible'] = scene === 'unbound' || scene === 'new_user';
+    backfill['deadline_at'] = scene === 'unbound' ? '2026-10-12T00:00:00+08:00' :
+      (scene === 'new_user' ? '2026-10-19T10:00:00+08:00' : null);
     r['invite_backfill'] = backfill;
     r['identity_level'] = 'phone';
     r['phone_bound'] = true;
@@ -131,12 +182,24 @@ export class DebugFakeMe implements MeContractPort {
     balance['available_fen'] = 1234;
     balance['withdrawable_fen'] = 1234;
     balance['estimated_total_fen'] = 5678;
+    if (scene === 'new_user') {
+      balance['available_fen'] = 0;
+      balance['withdrawable_fen'] = 0;
+      balance['estimated_total_fen'] = 0;
+    } else if (scene === 'negative') {
+      balance['available_fen'] = -567;
+      balance['withdrawable_fen'] = 0;
+    } else if (scene === 'long') {
+      balance['available_fen'] = 9999999;
+      balance['withdrawable_fen'] = 9999999;
+      balance['estimated_total_fen'] = 99999999;
+    }
     r['balance'] = balance;
     r['union_bindings'] = [];
     r['realname_status'] = realname;
     r['need_reconsent'] = false;
     r['risk'] = JSON.parse(DebugFakeMe.risk()) as Object;
-    return new FakeAnswer(0, JSON.stringify(r), 300);
+    return new FakeAnswer(0, JSON.stringify(r), scene === 'slow' ? 8000 : 300);
   }
 
   private static appealList(): FakeAnswer {
@@ -211,6 +274,14 @@ export class DebugFakeMe implements MeContractPort {
       const agent: Record<string, Object> = (data['agent'] ?? {}) as Record<string, Object>;
       agent['filing_text'] = 'AI 助手使用的模型：示例大模型\n登记编号：TEST-0000000000000000';
       data['agent'] = agent;
+      if (DebugFakeMe.scene === 'earnings') {
+        // APP-12v：收益看板开关开（配合 couli_debug_route_available Earnings 拍 MeEarningsEntry）。
+        const features: Record<string, Object> = (data['features'] ?? {}) as Record<string, Object>;
+        const flags: Record<string, Object> = (features['flags'] ?? {}) as Record<string, Object>;
+        flags['earnings.dashboard.visible'] = true;
+        features['flags'] = flags;
+        data['features'] = features;
+      }
       return new FakeAnswer(0, JSON.stringify(data), answer.delayMillis);
     } catch (e) {
       return answer;

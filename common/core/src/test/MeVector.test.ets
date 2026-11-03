@@ -475,8 +475,12 @@ export default function meVectorTest(): void {
       check(arrayOf(vectors['sources'], 'sources').length > 0, 'manifest.sources');
       check(arrayOf(vectors['gaps'], 'gaps').length > 0, 'manifest.gaps');
       const expectedKeys: string[] = GROUPS.concat(['version', 'sources', 'gaps']).sort();
+      // APP-12v test-change（D10-378 单列，brief-harmony H-M10）：只放过视觉夹具组 visualMe（截图 / 设备数据，不是逐行向量，
+      // 由 Me12vVisual.test.ets 读取、gen.py --check 守与 Android / iOS 逐字节一致）；其余组名仍须与 GROUPS 完全相等。
+      const groupKeys: string[] = Object.keys(vectors).filter((k: string): boolean => k !== 'visualMe');
+      check(Object.keys(vectors).indexOf('visualMe') >= 0, 'manifest.visualMe');
       check(
-        JSON.stringify(Object.keys(vectors).sort()) === JSON.stringify(expectedKeys),
+        JSON.stringify(groupKeys.sort()) === JSON.stringify(expectedKeys),
         'manifest.groups'
       );
       for (let i: number = 0; i < GROUPS.length; i++) {

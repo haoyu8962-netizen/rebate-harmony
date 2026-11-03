@@ -326,5 +326,258 @@
     {"id":"接线_纯函数边界","refs":["G18","G27"],"note":"push state 在非响应事件是当前状态补丁；response_* 的 state.session 是原请求捕获的会话世代，不得覆盖当前会话。inFlight/pending 属于当前世代；换代取消旧逻辑占位，迟到回调仍可能到达。退出/撤回后的同一 Policy 实例终止，重新启用另建实例。G27 字素向量验证完整字素路径；Segmenter 不可用的保守后备须另做能力测试。"},
     {"id":"接线_现有格式与生成数据","refs":["G26"],"note":"非空冻结恢复时间不在向量重复时间格式规则，三端测试与已有 CouliFormat.timeListFuture 比较。金额只断言整数分及隐藏串。鸿蒙 MeVectorsData 同时从锁定 system-permissions.json 生成 ME_PERMISSIONS_JSON，避免另手写权限清单。"},
     {"id":"后续_页面及执行层验收","refs":["G01","G02","G03","G14","G17","G18","G19","G21","G24","G25","G29","G34","G36"],"note":"纯函数测试不代替 brief §0/§2.17：确认框取消/遮罩/返回不撤回或退出，已有清理入口及落盘失败，匿名请求与 SDK 隔离，真实 Router 按钮及 H5 落点，昵称旧读取不覆盖保存，A失效→B登录→旧页面，执行层 Retry-After/trace6、幂等键、清缓存保留范围、统一剪贴板、Release 排除桩、推送 provider=mobpush 与旧回调取消、个性化网络失败不回滚及未注册不补报。"}
-  ]
+  ],
+  "visualMe": {
+    "clock": "2026-10-12T10:30:00+08:00",
+    "trace": "me-visual-a1b2c3",
+    "profiles": {
+      "me_member": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 1234,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "me_new_user": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "R8T4WN",
+        "inviter_bound": false,
+        "invite_backfill": {
+          "eligible": true,
+          "deadline_at": "2026-10-19T10:00:00+08:00"
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 0,
+          "withdrawable_fen": 0,
+          "estimated_total_fen": 0
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "me_bound_user": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "R8T4WN",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 0,
+          "withdrawable_fen": 0,
+          "estimated_total_fen": 0
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "me_no_invite_code": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": null,
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 1234,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "me_negative": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": -567,
+          "withdrawable_fen": 0,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "me_frozen": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 1234,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "frozen",
+          "reason_category": "account_security",
+          "frozen_until": "2026-11-30T00:00:00+08:00"
+        }
+      },
+      "me_long": {
+        "user_id": "me-visual-a",
+        "nickname": "一二三四五六七八九十一二三四五六",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 1,
+          "withdrawable_fen": 9999999,
+          "estimated_total_fen": 99999999
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "me_no_sum": {
+        "user_id": "me-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 9900,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      }
+    },
+    "routes_beta": [
+      "OrderList",
+      "Wallet",
+      "Ledger",
+      "FindOrder",
+      "InviteShare",
+      "Help",
+      "AuthManage",
+      "Settings",
+      "Messages"
+    ],
+    "routes_public": [
+      "OrderList",
+      "Wallet",
+      "Ledger",
+      "FindOrder",
+      "InviteShare",
+      "Help",
+      "AuthManage",
+      "Settings",
+      "Messages",
+      "Earnings"
+    ],
+    "localStates": {
+      "me_hidden_guide": {
+        "profile": "me_member",
+        "hidden": true,
+        "notification": "denied",
+        "deniedAt": "2026-10-09T10:00:00+08:00",
+        "closedAt": null
+      },
+      "guest": {
+        "level": "guest"
+      },
+      "restricted": {
+        "level": "member",
+        "scope": "deletion_only"
+      }
+    }
+  }
 }

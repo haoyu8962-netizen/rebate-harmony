@@ -832,9 +832,38 @@ ME_VECTORS = os.path.join("specs", "me-vectors.json")
 SYSTEM_PERMISSIONS = os.path.join("contracts", "snapshot", "specs", "system-permissions.json")
 
 
+# APP-12v-harmony（brief-harmony H-M10、G-M18）：visualMe 组由 Android 维护，三端逐字节同一份。基准 = rebate-android origin/main c8eac4a
+# （APP-12v-a c234526 引入）与 rebate-ios origin/main 9a7b870 的 specs/me-vectors.json 中从 '  "visualMe": {' 行到 '  "visualSettings"' 之前
+# 的 253 行原文（两端逐字节相同，sha256 下列）。鸿蒙只加这一组（visualSettings 归 APP-12w-a），放在文件最后，所以末行少一个逗号：
+# 末行 '  }' 补回 ',' 后逐字节算 sha256 必须等于基准。已有各组（含 HM-CLIP-BATCH 在改的 settingsItems 行）不在这里核对。
+VISUAL_ME_ANDROID_SHA256 = "20f05b2cc0f0c051c5248029e7250d0b1e5e2407861dfbc7f03c7c81ffece9ef"
+VISUAL_ME_ANDROID_LINES = 253
+
+
+def check_visual_me_sync(text):
+    """me-vectors.json 的 visualMe 组与 Android / iOS 基准逐字节一致，且是最后一组。"""
+    import hashlib
+    lines = text.split("\n")
+    starts = [i for i, line in enumerate(lines) if line == '  "visualMe": {']
+    if len(starts) != 1:
+        raise GenError("%s 缺 visualMe 组或出现多次（APP-12v H-M10：visualMe 字节级同步 Android / iOS）" % ME_VECTORS)
+    start = starts[0]
+    if lines[-2:] != ["}", ""] or lines[-3] != "  }":
+        raise GenError("%s visualMe 必须是最后一组（文件以 '  }\\n}\\n' 结尾）" % ME_VECTORS)
+    end = len(lines) - 2
+    if end - start != VISUAL_ME_ANDROID_LINES:
+        raise GenError("%s visualMe 组行数 %d ≠ Android 基准 %d" % (ME_VECTORS, end - start, VISUAL_ME_ANDROID_LINES))
+    block = "\n".join(lines[start:end]) + ",\n"
+    digest = hashlib.sha256(block.encode("utf-8")).hexdigest()
+    if digest != VISUAL_ME_ANDROID_SHA256:
+        raise GenError("%s visualMe 与 Android / iOS 基准不一致（sha256 %s ≠ %s）" % (ME_VECTORS, digest, VISUAL_ME_ANDROID_SHA256))
+
+
 def gen_me_vectors_data():
     """specs/me-vectors.json（APP-12，Codex 先写的三端共用向量）+ 锁定契约的 specs/system-permissions.json（隐私中心「系统权限」一节的
-    权限清单，G26：测试不另手写清单）。两份原文各成一个常量，同一文件。"""
+    权限清单，G26：测试不另手写清单）。两份原文各成一个常量，同一文件。APP-12v 起 visualMe 组另核对与 Android / iOS 逐字节一致。"""
+    with open(os.path.join(ROOT, ME_VECTORS), encoding="utf-8") as f:
+        check_visual_me_sync(f.read())
     vectors = gen_vectors_data(ME_VECTORS, "ME_VECTORS_JSON",
                                "「我的」、设置、隐私中心、封禁与申诉、推送上报与客服入口向量（APP-12）：specs/me-vectors.json 全文，"
                                "供 MeVector.test.ets 解析；ME_PERMISSIONS_JSON 是契约快照 specs/system-permissions.json 全文。"

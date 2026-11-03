@@ -92,6 +92,7 @@ import meIntegrationTest from './MeIntegration.test';
 import meReviewR1Test from './MeReviewR1.test';
 import meReviewR2Test from './MeReviewR2.test';
 import meReviewR3Test from './MeReviewR3.test';
+import me12vVisualTest from './Me12vVisual.test';
 import homeVectorTest from './HomeVector.test';
 import homeIntegrationTest from './HomeIntegration.test';
 import homeFixR1Test from './HomeFixR1.test';
@@ -225,6 +226,8 @@ export default function testsuite() {
   meReviewR1Test();
   meReviewR2Test();
   meReviewR3Test();
+  // APP-12v-harmony：「我的」视觉的 Core 纯函数（引导条切分、宫格降列、播报键、空组）与 visualMe 夹具。
+  me12vVisualTest();
   homeVectorTest();
   homeIntegrationTest();
   homeFixR1Test();

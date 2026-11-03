@@ -51,6 +51,9 @@ export class MeDraftTexts {
     m.set('me.bell', '消息中心');
     m.set('me.guide_bar.close', '关闭提示');
     m.set('me.amount_hidden', '金额已隐藏');
+    // APP-12v（G-M13 隐藏切换播报、HM15 骨架读屏）：三端同键；TODO(CT-16f) 契约 texts 补键后改字典优先。
+    m.set('me.amount_shown', '金额已显示');
+    m.set('me.loading', '加载中');
     m.set('invite.copy_code.done', '已复制邀请码');
     m.set('me.copy_failed', '复制失败，请重试');
     m.set('me.load_failed', '资料没有加载出来');

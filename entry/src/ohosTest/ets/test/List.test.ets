@@ -7,6 +7,7 @@ import fx05aUiTest from './Fx05aUi.test';
 import hm07vHomeUiTest from './Hm07vHomeUi.test';
 import hm07vOverlayUiTest from './Hm07vOverlayUi.test';
 import hm05rConsentUiTest from './Hm05rConsentUi.test';
+import me12vUiTest from './Me12vUi.test';
 
 export default function testsuite() {
   ds02CatalogTest();
@@ -21,6 +22,9 @@ export default function testsuite() {
   // HM-05r：剪贴板自动识别（2026-10-30 默认开启）与设置开关；verify 里单独一个设备步（class=Hm05rConsentUi，先卸载重装），主步与 a / b 段步都不跑它。
   // 排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
   hm05rConsentUiTest();
+  // APP-12v-harmony：「我的」Tab 视觉；verify 里单独一个设备步（class=Me12vUi，先卸载重装、从未同意隐私开始），其他步都不跑它。
+  // 排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
+  me12vUiTest();
   // HM-07v-a：驱动真实应用，隐私状态单向（基本模式 → 完整功能 → 会员），必须排在最后。
   hm07vHomeUiTest();
 }

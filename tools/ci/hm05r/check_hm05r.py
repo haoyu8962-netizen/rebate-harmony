@@ -134,7 +134,8 @@ def check_source(root):
         v.append('C2 verify 缺 Release 制品权限声明检查')
     if "'hm05r'" not in read(root, 'tools/ci/ds02/check_device_result.py'):
         v.append('C2 check_device_result.py 缺 hm05r 名单')
-    if not re.search(r'main\|hm07va\|hm07vb\|hm05r\|all\)', read(root, 'tools/ci/device-test.sh')):
+    # APP-12v-harmony 测试 v1（D10-378 test-change）：device-test 还认 me12v，这里只要求 hm05r 在认的名单里。
+    if not re.search(r'main\|hm07va\|hm07vb\|hm05r\|(?:[a-z0-9]+\|)*all\)', read(root, 'tools/ci/device-test.sh')):
         v.append('C2 device-test.sh 不认 COULI_HM_DEVICE_SET=hm05r')
     # ---------------- C3 单测登记
     core_list = read(root, 'common/core/src/test/List.test.ets')
@@ -312,9 +313,9 @@ MUTANTS = [
     ('调试钩子进 main', 'entry/src/main/ets/clipboard/AppClipboard.ets', 'deps.importPrefs =',
      "const k: string = 'clipboard.auto_probes';\ndeps.importPrefs ="),
     ('Index 漏导出', 'common/core/Index.ets', 'ClipboardAutoSwitch, ', ''),
-    ('主步不排除 Hm05rConsentUi', 'tools/ci/verify.sh', 'Hm07vOverlayUi,Hm05rConsentUi main', 'Hm07vOverlayUi main'),
+    ('主步不排除 Hm05rConsentUi', 'tools/ci/verify.sh', 'Hm07vOverlayUi,Hm05rConsentUi,Me12vUi main', 'Hm07vOverlayUi,Me12vUi main'),
     ('名单少一条', 'tools/ci/hm05r/fixtures/device-cases.txt', 'hm05r_11_', 'hm05r_99_'),
-    ('device-test 不认 hm05r', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|all)', 'main|hm07va|hm07vb|all)'),
+    ('device-test 不认 hm05r', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|me12v|all)', 'main|hm07va|hm07vb|me12v|all)'),
     # ---- 测试 v2（W9）
     ('S1-1 未订阅 AppUpdate', 'entry/src/main/ets/clipboard/AppClipboard.ets',
      'AppUpdate.shared.subscribeOverlay((): void => this.controllerInstance?.modalChanged());\n', ''),

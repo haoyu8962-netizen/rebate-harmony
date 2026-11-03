@@ -414,6 +414,8 @@ export class BuildVariant {
       hilog.info(0x0000, 'Couli', 'wallet scene %{public}s %{public}s', walletScene, DebugFakeWallet.marker);
     }
     // APP-12：`--ps couli_debug_me_scene <scene>` 选「我的」与封禁 / 申诉假服务场景（见 DebugFakeMe）；以及截图用的覆盖参数。
+    // APP-12v：getMe 计数写调试偏好要用应用上下文（只记次数）。
+    DebugFakeMe.bindContext(context);
     const meScene: Object | undefined = want.parameters?.[DEBUG_ME_SCENE_KEY];
     if (typeof meScene === 'string') {
       DebugFakeMe.reset(meScene);

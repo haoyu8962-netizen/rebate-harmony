@@ -296,6 +296,9 @@ export {
 } from './src/main/ets/me/MePresentation';
 export { MeDraftTexts } from './src/main/ets/me/MeDraftTexts';
 export {
+  MeGuideParts, MeGuideText, MeGridColumns, MeMaskAnnounce, MeNoticeAnnounce, MeGridGroups
+} from './src/main/ets/me/MeTabVisual';
+export {
   MeApiPort, ApiClientMePort, MeContractPort, MeSessionAware, MeMessage, MeMessages, MeFailure, MeResultInput,
   MeSnapshotRef, MeSession, MeLocalBackend, MeClearMark, MemoryMeLocalBackend, MemoryMeClearMark, MeLocalStore,
   MePageLife, IdentityBoundPage, IdentityBoundSlot
