@@ -295,7 +295,7 @@ class SharePromptPayload {
 }
 
 /**
- * 加盐的自写台账（FU-CLIP C3）：ClipboardWriter 与手动粘贴的自写排除都经它。已同意当前版本时 record 走 ClipboardRecords（盐不可用 →
+ * 加盐的自写台账（FU-CLIP C3）：ClipboardWriter 写入与自动任务的自写排除都经它（手动粘贴不读，BR-ID-16 细则）。已同意当前版本时 record 走 ClipboardRecords（盐不可用 →
  * false，调用方不写系统剪贴板）；未同意（基本模式、版本过期）时不生成盐、不记，照常允许写（识别在未同意时整体关闭，记录随撤回清理；
  * 规则空白 HS02）。
  */
@@ -415,7 +415,7 @@ export class PasteOutcome {
   static readonly BUSY: string = 'busy';
   static readonly DROPPED: string = 'dropped';
   static readonly INVITE_PROMPT: string = 'invite_prompt';
-  /** 纯邀请内容但本端不处理（已登录用户 G01、App 自写）：静默结束，不发 parse、不出 30132（共性第 19 条）。 */
+  /** 纯邀请内容但本端不处理（已登录用户 G01）：静默结束，不发 parse、不出 30132（共性第 19 条）。 */
   static readonly IGNORED: string = 'ignored';
 }
 
@@ -1247,7 +1247,7 @@ export class ClipboardController {
    * 商品入口的 PasteButton（entry：home / search_typing）。success = onClick 结果为 SUCCESS（临时授权成功）；不是 SUCCESS 不读。
    * 读到内容并复核归属后：
    * - 空 → 首页进 SearchTyping；
-   * - App 自写（台账命中，共性第 17 条）→ 不上传 parse：纯邀请内容静默结束，其余按非商品内容给本地 30132（H02）；
+   * - 不读不写自写台账与 24 小时自动去重记录（BR-ID-16 细则，FU-X-CLIP-MANUAL）：App 自写的内容也照下面各条走；
    * - 抽到商品链接（去掉邀请落地页）→ 上传链接与「」标题（scene=clipboard）；
    * - 纯邀请内容（落地页或「邀请码」字样且抽到码）→ 只本地抽码：游客在发起入口出邀请确认（共性第 15 条），已登录静默结束
    *   （G01，共性第 19 条：不落入 30132，不预填邀请码）；
@@ -1270,7 +1270,7 @@ export class ClipboardController {
     // C2（2026-10-30）：手动粘贴不出用途说明、不看开关，PasteButton 成功即读（BR-ID-16 手动门槛只剩隐私与敏感页）
     const ticket: OwnerTicket = this.capture();
     // 三端口径 2026-10-24 21:15（iOS b r1 S2-2）：新一次手动粘贴被受理（临时授权成功、未被拦）即同步收起旧 ① / ⑤ 结果卡，
-    // 不等读取与 parse 的结果——没有新结果的粘贴（空剪贴板、纯邀请内容、App 自写）后旧卡也不留。轻提示与提示条不动。
+    // 不等读取与 parse 的结果——没有新结果的粘贴（空剪贴板、纯邀请内容）后旧卡也不留。轻提示与提示条不动。
     this.clearCardResult();
     this.state.busy = true;
     this.emit();
@@ -1294,15 +1294,8 @@ export class ClipboardController {
       return ManualPasteAction.OPEN_SEARCH_TYPING;
     }
     const pureInvite: boolean = this.pureInvite(text, rules);
-    // 共性第 17 条：App 自写的内容（复制口令、桥 clipboard.write 等，台账命中）手动粘贴也不上传 parse
-    if (this.ledger.contains(text)) {
-      if (pureInvite) {
-        this.emit();
-        return PasteOutcome.IGNORED;
-      }
-      this.showUnrecognized(text, entry, fill);
-      return ManualPasteAction.SEARCH_PREFILL;
-    }
+    // BR-ID-16 细则（FU-X-CLIP-MANUAL）：去重与自写排除只对自动任务；手动粘贴不读不写自写台账与 24 小时自动去重记录，
+    // App 自写的内容手动粘贴照常识别商品；纯邀请口令按 BR-INV-04 走，不因自写台账提前丢弃
     // 邀请落地页 /i/{code} 链接不算商品链接、不上传（CLIP-18 / rule-gaps A02 用于手动粘贴，H 段）
     const upload: string | null = decision.actionRaw === ManualPasteAction.PARSE ? this.productUpload(text, rules) : null;
     if (upload !== null) {
@@ -1388,13 +1381,13 @@ export class ClipboardController {
     return ClipboardCandidates.uploadOf(candidates, text, rules, this.shareDomains());
   }
 
-  /** 纯邀请内容本端能不能出确认（游客、触发前提、本人码、App 自写都按分类器；手动粘贴不套 24 小时去重）。 */
+  /** 纯邀请内容本端能不能出确认（游客、触发前提、本人码按分类器；手动粘贴不套 24 小时去重）。 */
   private inviteCandidate(text: string): ClipboardClassification | null {
     if (!this.deps.guest()) {
       // TODO(N-30) G01：已登录用户的补填绑定等契约补 POST /v1/me/inviter 与 InviteBackfill 路由；界面不出已登录用户的邀请确认
       return null;
     }
-    // 自写排除已在 pasteProduct 里经加盐台账做过；这里只判邀请，指纹用当前盐（没有盐为空串，不回落到未加盐 hash）
+    // 自写排除只在自动任务（importExtract）里经加盐台账做，手动不做（BR-ID-16 细则）；这里只判邀请，指纹用当前盐（没有盐为空串，不回落到未加盐 hash）
     const context: ClipboardContext = new ClipboardContext([], [], true, null, this.shareDomains(),
       (t: string): string => this.records.fingerprintOf(t) ?? '');
     const verdict: ClipboardClassification = ClipboardClassifier.classify(text, context, this.rules(), this.deps.clock());

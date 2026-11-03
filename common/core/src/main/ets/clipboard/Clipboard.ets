@@ -947,7 +947,9 @@ export class ClipboardClassifier {
   /** 同一 hash 的提示间隔（G08：严格小于 24 小时不再提示）。 */
   static readonly PROMPT_WINDOW_MS: number = 24 * 60 * 60 * 1000;
 
-  private static readonly PURE_ALNUM: RegExp = /^[A-Za-z0-9]+$/;
+  // FU-X-ALNUM20（BR-ID-16 细则「排除 ≤20 位的纯数字或纯字母串」）：纯数字、纯字母分开判断，字母数字混合不在排除范围（原因码名仍是 pure_alnum）
+  private static readonly PURE_DIGITS: RegExp = /^[0-9]+$/;
+  private static readonly PURE_LETTERS: RegExp = /^[A-Za-z]+$/;
   private static readonly LANDING_PREFIX: string = '/i/';
 
   static classify(text: string, context: ClipboardContext, rules: ClipboardRules, nowMs: number): ClipboardClassification {
@@ -991,7 +993,7 @@ export class ClipboardClassifier {
 
   /**
    * 商品候选的拒绝原因；null = 是商品候选。links 为本地候选（白名单链接与口令，已去掉邀请落地页）。自动识别与手动粘贴商品入口共用（共性第 22 条，F-CLIP-02）：
-   * 过短、过长、短纯数字字母、含排除词、没有商品链接都不上传。
+   * 过短、过长、短的纯数字或纯字母串、含排除词、没有商品链接都不上传。
    */
   static productRejection(text: string, links: string[], rules: ClipboardRules): string | null {
     const length: number = ClipboardText.codePoints(text);
@@ -1001,7 +1003,8 @@ export class ClipboardClassifier {
     if (length > rules.maxLength) {
       return ClipboardClassifier.REASON_TOO_LONG;
     }
-    if (length <= rules.pureAlnumMaxLength && ClipboardClassifier.PURE_ALNUM.test(text)) {
+    if (length <= rules.pureAlnumMaxLength
+      && (ClipboardClassifier.PURE_DIGITS.test(text) || ClipboardClassifier.PURE_LETTERS.test(text))) {
       return ClipboardClassifier.REASON_PURE_ALNUM;
     }
     for (const word of rules.excludedWords) {

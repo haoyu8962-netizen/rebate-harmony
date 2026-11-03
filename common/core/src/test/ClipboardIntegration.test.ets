@@ -367,11 +367,14 @@ export default function clipboardIntegrationTest() {
       f.pasteboard.text = INVITE_TEXT;
       expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(PasteOutcome.IGNORED);
       expect(f.controller.snapshot.prompt === null && f.result() === null).assertTrue();
-      // App 自写（复制邀请文案）：游客也不出邀请确认，纯邀请内容静默
+      // HM-CLIP-BATCH test-change（D10-378，改含义；依据 BR-ID-16 细则第 839 行「手动任务不读不写这两项缓存」与 BR-INV-04，
+      // FU-X-CLIP-MANUAL 口径 3）：原「App 自写的邀请文案，游客手动粘贴也不出邀请确认（IGNORED）」改为「手动不读自写台账，纯邀请
+      // 内容按 BR-INV-04 走：游客、满足触发前提、不是本人码 → 出邀请确认条」；仍不发 parse。
       const g: ClipFixture = new ClipFixture();
       await g.controller.writer.write(INVITE_TEXT);
-      expect(await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(PasteOutcome.IGNORED);
-      expect(g.controller.snapshot.prompt === null && g.result() === null).assertTrue();
+      expect(await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(PasteOutcome.INVITE_PROMPT);
+      const gp: ClipboardPromptView | null = g.controller.snapshot.prompt;
+      expect(gp !== null && gp.inviteCode === 'K7M3QX' && g.result() === null).assertTrue();
       expect(g.controller.ledger.contains(INVITE_TEXT)).assertTrue();
       expect(g.store.dump().join(';').indexOf('K7M3QX')).assertEqual(-1);
       expect(f.rig.server.count('/v1/inputs/parse') + g.rig.server.count('/v1/inputs/parse')).assertEqual(0);
@@ -787,21 +790,27 @@ export default function clipboardIntegrationTest() {
       expect(f.store.dump().length).assertEqual(0);
     });
 
-    it('h_r1_02_manual_paste_excludes_self_written', 0, async () => {
-      // 复制口令 / 桥 clipboard.write 写入含商品链接的内容 → 首页与 SearchTyping 的手动粘贴都不上传 parse
+    // HM-CLIP-BATCH test-change（D10-378，改含义；依据 BR-ID-16 细则第 839 行「去重与自写排除只对自动任务……手动任务不读不写这两项
+    // 缓存，用户再次粘贴同一内容照常识别商品」，FU-X-CLIP-MANUAL 口径 1）：原 h_r1_02_manual_paste_excludes_self_written（首页与
+    // SearchTyping 手动粘贴自写内容都不上传、出 30132）改名并改为「两个入口都照常上传 parse」；与未经 App 写入的同一内容结果相同。
+    it('h_r1_02_manual_paste_ignores_self_written_ledger_BR_ID_16', 0, async () => {
       const f: ClipFixture = new ClipFixture();
       expect(await f.controller.writer.write(PRODUCT_TEXT)).assertTrue();
-      expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true))
-        .assertEqual(ManualPasteAction.SEARCH_PREFILL);
+      expect(f.controller.ledger.contains(PRODUCT_TEXT)).assertTrue();
+      expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.PARSE);
       await flush();
-      expect(f.parseCount()).assertEqual(0);
+      expect(f.parseCount()).assertEqual(1);
+      expect(f.parseBody()['text'] as string).assertEqual(PRODUCT_LINK + '\n全脂纯牛奶 250ml');
       const r: ClipboardResultView | null = f.result();
-      expect(r !== null && r.kind === ClipboardResultView.UNRECOGNIZED).assertTrue();
+      expect(r === null || r.kind !== ClipboardResultView.UNRECOGNIZED).assertTrue();
+      f.stack.names = [];
+      f.controller.stackChanged([]);
       f.open('Search');
       expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_SEARCH_TYPING, true, (_q: string): void => {
-      })).assertEqual(ManualPasteAction.SEARCH_PREFILL);
+      })).assertEqual(ManualPasteAction.PARSE);
       await flush();
-      expect(f.parseCount()).assertEqual(0);
+      expect(f.parseCount()).assertEqual(2);
+      expect(f.controller.ledger.contains(PRODUCT_TEXT)).assertTrue();
       // 换成用户自己复制的同一链接（未经 App 写入）：照常上传
       const g: ClipFixture = new ClipFixture();
       g.pasteboard.text = PRODUCT_TEXT;
@@ -1072,16 +1081,19 @@ export default function clipboardIntegrationTest() {
         .assertEqual(ManualPasteAction.OPEN_SEARCH_TYPING);
       await flush();
       expect(f.parseCount()).assertEqual(0);
-      // 恢复后再次复制：先登记再写入，粘贴不上传
+      // 恢复后再次复制：先登记再写入
       expect(await f.controller.writer.write(PRODUCT_TEXT)).assertTrue();
       expect(f.pasteboard.writes).assertEqual(1);
       expect(f.controller.ledger.contains(PRODUCT_TEXT)).assertTrue();
+      // HM-CLIP-BATCH test-change（D10-378，改含义；依据 BR-ID-16 细则第 839 行「手动任务不读不写这两项缓存」，FU-X-CLIP-MANUAL
+      // 口径 1、4）：原「登记成功后手动粘贴不上传（SEARCH_PREFILL、parse 0）」改为「登记照旧（台账命中），手动粘贴照常上传 parse 1 次」；
+      // 自写排除只对自动任务，由 FuXClipManual.test.ets 的自动路径用例锁住。
       const g: ClipFixture = new ClipFixture();
       expect(await g.controller.writer.write(PRODUCT_TEXT)).assertTrue();
-      expect(await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true))
-        .assertEqual(ManualPasteAction.SEARCH_PREFILL);
+      expect(g.controller.ledger.contains(PRODUCT_TEXT)).assertTrue();
+      expect(await g.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.PARSE);
       await flush();
-      expect(g.parseCount()).assertEqual(0);
+      expect(g.parseCount()).assertEqual(1);
     });
 
     it('route_names_exist_in_routes_json', 0, () => {

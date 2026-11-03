@@ -329,12 +329,17 @@ export default function clipboardFuClipTest() {
       expect(stored.indexOf(fp.saltId) >= 0).assertTrue();
       expect(stored.indexOf(plainSha(TB_LINK)) < 0).assertTrue();
       expect(stored.indexOf('m.tb.cn') < 0 && stored.indexOf('Demo01') < 0 && stored.indexOf('tk=') < 0).assertTrue();
-      // 自写内容手动粘贴不上传
-      expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true))
-        .assertEqual(ManualPasteAction.SEARCH_PREFILL);
+      // HM-CLIP-BATCH test-change（D10-378，改含义；依据 BR-ID-16 细则第 839 行「去重与自写排除只对自动任务……手动任务不读不写这两项
+      // 缓存，用户再次粘贴同一内容照常识别商品」，FU-X-CLIP-MANUAL 口径 1；取代 FU-CLIP 共性第 17 条）：原「自写内容手动粘贴不上传」
+      // （SEARCH_PREFILL、parse 0）改为「自写内容手动粘贴照常上传 parse 1 次」。台账照旧记下（自动任务仍排除）。
+      expect(f.controller.ledger.contains(TB_LINK)).assertTrue();
+      expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.PARSE);
       await flush();
-      expect(f.parseCount()).assertEqual(0);
+      expect(f.parseCount()).assertEqual(1);
+      expect(f.parseBody()['text'] as string).assertEqual(TB_LINK);
       expect(f.pasteboard.writes).assertEqual(1);
+      // 手动不改台账：粘贴后仍是自写
+      expect(f.controller.ledger.contains(TB_LINK)).assertTrue();
     });
 
     it('c3_withdraw_deletes_salt_first_then_both_records_and_reconsent_reprompts', 0, async () => {
@@ -357,6 +362,8 @@ export default function clipboardFuClipTest() {
       // 再同意：同一内容不再被当成自写，重新可上传
       f.consent = ClipboardReadPolicy.CONSENT_AGREED;
       f.controller.sync();
+      // HM-CLIP-BATCH（只加强）：手动粘贴已不读台账，下面的 PARSE 证明不了台账已清，这里直接查台账
+      expect(f.controller.ledger.contains(TB_LINK)).assertFalse();
       f.pasteboard.text = TB_LINK;
       expect(await f.controller.pasteProduct(ManualPasteAction.ENTRY_HOME, true)).assertEqual(ManualPasteAction.PARSE);
     });

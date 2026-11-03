@@ -5,6 +5,7 @@ import hm07vOverlayTest from './Hm07vOverlay.test';
 import hm05rVectorTest from './Hm05rVector.test';
 import hm05rLogicTest from './Hm05rLogic.test';
 import hm05rIntegrationTest from './Hm05rIntegration.test';
+import fuXClipManualTest from './FuXClipManual.test';
 import trustedWebRecordsFx25Test from './TrustedWebRecordsFX25.test';
 import followupHM0729Test from './FollowupHM0729.test';
 import environmentConfigTest from './EnvironmentConfig.test';
@@ -273,4 +274,6 @@ export default function testsuite() {
   hm05rVectorTest();
   hm05rLogicTest();
   hm05rIntegrationTest();
+  // HM-CLIP-BATCH / FU-X-CLIP-MANUAL：手动查返利不做自写排除、不读不写 24 小时自动去重记录（BR-ID-16 第 839 行）。
+  fuXClipManualTest();
 }

@@ -18,6 +18,9 @@ const tests = [
   'common/core/src/test/Hm05rIntegration.test.ets',
   'common/core/src/test/ClipboardIntegration.test.ets',
   'common/core/src/test/ClipboardVector.test.ets',
+  // HM-CLIP-BATCH（FU-X-CLIP-MANUAL / FU-X-ALNUM20）测试作者新增 / 改动的文件
+  'common/core/src/test/ClipboardFuClip.test.ets',
+  'common/core/src/test/FuXClipManual.test.ets',
   'entry/src/ohosTest/ets/test/Hm05rConsentRig.ets',
   'entry/src/ohosTest/ets/test/Hm05rConsentUi.test.ets'
 ];

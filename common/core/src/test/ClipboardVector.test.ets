@@ -358,10 +358,58 @@ export default function clipboardVectorTest() {
     // HM-05r test-change（D10-378；依据 BR-ID-16 2026-10-17 改版、Android 主干 readPolicyStatus）：旧 readPolicy 80 条标 obsolete，
     // 不再逐条当验收（原来每条一个用例，按 ClipboardReadPolicy.decide 核对）；读取门槛的验收改由 importGate 向量（Hm05rVector.test.ets）。
     // 历史数组保留、名字仍唯一（manifest 的 checkNames）。
+    // HM-CLIP-BATCH test-change（D10-378，只改查找 / 计数，不改含义；依据 FU-X-CLIP-DEFAULT-ON 三端同步：iOS rebate-ios origin/main
+    // 9a7b870 在 readPolicy 末尾追加 14 行 iOS 行 BR-ID-16.20261030.*，字节原样并入）：原「总数 = 80」拆成「历史 80 行 + 末尾 14 行 iOS」。
+    // 鸿蒙仍不逐条执行 readPolicy（门槛验收在 importGate），这里锁住追加行全是 iOS、全在末尾、名字前缀固定，鸿蒙行一条没多。
     it('readPolicy_obsolete_replaced_by_importGate', 0, () => {
       assertScalar('readPolicyStatus.status', root.readPolicyStatus.status, 'obsolete');
       assertScalar('readPolicyStatus.replacedBy', root.readPolicyStatus.replacedBy, 'importGate');
-      assertScalar('readPolicy kept for history', root.readPolicy.length, 80);
+      const iosPrefix: string = 'BR-ID-16.20261030.';
+      let history: number = 0;
+      let appended: number = 0;
+      let harmony: number = 0;
+      for (let index: number = 0; index < root.readPolicy.length; index++) {
+        const row: ReadVector = root.readPolicy[index];
+        if (row.platform === 'harmony') {
+          harmony++;
+        }
+        if (row.name.startsWith(iosPrefix)) {
+          appended++;
+          assertScalar('readPolicy.' + row.name + '.platform', row.platform, 'ios');
+          assertScalar('readPolicy.' + row.name + '.appended after history', index >= 80, true);
+          assertScalar('readPolicy.' + row.name + '.enabled is boolean',
+            typeof row.state['enabled'] === 'boolean', true);
+        } else {
+          history++;
+          assertScalar('readPolicy.' + row.name + '.history before appended', index < 80, true);
+        }
+      }
+      assertScalar('readPolicy kept for history', history, 80);
+      assertScalar('readPolicy iOS rows appended (FU-X-CLIP-DEFAULT-ON)', appended, 14);
+      assertScalar('readPolicy total', root.readPolicy.length, 94);
+      assertScalar('readPolicy harmony history rows unchanged', harmony, 21);
+    });
+
+    // FU-X-ALNUM20（BR-ID-16 第 839 行「排除 ≤20 位的纯数字或纯字母串」）：边界行在位、长度与字符类别是所说的那样，防止向量被改空
+    it('classify_pure_digits_or_letters_boundary_rows_present', 0, () => {
+      const expected: Map<string, string> = new Map<string, string>([
+        ['digits_20', '^[0-9]{20}$'],
+        ['letters_20', '^[a-z]{20}$'],
+        ['alnum_20', '^(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9]{20}$'],
+        ['digits_21', '^[0-9]{21}$'],
+        ['letters_mixed_case_20', '^(?=.*[a-z])(?=.*[A-Z])[A-Za-z]{20}$']
+      ]);
+      let seen: number = 0;
+      for (let index: number = 0; index < root.classify.length; index++) {
+        const row: ClassifyVector = root.classify[index];
+        const pattern: string | undefined = expected.get(row.name);
+        if (pattern === undefined) {
+          continue;
+        }
+        seen++;
+        assertScalar('classify.' + row.name + '.text shape', new RegExp(pattern).test(row.text), true);
+      }
+      assertScalar('classify boundary rows', seen, 5);
     });
 
     for (let index: number = 0; index < root.inviteExtract.length; index++) {

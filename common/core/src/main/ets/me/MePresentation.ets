@@ -264,9 +264,8 @@ export class SettingsItems {
   static of(levelRaw: string, platformRaw: string, phoneBound: boolean | null, nicknameEditable: boolean,
     serviceSwitchAvailable: boolean, deleteAccountAvailable: boolean, phoneChangeAvailable: boolean = false): MeRecord {
     const out: MeRecord = obj();
-    // HM-05r S4（BR-ID-02 / BR-ID-16 细则「开关的适用范围」）：剪贴板开关行鸿蒙与 Android 都显示（游客与会员同一行，基本模式不显示）；
-    // iOS 仍是旧口径（未改版，SettingsItems.swift 只在 Android 显示），共享向量 ios 行不变。
-    const clipboardRow: boolean = platformRaw !== MePlatform.IOS;
+    // HM-05r S4（BR-ID-02 / BR-ID-16 细则「开关的适用范围」）+ FU-X-CLIP-DEFAULT-ON C8：剪贴板开关行三端都显示（游客与会员同一行，
+    // 基本模式不显示）；共享向量 ios 行已随 iOS 9a7b870 加上该行，不再按 platformRaw 区分。
     if (levelRaw === MeLevel.BASIC) {
       // 基本模式只有五项（四行 + 【开启完整功能】），不显示剪贴板开关（BR-ID-02、BR-ID-16）。
       out['groups'] = [SettingsItems.group('', [
@@ -284,9 +283,7 @@ export class SettingsItems {
         SettingsItems.agreementItem(),
         SettingsItems.item(SettingsItems.ID_ABOUT, 'About')
       ];
-      if (clipboardRow) {
-        items.push(SettingsItems.item(SettingsItems.ID_CLIPBOARD, null));
-      }
+      items.push(SettingsItems.item(SettingsItems.ID_CLIPBOARD, null));
       items.push(SettingsItems.item(SettingsItems.ID_CLEAR_CACHE, null));
       items.push(SettingsItems.item(SettingsItems.ID_HELP, 'Help'));
       out['groups'] = [SettingsItems.group('', items)];
@@ -313,9 +310,7 @@ export class SettingsItems {
     notifyParams['serviceSwitchAvailable'] = serviceSwitchAvailable;
     notify['params'] = notifyParams;
     const general: MeRecord[] = [notify, SettingsItems.item(SettingsItems.ID_RESET_TIP, null)];
-    if (clipboardRow) {
-      general.push(SettingsItems.item(SettingsItems.ID_CLIPBOARD, null));
-    }
+    general.push(SettingsItems.item(SettingsItems.ID_CLIPBOARD, null));
     general.push(SettingsItems.item(SettingsItems.ID_CLEAR_CACHE, null));
     general.push(SettingsItems.item(SettingsItems.ID_HELP, 'Help'));
     general.push(SettingsItems.item(SettingsItems.ID_ABOUT, 'About'));
