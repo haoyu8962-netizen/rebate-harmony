@@ -291,6 +291,14 @@ python3 "$ROOT/tools/ci/me12v/check_me_visual.py" || fail_fast "me12v-host" "见
 node "$ROOT/tools/ci/me12v/run-logic.cjs" || fail_fast "me12v-logic" "见上方真实产品断言"
 node "$ROOT/tools/ci/me12v/check-arkts.cjs" --real || fail_fast "me12v-arkts" "APP-12v 测试文件 ArkTS 严格检查失败"
 record "APP-12v 宿主检查" PASS "逻辑零改动 / 守卫区 / 自动入口 / Symbol / 名单 / 纯逻辑 / ArkTS"
+# FU-X-STAGING-HOSTS：staging 五个主机只在 src/staging、LOCAL / TEST 仍占位、正式不变、深链主机、分享域不手写、release-scan 新规则
+# （合成制品，tools/ci/stghosts/check_staging_hosts.py，先自测）；stream 分流套件的 node 执行（run-logic.cjs，真实产品）；ArkTS 严格检查。
+step "FU-X-STAGING-HOSTS 宿主检查"
+python3 "$ROOT/tools/ci/stghosts/check_staging_hosts.py" --self-test || fail_fast "stghosts-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/stghosts/check_staging_hosts.py" || fail_fast "stghosts-host" "见上方违反项"
+node "$ROOT/tools/ci/stghosts/run-logic.cjs" || fail_fast "stghosts-logic" "见上方真实产品断言"
+node "$ROOT/tools/ci/stghosts/check-arkts.cjs" --real || fail_fast "stghosts-arkts" "FU-X-STAGING-HOSTS 测试文件 ArkTS 严格检查失败"
+record "FU-X-STAGING-HOSTS 宿主检查" PASS "主机位置 / 占位 / 正式不变 / 深链 / release-scan 规则 / stream 分流 / ArkTS"
 
 step "DS-02 纯逻辑与测试设施自测"
 node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"

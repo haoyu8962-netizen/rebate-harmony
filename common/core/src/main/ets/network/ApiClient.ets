@@ -1071,6 +1071,22 @@ export class ApiClient {
     return handle;
   }
 
+  /** stream 入口的路径前缀（D10-598 ①：/v1/agent/* 走 stream 入口）。 */
+  private static readonly STREAM_PATH_PREFIX: string = '/v1/agent/';
+
+  /**
+   * 本次请求的基址（FU-X-STAGING-HOSTS / D10-598 ①）：streamBase 非空且路径（不含查询串）以 /v1/agent/ 开头 → streamBase；
+   * 其余（streamBase 为空、非 agent 路径、令牌刷新）一律 apiBase。基址随每次 prepare 从当前环境取，换环境两者一起换。
+   */
+  private static baseFor(endpoints: EnvironmentEndpoints, pathWithQuery: string): string {
+    if (endpoints.streamBase.length === 0) {
+      return endpoints.apiBase;
+    }
+    const queryAt: number = pathWithQuery.indexOf('?');
+    const path: string = queryAt < 0 ? pathWithQuery : pathWithQuery.substring(0, queryAt);
+    return path.startsWith(ApiClient.STREAM_PATH_PREFIX) ? endpoints.streamBase : endpoints.apiBase;
+  }
+
   /** 流式请求不在 ApiStreamOperations 表里（或没有流式传输层）：本地拒绝、不发出。 */
   static readonly STREAM_NOT_ALLOWED: string = 'stream_not_allowed';
   /** 外壳 code=0 却不是流（G19）：本条按连接中断、同键【重试】。 */
@@ -1113,8 +1129,9 @@ export class ApiClient {
       this.sign(headers, op.method, prepared.pathWithQuery, request.body ?? '', prepared.installSecret);
     }
     const admitBlocked: boolean[] = [];
-    // G15：流式基址缺省等于 API 基址（stream.<主域> 待部署确定，TODO(N-38)）。
-    const transportRequest: TransportRequest = new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery,
+    // G15 / FU-X-STAGING-HOSTS：环境设了 streamBase 时 /v1/agent/* 发往 stream 入口，未设（正式环境）仍等于 API 基址。
+    const transportRequest: TransportRequest = new TransportRequest(op.method,
+      ApiClient.baseFor(endpoints, prepared.pathWithQuery) + prepared.pathWithQuery,
       headers, request.body, RetryPolicy.TIMEOUT_MILLIS, (): boolean => {
         const owned: boolean = this.ownershipLost(ctx) === null;
         const permitted: boolean = owned && ApiClient.sendPermitted(ctx) && !outlet.closed;
@@ -2176,7 +2193,8 @@ export class ApiClient {
       // APP-09 共性第 62 条：传输层最终核对（admit）被发送闸门拒绝时，当场记下这个明确原因；响应回来后按它结算为 SEND_BLOCKED，
       // 不用回调时刻的闸门状态反推（拒绝之后、结果交回之前禁用期可能已经到期）。
       const admitBlocked: boolean[] = [];
-      response = await this.send(new TransportRequest(op.method, endpoints.apiBase + prepared.pathWithQuery, headers,
+      response = await this.send(new TransportRequest(op.method,
+        ApiClient.baseFor(endpoints, prepared.pathWithQuery) + prepared.pathWithQuery, headers,
         request.body, plan.timeoutMillis, (): boolean => {
           const owned: boolean = this.ownershipLost(ctx) === null;
           const permitted: boolean = owned && ApiClient.sendPermitted(ctx);

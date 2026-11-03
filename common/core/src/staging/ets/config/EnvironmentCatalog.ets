@@ -1,6 +1,6 @@
 // Debug / Staging（product=staging，core 模块 staging target）的环境目录：四个环境都可切换。
 // 非 prod 地址只允许出现在本文件（src/staging）；Release 产物由 tools/ci/release-scan.sh 检查不含它们。
-// 取值是 .invalid 占位，真实域名待定（needs.md N-05）。
+// local / test 是 .invalid 占位；staging 连真实主机 api-stg / h5-stg / stream-stg（FU-X-STAGING-HOSTS，D10-598）。
 import {
   AppEnvironment, EnvironmentEndpoints, EnvironmentSource, PROD_ENDPOINTS
 } from '../../../main/ets/config/AppEnvironment';
@@ -16,7 +16,7 @@ export class EnvironmentCatalog {
     map.set(AppEnvironment.TEST,
       new EnvironmentEndpoints('https://api.test.couli.invalid', 'https://h5.test.couli.invalid'));
     map.set(AppEnvironment.STAGING,
-      new EnvironmentEndpoints('https://api.staging.couli.invalid', 'https://h5.staging.couli.invalid'));
+      new EnvironmentEndpoints('https://api-stg.couliapp.cn', 'https://h5-stg.couliapp.cn', 'https://stream-stg.couliapp.cn'));
     map.set(AppEnvironment.PROD, PROD_ENDPOINTS);
     return map;
   }

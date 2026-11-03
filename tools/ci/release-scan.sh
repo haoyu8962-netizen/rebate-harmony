@@ -9,7 +9,8 @@
 #
 # 解包 .hap（zip）后逐字节扫描全部文件（ets/modules.abc、resources、module.json 等；UTF-8 与 UTF-16LE 两种编码）：
 #   内容标记（Release 不得出现；Debug / Staging 必须全部出现）：
-#   - 非 prod 环境地址：local / test / staging 的 .couli.invalid 域名
+#   - 非 prod 环境地址：local / test 的 .couli.invalid 域名；staging 真实主机的公共后缀 -stg.couliapp.cn
+#     （api-stg / h5-stg / stream-stg / l-stg / s-stg，FU-X-STAGING-HOSTS；Release 一个都不得含）
 #   - 调试面板标记 COULI_DEBUG_PANEL、debug_only 路由表类名 DebugRoutes
 #   - 快照 routes.json 里 debug_only 为 true 的路由名
 #   - 环境切换实现：类名 EnvironmentSwitcher、调试面板选择的持久化键 couli.debug.environment_selection
@@ -113,7 +114,7 @@ except Exception as e:  # noqa: BLE001 —— 任何读取/解析问题都是出
     fail("读 routes.json 失败：%r" % (e,))
 
 markers = [
-    "local.couli.invalid", "test.couli.invalid", "staging.couli.invalid",
+    "local.couli.invalid", "test.couli.invalid", "-stg.couliapp.cn",
     "COULI_DEBUG_PANEL", "DebugRoutes",
     "EnvironmentSwitcher", "couli.debug.environment_selection",
     "DebugCapabilities", "couli.debug.capability.",

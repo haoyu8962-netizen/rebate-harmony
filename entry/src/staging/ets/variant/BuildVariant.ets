@@ -91,11 +91,12 @@ export class BuildVariant {
   static readonly IS_DEBUG_BUILD: boolean = true;
 
   /**
-   * 深链入站配置：只认测试 scheme couli-debug（APP-02a 冒烟用；module.json 的 skills 也只在 product=staging 声明，
-   * 见 entry/hvigorfile.ts）。正式 scheme 与 l. 子域未定（needs N-05），不在这里放任何域名。
+   * 深链入站配置：测试 scheme couli-debug（APP-02a 冒烟用；module.json 的 skills 也只在 product=staging 声明，
+   * 见 entry/hvigorfile.ts），加 staging 深链主机 l-stg.couliapp.cn（FU-X-STAGING-HOSTS）。这里只管 App 收到链接后的解析；
+   * 系统级 App Links（module.json 的 https skills）另立 FU-X-APPLINKS-STAGING。Release 版不认任何深链。
    */
   static deepLinkConfig(): DeepLinkConfig {
-    return new DeepLinkConfig(['couli-debug'], []);
+    return new DeepLinkConfig(['couli-debug'], ['l-stg.couliapp.cn']);
   }
 
   /**

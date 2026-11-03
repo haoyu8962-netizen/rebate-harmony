@@ -25,14 +25,20 @@ export function parseAppEnvironment(raw: string): AppEnvironment | undefined {
   }
 }
 
-/** 某个环境的 API 与 H5 基址。 */
+/** 某个环境的 API、H5 与 stream 基址。 */
 export class EnvironmentEndpoints {
   readonly apiBase: string;
   readonly h5Base: string;
+  /**
+   * stream 入口基址（FU-X-STAGING-HOSTS / D10-598 ①）：非空时 /v1/agent/* 发往这里（整包、SSE、令牌刷新后的重放）；
+   * '' = 不分流，/v1/agent/* 仍走 apiBase。非 agent 路径与令牌刷新永远走 apiBase。正式环境不设。
+   */
+  readonly streamBase: string;
 
-  constructor(apiBase: string, h5Base: string) {
+  constructor(apiBase: string, h5Base: string, streamBase: string = '') {
     this.apiBase = apiBase;
     this.h5Base = h5Base;
+    this.streamBase = streamBase;
   }
 }
 
