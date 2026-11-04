@@ -135,6 +135,8 @@ if [ "$PROBE" = hm07vb-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = hm07vb ]; 
 if [ "$PROBE" = hm05r-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = hm05r ]; then exit 1; fi
 # APP-12v-harmony 第五步（「我的」Tab 视觉）失败同样必须让 verify 失败。
 if [ "$PROBE" = me12v-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12v ]; then exit 1; fi
+# APP-12w-a-harmony 第六步（设置一族视觉）失败同样必须让 verify 失败。
+if [ "$PROBE" = me12wa-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12wa ]; then exit 1; fi
 echo 'DEVICE_TEST_PASS simulated_only'
 ''')
             device.chmod(0o755)
@@ -184,7 +186,7 @@ run_device_tests() {''' + function + '''
 run_device_tests core common/core core_test
 ''' + entry_dispatch + '\n')
             for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails', 'hm07va-step-fails', 'hm07vb-step-fails',
-                          'hm05r-step-fails', 'me12v-step-fails']:
+                          'hm05r-step-fails', 'me12v-step-fails', 'me12wa-step-fails']:
                 for receipt in ['build-receipts', 'device-receipts']:
                     (folder / receipt).unlink(missing_ok=True)
                 result = subprocess.run(['bash', str(script), tmp, probe], capture_output=True, text=True,
@@ -196,11 +198,12 @@ run_device_tests core common/core core_test
                                       'same-source|restore', 'same-source|check'])
                     # 测试包只构建一次（上面 build-receipts 里 entry 只有一行）；entry 分三步各跑一次，各自 1800 秒、各自名单、
                     # 各自工作目录（HM-07v-a，编排 D10-405 D4；HM-07v-b 测试 v1 加第三步 hm07vb，主步同时排除两个视觉套件；
-                    # HM-05r 测试 v1 加第四步 hm05r，主步再排除 Hm05rConsentUi；APP-12v-harmony 测试 v1 加第五步 me12v，主步再排除 Me12vUi）。
+                    # HM-05r 测试 v1 加第四步 hm05r，主步再排除 Hm05rConsentUi；APP-12v-harmony 测试 v1 加第五步 me12v，主步再排除 Me12vUi；
+                    # APP-12w-a-harmony 测试 v1 加第六步 me12wa，主步再排除 Me12waUi）。
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||||all|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|'
-                                      'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi|main|device-test',
+                                      'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi|main|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
                                       'device-test-entry-hm07va',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vOverlayUi|hm07vb|'
@@ -208,7 +211,9 @@ run_device_tests core common/core core_test
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm05rConsentUi|hm05r|'
                                       'device-test-entry-hm05r',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Me12vUi|me12v|'
-                                      'device-test-entry-me12v'])
+                                      'device-test-entry-me12v',
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Me12waUi|me12wa|'
+                                      'device-test-entry-me12wa'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 if probe == 'hm07vb-step-fails':
@@ -217,6 +222,8 @@ run_device_tests core common/core core_test
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm05r', result.stdout)
                 if probe == 'me12v-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-me12v', result.stdout)
+                if probe == 'me12wa-step-fails':
+                    self.assertIn('EXPECTED_FAILURE device-test entry-me12wa', result.stdout)
                 print('REFERENCE_ONLY verify dispatch: ' + probe)
 
     def test_device_timeout_defaults_and_explicit_override(self):
@@ -242,8 +249,10 @@ run_device_tests core common/core core_test
         # + HM-07v-b 11 条（tools/ci/hm07v/fixtures/device-cases-b.txt，弹窗与剪贴板浮层）
         # + HM-05r 11 条（tools/ci/hm05r/fixtures/device-cases.txt；测试 v1 为 9 条用途说明与设置开关，测试 v3 按 2026-10-30 默认开启
         # 改为默认开启 / 关闭态 / 升级迁移四种旧状态 / 撤回与重新同意，共 11 条：只增不减，合集 210 → 212）
-        # + APP-12v-harmony 14 条（tools/ci/me12v/fixtures/device-cases.txt，「我的」Tab 视觉；只增不减，合集 212 → 226）。
-        self.assertEqual(len(names), 226)
+        # + APP-12v-harmony 14 条（tools/ci/me12v/fixtures/device-cases.txt，「我的」Tab 视觉；只增不减，合集 212 → 226）
+        # + APP-12w-a-harmony 15 条（tools/ci/me12wa/fixtures/device-cases.txt，设置一族视觉；只增不减，合集 226 → 241）。
+        self.assertEqual(len(names), 241)
+        self.assertEqual(len([name for name in names if name.startswith('me12wa_')]), 15)
         self.assertEqual(len([name for name in names if name.startswith('me12v_')]), 14)
         self.assertEqual(len([name for name in names if name.startswith('hm05r_')]), 11)
         self.assertEqual(len([name for name in names if name.startswith('hm07va_')]), 17)
@@ -265,10 +274,11 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 226)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 226)
+        self.assertEqual(validate(report(names)), 241)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 241)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
+                        or name.startswith('me12wa_')
                         or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
@@ -303,13 +313,21 @@ run_device_tests core common/core core_test
         hm07vb = expected_names('hm07vb')
         hm05r = expected_names('hm05r')
         me12v = expected_names('me12v')
+        me12wa = expected_names('me12wa')
         self.assertEqual(len(main), 173)
         self.assertEqual(len(me12v), 14)
+        self.assertEqual(len(me12wa), 15)
         self.assertEqual(len(hm07va), 17)
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
-        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v, every)
+        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa, every)
         self.assertEqual((main | hm07va | hm07vb | hm05r) & me12v, set())
+        # APP-12w-a-harmony 第六步：与其余各步两两不相交，名单与套件导出常量一致。
+        self.assertEqual((main | hm07va | hm07vb | hm05r | me12v) & me12wa, set())
+        self.assertTrue(all(name.startswith('me12wa_') for name in me12wa))
+        self.assertFalse(any(name.startswith('me12wa_') for name in main))
+        wa_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Me12waUi.test.ets').read_text()
+        self.assertEqual(sorted(re.findall(r"'(me12wa_\d\d_[a-z0-9_]+)'", wa_suite)), sorted(me12wa))
         self.assertTrue(all(name.startswith('me12v_') for name in me12v))
         self.assertFalse(any(name.startswith('me12v_') for name in main))
         me_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Me12vUi.test.ets').read_text()
@@ -353,6 +371,7 @@ run_device_tests core common/core core_test
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
         self.assertEqual(validate(report(sorted(me12v)), 'me12v'), 14)
+        self.assertEqual(validate(report(sorted(me12wa)), 'me12wa'), 15)
         bad = {
             # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
             **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
@@ -399,6 +418,17 @@ run_device_tests core common/core core_test
             'me12v-report-checked-as-main': (report(sorted(me12v)), 'main'),
             'me12v-report-checked-as-hm05r': (report(sorted(me12v)), 'hm05r'),
             'hm05r-report-checked-as-me12v': (report(sorted(hm05r)), 'me12v'),
+            # APP-12w-a-harmony 第六步：15 条缺一条、多跑别的套件、有失败都红；主步混进 me12wa 用例也红。
+            'main-with-me12wa-case': (report(sorted(main) + sorted(me12wa)[:1]), 'main'),
+            **{'me12wa-missing-' + name: (report(sorted(me12wa - {name})), 'me12wa') for name in sorted(me12wa)},
+            'me12wa-with-me12v-case': (report(sorted(me12wa) + sorted(me12v)[:1]), 'me12wa'),
+            'me12wa-with-ds02-case': (report(sorted(me12wa) + sorted(main)[:1]), 'me12wa'),
+            'me12wa-with-future-case': (report(sorted(me12wa) + ['future_extra_test']), 'me12wa'),
+            'me12wa-failed': (report(sorted(me12wa), failed=sorted(me12wa)[0]), 'me12wa'),
+            'me12wa-only-summary': ('Tests run: 15, Failure: 0, Error: 0, Pass: 15', 'me12wa'),
+            'me12wa-report-checked-as-main': (report(sorted(me12wa)), 'main'),
+            'me12wa-report-checked-as-me12v': (report(sorted(me12wa)), 'me12v'),
+            'me12v-report-checked-as-me12wa': (report(sorted(me12v)), 'me12wa'),
         }
         for reason, (text, chosen) in bad.items():
             with self.subTest(reason=reason), self.assertRaises(ValueError):

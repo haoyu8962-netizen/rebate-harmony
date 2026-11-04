@@ -3,14 +3,16 @@ import {
   PhoneChangeController, SettingsItems
 } from 'core';
 import {
-  CouliAnnounce, CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus,
-  CouliFocusReturn, CouliIcon, CouliInteraction, CouliSheetPanel, CouliSpacing, CouliSwitch, CouliTextModifier, CouliToast,
-  CouliTypography, PriceTerms
+  CouliAnnounce, CouliButton, CouliButtonVariant, CouliColors, CouliComponentMetrics, CouliDialog, CouliDialogOptions, CouliFocus,
+  CouliFocusReturn, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliShadow, CouliSheetPanel, CouliSpacing,
+  CouliSwitch, CouliTextModifier, CouliToast, CouliTypography, PriceTerms
 } from 'designsystem';
 import {
-  Bound, DraftMeTexts, fmt1, MeCard, MeSheetPanel, MeGroupTitle, MeNoticeBar, MePageFrame, MeRow, MeSwitchRow, MeTexts,
-  switchSpoken
+  Bound, DraftMeTexts, fmt1, MeCard, MeSheetPanel, MeGroupTitle, MePageFrame, MeRow, MeTexts, switchSpoken
 } from './MeKit';
+import {
+  AgreementSheetRow, BasicModeNotice, GuestLoginLink, NicknameErrorRow, NotifyServiceRow, NotifyWarningBar, SettingsNavRow
+} from './SettingsParts';
 import { PhoneChangeView } from './PhoneChangeView';
 
 type JSONValue = Object | null;
@@ -171,6 +173,8 @@ const SUB_MAIN: string = 'main';
 const SUB_NICKNAME: string = 'nickname';
 const SUB_NOTIFY: string = 'notify';
 const SUB_PHONE: string = 'phone_change';
+/** 昵称外框聚焦 / 错误时的描边宽（vp，画板 2px）。 */
+const NICK_BORDER_MAX: number = 2;
 
 @ObservedV2
 class SettingsModel {
@@ -228,6 +232,8 @@ export struct SettingsView {
   private aiConfirmSerial: number = 0;
   private closeAiConfirm: () => void = () => {
   };
+  /** 昵称输入框是否聚焦（只给外框描边用：聚焦 2vp border.active；视图状态，不进执行层）。 */
+  @Local nickFocused: boolean = false;
 
   aboutToAppear(): void {
     this.config.backHandler = (): boolean => this.systemBack();
@@ -812,13 +818,18 @@ export struct SettingsView {
     return this.rows(group).map((row: MeRecord): SettingsRowBinding => new SettingsRowBinding(row, bound));
   }
 
+  /** 一组：分组名 → 白卡（名到卡 8）；第 2 组起上外边距 8，与页面列间距 12 合成组间 20（S2）。 */
   @Builder
-  groupCard(group: MeRecord) {
+  groupCard(group: MeRecord, index: number) {
     Column({ space: CouliSpacing.space2 }) {
       if (this.groupTitle(group['group'] as string).length > 0) {
-        MeGroupTitle({ text: this.groupTitle(group['group'] as string) })
+        Row() {
+          MeGroupTitle({ text: this.groupTitle(group['group'] as string) })
+        }
+        .id('settings_group_title_' + index)
       }
       MeCard({
+        cardId: 'settings_card_' + index,
         content: () => {
           this.groupRows(group)
         }
@@ -826,6 +837,7 @@ export struct SettingsView {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
+    .margin({ top: index > 0 ? CouliSpacing.space2 : 0 })
   }
 
   /**
@@ -835,16 +847,21 @@ export struct SettingsView {
   @Builder
   clipboardRow(divider: boolean) {
     Column() {
-      CouliSwitch({
-        isOn: this.model.clipOn,
-        title: this.config.clipboardTitle(),
-        subtitle: this.config.clipboardDesc(),
-        controlId: 'settings_clipboard_auto_toggle',
-        onChange: (value: boolean) => {
-          this.clipTap(value, true);
-        }
-      })
-        .padding({ top: CouliSpacing.space2, bottom: CouliSpacing.space2 })
+      // S8：CouliSwitch 自带左右 16，卡内已有 16——外层向两侧各让出 16，标题与开关和其他行同缩进 16（不换控件，H-S07）。
+      Column() {
+        CouliSwitch({
+          isOn: this.model.clipOn,
+          title: this.config.clipboardTitle(),
+          subtitle: this.config.clipboardDesc(),
+          controlId: 'settings_clipboard_auto_toggle',
+          onChange: (value: boolean) => {
+            this.clipTap(value, true);
+          }
+        })
+          .padding({ top: CouliSpacing.space2, bottom: CouliSpacing.space2 })
+      }
+      .width('calc(100% + ' + (CouliSpacing.space4 * 2) + 'vp)')
+      .margin({ left: -CouliSpacing.space4, right: -CouliSpacing.space4 })
       if (divider) {
         Divider().color(CouliColors.borderSubtle).strokeWidth(1)
       }
@@ -886,11 +903,13 @@ export struct SettingsView {
       if (b.row['id'] === SettingsItems.ID_CLIPBOARD) {
         this.clipboardRow(index < this.rows(group).length - 1)
       } else {
-      MeRow({
+      SettingsNavRow({
         label: this.label(b.row['id'] as string),
         value: this.value(b.row['id'] as string),
         rowId: this.rowId(b.row['id'] as string),
         clickable: this.clickable(b.row),
+        // S5：「重新显示下单须知」是页内动作行：不画 ›，仍是按钮。
+        showChevron: b.row['id'] !== SettingsItems.ID_RESET_TIP,
         divider: index < this.rows(group).length - 1,
         onTap: () => {
           this.tapItem(b.row['id'] as string, typeof b.row['route'] === 'string' ? b.row['route'] as string : null,
@@ -921,16 +940,16 @@ export struct SettingsView {
           })
         }, (b: Bound) => 'logout_' + b.id + '_' + this.model.busy)
       } else if (this.model.items['footer'] === SettingsItems.FOOTER_LOGIN) {
-        Column({ space: CouliSpacing.space3 }) {
+        Column({ space: CouliSpacing.space2 }) {
           Text(this.t('settings.guest_footer'))
             .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
             .textAlign(TextAlign.Center)
             .width('100%')
+            .id('settings_guest_footer')
           ForEach([new Bound(this.model.identity, this.model.version)], (b: Bound) => {
-            CouliButton({
+            GuestLoginLink({
               text: this.t('settings.go_login'),
-              fullWidth: true,
-              buttonId: 'settings_login',
+              linkId: 'settings_login',
               onTap: () => {
                 if (this.boundLive(b)) {
                   this.config.login();
@@ -941,26 +960,31 @@ export struct SettingsView {
         }
         .width('100%')
       } else if (this.model.items['footer'] === SettingsItems.FOOTER_ENABLE_FULL) {
-        ForEach([new Bound(this.model.identity, this.model.version)], (b: Bound) => {
-          CouliButton({
-            text: this.t('privacy.basic_mode.enable'),
-            fullWidth: true,
-            buttonId: 'settings_enable_full',
-            onTap: () => {
-              if (this.boundLive(b)) {
-                this.config.enableFull();
+        // S11：提示条 privacy.basic_mode.notice → 主按钮，间 20。
+        Column({ space: CouliSpacing.space5 }) {
+          BasicModeNotice({ text: this.t('privacy.basic_mode.notice'), noticeId: 'settings_basic_notice' })
+          ForEach([new Bound(this.model.identity, this.model.version)], (b: Bound) => {
+            CouliButton({
+              text: this.t('privacy.basic_mode.enable'),
+              fullWidth: true,
+              buttonId: 'settings_enable_full',
+              onTap: () => {
+                if (this.boundLive(b)) {
+                  this.config.enableFull();
+                }
               }
-            }
-          })
-        }, (b: Bound) => 'enable_full_' + b.id)
+            })
+          }, (b: Bound) => 'enable_full_' + b.id)
+        }
+        .width('100%')
       }
     }
   }
 
   @Builder
   mainContent() {
-    ForEach(this.groups(), (group: MeRecord) => {
-      this.groupCard(group)
+    ForEach(this.groups(), (group: MeRecord, index: number) => {
+      this.groupCard(group, index)
     }, (group: MeRecord) => (group['group'] as string) + '_' + this.model.version)
     if (this.model.level !== MeLevel.BASIC && this.config.aiWithdrawTexts().length >= 5) {
       ForEach([new Bound(this.model.identity, this.model.version)], (b: Bound) => {
@@ -1000,12 +1024,12 @@ export struct SettingsView {
 
   @Builder
   agreementButtons(bound: Bound) {
-    Column({ space: CouliSpacing.space3 }) {
-      CouliButton({
+    // S14：两条列表行（H-S04：行高 48 = 命中区，行间 1px 分隔）。
+    Column() {
+      AgreementSheetRow({
         text: this.t('settings.agreement.user'),
-        variant: CouliButtonVariant.SECONDARY,
-        fullWidth: true,
-        buttonId: 'settings_agreement_user',
+        rowId: 'settings_agreement_user',
+        divider: true,
         onTap: () => {
           this.model.agreementSheet = false;
           if (!this.boundLive(bound)) {
@@ -1016,11 +1040,9 @@ export struct SettingsView {
           this.config.open('Agreement', p, bound.identity);
         }
       })
-      CouliButton({
+      AgreementSheetRow({
         text: this.t('settings.agreement.privacy'),
-        variant: CouliButtonVariant.SECONDARY,
-        fullWidth: true,
-        buttonId: 'settings_agreement_privacy',
+        rowId: 'settings_agreement_privacy',
         onTap: () => {
           this.model.agreementSheet = false;
           if (!this.boundLive(bound)) {
@@ -1033,7 +1055,6 @@ export struct SettingsView {
       })
     }
     .width('100%')
-    .padding({ bottom: CouliSpacing.space2 })
   }
 
   // ---------------------------------------------------------------- 修改昵称子页
@@ -1062,9 +1083,11 @@ export struct SettingsView {
 
   @Builder
   nicknameForm(bound: NicknameBinding) {
+    // S17 / S18：白卡（内边距 16、纵向 8）：标签 17/600 → 外框（计数 → 清除）→ 错误行（字段错误 / 本地提示 / 消息同一写法）→ 说明 12。
     Column({ space: CouliSpacing.space2 }) {
       Text(this.t('nickname.label'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary, CouliFontWeight.semibold))
+        .id('nickname_label')
       Row({ space: CouliSpacing.space2 }) {
         TextInput({ text: (this.model.nick as NicknameSnapshot).input })
           .id('nickname_input')
@@ -1073,12 +1096,23 @@ export struct SettingsView {
           .backgroundColor(Color.Transparent)
           .accessibilityText(this.t('nickname.label'))
           .accessibilityDescription((this.model.nick as NicknameSnapshot).fieldError?.text ?? '')
+          .onFocus(() => {
+            this.nickFocused = true;
+          })
+          .onBlur(() => {
+            this.nickFocused = false;
+          })
           .onChange((value: string) => {
             // 输入回调携带渲染时的控制器与身份（APP-09 第 59 条，R1-06）。
             if (this.nickCurrent(bound)) {
               bound.controller.setInput(value, bound.identity);
             }
           })
+        Text(fmt1(this.config.texts, 'nickname.counter', 'n',
+          String((this.model.nick as NicknameSnapshot).check['length'] ?? 0)))
+          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary,
+            undefined, true))
+          .id('nickname_counter')
         if ((this.model.nick as NicknameSnapshot).input.length > 0) {
           Button({ type: ButtonType.Normal, stateEffect: true }) {
             CouliIcon({ name: 'close', iconSize: 18, color: CouliColors.textSecondary })
@@ -1094,42 +1128,60 @@ export struct SettingsView {
             }
           })
         }
-        Text(fmt1(this.config.texts, 'nickname.counter', 'n',
-          String((this.model.nick as NicknameSnapshot).check['length'] ?? 0)))
-          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary,
-            undefined, true))
-          .id('nickname_counter')
       }
       .width('100%')
-      .padding({ left: CouliSpacing.space3, right: CouliSpacing.space1 })
+      // 描边粗细变化（1 ↔ 2）由内边距抵消，外框尺寸不跳。
+      .padding({
+        left: CouliSpacing.space3 + NICK_BORDER_MAX - this.nickBorderWidth(),
+        right: CouliSpacing.space1 + NICK_BORDER_MAX - this.nickBorderWidth(),
+        top: NICK_BORDER_MAX - this.nickBorderWidth(),
+        bottom: NICK_BORDER_MAX - this.nickBorderWidth()
+      })
       .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-      .borderRadius(12)
-      .border({ width: 1, color: (this.model.nick as NicknameSnapshot).fieldError !== null ?
-        CouliColors.statusErrorText : CouliColors.borderControl })
+      .borderRadius(CouliRadius.button)
+      .border({ width: this.nickBorderWidth(), color: this.nickBorderColor() })
       .backgroundColor(CouliColors.backgroundSurface)
+      .id('nickname_box')
       if ((this.model.nick as NicknameSnapshot).fieldError !== null) {
-        Text(((this.model.nick as NicknameSnapshot).fieldError as MeMessage).text)
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText))
-          .id('nickname_error')
-          .focusable(true)
-          .focusBox(CouliFocus.box)
+        NicknameErrorRow({
+          text: ((this.model.nick as NicknameSnapshot).fieldError as MeMessage).text,
+          rowId: 'nickname_error',
+          focusTarget: true
+        })
       } else if (this.nicknameHint().length > 0) {
-        Text(this.nicknameHint())
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText))
-          .id('nickname_local_hint')
+        NicknameErrorRow({ text: this.nicknameHint(), rowId: 'nickname_local_hint' })
       }
       if ((this.model.nick as NicknameSnapshot).message !== null) {
-        MeNoticeBar({
+        // H-S12：30415 / 42901 / 5xxxx / 网络等消息与字段错误同位置同写法；只播报不移焦（applyNick），外框不转红。
+        NicknameErrorRow({
           text: ((this.model.nick as NicknameSnapshot).message as MeMessage).text,
-          tone: 'error',
-          barId: 'nickname_message'
+          rowId: 'nickname_message'
         })
       }
       Text(this.t('nickname.hint'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+        .id('nickname_hint')
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
+    .padding(CouliSpacing.space4)
+    .borderRadius(CouliRadius.card)
+    .backgroundColor(CouliColors.backgroundSurface)
+    .shadow(CouliShadow.card)
+    .id('nickname_card')
+  }
+
+  /** 昵称外框描边：字段错误 2vp status.error.text；聚焦 2vp border.active；静止 1vp border.control（S17）。 */
+  private nickBorderWidth(): number {
+    return (this.model.nick !== null && (this.model.nick as NicknameSnapshot).fieldError !== null) || this.nickFocused ?
+      NICK_BORDER_MAX : CouliComponentMetrics.controlBorderWidth;
+  }
+
+  private nickBorderColor(): ResourceColor {
+    if (this.model.nick !== null && (this.model.nick as NicknameSnapshot).fieldError !== null) {
+      return CouliColors.statusErrorText;
+    }
+    return this.nickFocused ? CouliColors.borderActive : CouliColors.borderControl;
   }
 
   /** 本地长度提示（代拟）：去首尾空白后为空或超过 16 字素。 */
@@ -1172,6 +1224,11 @@ export struct SettingsView {
       .width('100%')
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space3,
         bottom: CouliSpacing.space5 })
+      // S19：底部固定白底栏 + 上沿 1px 分隔；白底向下铺进底部安全区（H-S11）。
+      .backgroundColor(CouliColors.backgroundSurface)
+      .border({ width: { top: 1 }, color: { top: CouliColors.borderSubtle } })
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+      .id('nickname_footer')
     }
   }
 
@@ -1196,21 +1253,19 @@ export struct SettingsView {
   @Builder
   notifyBody(bound: NotifyBinding) {
     if ((this.model.notify as NotifySnapshot).systemRaw !== 'granted') {
-      // 系统通知未开启：perm.push.denied_forever +【去设置】（跳系统设置，不经 PermissionRequester 申请）。
-      Column({ space: CouliSpacing.space2 }) {
-        MeNoticeBar({ text: this.t('perm.push.denied_forever'), tone: 'warning', barId: 'notify_system_off' })
-        CouliButton({
-          text: this.t('perm.go_settings'),
-          variant: CouliButtonVariant.SECONDARY,
-          fullWidth: true,
-          buttonId: 'notify_go_settings',
-          onTap: () => this.config.openSystemNotificationSettings()
-        })
-      }
-      .width('100%')
+      // 系统通知未开启：perm.push.denied_forever + 条内文字链接【去设置】（跳系统设置，不经 PermissionRequester 申请；S20）。
+      NotifyWarningBar({
+        text: this.t('perm.push.denied_forever'),
+        linkText: this.t('perm.go_settings'),
+        barId: 'notify_system_off',
+        linkId: 'notify_go_settings',
+        onTap: () => this.config.openSystemNotificationSettings()
+      })
     }
+    // S21：服务卡内边距 12 / 16（Release 只有说明句时沿用原 4 + 说明块自带 12，G-S13 不改）。
     MeCard({
-      vertical: CouliSpacing.space1,
+      vertical: (this.model.notify as NotifySnapshot).switchAvailable && (this.model.notify as NotifySnapshot).serviceOn !== null ?
+        CouliSpacing.space3 : CouliSpacing.space1,
       content: () => {
         this.notifySwitch(bound)
       }
@@ -1220,7 +1275,7 @@ export struct SettingsView {
   @Builder
   notifySwitch(bound: NotifyBinding) {
     if ((this.model.notify as NotifySnapshot).switchAvailable && (this.model.notify as NotifySnapshot).serviceOn !== null) {
-      MeSwitchRow({
+      NotifyServiceRow({
         label: this.t('notify.service'),
         desc: this.t('notify.service_desc'),
         on: bound.flag,
@@ -1303,6 +1358,7 @@ export struct SettingsView {
       height: SheetSize.FIT_CONTENT,
       dragBar: false,
       showClose: false,
+      maskColor: CouliColors.overlayScrim,
       onDisappear: () => {
         this.model.agreementSheet = false;
         // 关闭后焦点回到触发控件（AdaptSheetRules）。

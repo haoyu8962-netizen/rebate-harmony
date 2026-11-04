@@ -202,14 +202,15 @@ MUTANTS = [
     ('名单少一条', 'C1', CASES, 'hm07vb_overlays_never_expose_old_copy_in_reader_tree\n', '',
      [(CASES, None)], 'hm07vb_overlays_never_expose_old_copy_in_reader_tree\n', ''),
     # APP-12v-harmony 测试 v1（D10-378 test-change，定位串同步）：主步再排除 Me12vUi、device-test 再认 me12v。
-    ('主步没排除 b 套件', 'C2', 'tools/ci/verify.sh', 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi main',
-     'notClass=Hm07vHomeUi,Hm05rConsentUi,Me12vUi main',
-     [('tools/ci/verify.sh', None)], 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi main',
-     'notClass=Hm07vHomeUi,Hm05rConsentUi,Me12vUi main'),
+    # APP-12w-a-harmony 测试 v1（#24 只换定位串）：主步再排除 Me12waUi、device-test 再认 me12wa。
+    ('主步没排除 b 套件', 'C2', 'tools/ci/verify.sh', 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi main',
+     'notClass=Hm07vHomeUi,Hm05rConsentUi,Me12vUi,Me12waUi main',
+     [('tools/ci/verify.sh', None)], 'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi main',
+     'notClass=Hm07vHomeUi,Hm05rConsentUi,Me12vUi,Me12waUi main'),
     ('没有 b 设备步', 'C2', 'tools/ci/verify.sh', 'entry-hm07vb class=Hm07vOverlayUi hm07vb', 'entry-hm07vb class=Hm07vOverlayUi all',
      [('tools/ci/verify.sh', None)], 'entry-hm07vb class=Hm07vOverlayUi hm07vb', 'entry-hm07vb class=Hm07vOverlayUi all'),
-    ('device-test 不认 hm07vb', 'C2', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|me12v|all)', 'main|hm07va|hm05r|me12v|all)',
-     [('tools/ci/device-test.sh', None)], 'main|hm07va|hm07vb|hm05r|me12v|all)', 'main|hm07va|hm05r|me12v|all)'),
+    ('device-test 不认 hm07vb', 'C2', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|me12v|me12wa|all)', 'main|hm07va|hm05r|me12v|me12wa|all)',
+     [('tools/ci/device-test.sh', None)], 'main|hm07va|hm07vb|hm05r|me12v|me12wa|all)', 'main|hm07va|hm05r|me12v|me12wa|all)'),
     ('core 套件未登记', 'C3', 'common/core/src/test/List.test.ets', '  hm07vOverlayTest();\n', '',
      [('common/core/src/test/List.test.ets', None)], 'hm07vOverlayTest();', ''),
 ]

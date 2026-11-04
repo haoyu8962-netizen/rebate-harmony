@@ -477,8 +477,11 @@ export default function meVectorTest(): void {
       const expectedKeys: string[] = GROUPS.concat(['version', 'sources', 'gaps']).sort();
       // APP-12v test-change（D10-378 单列，brief-harmony H-M10）：只放过视觉夹具组 visualMe（截图 / 设备数据，不是逐行向量，
       // 由 Me12vVisual.test.ets 读取、gen.py --check 守与 Android / iOS 逐字节一致）；其余组名仍须与 GROUPS 完全相等。
-      const groupKeys: string[] = Object.keys(vectors).filter((k: string): boolean => k !== 'visualMe');
+      // APP-12w-a-harmony test-change（D10-378 单列，brief-a-harmony H-S09 / D10-600）：同法再放过视觉夹具组 visualSettings（由
+      // Me12waSettings.test.ets 读取、gen.py --check 守与 Android / iOS 逐字节一致）；其余组名仍须与 GROUPS 完全相等。
+      const groupKeys: string[] = Object.keys(vectors).filter((k: string): boolean => k !== 'visualMe' && k !== 'visualSettings');
       check(Object.keys(vectors).indexOf('visualMe') >= 0, 'manifest.visualMe');
+      check(Object.keys(vectors).indexOf('visualSettings') >= 0, 'manifest.visualSettings');
       check(
         JSON.stringify(groupKeys.sort()) === JSON.stringify(expectedKeys),
         'manifest.groups'

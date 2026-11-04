@@ -579,5 +579,291 @@
         "scope": "deletion_only"
       }
     }
+  },
+  "visualSettings": {
+    "clock": "2026-10-12T10:30:00+08:00",
+    "zone": "Asia/Shanghai",
+    "trace": "settings-visual-a1b2c3",
+    "trace6": "a1b2c3",
+    "boards": {
+      "Settings-v2": {
+        "sha12": "d076d94490d7",
+        "page": 1039,
+        "use": "main"
+      },
+      "SettingsGuest-v2": {
+        "sha12": "7663f3b8db53",
+        "page": 780,
+        "use": "order_GS03"
+      },
+      "SettingsBasic": {
+        "sha12": "dca586aae4d5",
+        "page": 800,
+        "use": "order_GS03"
+      },
+      "SettingsClipboardConsent": {
+        "sha12": "668e9c73da58",
+        "page": 1039,
+        "use": "sheet"
+      },
+      "SettingsAgreementSheet-v2": {
+        "sha12": "7a2f9deca056",
+        "page": 1039,
+        "use": "sheet"
+      },
+      "SettingsClearCache-v2": {
+        "sha12": "2aff1c58b7b3",
+        "page": 1039,
+        "use": "dialog"
+      },
+      "SettingsCacheCleared-v2": {
+        "sha12": "b8697ade4555",
+        "page": 1039,
+        "use": "toast"
+      },
+      "SettingsLogoutConfirm-v2": {
+        "sha12": "fbdb33920e19",
+        "page": 1039,
+        "use": "dialog"
+      },
+      "SettingsDeletionWithdrawn-v2": {
+        "sha12": "e1997e11d790",
+        "page": 1039,
+        "use": "toast"
+      },
+      "SettingsNickname": {
+        "sha12": "18c611dc0ba7",
+        "page": 844,
+        "use": "main"
+      },
+      "SettingsNicknameSaved-v2": {
+        "sha12": "0703e0b867ee",
+        "page": 1039,
+        "use": "toast"
+      },
+      "SettingsNicknameLimit": {
+        "sha12": "75c51720903e",
+        "page": 844,
+        "use": "save_enabled_GS10"
+      },
+      "SettingsNicknameSensitive": {
+        "sha12": "12cbff837626",
+        "page": 844,
+        "use": "main"
+      },
+      "SettingsDark": {
+        "sha12": "a7f7f53b5d4a",
+        "page": 1039,
+        "use": "dark"
+      },
+      "NotifySettings": {
+        "sha12": "078b68c7a982",
+        "page": 844,
+        "use": "main"
+      },
+      "NotifySettingsOn": {
+        "sha12": "8fac5337de42",
+        "page": 844,
+        "use": "main"
+      },
+      "NotifySettingsDark": {
+        "sha12": "0a70a74ac8f1",
+        "page": 844,
+        "use": "dark"
+      }
+    },
+    "skippedBoards": {
+      "NotifySettingsNotAsked": "ios_only_GS14",
+      "AuthManage-v2": "GS01",
+      "AuthManageBlocked-v2": "GS01",
+      "AuthManageStates": "GS01",
+      "AuthManageDark": "GS01",
+      "StateLoadFailed": "GM11",
+      "StateNetworkError": "GM11"
+    },
+    "profiles": {
+      "settings_member": {
+        "user_id": "settings-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 1234,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "settings_long_nickname": {
+        "user_id": "settings-visual-a",
+        "nickname": "一二三四五六七八九十一二三四五六",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": true,
+        "balance": {
+          "available_fen": 1234,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      },
+      "settings_unbound": {
+        "user_id": "settings-visual-a",
+        "nickname": "凑狸用户",
+        "avatar_url": "",
+        "invite_code": "K7M3QX",
+        "inviter_bound": true,
+        "invite_backfill": {
+          "eligible": false,
+          "deadline_at": null
+        },
+        "identity_level": "phone",
+        "phone_bound": false,
+        "balance": {
+          "available_fen": 1234,
+          "withdrawable_fen": 1234,
+          "estimated_total_fen": 5678
+        },
+        "union_bindings": [],
+        "realname_status": "verified",
+        "need_reconsent": false,
+        "risk": {
+          "state": "normal",
+          "reason_category": null,
+          "frozen_until": null
+        }
+      }
+    },
+    "sessions": {
+      "settings_member": {
+        "level": "member",
+        "privacy": "consented",
+        "phoneKnown": true,
+        "cacheBytes": 12582912,
+        "clipboardSwitch": false,
+        "clipboardConsent": false,
+        "agentRow": false
+      },
+      "guest_consented": {
+        "level": "guest",
+        "privacy": "consented",
+        "cacheBytes": 12582912,
+        "clipboardSwitch": false,
+        "clipboardConsent": false
+      },
+      "basic": {
+        "level": "basic",
+        "privacy": "basic_mode",
+        "cacheBytes": 12582912
+      }
+    },
+    "localPhone": "13800005678",
+    "clipboardConfig": {
+      "clipboard": {
+        "consent_version": "purpose-02"
+      }
+    },
+    "routes_beta": [
+      "PrivacyCenter",
+      "Agreement",
+      "About",
+      "Help",
+      "AuthManage",
+      "BindPhone",
+      "Login",
+      "Settings"
+    ],
+    "routes_public": [
+      "PrivacyCenter",
+      "Agreement",
+      "About",
+      "Help",
+      "AuthManage",
+      "BindPhone",
+      "Login",
+      "Settings",
+      "DeleteAccount"
+    ],
+    "nickname": {
+      "original": "凑狸用户",
+      "limit": {
+        "input": "小狸爱买买",
+        "code": 30415
+      },
+      "sensitive": {
+        "input": "小狸省钱王",
+        "code": 20001,
+        "reason": "nickname_sensitive"
+      },
+      "tooLong": "一二三四五六七八九十一二三四五六七",
+      "stress": "一二三四五六七八九十一二三四五六",
+      "grapheme": "👨‍👩‍👧abcdefghijklmno",
+      "saved": "小狸省钱王"
+    },
+    "notify": {
+      "denied": "denied",
+      "granted": "granted",
+      "notDetermined": "not_determined",
+      "service": true,
+      "loadErrorCode": 50001,
+      "switchErrorCode": 50001
+    },
+    "notices": [
+      {
+        "text": "settings.clear_cache.done",
+        "check": true
+      },
+      {
+        "text": "nickname.saved",
+        "check": true
+      },
+      {
+        "text": "deletion.cancelled_toast",
+        "check": true
+      },
+      {
+        "text": "settings.reset_tip.done",
+        "check": true
+      },
+      {
+        "text": "error.42901",
+        "check": false
+      },
+      {
+        "text": "error.50001",
+        "check": false
+      },
+      {
+        "text": "notify.switch_failed",
+        "check": false
+      }
+    ]
   }
 }

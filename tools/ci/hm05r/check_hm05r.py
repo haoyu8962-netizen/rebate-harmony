@@ -313,9 +313,12 @@ MUTANTS = [
     ('调试钩子进 main', 'entry/src/main/ets/clipboard/AppClipboard.ets', 'deps.importPrefs =',
      "const k: string = 'clipboard.auto_probes';\ndeps.importPrefs ="),
     ('Index 漏导出', 'common/core/Index.ets', 'ClipboardAutoSwitch, ', ''),
-    ('主步不排除 Hm05rConsentUi', 'tools/ci/verify.sh', 'Hm07vOverlayUi,Hm05rConsentUi,Me12vUi main', 'Hm07vOverlayUi,Me12vUi main'),
+    # APP-12w-a-harmony 测试 v1（#24 只换定位串）：主步再排除 Me12waUi、device-test 再认 me12wa。
+    ('主步不排除 Hm05rConsentUi', 'tools/ci/verify.sh', 'Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi main',
+     'Hm07vOverlayUi,Me12vUi,Me12waUi main'),
     ('名单少一条', 'tools/ci/hm05r/fixtures/device-cases.txt', 'hm05r_11_', 'hm05r_99_'),
-    ('device-test 不认 hm05r', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|me12v|all)', 'main|hm07va|hm07vb|me12v|all)'),
+    ('device-test 不认 hm05r', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|me12v|me12wa|all)',
+     'main|hm07va|hm07vb|me12v|me12wa|all)'),
     # ---- 测试 v2（W9）
     ('S1-1 未订阅 AppUpdate', 'entry/src/main/ets/clipboard/AppClipboard.ets',
      'AppUpdate.shared.subscribeOverlay((): void => this.controllerInstance?.modalChanged());\n', ''),

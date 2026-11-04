@@ -834,29 +834,42 @@ SYSTEM_PERMISSIONS = os.path.join("contracts", "snapshot", "specs", "system-perm
 
 # APP-12v-harmony（brief-harmony H-M10、G-M18）：visualMe 组由 Android 维护，三端逐字节同一份。基准 = rebate-android origin/main c8eac4a
 # （APP-12v-a c234526 引入）与 rebate-ios origin/main 9a7b870 的 specs/me-vectors.json 中从 '  "visualMe": {' 行到 '  "visualSettings"' 之前
-# 的 253 行原文（两端逐字节相同，sha256 下列）。鸿蒙只加这一组（visualSettings 归 APP-12w-a），放在文件最后，所以末行少一个逗号：
-# 末行 '  }' 补回 ',' 后逐字节算 sha256 必须等于基准。已有各组（含 HM-CLIP-BATCH 在改的 settingsItems 行）不在这里核对。
+# 的 253 行原文（两端逐字节相同，sha256 下列，含末行 '  },'）。
+# APP-12w-a-harmony 测试作者 v1（brief-a-harmony H-S09，D10-600）：visualSettings 组照 Android d16c686 / iOS 9a7b870 逐字节拷贝（两端全文件
+# 相同，拷后鸿蒙全文件与两端逐字节一致），放在 visualMe 之后、文件最后：从 '  "visualSettings": {' 行到文件末 '}' 之前的 286 行原文 sha256
+# 必须等于基准。已有各组不在这里核对（逐字节不变由 tools/ci/me12wa/check_settings_visual.py G5 守）。
 VISUAL_ME_ANDROID_SHA256 = "20f05b2cc0f0c051c5248029e7250d0b1e5e2407861dfbc7f03c7c81ffece9ef"
 VISUAL_ME_ANDROID_LINES = 253
+VISUAL_SETTINGS_ANDROID_SHA256 = "0f3e62421e1ec29fa4d2ad37db80a0d74ad0284c1c867fa935e3e482dceb9d60"
+VISUAL_SETTINGS_ANDROID_LINES = 286
 
 
 def check_visual_me_sync(text):
-    """me-vectors.json 的 visualMe 组与 Android / iOS 基准逐字节一致，且是最后一组。"""
+    """me-vectors.json 的 visualMe、visualSettings 两组与 Android / iOS 基准逐字节一致；visualMe 紧接着 visualSettings，visualSettings 是最后一组。"""
     import hashlib
     lines = text.split("\n")
     starts = [i for i, line in enumerate(lines) if line == '  "visualMe": {']
     if len(starts) != 1:
         raise GenError("%s 缺 visualMe 组或出现多次（APP-12v H-M10：visualMe 字节级同步 Android / iOS）" % ME_VECTORS)
-    start = starts[0]
+    settings = [i for i, line in enumerate(lines) if line == '  "visualSettings": {']
+    if len(settings) != 1:
+        raise GenError("%s 缺 visualSettings 组或出现多次（APP-12w-a H-S09：visualSettings 字节级同步 Android / iOS）" % ME_VECTORS)
+    start, middle = starts[0], settings[0]
     if lines[-2:] != ["}", ""] or lines[-3] != "  }":
-        raise GenError("%s visualMe 必须是最后一组（文件以 '  }\\n}\\n' 结尾）" % ME_VECTORS)
+        raise GenError("%s visualSettings 必须是最后一组（文件以 '  }\\n}\\n' 结尾）" % ME_VECTORS)
     end = len(lines) - 2
-    if end - start != VISUAL_ME_ANDROID_LINES:
-        raise GenError("%s visualMe 组行数 %d ≠ Android 基准 %d" % (ME_VECTORS, end - start, VISUAL_ME_ANDROID_LINES))
-    block = "\n".join(lines[start:end]) + ",\n"
-    digest = hashlib.sha256(block.encode("utf-8")).hexdigest()
+    if middle - start != VISUAL_ME_ANDROID_LINES:
+        raise GenError("%s visualMe 组行数 %d ≠ Android 基准 %d（visualMe 之后必须紧接 visualSettings）"
+                       % (ME_VECTORS, middle - start, VISUAL_ME_ANDROID_LINES))
+    digest = hashlib.sha256(("\n".join(lines[start:middle]) + "\n").encode("utf-8")).hexdigest()
     if digest != VISUAL_ME_ANDROID_SHA256:
         raise GenError("%s visualMe 与 Android / iOS 基准不一致（sha256 %s ≠ %s）" % (ME_VECTORS, digest, VISUAL_ME_ANDROID_SHA256))
+    if end - middle != VISUAL_SETTINGS_ANDROID_LINES:
+        raise GenError("%s visualSettings 组行数 %d ≠ Android 基准 %d" % (ME_VECTORS, end - middle, VISUAL_SETTINGS_ANDROID_LINES))
+    digest = hashlib.sha256(("\n".join(lines[middle:end]) + "\n").encode("utf-8")).hexdigest()
+    if digest != VISUAL_SETTINGS_ANDROID_SHA256:
+        raise GenError("%s visualSettings 与 Android / iOS 基准不一致（sha256 %s ≠ %s）"
+                       % (ME_VECTORS, digest, VISUAL_SETTINGS_ANDROID_SHA256))
 
 
 def gen_me_vectors_data():

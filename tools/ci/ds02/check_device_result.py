@@ -7,7 +7,8 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
   --set me12v   「我的」Tab 视觉单独步（APP-12v-harmony 测试 v1：14 条），且只能是这 14 条
-  --set all     不分步时的合集（226 条，允许以后增补用例）；缺省
+  --set me12wa  设置一族视觉单独步（APP-12w-a-harmony 测试 v1：15 条），且只能是这 15 条
+  --set all     不分步时的合集（241 条，允许以后增补用例）；缺省
 """
 import collections
 import csv
@@ -25,7 +26,7 @@ FX25_DEVICE_CASES = [
     'E06_covered_host_tears_down_while_covered_and_shows_clean_new_document_after_pop',
     'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
 ]
-SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'all')
+SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'all')
 
 
 def hm07va_names():
@@ -52,6 +53,12 @@ def me12v_names():
             if line.strip() and not line.startswith('#')}
 
 
+def me12wa_names():
+    """APP-12w-a-harmony：设置一族视觉的设备用例（名单与 Me12waUi.test.ets 的 ME12WA_DEVICE_CASES 一致）。"""
+    return {line.strip() for line in (Path(__file__).parents[1] / 'me12wa/fixtures/device-cases.txt').read_text().splitlines()
+            if line.strip() and not line.startswith('#')}
+
+
 def expected_names(set_name='all'):
     if set_name not in SETS:
         raise ValueError('未知必跑名单 ' + str(set_name))
@@ -63,6 +70,8 @@ def expected_names(set_name='all'):
         return hm05r_names()
     if set_name == 'me12v':
         return me12v_names()
+    if set_name == 'me12wa':
+        return me12wa_names()
     inventory = Path(__file__).parent / 'fixtures/inventory.tsv'
     rows = csv.DictReader((line for line in inventory.read_text().splitlines()
                            if not line.startswith('#')), delimiter='\t')
@@ -99,6 +108,7 @@ def expected_names(set_name='all'):
         names.update(hm07vb_names())
         names.update(hm05r_names())
         names.update(me12v_names())
+        names.update(me12wa_names())
     return names
 
 
@@ -130,10 +140,11 @@ def validate(text, set_name='all'):
                          f'summary={summaries[-1]}')
     ran = set(passed.keys()) | set(failed)
     if set_name == 'main':
-        leaked = sorted(name for name in ran if name in hm07va_names() | hm07vb_names() | hm05r_names() | me12v_names())
+        leaked = sorted(name for name in ran if name in hm07va_names() | hm07vb_names() | hm05r_names() | me12v_names()
+                        | me12wa_names())
         if leaked:
-            raise ValueError(f'entry_test(main) 混进了 HM-07v-a / HM-07v-b / HM-05r / APP-12v 单独步的用例（套件过滤失效）: {leaked}')
-    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v'):
+            raise ValueError(f'entry_test(main) 混进了 HM-07v-a / HM-07v-b / HM-05r / APP-12v / APP-12w-a 单独步的用例（套件过滤失效）: {leaked}')
+    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa'):
         extra = sorted(ran - expected)
         if extra:
             raise ValueError(f'entry_test({set_name}) 跑了本步名单以外的用例（套件过滤失效）: {extra}')
@@ -151,7 +162,7 @@ if __name__ == '__main__':
         del args[at:at + 2]
     try:
         if len(args) != 1:
-            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|all]')
+            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|all]')
         count = validate(Path(args[0]).read_text(), chosen)
         print(f'DS02_DEVICE_COMPLETE set={chosen} required={count} all_passed')
     except (ValueError, OSError) as error:
