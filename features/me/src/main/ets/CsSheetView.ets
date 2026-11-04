@@ -1,9 +1,9 @@
 import { CsEntryDecision, MeRecord } from 'core';
 import {
-  CouliButton, CouliButtonVariant, CouliColors, CouliIcon, CouliSheetPanel, CouliSpacing, CouliTextModifier,
-  CouliTypography
+  CouliButton, CouliButtonVariant, CouliColors, CouliSheetPanel, CouliSpacing, CouliTextModifier, CouliTypography
 } from 'designsystem';
-import { DraftMeTexts, MeSheetPanel, MeTexts } from './MeKit';
+import { DraftMeTexts, MeTexts } from './MeKit';
+import { CsBadge, CsHelpLink, CsSafetyStrip, CsSheetPanel } from './PrivacyAboutCsParts';
 
 type JSONValue = Object | null;
 
@@ -24,7 +24,7 @@ export class CsSheetActions {
 
 /**
  * 统一客服出口的三张半屏（设计稿 CsHandoff、CsWechatMissing、CsOpenFailed；G20）与降级半屏（kf 缺失或不是 https：只有【去帮助中心】）。
- * 源码顺序：标题 → 关闭 → 正文 → 按钮（adaptation-a11y-spec §8）；三张都有安全提示「客服不会向你索要登录验证码和密码」。
+ * 源码顺序：标题 → 关闭 → 正文 → 按钮（adaptation-a11y-spec §8）；三张都有安全提示（契约 cs.no_code_notice，H-P07）。
  */
 @ComponentV2
 export struct CsSheetView {
@@ -64,26 +64,30 @@ export struct CsSheetView {
     }
   }
 
+  /** 打不开 / 只有帮助用警告色图标块，未装微信 / HANDOFF 用 muted 消息图标块（P21）。 */
+  private badgeTone(): string {
+    const s: string = this.sheet();
+    return s === CsEntryDecision.OPEN_FAILED || s === CsEntryDecision.HELP_ONLY ? 'warning' : 'muted';
+  }
+
+  @Builder
+  badgeBlock() {
+    CsBadge({ tone: this.badgeTone(), badgeId: 'cs_badge' })
+  }
+
+  /** P22 / P23：说明 14 次文字居中 → 安全提示条（muted、盾牌对勾 20、14 主文字；文案取契约 cs.no_code_notice，H-P07）。 */
   @Builder
   content() {
-    Column({ space: CouliSpacing.space3 }) {
+    Column({ space: CouliSpacing.space4 }) {
       Text(this.body())
-        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .textAlign(TextAlign.Center)
+        .width('100%')
         .id('cs_body')
-      Row({ space: CouliSpacing.space2 }) {
-        CouliIcon({ name: 'shield', iconSize: 18, color: CouliColors.textSecondary })
-          .accessibilityLevel('no')
-        Text(this.t('cs.safety'))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-          .layoutWeight(1)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Top)
-      .id('cs_safety')
+      CsSafetyStrip({ text: this.t('cs.no_code_notice'), stripId: 'cs_safety' })
     }
     .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ bottom: CouliSpacing.space2 })
+    .alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -110,10 +114,18 @@ export struct CsSheetView {
         buttonId: 'cs_copy_link',
         onTap: () => this.actions.copyLink()
       })
+    } else if (!first && this.sheet() === CsEntryDecision.OPEN_FAILED) {
+      // P24：打不开半屏里「去帮助中心」是文字链接（视觉 = 行高，命中与语义盒 ≥ 48）；动作、id、键选择原样。
+      CsHelpLink({
+        text: this.t(this.sheet() === CsEntryDecision.HANDOFF ? 'cs.handoff.go_help' : 'cs.go_help'),
+        linkId: 'cs_go_help',
+        onTap: () => this.actions.goHelp()
+      })
     } else {
+      // P24 / G-P17：其余情形首个为主按钮，否则为通栏次按钮（不再是 TEXT 按钮）。
       CouliButton({
         text: this.t(this.sheet() === CsEntryDecision.HANDOFF ? 'cs.handoff.go_help' : 'cs.go_help'),
-        variant: first ? CouliButtonVariant.PRIMARY : CouliButtonVariant.TEXT,
+        variant: first ? CouliButtonVariant.PRIMARY : CouliButtonVariant.SECONDARY,
         fullWidth: true,
         buttonId: 'cs_go_help',
         onTap: () => this.actions.goHelp()
@@ -123,7 +135,7 @@ export struct CsSheetView {
 
   @Builder
   actionsArea() {
-    Column({ space: CouliSpacing.space2 }) {
+    Column({ space: CouliSpacing.space3 }) {
       ForEach(this.buttons(), (name: string, index: number) => {
         this.buttonFor(name, index === 0)
       }, (name: string) => this.sheet() + '_' + name)
@@ -132,15 +144,21 @@ export struct CsSheetView {
   }
 
   build() {
-    MeSheetPanel({
+    CsSheetPanel({
       title: this.title(),
       closeLabel: this.t('me.close'),
       titleId: 'cs_sheet_title',
-      maxBodyHeight: Math.max(120, this.actions.maxHeight - 260),
+      closeId: 'cs_sheet_close',
+      panelId: 'cs_sheet_panel',
+      // P28：中段最大高按系统半屏可用高（可视高度 − 顶部安全区 − 24）减去面板实测的固定部分，200% / 短屏下正文可滚、按钮固定可见。
+      panelMaxHeight: CouliSheetPanel.maxHeight(this.getUIContext()),
+      badge: () => {
+        this.badgeBlock()
+      },
       content: () => {
         this.content()
       },
-      actions: () => {
+      footer: () => {
         this.actionsArea()
       },
       onClose: () => this.actions.close()

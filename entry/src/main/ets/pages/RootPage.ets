@@ -351,6 +351,7 @@ struct RootPage {
         height: SheetSize.FIT_CONTENT,
         dragBar: false,
         showClose: false,
+        maskColor: CouliColors.overlayScrim,
         onDisappear: () => {
           this.cs.disappeared(this.getUIContext());
         }

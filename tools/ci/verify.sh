@@ -301,6 +301,17 @@ python3 "$ROOT/tools/ci/me12wa/check_settings_visual.py" || fail_fast "me12wa-ho
 node "$ROOT/tools/ci/me12wa/run-logic.cjs" || fail_fast "me12wa-logic" "见上方真实产品断言"
 node "$ROOT/tools/ci/me12wa/check-arkts.cjs" --real || fail_fast "me12wa-arkts" "APP-12w-a 测试文件 ArkTS 严格检查失败"
 record "APP-12w-a 宿主检查" PASS "逻辑零改动 / 守卫区 / 回调体 / MeKit / 遮罩 / 名单 / 纯逻辑 / ArkTS"
+# APP-12w-b-harmony（隐私中心 / 关于 / 联系客服半屏视觉）：执行器 / 纯规则 / 客服出口 / 隐私与剪贴板 / 强更 / 权限 / features/me 其余文件 / DS
+# sha256 合入前后一致（brief-b-harmony §3.1）、三视图守卫区与 8699e5a 逐字节一致（§3.2，按符号：confirmWithdraw / aboutToDisappear / apply、
+# 四个协议去向、个性化 onToggle、复制回调、客服四个动作与键）、RootPage 的客服 bindSheet 只多 maskColor 一项（H-P06）、私有件
+# PrivacyAboutCsParts 只收值与 @Event、无删除入口 / 不申请权限、privacy-visual-vectors 与 Android / iOS 逐字节相同（H-P14）、设备名单与第八个
+# entry 设备步（tools/ci/me12wb/check_privacy_visual.py，先自测）；夹具的 Core 套件 node 执行（run-logic.cjs，真实产品）；ArkTS 严格检查。
+step "APP-12w-b 隐私中心 / 关于 / 客服视觉宿主检查"
+python3 "$ROOT/tools/ci/me12wb/check_privacy_visual.py" --self-test || fail_fast "me12wb-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/me12wb/check_privacy_visual.py" || fail_fast "me12wb-host" "见上方违反项"
+node "$ROOT/tools/ci/me12wb/run-logic.cjs" || fail_fast "me12wb-logic" "见上方真实产品断言"
+node "$ROOT/tools/ci/me12wb/check-arkts.cjs" --real || fail_fast "me12wb-arkts" "APP-12w-b 测试文件 ArkTS 严格检查失败"
+record "APP-12w-b 宿主检查" PASS "逻辑零改动 / 守卫区 / 红线 / RootPage 遮罩 / 私有件 / 夹具 / 名单 / 纯逻辑 / ArkTS"
 # FU-X-STAGING-HOSTS：staging 五个主机只在 src/staging、LOCAL / TEST 仍占位、正式不变、深链主机、分享域不手写、release-scan 新规则
 # （合成制品，tools/ci/stghosts/check_staging_hosts.py，先自测）；stream 分流套件的 node 执行（run-logic.cjs，真实产品）；ArkTS 严格检查。
 step "FU-X-STAGING-HOSTS 宿主检查"
@@ -703,7 +714,7 @@ run_unit_tests designsystem common/designsystem America/Los_Angeles
 run_device_tests() {
     # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name $4 product $5 被测应用包
     # $6 步骤名（同一测试包分多步跑时区分日志与工作目录；缺省 = 模块名）$7 Hypium 套件过滤（class=… / notClass=…；缺省全部）
-    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / all，见 ds02/check_device_result.py）
+    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / all，见 ds02/check_device_result.py）
     # HM-07v-a（编排 D10-405 D4）：同一模块第二步复用第一步构建好的测试包（同包），只重新签名、卸载重装、执行。
     local module="$1" dir="$2" test_module="$3" log="$LOG_DIR/device-test-build-$1.log" code
     local test_product="${4:-default}" application_hap="${5:-}"
@@ -781,8 +792,10 @@ run_device_tests core common/core core_test
 #   entry-hm05r   HM-05r 11 条（只跑 Hm05rConsentUi 套件：剪贴板默认开启、关闭态、升级迁移、撤回与重新同意，测试 v3）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
 #   entry-me12v   APP-12v-harmony 14 条（只跑 Me12vUi 套件：「我的」Tab 视觉、受限会话不自动读、读取次数；H-M11）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
 #   entry-me12wa  APP-12w-a-harmony 15 条（只跑 Me12waUi 套件：设置一族视觉；H-S08）；同样先卸载再装、从未同意隐私开始（基本模式 → 游客 → 会员）、各自 1800 秒
+#   entry-me12wb  APP-12w-b-harmony 17 条（只跑 Me12wbUi 套件：隐私中心 / 关于 / 客服半屏视觉与隐私红线；H-P13）；同样先卸载再装、从未同意隐私开始
+#                 （基本模式 → 游客 → 会员 → 强更 → 真撤回）、各自 1800 秒
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -793,6 +806,8 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12v class=Me12vUi me12v
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wa class=Me12waUi me12wa
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wb class=Me12wbUi me12wb
 
 # ---------------------------------------------------------------- 8. Release 制品扫描
 export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"

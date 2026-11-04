@@ -6,8 +6,10 @@ import {
   CouliTextModifier, CouliToast, CouliTypography
 } from 'designsystem';
 import {
-  DraftMeTexts, MeCard, MeKeyValue, MeNoticeBar, MePageFrame, MeRow, MeSwitchRow, MeTexts, switchSpoken
+  DraftMeTexts, MeCard, MeKeyValue, MePageFrame, MeTexts, switchSpoken
 } from './MeKit';
+import { PrivacyBasicNotice, PrivacySwitchRow } from './PrivacyAboutCsParts';
+import { AgreementSheetRow } from './SettingsParts';
 
 type JSONValue = Object | null;
 
@@ -179,24 +181,28 @@ export struct PrivacyCenterView {
 
   @Builder
   listsCard() {
-    MeRow({
-      label: this.t('privacy_center.collect_list'),
+    // P2 / H-P02：清单行 48 = 命中区（画板 44）、17 主文字、chevron 20、行间 1px 分隔（复用 12w-a 的 AgreementSheetRow）。
+    AgreementSheetRow({
+      text: this.t('privacy_center.collect_list'),
       rowId: 'privacy_collect_list',
+      divider: true,
       // G21：契约 Agreement.type 只有 agreement / privacy / sdk_list；收集清单随隐私政策（包内副本优先）。
       onTap: () => this.agreement('privacy')
     })
-    MeRow({
-      label: this.t('privacy_center.share_list'),
+    AgreementSheetRow({
+      text: this.t('privacy_center.share_list'),
       rowId: 'privacy_share_list',
+      divider: true,
       onTap: () => this.agreement('sdk_list')
     })
-    MeRow({
-      label: this.t('privacy_center.privacy_policy'),
+    AgreementSheetRow({
+      text: this.t('privacy_center.privacy_policy'),
       rowId: 'privacy_policy',
+      divider: true,
       onTap: () => this.agreement('privacy')
     })
-    MeRow({
-      label: this.t('privacy_center.agreement'),
+    AgreementSheetRow({
+      text: this.t('privacy_center.agreement'),
       rowId: 'privacy_agreement',
       divider: false,
       onTap: () => this.agreement('agreement')
@@ -205,7 +211,8 @@ export struct PrivacyCenterView {
 
   @Builder
   personalizationCard() {
-    MeSwitchRow({
+    // H-P03：版式照 MeSwitchRow，说明进读屏 accessibilityDescription。
+    PrivacySwitchRow({
       label: this.t('privacy_center.personalization'),
       desc: this.t('privacy_center.personalization_desc'),
       on: this.model.personalizationOn,
@@ -233,15 +240,17 @@ export struct PrivacyCenterView {
   @Builder
   content() {
     if (this.basic() && !this.model.forceUpdate) {
-      MeNoticeBar({ text: this.t('privacy.basic_mode.notice'), tone: 'info', barId: 'privacy_basic_notice' })
+      PrivacyBasicNotice({ text: this.t('privacy.basic_mode.notice'), noticeId: 'privacy_basic_notice' })
     }
     MeCard({
+      cardId: 'privacy_lists_card',
       content: () => {
         this.listsCard()
       }
     })
     if (this.shows('personalizationSwitch')) {
       MeCard({
+        cardId: 'privacy_personalization_card',
         vertical: CouliSpacing.space1,
         content: () => {
           this.personalizationCard()
@@ -252,9 +261,21 @@ export struct PrivacyCenterView {
       this.permissionSection()
     }
     if (this.shows('enableFullButton')) {
-      this.enableFullSection()
+      MeCard({
+        cardId: 'privacy_enable_full_card',
+        vertical: CouliSpacing.space4,
+        content: () => {
+          this.enableFullSection()
+        }
+      })
     } else if (this.shows('withdrawButton')) {
-      this.withdrawSection()
+      MeCard({
+        cardId: 'privacy_withdraw_card',
+        vertical: CouliSpacing.space4,
+        content: () => {
+          this.withdrawSection()
+        }
+      })
     }
   }
 
@@ -281,14 +302,15 @@ export struct PrivacyCenterView {
     }
   }
 
+  /** P7：「开启完整功能」白卡（content 里的 MeCard，内边距 16）内：标题（读屏标题）→ 12 → 通栏主按钮；v2 画板去掉副句（G-P08，草稿键保留）。 */
   @Builder
   enableFullSection() {
-    Column({ space: CouliSpacing.space2 }) {
+    Column({ space: CouliSpacing.space3 }) {
       Text(this.t('privacy_center.basic_title'))
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
           CouliFontWeight.semibold))
-      Text(this.t('privacy_center.basic_desc'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+        .id('privacy_enable_full_title')
       CouliButton({
         text: this.t('privacy.basic_mode.enable'),
         fullWidth: true,
@@ -298,17 +320,27 @@ export struct PrivacyCenterView {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ top: CouliSpacing.space3 })
   }
 
+  /**
+   * P6：撤回同意白卡（content 里的 MeCard，内边距 16）内：标题 17/600（读屏标题）+ 说明 14 次文字（纵向 4；纯文字，无点击、无链接——红线
+   * 「无删除数据入口」）→ 12 → 通栏次按钮（G-P09 / G-P17：按钮控件与回调原样）。
+   */
   @Builder
   withdrawSection() {
-    Column({ space: CouliSpacing.space2 }) {
-      Text(this.t('privacy_center.withdraw_title'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-      Text(this.t('privacy_center.withdraw_desc'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+    Column({ space: CouliSpacing.space3 }) {
+      Column({ space: CouliSpacing.space1 }) {
+        Text(this.t('privacy_center.withdraw_title'))
+          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
+            CouliFontWeight.semibold))
+          .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+          .id('privacy_withdraw_title')
+        Text(this.t('privacy_center.withdraw_desc'))
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          .id('privacy_withdraw_desc')
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
       CouliButton({
         text: this.t('privacy_center.withdraw'),
         variant: CouliButtonVariant.SECONDARY,
@@ -321,7 +353,6 @@ export struct PrivacyCenterView {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ top: CouliSpacing.space3 })
   }
 
   build() {

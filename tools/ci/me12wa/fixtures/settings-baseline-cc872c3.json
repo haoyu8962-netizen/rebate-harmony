@@ -264,7 +264,7 @@
    "features/me/oh-package.json5"
   ],
   [
-   "5f2426135ce3f341c9c53769ae0b5c28ef04f2c836cfb8f6dce257d6a8ec6c94",
+   "c9c7a2a6574e76eb47ccd731701d9db57ec31b1ab0848c870300333a9bb7fc62",
    "features/me/src/main/ets/AboutView.ets"
   ],
   [
@@ -276,7 +276,7 @@
    "features/me/src/main/ets/AppealView.ets"
   ],
   [
-   "f3cae291eb345f8a473b8a56d886e0f1955e64d4702ba37efb6c2fe0ce617003",
+   "3cfc4c75e40762da98df2727547cce24bdf6b265f56078a212ce80de0fe8ae69",
    "features/me/src/main/ets/CsSheetView.ets"
   ],
   [
@@ -300,7 +300,11 @@
    "features/me/src/main/ets/PhoneChangeView.ets"
   ],
   [
-   "1a786a005a4d8f85beb60adaf27d3dbee03a68630d257e67cf16f5649951ca69",
+   "acb4f1f28da841777d6020cd1f4ebdfc297a57c8713bbabf25b8d8a7cae65032",
+   "features/me/src/main/ets/PrivacyAboutCsParts.ets"
+  ],
+  [
+   "6a77cb1c38764b8a3932983ed45de5d5528e28d3de62f646feddbeec77f6d05c",
    "features/me/src/main/ets/PrivacyCenterView.ets"
   ],
   [

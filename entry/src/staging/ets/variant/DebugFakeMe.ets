@@ -11,6 +11,9 @@
 // rate（getMe 42901 + Retry-After 60）/ refresh_fail（每次 reset 后第一次成功、之后 50001）/ earnings（/v1/config 收益看板开关开）。
 // getMe 计数：每收到一次 GET /v1/me（任何场景、任何假服务答），preferences「couli_debug_fake」键 me.get_count 加 1（十进制字符串，
 // flushSync；只记次数不记内容；与 HM-05r clipboard.auto_probes 同一文件同一写法）。Release 没有本文件。
+// APP-12w-b（H-P15，只插入行）：about_filed（agent.filing_text = 画板占位句）/ about_unfiled（空串）/ cs_no_kf（不补 kf.url）/ cs_http
+// （http 客服链接）/ consent_fail（POST /v1/consents 回 50001）。同意记录计数：每收到一次 POST /v1/consents（任何场景、不论成败），
+// preferences「couli_debug_fake」键 me.consents_count 加 1，并把请求体 type 写进 me.consents_last_type（只记次数与 type）。
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -25,6 +28,10 @@ export const DEBUG_ME_SCENE_KEY: string = 'couli_debug_me_scene';
 export const DEBUG_PUSH_TOKEN_MARKER: string = 'COULI_DEBUG_PUSH_TOKEN_APP12_3a9d52';
 const FAKE_FILE: string = 'couli_debug_fake';
 const GET_ME_COUNT_KEY: string = 'me.get_count';
+const CONSENTS_COUNT_KEY: string = 'me.consents_count';
+const CONSENTS_TYPE_KEY: string = 'me.consents_last_type';
+const FILED_PLACEHOLDER: string = '[生成式 AI 服务公示文本：登记后由配置 agent.filing_text 下发，原样显示]';
+const HTTP_KF_URL: string = 'http://kf.example.test/couli';
 const LONG_NICKNAME: string = '一二三四五六七八九十一二三四五六';
 
 class FakeAppeal {
@@ -92,6 +99,31 @@ export class DebugFakeMe implements MeContractPort {
       prefs.flushSync();
     } catch (e) {
       hilog.warn(0x0000, 'Couli', '%{public}s', 'fake getMe count not written');
+    }
+  }
+
+  /** 每收到一次 POST /v1/consents 计数加 1，并记下请求体的 type（APP-12w-b 设备用例数 recordConsent；只记次数与 type）。 */
+  static countConsent(body: string | null): void {
+    const context: common.Context | null = DebugFakeMe.context;
+    if (context === null) {
+      return;
+    }
+    let type: string = '';
+    try {
+      const parsed: Record<string, Object> = JSON.parse(body ?? '{}') as Record<string, Object>;
+      type = typeof parsed['type'] === 'string' ? parsed['type'] as string : '';
+    } catch (e) {
+      type = '';
+    }
+    try {
+      const prefs: preferences.Preferences = preferences.getPreferencesSync(context, { name: FAKE_FILE });
+      const old: preferences.ValueType = prefs.getSync(CONSENTS_COUNT_KEY, '');
+      const n: number = typeof old === 'string' && (old as string).length > 0 ? Number(old as string) : 0;
+      prefs.putSync(CONSENTS_COUNT_KEY, String(Number.isInteger(n) ? n + 1 : 1));
+      prefs.putSync(CONSENTS_TYPE_KEY, type);
+      prefs.flushSync();
+    } catch (e) {
+      hilog.warn(0x0000, 'Couli', '%{public}s', 'fake consents count not written');
     }
   }
 
@@ -245,6 +277,10 @@ export class DebugFakeMe implements MeContractPort {
     }
     if (path.endsWith('/v1/consents')) {
       DebugFakeMe.consents++;
+      DebugFakeMe.countConsent(body);
+      if (scene === 'consent_fail') {
+        return new FakeAnswer(50001, '{}', 300);
+      }
       return new FakeAnswer(0, '{}', 300);
     }
     if (path.endsWith('/v1/devices/push-token')) {
@@ -271,8 +307,19 @@ export class DebugFakeMe implements MeContractPort {
       const kf: Record<string, Object> = {};
       kf['url'] = 'https://kf.example.test/couli';
       data['kf'] = kf;
+      if (DebugFakeMe.scene === 'cs_http') {
+        kf['url'] = HTTP_KF_URL;
+      } else if (DebugFakeMe.scene === 'cs_no_kf') {
+        const noKf: Record<string, Object> = {};
+        data['kf'] = noKf;
+      }
       const agent: Record<string, Object> = (data['agent'] ?? {}) as Record<string, Object>;
       agent['filing_text'] = 'AI 助手使用的模型：示例大模型\n登记编号：TEST-0000000000000000';
+      if (DebugFakeMe.scene === 'about_filed') {
+        agent['filing_text'] = FILED_PLACEHOLDER;
+      } else if (DebugFakeMe.scene === 'about_unfiled') {
+        agent['filing_text'] = '';
+      }
       data['agent'] = agent;
       if (DebugFakeMe.scene === 'earnings') {
         // APP-12v：收益看板开关开（配合 couli_debug_route_available Earnings 拍 MeEarningsEntry）。

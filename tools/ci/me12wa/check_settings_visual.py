@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = 'cc872c3'
 FIXTURE = 'tools/ci/me12wa/fixtures/settings-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-a-harmony-v1-aux/make_baseline.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = 'f07327511b611e19484eb9171577c406f5c10336c3da49150ec151df67ce7e27'
+FIXTURE_SHA256 = 'a82ba7eb607bb2b0233b2db5497df97cbd235cf3ee7dc60c8099b6f209cba73d'
 
 VIEW = 'features/me/src/main/ets/SettingsView.ets'
 PARTS = 'features/me/src/main/ets/SettingsParts.ets'
@@ -591,11 +591,11 @@ MUTANTS = [
      "const SCENE: string = 'limit';"),
     ('草稿表改了已有行', 'common/core/src/main/ets/me/MeDraftTexts.ets', "m.set('settings.go_login', '去登录');", "m.set('settings.go_login', '登录');"),
     ('me-vectors 已有组被改', VECTORS, '"version": 1', '"version": 2'),
-    # ---- 名单与设施
-    ('主步不排除 Me12waUi', 'tools/ci/verify.sh', 'Me12vUi,Me12waUi main', 'Me12vUi main'),
+    # ---- 名单与设施（APP-12w-b-harmony 测试 v1，#24 只换定位串：主步再排除 Me12wbUi、device-test 再认 me12wb）
+    ('主步不排除 Me12waUi', 'tools/ci/verify.sh', 'Me12vUi,Me12waUi,Me12wbUi main', 'Me12vUi,Me12wbUi main'),
     ('没有 me12wa 设备步', 'tools/ci/verify.sh', 'entry-me12wa class=Me12waUi me12wa', 'entry-me12wa class=Me12waUi all'),
     ('verify 没跑本宿主自测', 'tools/ci/verify.sh', 'me12wa/check_settings_visual.py" --self-test', 'me12wa/check_settings_visual.py" --help'),
-    ('device-test 不认 me12wa', 'tools/ci/device-test.sh', 'me12v|me12wa|all)', 'me12v|all)'),
+    ('device-test 不认 me12wa', 'tools/ci/device-test.sh', 'me12v|me12wa|me12wb|all)', 'me12v|me12wb|all)'),
     ('名单少一条', CASES, 'me12wa_15_', 'me12wa_99_'),
     ('core 套件未登记', 'common/core/src/test/List.test.ets', '  me12waSettingsTest();\n', ''),
     ('entry 套件未登记', 'entry/src/ohosTest/ets/test/List.test.ets', '  me12waUiTest();\n', ''),

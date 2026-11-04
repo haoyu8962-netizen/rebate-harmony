@@ -65,6 +65,8 @@
     common/core/src/test/AgentTransportVectorsData.ets        specs/agent-transport-vectors.json 全文（AGENT_TRANSPORT_VECTORS_JSON，APP-10b，
                                                               Codex 写的三端共用 Agent 真实流式传输向量）
     common/core/src/test/AccountVectorsData.ets               specs/account-vectors.json 全文（ACCOUNT_VECTORS_JSON，APP-13a，Codex 写的三端共用注销与换手机号向量）
+    common/core/src/test/PrivacyVisualVectorsData.ets         specs/privacy-visual-vectors.json 全文（PRIVACY_VISUAL_VECTORS_JSON，APP-12w-b，
+                                                              Android / iOS 写的三端共用隐私中心 / 关于 / 客服视觉夹具；--check 守与两端逐字节相同）
     common/core/src/test/AgentStreamFixturesData.ets          契约快照 contracts/fixtures/agent-streams/*.ndjson 全文（AGENT_STREAM_FIXTURES，
                                                               APP-10，键为文件名，值为原文）
     entry/src/staging/ets/variant/AgentFixtures.ets           同一批 ndjson 原文（APP-10，只在 staging：Debug 假服务按启动参数
@@ -891,6 +893,35 @@ def gen_me_vectors_data():
     except ValueError as e:
         raise GenError("%s 不是合法 JSON：%s" % (SYSTEM_PERMISSIONS, e))
     return vectors + "\nexport const ME_PERMISSIONS_JSON: string = " + ts_str(text) + ";\n"
+
+
+PRIVACY_VISUAL_VECTORS = os.path.join("specs", "privacy-visual-vectors.json")
+# APP-12w-b-harmony 测试作者 v1（brief-b-harmony H-P14）：specs/privacy-visual-vectors.json 整份照 rebate-android origin/main 56192eb
+# （e9fdd94 引入）与 rebate-ios f2d2209 逐字节拷贝（两端全文件相同，128 行，sha256 下列）。鸿蒙不用的字段（behaviorOnlyPermissionEntry、
+# photos 状态）不删；鸿蒙差异（个性化失败键 error.50001、staging 假服务 kf 链接）在测试里映射，不改本文件。
+PRIVACY_VISUAL_ANDROID_SHA256 = "9306dfda11365c910dce4829dd7fb7b7e7bb8ee10779093048f7a63826936605"
+PRIVACY_VISUAL_ANDROID_LINES = 128
+
+
+def gen_privacy_visual_vectors_data():
+    """specs/privacy-visual-vectors.json（APP-12w-b，三端同一份）：全文与 Android / iOS 基准逐字节一致才生成。"""
+    import hashlib
+    path = os.path.join(ROOT, PRIVACY_VISUAL_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + PRIVACY_VISUAL_VECTORS)
+    with open(path, "rb") as f:
+        data = f.read()
+    lines = data.decode("utf-8").count("\n")
+    if lines != PRIVACY_VISUAL_ANDROID_LINES:
+        raise GenError("%s 行数 %d ≠ Android / iOS 基准 %d（H-P14：整份逐字节拷贝）" % (PRIVACY_VISUAL_VECTORS, lines,
+                                                                         PRIVACY_VISUAL_ANDROID_LINES))
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != PRIVACY_VISUAL_ANDROID_SHA256:
+        raise GenError("%s 与 Android / iOS 基准不一致（sha256 %s ≠ %s；H-P14：鸿蒙差异在测试里映射，不改文件）"
+                       % (PRIVACY_VISUAL_VECTORS, digest, PRIVACY_VISUAL_ANDROID_SHA256))
+    return gen_vectors_data(PRIVACY_VISUAL_VECTORS, "PRIVACY_VISUAL_VECTORS_JSON",
+                            "隐私中心 / 关于 / 联系客服视觉夹具（APP-12w-b）：specs/privacy-visual-vectors.json 全文，供 "
+                            "Me12wbPrivacy.test.ets 解析。只在 src/test，不进产物。")
 
 
 HOME_VECTORS = os.path.join("specs", "home-sdui-vectors.json")
@@ -1949,6 +1980,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "OrderVectorsData.ets"): gen_order_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "PrivacyVisualVectorsData.ets"): gen_privacy_visual_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "HomeVectorsData.ets"): gen_home_vectors_data(),
         os.path.join("entry", "src", "staging", "ets", "variant", "HomeGoldenPages.ets"): gen_home_golden_pages(),
         os.path.join(CORE_MODULE, "src", "test", "AgentVectorsData.ets"): gen_agent_vectors_data(),

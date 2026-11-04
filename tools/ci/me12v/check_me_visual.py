@@ -643,9 +643,10 @@ MUTANTS = [
     ('staging 缺慢速场景', 'entry/src/staging/ets/variant/DebugFakeMe.ets', "'slow', ", ''),
     ('调试计数进 main', 'entry/src/main/ets/me/Other.ets', 'export const Y: number = 1;', "export const Y: string = 'me.get_count';"),
     # APP-12w-a-harmony 测试 v1（#24 只换定位串）：主步再排除 Me12waUi、device-test 再认 me12wa。
-    ('主步不排除 Me12vUi', 'tools/ci/verify.sh', 'Hm05rConsentUi,Me12vUi,Me12waUi main', 'Hm05rConsentUi,Me12waUi main'),
+    # APP-12w-b-harmony 测试 v1（#24 只换定位串）：主步再排除 Me12wbUi、device-test 再认 me12wb。
+    ('主步不排除 Me12vUi', 'tools/ci/verify.sh', 'Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi main', 'Hm05rConsentUi,Me12waUi,Me12wbUi main'),
     ('没有 me12v 设备步', 'tools/ci/verify.sh', 'entry-me12v class=Me12vUi me12v', 'entry-me12v class=Me12vUi all'),
-    ('device-test 不认 me12v', 'tools/ci/device-test.sh', 'hm05r|me12v|me12wa|all)', 'hm05r|me12wa|all)'),
+    ('device-test 不认 me12v', 'tools/ci/device-test.sh', 'hm05r|me12v|me12wa|me12wb|all)', 'hm05r|me12wa|me12wb|all)'),
     ('名单少一条', 'tools/ci/me12v/fixtures/device-cases.txt', 'me12v_14_', 'me12v_99_'),
     ('core 套件未登记', 'common/core/src/test/List.test.ets', '  me12vVisualTest();\n', ''),
     ('entry 套件排在 a 段之后', 'entry/src/ohosTest/ets/test/List.test.ets', '  me12vUiTest();\n', ''),

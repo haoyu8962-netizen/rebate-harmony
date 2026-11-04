@@ -1,9 +1,9 @@
 import { AboutView as AboutRules, MeRecord } from 'core';
 import {
-  CouliButton, CouliButtonVariant, CouliColors, CouliFontWeight, CouliRadius, CouliSpacing, CouliTextModifier,
-  CouliToast, CouliTypography
+  CouliColors, CouliFontWeight, CouliSpacing, CouliTextModifier, CouliToast, CouliTypography
 } from 'designsystem';
-import { DraftMeTexts, MeCard, MePageFrame, MeTexts } from './MeKit';
+import { DraftMeTexts, MeCard, MeGroupTitle, MePageFrame, MeTexts } from './MeKit';
+import { AboutAppIcon, AboutCopyButton } from './PrivacyAboutCsParts';
 
 /** 关于页的出口（entry 给版本、公示原文与复制诊断信息）。 */
 export class AboutConfig {
@@ -43,70 +43,78 @@ export struct AboutView {
     return this.config.texts.format('about.version', vars);
   }
 
+  /** P16：公示正文在卡内（内边距 12 / 16），14 主文字，agent.filing_text 原样、可折行、不可点。 */
   @Builder
   filingCard() {
-    Column({ space: CouliSpacing.space2 }) {
-      Text(this.t('about.filing_title'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-        .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
-      Text(this.filing ?? '')
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-        .id('about_filing_text')
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ top: CouliSpacing.space3, bottom: CouliSpacing.space3 })
+    Text(this.filing ?? '')
+      .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+      .width('100%')
+      .id('about_filing_text')
   }
 
+  /**
+   * P12–P17：头部（上 24 / 下 8、纵向 8）App 图标 80 → 名字 17/600（读屏标题）→ 版本；块间 16：公示（分组名 12 次文字在卡外、读屏标题 → 8 → 卡）
+   * → 【复制诊断信息】（带复制图标）+ 说明 12 居中（间 8）。
+   */
   @Builder
   content() {
-    Column({ space: CouliSpacing.space2 }) {
-      Text(this.t('about.app_name').substring(0, 1))
-        .attributeModifier(new CouliTextModifier(CouliTypography.heading, CouliColors.textInverse, CouliFontWeight.bold))
-        .textAlign(TextAlign.Center)
-        .width(72)
-        .height(72)
-        .borderRadius(CouliRadius.card)
-        .backgroundColor(CouliColors.brandPrimary)
-        .accessibilityLevel('no')
-      Text(this.t('about.app_name'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-      Text(this.versionText())
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined, true))
-        .id('about_version')
+    Column({ space: CouliSpacing.space4 }) {
+      Column({ space: CouliSpacing.space2 }) {
+        AboutAppIcon({ iconId: 'about_app_icon' })
+        Text(this.t('about.app_name'))
+          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
+            CouliFontWeight.semibold))
+          .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+          .id('about_app_name')
+        Text(this.versionText())
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined, true))
+          .id('about_version')
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+      .padding({ top: CouliSpacing.space6, bottom: CouliSpacing.space2 })
+      if (this.filing !== null) {
+        Column({ space: CouliSpacing.space2 }) {
+          Row() {
+            MeGroupTitle({ text: this.t('about.filing_title') })
+          }
+          .id('about_filing_title')
+          MeCard({
+            cardId: 'about_filing_card',
+            vertical: CouliSpacing.space3,
+            content: () => {
+              this.filingCard()
+            }
+          })
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      }
+      Column({ space: CouliSpacing.space2 }) {
+        AboutCopyButton({
+          text: this.t('about.copy_diagnostics'),
+          buttonId: 'about_copy_diagnostics',
+          onTap: () => {
+            const ui: UIContext = this.getUIContext();
+            this.config.copyDiagnostics().then((ok: boolean): void => {
+              // 复制成功 polite 播报一次（系统 Toast）。
+              CouliToast.show(ui, this.t(ok ? 'about.copy_diagnostics.done' : 'me.copy_failed'));
+            });
+          }
+        })
+        Column() {
+          Text(this.t('about.copy_desc'))
+            .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+            .textAlign(TextAlign.Center)
+            .width('100%')
+        }
+        .width('100%')
+        .id('about_copy_desc')
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
     }
     .width('100%')
-    .alignItems(HorizontalAlign.Center)
-    .padding({ top: CouliSpacing.space6, bottom: CouliSpacing.space4 })
-    if (this.filing !== null) {
-      MeCard({
-        content: () => {
-          this.filingCard()
-        }
-      })
-    }
-    Column({ space: CouliSpacing.space2 }) {
-      CouliButton({
-        text: this.t('about.copy_diagnostics'),
-        variant: CouliButtonVariant.SECONDARY,
-        fullWidth: true,
-        buttonId: 'about_copy_diagnostics',
-        onTap: () => {
-          const ui: UIContext = this.getUIContext();
-          this.config.copyDiagnostics().then((ok: boolean): void => {
-            // 复制成功 polite 播报一次（系统 Toast）。
-            CouliToast.show(ui, this.t(ok ? 'about.copy_diagnostics.done' : 'me.copy_failed'));
-          });
-        }
-      })
-      Text(this.t('about.copy_desc'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ top: CouliSpacing.space3 })
   }
 
   build() {

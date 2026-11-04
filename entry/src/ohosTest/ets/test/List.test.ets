@@ -9,6 +9,7 @@ import hm07vOverlayUiTest from './Hm07vOverlayUi.test';
 import hm05rConsentUiTest from './Hm05rConsentUi.test';
 import me12vUiTest from './Me12vUi.test';
 import me12waUiTest from './Me12waUi.test';
+import me12wbUiTest from './Me12wbUi.test';
 
 export default function testsuite() {
   ds02CatalogTest();
@@ -29,6 +30,9 @@ export default function testsuite() {
   // APP-12w-a-harmony：设置一族视觉；verify 里单独一个设备步（class=Me12waUi，先卸载重装、从未同意隐私开始：基本模式 → 游客 → 会员），其他步都不跑它。
   // 排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
   me12waUiTest();
+  // APP-12w-b-harmony：隐私中心 / 关于 / 联系客服半屏视觉；verify 里单独一个设备步（class=Me12wbUi，先卸载重装、从未同意隐私开始：
+  // 基本模式 → 游客 → 会员 → 强更 → 真撤回），其他步都不跑它。排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
+  me12wbUiTest();
   // HM-07v-a：驱动真实应用，隐私状态单向（基本模式 → 完整功能 → 会员），必须排在最后。
   hm07vHomeUiTest();
 }
