@@ -946,9 +946,18 @@ export default function meIntegrationTest() {
         'AuthManage', 'Wallet', 'OrderList', 'Ledger', 'FindOrder', 'InviteShare', 'Messages', 'Help', 'Agreement']) {
         expect(RouteTable.spec(name) !== undefined).assertTrue();
       }
-      for (const name of ['Nickname', 'NotifySettings', 'InviteBackfill', 'Favorites', 'ShareHub', 'CsHandoff']) {
+      // FU-X-HOME-PAGE-API test-change（D10-378 / #24；依据 rebate-platform 00deded0ef6f contracts/routes.json:251、269、848）：
+      // 升锁后契约登记了 ShareHub、Favorites（since 三端皆 null，本端不可用）与 InviteBackfill（since.harmony 1.0.0）。
+      // 原断言「这几个名字不在路由表」按锁定快照写死；含义保留为「「我的」不靠这些路由」：不是路由的仍不在表里，
+      // 契约已登记但本端未开放的 since 为 null；InviteBackfill 已登记，「我的」补填入口另立单（APP-12 G05 / N-30 G01）。
+      for (const name of ['Nickname', 'NotifySettings', 'CsHandoff']) {
         expect(RouteTable.spec(name) === undefined).assertTrue();
       }
+      for (const name of ['Favorites', 'ShareHub']) {
+        const spec: RouteSpec | undefined = RouteTable.spec(name);
+        expect(spec !== undefined && (spec as RouteSpec).sinceHarmony === null).assertTrue();
+      }
+      expect(RouteTable.spec('InviteBackfill') !== undefined).assertTrue();
     });
 
     // ---------------------------------------------------------------- 推送令牌上报（AC-S1-76、G17、G18）

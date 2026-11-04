@@ -1104,7 +1104,11 @@ export default function clipboardIntegrationTest() {
       for (const name of ClipboardSensitive.ROUTES) {
         expect(RouteTable.has(name)).assertTrue();
       }
-      expect(RouteTable.has('InviteBackfill')).assertFalse();
+      // FU-X-HOME-PAGE-API test-change（D10-378 / #24）：原「InviteBackfill 不在路由表」按旧锁写死（APP-07 brief §21「InviteBackfill 不在
+      // routes.json 里」）。升锁 00deded0ef6f 后 contracts/routes.json:848 登记了 InviteBackfill；BR-ID-16 细则「敏感页面不识别」
+      // （couli 规划/08_业务规则/10_ID_身份授权与合规.md:865）把 InviteBackfill 列为敏感页，所以它既要在路由表里，也要在敏感清单里。
+      expect(RouteTable.has('InviteBackfill')).assertTrue();
+      expect(ClipboardSensitive.ROUTES.indexOf('InviteBackfill') >= 0).assertTrue();
     });
   });
 }

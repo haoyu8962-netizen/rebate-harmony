@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  AgentEntryVisibility, ApiClient, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
+  AgentEntryVisibility, ApiClient, ApiClientHomeContractPort, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
   HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeFixedArea, HomeIdentity,
   HomeLevel,
   HomeLkgReconciler, HomeSyncOutcome, SessionIdentity, HomeIdentityRead, HomeIdentitySource,
@@ -290,7 +290,7 @@ export class HomeControllerPort implements HomeScreenPort {
  *   重建（重新走三级兜底：新作用域的 LKG → 包内默认），不在新身份下继续显示旧账号人群的页面。
  * - 退出登录、换账号、会话失效：清旧账号作用域的 LKG（G16 ②）；撤回同意、切换环境：登记为 AppConfig.cleaners 的「清理前第一步」
  *   （home_lkg，APP-08 H02 的接法，启动前可执行），全清 LKG、公告关闭记录与弹窗计数。清除缓存不碰这三类（它们不在 cacheDir）。
- * - Release 没有 getPage / listSectionItems（BuildVariant.homeContract 为 null）：首页只显示 LKG / 包内默认，商品池与物料卡隐藏。
+ * - 首页数据走契约 getPage + listPageSectionItems（ApiClientHomeContractPort，FU-X-HOME-PAGE-API）；本机假服务只在测试参数下替换。
  */
 export class AppHome {
   static readonly shared: AppHome = new AppHome();
@@ -472,7 +472,7 @@ export class AppHome {
     const lkg: HomeLkgStore = this.lkgStore as HomeLkgStore;
     const gate: RetryAfterGate = this.gate as RetryAfterGate;
     const deps: HomeDeps = new HomeDeps(identity, (): string => this.identity.key(), lkg, this.local, gate);
-    deps.contract = BuildVariant.homeContract();
+    deps.contract = BuildVariant.homeContract(new ApiClientHomeContractPort((): ApiClient | null => AppNetwork.client));
     deps.notices = new ApiClientHomeNoticePort((): ApiClient | null => AppNetwork.client);
     deps.defaultJson = (): string | null => BuildVariant.homeDefaultOverride() ?? DefaultHomePage.DATA_JSON;
     deps.appVersion = BuildVariant.homeAppVersion(AppRouting.shared.appVersionName);

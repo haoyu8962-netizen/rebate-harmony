@@ -32,7 +32,7 @@ import { DebugMockGate } from '../network/DebugMockTransport';
 import { GatedHomeContractPort } from '../network/DebugSubstitutes';
 import { HomePreviewPolicy } from './HomePreviewPolicy';
 
-/** 首页待定接口（getPage、listSectionItems）的数据源边界（R1-09）：构建（只在 staging 编译）+ 环境（prod 不注入假数据）。 */
+/** 首页契约接口（getPage、listPageSectionItems）的假数据源边界（R1-09）：构建（只在 staging 编译）+ 环境（prod 不注入假数据）。 */
 export class HomeDebugSources {
   static contract(fakeEnabled: boolean, environment: AppEnvironment | undefined, fake: HomeContractPort):
     HomeContractPort | null {
@@ -40,11 +40,52 @@ export class HomeDebugSources {
   }
 
   /**
-   * 受保护的数据源（FU-HM-0711b R1-03；普通首页 BuildVariant.homeContract 与 HomePreviewPage 统一用它）：取实例时闸门关闭为 null；
+   * 受保护的数据源（FU-HM-0711b R1-03；HomePreviewPage 用它，普通首页经 select 也用同一个 GatedHomeContractPort）：取实例时闸门关闭为 null；
    * 放行时交出的实例本身每次调用、每次异步返回前都再核对同一闸门（GatedHomeContractPort），持有旧实例切到 prod 也不给假数据。
    */
   static guarded(gate: () => boolean, fake: HomeContractPort): HomeContractPort | null {
     return gate() ? new GatedHomeContractPort(fake, gate) : null;
+  }
+
+  /** FU-X-HOME-PAGE-API：每次调用时选——闸门打开用（受保护的）假实现，否则用真实端口。 */
+  static select(gate: () => boolean, fake: HomeContractPort, real: HomeContractPort): HomeContractPort {
+    return new SelectedHomeContractPort(gate, new GatedHomeContractPort(fake, gate), real);
+  }
+}
+
+class SelectedHomeContractPort implements HomeContractPort {
+  private readonly gate: () => boolean;
+  private readonly fake: HomeContractPort;
+  private readonly real: HomeContractPort;
+
+  constructor(gate: () => boolean, fake: HomeContractPort, real: HomeContractPort) {
+    this.gate = gate;
+    this.fake = fake;
+    this.real = real;
+  }
+
+  private pick(): HomeContractPort {
+    let on: boolean = false;
+    try {
+      on = this.gate();
+    } catch (e) {
+      on = false;
+    }
+    return on ? this.fake : this.real;
+  }
+
+  getPage(pageKey: string, anonymous: boolean, sendAllowed: () => boolean): Promise<ApiResult> {
+    return this.pick().getPage(pageKey, anonymous, sendAllowed);
+  }
+
+  listSectionItems(pageKey: string, sectionId: string, cursor: string | null, anonymous: boolean,
+    sendAllowed: () => boolean): Promise<ApiResult> {
+    return this.pick().listSectionItems(pageKey, sectionId, cursor, anonymous, sendAllowed);
+  }
+
+  cancel(owner: number): void {
+    this.fake.cancel(owner);
+    this.real.cancel(owner);
   }
 }
 

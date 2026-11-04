@@ -169,11 +169,11 @@ export class BuildVariant {
   }
 
   /**
-   * 首页的 getPage / listSectionItems（APP-11 G02、G03，需契约）：Release 一律不发（null）——首页只显示 LKG / 包内默认，商品池与物料信息流卡隐藏。
-   * TODO(N-35)：契约补上后改为真实接口。
+   * 首页的 getPage / listPageSectionItems（FU-X-HOME-PAGE-API）：Release 一律走真实端口（经 ApiClient 的 ApiClientHomeContractPort），
+   * 没有本机假服务。
    */
-  static homeContract(): HomeContractPort | null {
-    return null;
+  static homeContract(real: HomeContractPort): HomeContractPort {
+    return real;
   }
 
   /** Release 的包内默认首页没有覆盖（Debug 用来模拟坏文件）。 */

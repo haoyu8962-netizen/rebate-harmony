@@ -726,7 +726,7 @@ export class InviteCodeExtractor {
  */
 export class ClipboardSensitive {
   static readonly ROUTES: string[] = ['Login', 'BindPhone', 'RealName', 'PayoutAccount', 'Withdraw', 'LaborAgreement',
-    'DeleteAccount', 'FindOrder', 'ForceUpdate'];
+    'DeleteAccount', 'FindOrder', 'ForceUpdate', 'InviteBackfill'];
 
   static readonly OVERLAY_NONE: string = 'none';
   static readonly OVERLAY_STEP_UP: string = 'step_up';

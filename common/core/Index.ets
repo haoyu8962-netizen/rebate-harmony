@@ -358,6 +358,8 @@ export {
   HomeRenderTicket, HomeTap, HomeNoticeCloseTicket, HomeNoticeRow, HomeProductRow, HomeSectionTicket, HomePopupImageTicket,
   HomePopupTicket, HomeFixedArea, HomeNoticeDisplay, HomeErrorText, HomeNativeRows, HomeIconArt
 } from './src/main/ets/home/HomeTickets';
+export { ApiClientHomeContractPort } from './src/main/ets/home/HomeController';
+export { NativeRouteHosts } from './src/main/ets/router/RoutePolicy';
 export { HomeDraftTexts } from './src/main/ets/home/HomeDraftTexts';
 export { HomePopupGeometry } from './src/main/ets/home/HomePopupGeometry';
 export { HomeSignal, HomeSignalHub, HomeVisibilityHub, TabWillChangeRegistry } from './src/main/ets/home/HomeSignals';

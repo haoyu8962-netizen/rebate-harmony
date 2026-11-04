@@ -1,7 +1,7 @@
 import { bundleManager, common, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  AppConfig, DeepLinkParser, EnvironmentGate, GuardDecision, GuardDecisionKind, GuardState, LaunchIntent, LaunchQueue,
+  AppConfig, DeepLinkParser, NativeRouteHosts, EnvironmentGate, GuardDecision, GuardDecisionKind, GuardState, LaunchIntent, LaunchQueue,
   LaunchReadiness, MemoryPendingBackend, PendingActionBackend, PendingActionStore, PreferencesPendingBackend,
   PrivacyState, PushLanding, RouteDestination, RouteRequest, RouteSource, RouteTable,
   RouteTargetAllowlist, Router, RoutingSync, SessionState, StackNavigator, PathStack,
@@ -10,6 +10,7 @@ import {
 import { RouteSpec } from 'generated';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppUpdate } from '../update/AppUpdate';
+import { NATIVE_ROUTE_HOSTS } from './NativeRouteHostNames';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliRouting';
@@ -127,8 +128,9 @@ export class AppRouting {
     if (this.routerInstance === null) {
       this.routerInstance = new Router(new PendingActionStore(this.backend), (): GuardState => this.guardState(),
         // APP-13a 编排者补充 G01：路由可用性统一经 BuildVariant.routeSpec（Release 原样取 RouteTable；Debug / Staging 的覆盖开关只在
-        // src/staging 编译）。
-        this.navigator, (name: string): RouteSpec | undefined => BuildVariant.routeSpec(name),
+        // src/staging 编译）。FU-X-HOME-PAGE-API P1 取 B：外面再套 NativeRouteHosts——契约已登记、本端没有承载者的原生路由按未发布处理
+        // （EntryGuard 升级提示），不进开发占位页；名单见 NativeRouteHostNames（H9 与 RootPage.routeMap 双向核对）。
+        this.navigator, new NativeRouteHosts(NATIVE_ROUTE_HOSTS).guard((name: string): RouteSpec | undefined => BuildVariant.routeSpec(name)),
         (): LaunchReadiness => this.readiness());
       // 03 §4.4「Tab 就绪」交给 Router 统一判定（R1-02 / R1-03）：同意回调与前置完成的恢复、冷启动推送的回查、
       // 外部请求与启动队列的放行，都要等导航栈已交给 Router 且 Tab 外壳已显示。

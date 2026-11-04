@@ -7,6 +7,7 @@ import hm05rLogicTest from './Hm05rLogic.test';
 import hm05rIntegrationTest from './Hm05rIntegration.test';
 import fuXClipManualTest from './FuXClipManual.test';
 import stagingHostsTest from './StagingHosts.test';
+import homePageApiTest from './HomePageApi.test';
 import trustedWebRecordsFx25Test from './TrustedWebRecordsFX25.test';
 import followupHM0729Test from './FollowupHM0729.test';
 import environmentConfigTest from './EnvironmentConfig.test';
@@ -285,4 +286,6 @@ export default function testsuite() {
   fuXClipManualTest();
   // FU-X-STAGING-HOSTS：staging 真实主机、LOCAL / TEST 占位、正式不变、stream 分流（D10-598 ①）。
   stagingHostsTest();
+  // FU-X-HOME-PAGE-API：首页走契约 getPage + 卡片自取数 listPageSectionItems，假服务只在测试参数下（D10-604 ①）。
+  homePageApiTest();
 }

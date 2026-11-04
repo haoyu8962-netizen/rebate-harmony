@@ -54,7 +54,7 @@
    "entry/src/main/ets/permission/HarmonyPermissionSystem.ets"
   ],
   [
-   "63d7c9b2b8e55daaa1fe97c929927cfdd28853561cf8aa243c12e5b89c38e4d6",
+   "ee878ac376054c0ad652bcde9442038b29c20ead7266afd9495446cf1213cd03",
    "contract.lock"
   ]
  ],
@@ -104,24 +104,28 @@
    "contracts/snapshot/contracts/bridge.schema.json"
   ],
   [
-   "3e0d2aa46b271e57e255882ab45f0b2add6300c0b2067c98fd90d0c67f7cbc92",
+   "0a31468548e9a376a822e896465781033bfd37e89cea123d950b42e6a6ca3f72",
    "contracts/snapshot/contracts/enums/admin.json"
   ],
   [
-   "f20c47b5ec9aebf71ba1ef2c992933405c506101b0ce0bc8ccdc7150db1a6c5d",
+   "609f58a2598222e9b9c88364a77662c9c7efce5612fad7f84b43c133b62e3f5e",
    "contracts/snapshot/contracts/enums/fund.json"
   ],
   [
-   "759aea9b28b00eebcf59178636b3b200f783f4578676ece844df258af4b88ae7",
+   "1fc21235dbe4c642da2bb698ca03a100828dba5366184fd5ec2e1bf92da45a19",
    "contracts/snapshot/contracts/enums/identity.json"
   ],
   [
-   "fd6deb3feb7351e67ba03c3b77346c4289d9d2ba60063e4b4eb48fd552008917",
+   "cf931b2a615086bc3a37e781041baf2ab937fbce8457e4da04f029ef77f7ffc6",
    "contracts/snapshot/contracts/enums/ops.json"
   ],
   [
-   "ded41d09fe87a0186147203e0555de5581ea268c2c0730d5639b8c5397276e0f",
+   "9c520a728229f8636b5d1c4556719d61d8cee0d2fd7d5739fb07580134e3007e",
    "contracts/snapshot/contracts/enums/order.json"
+  ],
+  [
+   "d77e1a6f1ccfb414500cf2c420e9dfa6babcab14441a533ebf6ec06449e297f1",
+   "contracts/snapshot/contracts/enums/pay.json"
   ],
   [
    "cc4043466111363f8273dc48164f90d489b7e0e14fec5769d8a1e43af2b36a98",
@@ -132,7 +136,7 @@
    "contracts/snapshot/contracts/enums/trade.json"
   ],
   [
-   "fe86bce75e5a7e977227f34a5b7274ca28ee52c0425c79260ac1ff646e18ea13",
+   "c73af4261ea443dcd4ae07aeb22ded9ec844c85ae881555cdb5b01f48acd2540",
    "contracts/snapshot/contracts/error-codes.json"
   ],
   [
@@ -196,15 +200,15 @@
    "contracts/snapshot/contracts/fixtures/agent-streams/unknown-card.ndjson"
   ],
   [
-   "93ff2186a67b5bd1e5edecd24c0e26e98f0eac8af8e02c73abc6d2e990b5a4be",
+   "366e96cf0793c7a58feee7fd7ecdfec6b4baa97677c4967cc52fa6e24b23655b",
    "contracts/snapshot/contracts/openapi.json"
   ],
   [
-   "8fc89002fdb9d9b6c024b9f045cc061b7a461e801cb4428d9a87e37b6c35e8be",
+   "ab9b31952c979f61b40608edc982423423a38617f40b0937e3541e0766a31b06",
    "contracts/snapshot/contracts/routes.json"
   ],
   [
-   "ef3dd5290abdc35cad5fd98135ea13dea985e02c9067c75d709d44a0ba54af23",
+   "23eac6f8bf02693840a02ac4828b226bff58a4458ffae467445ba5e2bb9881cc",
    "contracts/snapshot/contracts/texts.default.json"
   ],
   [
@@ -1879,12 +1883,11 @@
    "cf3fa82ca930f32f",
    "e3b0c44298fc1c14",
    "e27a87f133293309",
-   "c50b6a262bc641db",
-   "a894a84394f5edf5",
+   "44640202bab47c93",
+   "81e734bdc3083534",
    "552e8731ac6f747f",
-   "d1fda3c493ac9c8b",
-   "4e1fdfe535ccb782",
-   "97bc3ffe191f10b8",
+   "8d1502ba2fa1642b",
+   "a8d2d3bd17841d86",
    "737db166c79ae98e",
    "e3b0c44298fc1c14",
    "e27a87f133293309",

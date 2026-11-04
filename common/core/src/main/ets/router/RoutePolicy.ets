@@ -1,4 +1,4 @@
-import { Routes, RouteSpec } from 'generated';
+import { RouteKind, Routes, RouteSpec } from 'generated';
 
 /** 守卫用到的路由名单。名单的唯一维护处在规划，这里逐条注明出处；改名单先改规划与契约。 */
 export class RoutePolicy {
@@ -142,5 +142,32 @@ export class AppVersion {
       numbers.push(Number.parseInt(part, 10));
     }
     return numbers;
+  }
+}
+
+/**
+ * 本端有承载者（页面注册表 / Tab 根）的原生路由（FU-X-HOME-PAGE-API P1 取 B）：契约已登记、since 已到，但本端没有承载者的原生路由
+ * 按「未发布」处理（since 置 null → EntryGuard 升级提示），不进开发占位页。h5 与 debug_only 路由原样。
+ */
+export class NativeRouteHosts {
+  private readonly names: string[];
+
+  constructor(names: string[]) {
+    this.names = names.slice();
+  }
+
+  has(name: string): boolean {
+    return this.names.indexOf(name) >= 0;
+  }
+
+  guard(lookup: (name: string) => RouteSpec | undefined): (name: string) => RouteSpec | undefined {
+    return (name: string): RouteSpec | undefined => {
+      const spec: RouteSpec | undefined = lookup(name);
+      if (spec === undefined || spec.kind !== RouteKind.NATIVE || spec.debugOnly || this.has(name)) {
+        return spec;
+      }
+      return new RouteSpec(spec.name, spec.kind, spec.auth, null, spec.entries, spec.h5Path, spec.debugOnly,
+        spec.agentGuide, spec.agentGuideAccount, spec.params, spec.requiredParams, spec.additionalParams);
+    };
   }
 }

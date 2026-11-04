@@ -162,10 +162,9 @@ export class HomeLkgReconciler {
 }
 
 /**
- * 契约还没有的两个接口（G02 getPage、G03 listSectionItems，标「需契约」）：手写的待定 operation，不进生成的 ApiOperations，
- * 只由 Debug / Staging 的本地假服务实现；Release 构建为 null（不发请求：首页只显示 LKG / 包内默认，商品池与物料卡隐藏）。
- * anonymous：基本模式（不带 Authorization、X-Device-Id、签名与任何设备标识）。sendAllowed：共享 42901 闸门（每次实际发包前核对）。
- * 请求里不带频道或排序参数（AC-S1-90 ③）。TODO(N-35)：契约补上后改为真实接口。
+ * 首页的两个契约接口 getPage、listPageSectionItems（FU-X-HOME-PAGE-API）：生产实现 ApiClientHomeContractPort；Debug / Staging 的本机
+ * 假服务只在测试参数下替换（HomeDebugSources.select）。anonymous：基本模式。sendAllowed：共享 42901 闸门（每次实际发包前核对）。
+ * 请求里不带频道或排序参数（AC-S1-90 ③）。
  */
 export interface HomeContractPort {
   /** getPage：GET /v1/pages/{page_key}（optional，不签名、不带幂等键）→ {page_key, version, ttl_sec?, sections}。 */
@@ -209,6 +208,47 @@ export class ApiClientHomeNoticePort implements HomeNoticePort {
 
   cancelOwned(owner: () => boolean): void {
     this.client()?.cancelOwned(owner);
+  }
+}
+
+/**
+ * getPage / listPageSectionItems 的生产实现（FU-X-HOME-PAGE-API）：经 ApiClient 按生成的操作登记表发请求；只带 cursor（URL 编码），
+ * 不带频道、排序或条数参数。ApiClient 还没建好时回网络错误（不抛）。
+ */
+export class ApiClientHomeContractPort implements HomeContractPort {
+  private readonly client: () => ApiClient | null;
+
+  constructor(client: () => ApiClient | null) {
+    this.client = client;
+  }
+
+  getPage(pageKey: string, _anonymous: boolean, sendAllowed: () => boolean): Promise<ApiResult> {
+    const p: Record<string, string> = {};
+    p['page_key'] = pageKey;
+    return this.send(new ApiRequest('getPage', p), sendAllowed);
+  }
+
+  listSectionItems(pageKey: string, sectionId: string, cursor: string | null, _anonymous: boolean,
+    sendAllowed: () => boolean): Promise<ApiResult> {
+    const p: Record<string, string> = {};
+    p['page_key'] = pageKey;
+    p['section_id'] = sectionId;
+    return this.send(new ApiRequest('listPageSectionItems', p,
+      cursor === null ? '' : 'cursor=' + encodeURIComponent(cursor)), sendAllowed);
+  }
+
+  /** 不逐个撤请求：作废后的应答由控制器按 serial / renderSerial 丢弃（与假服务端口同一口径）。 */
+  cancel(_owner: number): void {
+  }
+
+  private send(request: ApiRequest, sendAllowed: () => boolean): Promise<ApiResult> {
+    const c: ApiClient | null = this.client();
+    if (c === null) {
+      return Promise.resolve(new ApiResult(ApiOutcome.NETWORK_ERROR, -1, '', {}, '', 0, TransportFailure.DISCONNECT,
+        null, null, null));
+    }
+    request.sendAllowed = sendAllowed;
+    return c.request(request);
   }
 }
 
@@ -457,6 +497,8 @@ class RenderOrigin {
 }
 
 export class HomeController {
+  /** 契约「items 为空而带游标表示接着取」：卡片还没有任何商品时自己接着取，最多 3 次（D10-607 D4，防服务端连续回空页无限追取）。 */
+  static readonly EMPTY_PAGE_FETCH_ON_MAX: number = 3;
   private static serials: number = 0;
   readonly serial: number;
   private readonly deps: HomeDeps;
@@ -846,7 +888,7 @@ export class HomeController {
 
   // ---------------------------------------------------------------- 卡片数据源
 
-  private loadSection(card: HomeCard, cursor: string | null, retrying: boolean): void {
+  private loadSection(card: HomeCard, cursor: string | null, retrying: boolean, emptyFetchOn: number = 0): void {
     const id: string = card.id;
     const serial: number = (this.sectionSerial.get(id) ?? 0) + 1;
     this.sectionSerial.set(id, serial);
@@ -897,8 +939,15 @@ export class HomeController {
         } else {
           const items: Record<string, Object>[] = HomeController.productsOf(r.data);
           const next: Object | undefined = r.data['next_cursor'];
-          this.sections.set(id, new HomeSectionData(before.concat(items), [], false, false,
-            typeof next === 'string' && (next as string).length > 0 ? next as string : null, true));
+          const nextCursor: string | null = typeof next === 'string' && (next as string).length > 0 ? next as string : null;
+          const all: Record<string, Object>[] = before.concat(items);
+          if (all.length === 0 && nextCursor !== null && emptyFetchOn < HomeController.EMPTY_PAGE_FETCH_ON_MAX) {
+            // 契约：items 为空而有游标表示继续取（卡片还没显示，没有触底可言）；只在还没有商品时接着取，最多 3 次（D4）。
+            this.loadSection(card, nextCursor, false, emptyFetchOn + 1);
+            this.publish();
+            return;
+          }
+          this.sections.set(id, new HomeSectionData(all, [], false, false, nextCursor, true));
         }
         this.publish();
       });

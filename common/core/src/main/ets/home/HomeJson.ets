@@ -591,6 +591,28 @@ export class HomeJson {
       return new SectionFailure(typeof kind === 'string' ? HomeReason.BAD_VALUE : HomeReason.BAD_TYPE);
     }
     card.sourceKind = HomeSourceKind.UNION_MATERIAL;
+    // 契约形状 channels [{platform, channel_id}]（home-schema.json）；旧的 platforms 只给包内 / 三端向量的临时 fixture。
+    const channels: HomeJsonValue | undefined = source['channels'];
+    if (channels !== undefined && channels !== null) {
+      const chs: HomeJsonValue[] | null = HomeJsonRead.arrayOf(channels);
+      if (chs === null) {
+        return new SectionFailure(HomeReason.BAD_TYPE);
+      }
+      for (const raw of chs) {
+        const ch: HomeJsonObject | null = HomeJsonRead.objectOf(raw);
+        const p: string | null = ch === null ? null : HomeJsonRead.stringOf(ch['platform']);
+        if (p === null) {
+          return new SectionFailure(HomeReason.BAD_VALUE);
+        }
+        if (card.platforms.indexOf(p) < 0) {
+          card.platforms.push(p);
+        }
+      }
+      if (card.platforms.length === 0) {
+        return new SectionFailure(HomeReason.BAD_VALUE);
+      }
+      return HomeJson.feedMix(card, source);
+    }
     const platforms: HomeJsonValue | undefined = source['platforms'];
     if (platforms === undefined || platforms === null) {
       return new SectionFailure(HomeReason.MISSING_FIELD);
@@ -608,6 +630,10 @@ export class HomeJson {
     if (card.platforms.length === 0) {
       return new SectionFailure(HomeReason.BAD_VALUE);
     }
+    return HomeJson.feedMix(card, source);
+  }
+
+  private static feedMix(card: HomeCard, source: HomeJsonObject): HomeCard | SectionFailure {
     const mix: HomeJsonValue | undefined = source['mix'];
     if (mix !== undefined && mix !== null) {
       if (mix !== 'interleave') {

@@ -251,7 +251,6 @@ export class WithdrawConditionText {
     const key: string = 'error.30303.' + reason;
     const text: string | undefined = DefaultTexts.text(key);
     if (text === undefined) {
-      // TODO(N-32) G07：payee_daily_count 等字典里没有的子键回落「暂不满足提现条件」。
       out['textKey'] = 'error.30303';
       out['useFallback'] = true;
       return out;

@@ -182,10 +182,11 @@ export class HeaderDecision {
 export class RequestHeaderPolicy {
   /**
    * 基本模式匿名白名单（BR-ID-11 细则：首页、搜索、详情 + 帮助与规则文章 GET /v1/articles；配置）。
-   * TODO(N-19)：首页内容接口在锁定契约里还没有 operationId；文章详情 getArticle 的基本模式用途（协议与帮助文章的类别）
+   * 首页（getPage、listPageSectionItems，FU-X-HOME-PAGE-API）已在白名单。TODO(N-19)：文章详情 getArticle 的基本模式用途（协议与帮助文章的类别）
    * 未表达，按路径前缀扩白名单会放宽，暂不放行（rule-gaps 第 2 条，保守）。
    */
-  static readonly BASIC_MODE_ALLOWLIST: string[] = ['getConfig', 'searchProducts', 'getProduct', 'listArticles'];
+  static readonly BASIC_MODE_ALLOWLIST: string[] = ['getConfig', 'searchProducts', 'getProduct', 'listArticles', 'getPage',
+    'listPageSectionItems'];
   /** 首启尚未同意时只放行配置（03 §4.1）。TODO(N-19)：线上协议文本的 operation 待契约给出。 */
   static readonly UNDECIDED_ALLOWLIST: string[] = ['getConfig'];
   /**

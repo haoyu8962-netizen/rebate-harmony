@@ -246,12 +246,11 @@ export class BuildVariant {
   private static readonly fakeHome: DebugFakeHome = new DebugFakeHome();
 
   /**
-   * 首页的 getPage / listSectionItems（APP-11 G02、G03，契约没有）：本机假服务打开、且当前环境允许调试假数据（prod 不允许）时用假实现
-   * （截图与冒烟）；否则与 Release 一样为 null（首页只显示 LKG / 包内默认，商品池与物料卡隐藏，不发请求，R1-09）。
+   * 首页的 getPage / listPageSectionItems（FU-X-HOME-PAGE-API）：本机假服务打开、且当前环境允许调试假数据时用假实现（截图与设备用例的
+   * 测试参数）；否则与 Release 一样走真实端口（每次调用时判断）。
    */
-  static homeContract(): HomeContractPort | null {
-    // FU-HM-0711b R1-03：交出的实例本身每次调用、每次异步返回前再核对闸门（持有旧实例切到 prod 也不给假数据）。
-    return HomeDebugSources.guarded(DebugFakeServer.mockGate, BuildVariant.fakeHome);
+  static homeContract(real: HomeContractPort): HomeContractPort {
+    return HomeDebugSources.select(DebugFakeServer.mockGate, BuildVariant.fakeHome, real);
   }
 
   /**
