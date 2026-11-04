@@ -55,6 +55,7 @@ export class ErrorCodes {
     all.set(10007, new ErrorCodeInfo(10007, 403, RetryKind.NEVER, reasons([], []), false, false));
     all.set(10008, new ErrorCodeInfo(10008, 401, RetryKind.NEVER, reasons([], []), false, false));
     all.set(10009, new ErrorCodeInfo(10009, 403, RetryKind.LATER, reasons([], []), false, false));
+    all.set(10010, new ErrorCodeInfo(10010, 403, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(10401, new ErrorCodeInfo(10401, 401, RetryKind.NEVER, reasons([], []), false, false));
     all.set(10402, new ErrorCodeInfo(10402, 401, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(10403, new ErrorCodeInfo(10403, 403, RetryKind.NEVER, reasons([], []), false, false));
@@ -64,6 +65,7 @@ export class ErrorCodes {
     all.set(20002, new ErrorCodeInfo(20002, 400, RetryKind.NEVER, reasons([], []), false, false));
     all.set(20003, new ErrorCodeInfo(20003, 400, RetryKind.NEVER, reasons([], []), false, false));
     all.set(20004, new ErrorCodeInfo(20004, 400, RetryKind.AFTER_ACTION, reasons([], []), false, false));
+    all.set(20005, new ErrorCodeInfo(20005, 400, RetryKind.NEVER, reasons([], []), false, false));
     all.set(20901, new ErrorCodeInfo(20901, 409, RetryKind.NEVER, reasons([], []), false, false));
     all.set(20902, new ErrorCodeInfo(20902, 409, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(20903, new ErrorCodeInfo(20903, 409, RetryKind.NEVER, reasons([], []), false, false));
@@ -83,6 +85,8 @@ export class ErrorCodes {
     all.set(30152, new ErrorCodeInfo(30152, 422, RetryKind.NOT_APPLICABLE, reasons([], []), true, false));
     all.set(30153, new ErrorCodeInfo(30153, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30154, new ErrorCodeInfo(30154, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30155, new ErrorCodeInfo(30155, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30156, new ErrorCodeInfo(30156, 422, RetryKind.AFTER_ACTION, reasons([], []), false, false));
     all.set(30201, new ErrorCodeInfo(30201, 404, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30202, new ErrorCodeInfo(30202, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30203, new ErrorCodeInfo(30203, 422, RetryKind.LATER, reasons([], []), false, false));
@@ -115,6 +119,8 @@ export class ErrorCodes {
     all.set(30415, new ErrorCodeInfo(30415, 422, RetryKind.LATER, reasons([], []), false, false));
     all.set(30416, new ErrorCodeInfo(30416, 422, RetryKind.LATER, reasons([], []), false, false));
     all.set(30417, new ErrorCodeInfo(30417, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30418, new ErrorCodeInfo(30418, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30419, new ErrorCodeInfo(30419, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30501, new ErrorCodeInfo(30501, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30502, new ErrorCodeInfo(30502, 422, RetryKind.LATER, reasons([], []), false, false));
     all.set(30503, new ErrorCodeInfo(30503, 422, RetryKind.NEVER, reasons([], []), false, false));
@@ -132,6 +138,8 @@ export class ErrorCodes {
     all.set(30804, new ErrorCodeInfo(30804, 409, RetryKind.NEVER, reasons([], []), false, true));
     all.set(30805, new ErrorCodeInfo(30805, 422, RetryKind.LATER, reasons([], []), false, true));
     all.set(30806, new ErrorCodeInfo(30806, 422, RetryKind.NEVER, reasons([], []), false, true));
+    all.set(30901, new ErrorCodeInfo(30901, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30902, new ErrorCodeInfo(30902, 409, RetryKind.NEVER, reasons([], []), false, false));
     all.set(40901, new ErrorCodeInfo(40901, 409, RetryKind.LATER, reasons([], []), false, false));
     all.set(42901, new ErrorCodeInfo(42901, 429, RetryKind.LATER, reasons([], []), false, false));
     all.set(44001, new ErrorCodeInfo(44001, 403, RetryKind.NEVER, reasons([], []), false, false));
@@ -142,8 +150,9 @@ export class ErrorCodes {
     all.set(50301, new ErrorCodeInfo(50301, 503, RetryKind.LATER, reasons(['maintenance', 'not_launched'], [RetryKind.LATER, RetryKind.NEVER]), false, false));
     all.set(50302, new ErrorCodeInfo(50302, 503, RetryKind.LATER, reasons([], []), false, false));
     all.set(50303, new ErrorCodeInfo(50303, 503, RetryKind.LATER, reasons([], []), false, false));
-    all.set(50304, new ErrorCodeInfo(50304, 503, RetryKind.LATER, reasons(['search_disabled'], [RetryKind.NEVER]), false, false));
+    all.set(50304, new ErrorCodeInfo(50304, 503, RetryKind.LATER, reasons(['search_disabled', 'rank_unavailable'], [RetryKind.NEVER, RetryKind.NEVER]), false, false));
     all.set(50305, new ErrorCodeInfo(50305, 503, RetryKind.LATER, reasons([], []), false, false));
+    all.set(50306, new ErrorCodeInfo(50306, 503, RetryKind.LATER, reasons([], []), false, false));
     all.set(50401, new ErrorCodeInfo(50401, 504, RetryKind.IMMEDIATE, reasons([], []), false, false));
     return all;
   }

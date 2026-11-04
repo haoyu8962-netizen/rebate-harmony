@@ -155,6 +155,28 @@
       ]
     },
     {
+      "code": 10010,
+      "http": 403,
+      "meaning": "账号待加验且本设备未加验（旧号加验，BR-WDR-01 细则；data.method ∈ id_number / oauth / manual，method=oauth 时带 data.providers，method≠manual 时带 data.fail_limit；不写幂等结果）",
+      "action": "按 data.method 打开 Reverify；通过后回到原页面，由用户用新幂等键重新提交，不重放（BR-WDR-07）；manual 只提示联系客服",
+      "retry": "加验后由用户重新提交",
+      "retry_kind": "after_action",
+      "data": {
+        "method": [
+          "id_number",
+          "oauth",
+          "manual"
+        ],
+        "providers": null,
+        "fail_limit": null
+      },
+      "sources": [
+        "BR-WDR-01",
+        "BR-WDR-03",
+        "BR-WDR-07"
+      ]
+    },
+    {
       "code": 10401,
       "http": 401,
       "meaning": "请求签名无效或重放（X-Nonce 重复 / 时间戳超窗）",
@@ -236,8 +258,8 @@
         413,
         415
       ],
-      "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」；后台上传平台标识被拒收时 data.fields=[file]、data.reason 为 icon_format_invalid（非 SVG / PNG、不能解析、PNG 边长不足 512px 或非透明底）、icon_too_large（超过 content.platform_icon.max_bytes）或 icon_svg_unconvertible（含样式表、复杂选择器、@ 规则、外部引用或超出转换上限，无法保真转换），后台发布缺来源登记的版本时 data.fields 列出所有缺的项（[source_url]、[downloaded_on]，两项都缺时为 [source_url, downloaded_on]），BR-TEXT-24 细则；加收藏时收藏数已达 favorites.max_per_user 为 data.reason=favorites_full，规划/01 F-PROD-12）",
-      "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash 与 icon_format_invalid、icon_too_large、icon_svg_unconvertible 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31、BR-TEXT-24 细则），不进用户侧字典；favorites_full 轻提示、不弹窗",
+      "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」；后台上传平台标识被拒收时 data.fields=[file]、data.reason 为 icon_format_invalid（非 SVG / PNG、不能解析、PNG 边长不足 512px 或非透明底）、icon_too_large（超过 content.platform_icon.max_bytes）或 icon_svg_unconvertible（含样式表、复杂选择器、@ 规则、外部引用或超出转换上限，无法保真转换），后台发布缺来源登记的版本时 data.fields 列出所有缺的项（[source_url]、[downloaded_on]，两项都缺时为 [source_url, downloaded_on]），BR-TEXT-24 细则；加收藏时收藏数已达 favorites.max_per_user 为 data.reason=favorites_full，规划/01 F-PROD-12；后台对 reauth_mode=manual 的联盟账号发起 OAuth 重新授权时 data.fields=[union_account_id]、data.reason=manual_mode，表示该账号走手工录入凭据，与没有可更新站长凭据（不带 reason）区分，BR-ID-24 细则，编排裁定 D10-176；后台指派未归因订单时目标用户不能作为归属对象为 data.fields=[user_id]、data.reason 为 target_banned（已封禁）、target_deleting（注销中）或 target_deleted（已注销），BR-ATTR-31 细则「改归属的目标用户」，冻结账号可以指派；后台「消息模板」页（BR-TEXT-20 细则「短信渠道登记与后台渠道开关」，编排裁定 D10-335 ②）：开关推送或短信、或给不能发短信的编码登记短信时该渠道不能在后台开关或登记，data.fields=[push]、[sms] 或 [code]、data.reason=notify_channel_locked；保存短信登记时预览正文的变量与该编码在代码中定义的变量不一致，data.fields=[preview_text]、data.reason=notify_preview_vars_mismatch；SMS_CODE 的预览正文写的有效分钟数与 BR-ID-05 的有效期不一致，data.fields=[preview_text]、data.reason=notify_code_ttl_mismatch；后台月结批次写操作（BR-FUND-04，编排裁定 D10-436、D10-437、D10-440）：账单还在生成中或账单日任务没有结果时 data.fields=[bill_id]、data.reason=bill_not_ready；发起补充时该平台开关 credit.enabled 关闭为 data.fields=[platform]、data.reason=credit_disabled；发起补充时账单下还有任何 DRAFT 批次（同平台或别平台）为 data.fields=[bill_id]、data.reason=pending_draft，须先确认或驳回现有 DRAFT 再发起；继续 PARTIAL 批次时开关未全开为 data.fields=[batch_id]、data.reason=switches_off，当日资产快照未完成且未超时为 data.fields=[batch_id]、data.reason=snapshot_pending；后台差错单恢复处理（BR-FUND-22 ③，编排裁定 D10-468 ①、D10-469 ①）：差错单不是账户封禁申诉的 appeal_restore 时 data.fields=[recon_diff_id]、data.reason=restore_not_supported；受益人已注销时 data.fields=[recon_diff_id]、data.reason=restore_user_deleted，差错单走关单结案；后台差错单结案（编排裁定 D10-447 ②、D10-506，B2-09h 起校验）：不是 type=settle_amount_mismatch（source R1）的差错单带 outcome 时 data.fields=[outcome]；后台人工调账（BR-FUND-24）：关联单据不存在、差错单是 source R4（收款对账，BR-PAY-07）或提现单、注销单属于别的用户时 data.fields=[refs]、data.reason=adjust_ref_invalid；红冲的原单不是 APPROVED 或本身是红冲单时 data.fields=[reverses_adjust_id]、data.reason=reverse_not_allowed；目标用户已注销时 data.fields=[user_id] 或 [reverses_adjust_id]、data.reason=adjust_user_deleted；批准系统预填的 ACCOUNT_CLOSED 单时 available 不大于 0 为 data.fields=[adjust_id]、data.reason=adjust_no_balance，单据保持 PENDING；后台批准坏账核销（BR-FUND-12）：用户有冻结金额且开关开启时 data.fields=[id]、data.reason=writeoff_frozen_pending，候选单保持 PENDING；驳回提现单时有 pending / success / unknown 转账尝试为 data.fields=[withdrawal_id]、data.reason=reject_attempt_exists，付款方侧失败退回的单还没有可用查询结果为 reject_query_required，最近查询已成功为 reject_query_success，都不写任何东西）",
+      "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash、manual_mode 与 icon_format_invalid、icon_too_large、icon_svg_unconvertible、target_banned、target_deleting、target_deleted、notify_channel_locked、notify_preview_vars_mismatch、notify_code_ttl_mismatch、bill_not_ready、credit_disabled、pending_draft、snapshot_pending、switches_off、restore_not_supported、restore_user_deleted、adjust_ref_invalid、reverse_not_allowed、adjust_user_deleted、adjust_no_balance、writeoff_frozen_pending、reject_attempt_exists、reject_query_required、reject_query_success 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31、BR-TEXT-24 细则），不进用户侧字典；favorites_full 轻提示、不弹窗",
       "retry": "否",
       "retry_kind": "never",
       "data": {
@@ -250,7 +272,34 @@
           "icon_format_invalid",
           "icon_too_large",
           "icon_svg_unconvertible",
-          "favorites_full"
+          "favorites_full",
+          "manual_mode",
+          "target_banned",
+          "target_deleting",
+          "target_deleted",
+          "notify_channel_locked",
+          "notify_preview_vars_mismatch",
+          "notify_code_ttl_mismatch",
+          "not_payer_side_case",
+          "writeoff_disabled",
+          "withdrawal_not_returned",
+          "transfer_attempts_mismatch",
+          "amount_mismatch",
+          "bill_not_ready",
+          "credit_disabled",
+          "pending_draft",
+          "snapshot_pending",
+          "switches_off",
+          "restore_not_supported",
+          "restore_user_deleted",
+          "adjust_ref_invalid",
+          "reverse_not_allowed",
+          "adjust_user_deleted",
+          "adjust_no_balance",
+          "writeoff_frozen_pending",
+          "reject_attempt_exists",
+          "reject_query_required",
+          "reject_query_success"
         ]
       },
       "sources": [
@@ -261,7 +310,16 @@
         "BR-AI-23",
         "BR-TEXT-13",
         "BR-WDR-03",
-        "BR-WATCH-04"
+        "BR-WATCH-04",
+        "BR-ATTR-31",
+        "BR-WDR-23",
+        "BR-WDR-08",
+        "BR-TEXT-20",
+        "BR-FUND-04",
+        "BR-FUND-22",
+        "BR-FUND-24",
+        "BR-FUND-12",
+        "BR-PAY-07"
       ]
     },
     {
@@ -312,6 +370,21 @@
       ]
     },
     {
+      "code": 20005,
+      "http": 400,
+      "meaning": "核实身份（旧号加验）核对不符：身份证号与已存实名不一致，或第三方重新授权得到的不是可信身份里的那一个（data.fail_limit 必有、data.fail_remaining；计入连续失败，到上限后再提交返回 10010 method=manual）",
+      "action": "留在 Reverify，提示剩余次数，由用户改正后用新的幂等键重新提交",
+      "retry": "否",
+      "retry_kind": "never",
+      "data": {
+        "fail_limit": null,
+        "fail_remaining": null
+      },
+      "sources": [
+        "BR-WDR-01"
+      ]
+    },
+    {
       "code": 20901,
       "http": 409,
       "meaning": "幂等键冲突（同键不同请求体）",
@@ -346,7 +419,19 @@
           "agreement",
           "article",
           "dict_item",
-          "claim_item"
+          "claim_item",
+          "app_version",
+          "risk_rule",
+          "union_pid",
+          "admin_account",
+          "pay_order",
+          "pay_refund",
+          "appeal",
+          "recon_diff",
+          "product_pool",
+          "admin_adjustment",
+          "bad_debt_writeoff",
+          "union_receipt"
         ]
       },
       "sources": [
@@ -359,7 +444,17 @@
         "BR-INV-21",
         "BR-ID-12",
         "BR-TEXT-13",
-        "BR-TEXT-12"
+        "BR-TEXT-12",
+        "BR-ID-01",
+        "BR-ATTR-02",
+        "BR-ID-34",
+        "BR-PAY-02",
+        "BR-PAY-06",
+        "BR-FUND-22",
+        "BR-FUND-24",
+        "BR-FUND-12",
+        "BR-FUND-16",
+        "BR-FUND-20"
       ]
     },
     {
@@ -617,6 +712,31 @@
       "retry_kind": "never",
       "sources": [
         "BR-ID-20"
+      ]
+    },
+    {
+      "code": 30155,
+      "http": 422,
+      "meaning": "同一平台、同一联盟账号的同一推广位场景已有启用中的推广位（只出现在 /admin/v1 的 union-pids/{pid_id}/activate：同一 app × platform × 联盟账号 × pid_scene 至多一条 active，同平台同场景的其他联盟账号可以各有一条，要换先停用原来那条再启用新的，BR-ATTR-02 细则「后台修改与启用的裁定」，编排裁定 D10-152、D10-231；不带 data。码值按 08 §13.11 301 段顺序取号，CT-24h）",
+      "action": "后台：刷新推广位列表，提示先停用该联盟账号该场景当前启用的推广位",
+      "retry": "否",
+      "retry_kind": "never",
+      "sources": [
+        "BR-ATTR-02"
+      ]
+    },
+    {
+      "code": 30156,
+      "http": 422,
+      "meaning": "所选平台的订单同步流依赖站长授权，而该授权正暂停（BR-ID-24 ④），后台手动同步不受理（只出现在 /admin/v1 的 POST order-syncs；data.platform 为所选平台。码值按 08 §13.11 301 段顺序取号，30155 由 CT-24h 预占，编排裁定 D10-169 K-4、D10-176，CT-24n）",
+      "action": "后台：提示该平台站长授权暂停中，恢复授权后再同步",
+      "retry": "恢复授权后",
+      "retry_kind": "after_action",
+      "data": {
+        "platform": null
+      },
+      "sources": [
+        "BR-ID-24"
       ]
     },
     {
@@ -1044,8 +1164,8 @@
     {
       "code": 30417,
       "http": 422,
-      "meaning": "导出任务当前状态不允许该操作（只出现在 /admin/v1 的 exports/{id}/download 与 exports/{id}/retry：下载只接受 done 且未到 expires_at（到期未及置 expired 的也按 expired）；重试只接受 failed；data.status 为任务当前状态（enum export_status）。码值按 08 §13.11 304 段（账号身份，BR-ID-34）顺序取号，CT-24k）",
-      "action": "后台：刷新导出记录，按任务当前状态提示",
+      "meaning": "导出任务当前状态不允许该操作（只出现在 /admin/v1 的 exports/{id}/download 与 exports/{id}/retry：下载只接受 done 且未到 expires_at（到期未及置 expired 的也按 expired）；重试只接受 failed；data.status 为任务当前状态（enum export_status）。码值按 08 §13.11 304 段（账号身份，BR-ID-34）顺序取号，CT-24k）；2026-10-23 扩到个人信息副本（BR-ID-40 细则「企业微信会话交付的下载」，编排裁定 D10-246，CT-24q）：POST /admin/v1/users/{user_id}/data-exports/{export_id}/download 时请求状态不是 ready / delivered、已过 expires_at（未及置 expired 的也按 expired）或过期后要求重新生成，data.status 取 personal_data_copy_status（只会是 pending、running、failed、expired、cancelled，都在下列取值内）",
+      "action": "后台：刷新导出记录（个人信息副本为用户详情页的副本请求列表），按任务当前状态提示",
       "retry": "否",
       "retry_kind": "never",
       "data": {
@@ -1060,7 +1180,48 @@
       },
       "sources": [
         "BR-ID-34",
-        "BR-ID-30"
+        "BR-ID-30",
+        "BR-ID-40"
+      ]
+    },
+    {
+      "code": 30418,
+      "http": 422,
+      "meaning": "同一对象申诉次数已用完（累计 3 次都被维持；处理中再次提交仍返回原申诉单、不返回本码）",
+      "action": "仅提示，不再显示提交申诉",
+      "retry": "否",
+      "retry_kind": "never",
+      "sources": [
+        "BR-ID-36"
+      ]
+    },
+    {
+      "code": 30419,
+      "http": 422,
+      "meaning": "该用户当前不受理这项客服代办（只出现在 /admin/v1：实名更正 POST /admin/v1/users/{user_id}/realname-correction 的 realname_not_verified、account_deleting、account_deleted、withdrawal_in_progress、reverify_pending、identity_blacklisted，BR-ID-25 细则「实名更正」；个人信息副本登记 POST /admin/v1/users/{user_id}/data-exports 的 account_deleting、account_deleted、delivery_undecided，BR-ID-40 细则；account_deleting（注销中）另带 data.stage，取值同 10007 的 data.stage（编排裁定 D10-248）；已注销的账号用 account_deleted，不带 data.stage（编排裁定 D10-250）。登记已加验设备 POST /admin/v1/users/{user_id}/reverified-devices 的 account_deleted、reverify_not_pending（账号没有待加验标记），BR-WDR-01 细则「旧手机号被二次放号时的提现加验」，CT-26j；码值按 08 §13.11 304 段顺序取号，编排裁定 D10-246，CT-24q）",
+      "action": "后台：按 data.reason 提示不受理的原因，不提交",
+      "retry": "否",
+      "retry_kind": "never",
+      "data": {
+        "reason": [
+          "realname_not_verified",
+          "account_deleting",
+          "withdrawal_in_progress",
+          "reverify_pending",
+          "identity_blacklisted",
+          "delivery_undecided",
+          "account_deleted",
+          "reverify_not_pending"
+        ],
+        "stage": [
+          "cooling",
+          "processing"
+        ]
+      },
+      "sources": [
+        "BR-ID-25",
+        "BR-ID-40",
+        "BR-WDR-01"
       ]
     },
     {
@@ -1193,13 +1354,14 @@
     {
       "code": 30701,
       "http": 404,
-      "meaning": "页面或内容不存在（推送点击回查 GET /v1/messages/{message_id} 时，消息不存在或不属于当前账号同码，对外不区分）",
+      "meaning": "页面或内容不存在（推送点击回查 GET /v1/messages/{message_id} 时，消息不存在或不属于当前账号同码，对外不区分；用户侧个人信息副本下载 GET /v1/me/data-copies/{id}/download 的副本不存在、不属于本人、不是站内信路径、状态不可下载或已过期同码，对外不区分，BR-ID-40 细则「在 App 内下载」，编排裁定 D10-246，CT-24q）",
       "action": "显示空态；推送点击回查得到本码时改为打开站内信页（BR-ID-10 细则「推送点击的落点」）",
       "retry": "否",
       "retry_kind": "never",
       "sources": [
         "规划/04 §7",
-        "BR-ID-10"
+        "BR-ID-10",
+        "BR-ID-40"
       ]
     },
     {
@@ -1309,6 +1471,39 @@
       "phase": "P1"
     },
     {
+      "code": 30901,
+      "http": 422,
+      "meaning": "支付暂不可用（data.reason 取值见 contracts/enums/pay.yaml pay_unavailable_reason）",
+      "action": "仅提示，不显示支付入口；文案见 BR-TEXT-14 error.30901",
+      "retry": "否",
+      "retry_kind": "never",
+      "data": {
+        "reason": [
+          "pay_disabled",
+          "channel_disabled",
+          "platform_not_allowed",
+          "biz_not_sellable"
+        ]
+      },
+      "sources": [
+        "BR-PAY-01"
+      ]
+    },
+    {
+      "code": 30902,
+      "http": 409,
+      "meaning": "该业务对象已有已支付的订单",
+      "action": "打开该支付单的结果页",
+      "retry": "否",
+      "retry_kind": "never",
+      "data": {
+        "pay_order_id": null
+      },
+      "sources": [
+        "BR-PAY-02"
+      ]
+    },
+    {
       "code": 40901,
       "http": 409,
       "meaning": "同一请求正在处理（含同一收款账号的付费核验仍在途或复核中；租约与复核期限到期后不再返回；作废接口遇到该键的原请求仍在处理时同码）",
@@ -1411,7 +1606,7 @@
     {
       "code": 50301,
       "http": 503,
-      "meaning": "平台维护或熔断，或平台未开放",
+      "meaning": "依赖的外部服务处于不可用状态：① 该平台转链暂停——`convert.enabled.<platform>` 关闭（运营维护、熔断触发的关闭，或平台未开放），或该平台转链依赖的站长授权已失效（BR-ID-24，按 maintenance）（`data.platform`、`data.reason` ∈ {maintenance, not_launched}，取值见 规划/04 §10.2 `convert.off_reason.<platform>`；熔断触发的关闭按 maintenance）；② 实名核验服务不可用或返回错误（App 自助实名与后台实名更正，BR-ID-25；App 自助实名在还没接入核验服务时同样返回本码）；③ 绑定银行卡收款账号时卡 BIN 来源或银行卡核验服务不可用（BR-WDR-02）；④ 短信服务商拒收（含签名或模板 CODE 不对）或出错（后台短信模板的登记与测试发送，BR-TEXT-20 细则「短信渠道登记与后台渠道开关」，编排裁定 D10-335 ③）。②～④ 不带 `data.platform`、`data.reason`。调用时的暂时失败不用本码：单次复核或转链失败、联盟网关的熔断返回 50303（BR-PRICE-13；2026-10-06 同步，12 §9 X-05；转链与详情各接口的分法见 BR-PROD-05 细则「结果分类」③）；其他依赖的超时、限流、熔断或结果未知返回 50401。有专用码的依赖不论不可用还是暂时失败都照用专用码（AI 50302、搜索 50304、第三方登录 50305、支付渠道 50306）",
       "action": "maintenance 弹 Toast、购买按钮禁用；not_launched 购买按钮禁用、不弹 Toast；无 reason 按 maintenance",
       "retry": "maintenance：稍后；not_launched：否",
       "retry_kind": "later",
@@ -1430,7 +1625,11 @@
         "BR-TEXT-14",
         "BR-PRICE-13",
         "BR-PROD-05",
-        "BR-PROD-10"
+        "BR-PROD-10",
+        "BR-ID-24",
+        "BR-ID-25",
+        "BR-WDR-02",
+        "BR-TEXT-20"
       ]
     },
     {
@@ -1463,24 +1662,27 @@
     {
       "code": 50304,
       "http": 503,
-      "meaning": "某平台搜索暂不可用（data.platform；联盟超时、限流或熔断且无可用搜索缓存，不改读商品池冒充）；该平台的搜索开关 search.enabled.<platform> 关闭时带 data.reason=search_disabled（BR-PROD-10 细则「按平台的搜索开关」）",
-      "action": "无 reason：搜索页显示空态与重试按钮；Agent 改查其他平台。search_disabled：不显示重试按钮，刷新配置并隐藏该平台的搜索 Tab，给「粘贴链接查返利」入口；Agent 不检索该平台",
-      "retry": "稍后；search_disabled：否",
+      "meaning": "某平台搜索暂不可用（data.platform；联盟超时、限流或熔断且无可用搜索缓存，不改读商品池冒充）；该平台的搜索开关 search.enabled.<platform> 关闭时带 data.reason=search_disabled（BR-PROD-10 细则「按平台的搜索开关」）；热销榜（GET /v1/rank/hot，F-PROD-13）联盟故障且无缓存时同样不带 reason，该平台没有合规的销量榜频道时带 data.reason=rank_unavailable（该平台不出现在 features.rank_platforms，不用商品池冒充）",
+      "action": "无 reason：搜索页显示空态与重试按钮；热销榜同样显示空态与重试按钮；Agent 改查其他平台。search_disabled：不显示重试按钮，刷新配置并隐藏该平台的搜索 Tab，给「粘贴链接查返利」入口；Agent 不检索该平台。rank_unavailable：不显示重试按钮，热销榜不显示该平台，提示文案见 error.50304.rank_unavailable",
+      "retry": "稍后；search_disabled、rank_unavailable：否",
       "retry_kind": "later",
       "retry_kind_by_reason": {
-        "search_disabled": "never"
+        "search_disabled": "never",
+        "rank_unavailable": "never"
       },
       "data": {
         "platform": null,
         "reason": [
-          "search_disabled"
+          "search_disabled",
+          "rank_unavailable"
         ]
       },
       "sources": [
         "BR-PROD-07",
         "BR-PROD-10",
         "BR-PRICE-11",
-        "BR-TEXT-14"
+        "BR-TEXT-14",
+        "BR-TEXT-17"
       ]
     },
     {
@@ -1500,6 +1702,23 @@
       "sources": [
         "BR-ID-04",
         "BR-ID-08"
+      ]
+    },
+    {
+      "code": 50306,
+      "http": 503,
+      "meaning": "支付渠道暂不可用（向渠道下单失败或超时，支付单保持待支付）",
+      "action": "提示稍后再试或换一种支付方式；可用同一支付单重新取调起参数",
+      "retry": "是",
+      "retry_kind": "later",
+      "data": {
+        "pay_channel": [
+          "wechat_pay",
+          "alipay"
+        ]
+      },
+      "sources": [
+        "BR-PAY-03"
       ]
     },
     {

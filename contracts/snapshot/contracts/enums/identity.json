@@ -36,7 +36,17 @@
       "values": {
         "login": "登录",
         "step_up": "二次验证",
-        "payout_bind": "收款授权（只用于绑定微信零钱收款账号；不登录、不签发令牌，BR-ID-04 细则「收款授权」）"
+        "payout_bind": "收款授权（只用于绑定微信零钱收款账号；不登录、不签发令牌，BR-ID-04 细则「收款授权」）",
+        "reverify": "旧号加验（须登录、不带 action，绑定 uid、device_id 与 provider，只能被 POST /v1/me/reverify/oauth 消费，不签发令牌，BR-WDR-01 细则）"
+      }
+    },
+    "reverify_method": {
+      "source": "规划/04 §2.5；BR-WDR-01",
+      "description": "旧号加验（核实身份）的方式，按优先级只给一种（BR-WDR-01 细则「旧手机号被二次放号时的提现加验」）",
+      "values": {
+        "id_number": "身份证号核对（可信身份含实名）",
+        "oauth": "第三方重新授权（可信身份不含实名、含第三方身份）",
+        "manual": "人工处理（可信身份都没有，或连续失败已达上限、当天锁定；只提示联系客服）"
       }
     },
     "session_scope": {
@@ -184,7 +194,7 @@
       "source": "规划/04 §6.1 /v1/me/tips；BR-ATTR-21、BR-INV-03 细则",
       "values": {
         "jump_tip": "下单须知（按平台记已读）",
-        "inviter_before_buy": "首次购买前的邀请码提示（不分平台）"
+        "inviter_before_buy": "首次购买前的邀请码提示（不分平台）；2026-10-19 作废（BR-INV-03 细则、BR-INV-21）：不再写入与读取，已有行保留，取值不复用；契约里保留不删"
       }
     },
     "appeal_status": {
@@ -212,6 +222,119 @@
         "withdraw": "提现提交：POST /v1/withdrawals 被拦、没有建单（BR-WDR-03 ③a、BR-ID-31），另记申请金额（整数分）",
         "phone_change": "换手机号：绑定或更换手机号时新号码被拦（BR-ID-06）",
         "payout_account": "收款账号：绑定或更换收款账号时被拦（支付宝、银行卡、微信零钱，BR-WDR-02 ⓪、BR-WDR-33）"
+      }
+    },
+    "appeal_source": {
+      "source": "规划/04 §3.2 appeals「来源（App 内提交 / 后台代为登记）与登记人」、§6.6 appeals；BR-ID-36（CT-24r）",
+      "description": "申诉的来源，后台申诉详情（GET /admin/v1/appeals/{appeal_id}）的 source；编码由契约线定（代理补全的默认），列名由 db / risk 任务定",
+      "values": {
+        "app": "App 内由本人提交（POST /v1/me/appeals），登记人为空",
+        "admin": "后台客服代为登记（POST /admin/v1/appeals），登记人为该后台账号"
+      }
+    },
+    "blocked_request_cause": {
+      "source": "规划/04 §6.6 appeals「原因类别」、§11.2 risk.appeal；BR-ID-36 细则「被拦截请求申诉」结案；编排裁定 D10-154（CT-24r）",
+      "description": "被拦请求的拦截原因类别，后台被拦请求查找与申诉详情的 cause；决定撤销时是移出名单条目（另需 risk.blocklist 与动态码）还是一次性放行（只需 risk.appeal）；编码由契约线定（代理补全的默认）",
+      "values": {
+        "blocklist": "名单：命中 BR-ID-31 黑名单条目（维度见 blocklist_dimension），撤销时在结案同一操作里移出造成拦截的名单条目",
+        "rule": "其他拦截规则：同设备注册上限、落地页同 IP 注册上限等 risk_action=block 的规则（BR-ID-05、BR-ID-32），撤销时一次性放行"
+      }
+    },
+    "blocklist_dimension": {
+      "source": "规划/04 §3.2 blocklist 维度；BR-ID-31、BR-ATTR-26（CT-24r）",
+      "description": "blocklist.dimension，取值与 blocklist 表的 CHECK 约束一致；后台被拦请求查找与申诉详情用它显示「黑名单 · 维度」；order_no_suffix、channel 是订单侧维度，不会造成 44001 拦截",
+      "values": {
+        "phone": "手机号（HMAC）",
+        "id_no": "身份证号（HMAC）",
+        "alipay": "支付宝收款账号（HMAC）",
+        "bank_card": "银行卡收款账号（HMAC）",
+        "wechat_openid": "微信零钱收款 openid（HMAC）",
+        "device": "设备哈希",
+        "relation_id": "联盟 relation_id",
+        "order_no_suffix": "淘宝订单号后 6 位（订单侧，BR-ATTR-26）",
+        "channel": "渠道（订单侧，BR-ATTR-26）"
+      }
+    },
+    "risk_hit_ref_type": {
+      "source": "规划/04 §3.2 risk_hits.ref_type；BR-ID-36（CT-24r）",
+      "description": "risk_hits.ref_type，命中记录关联对象的类型；取值与 risk_hits 表的 CHECK 约束一致；后台申诉详情的命中记录 ref_type",
+      "values": {
+        "order": "订单",
+        "withdrawal": "提现单",
+        "blocked_request": "被拦截的请求（返回 44001 的那一次写请求，ref_id 即拦截请求编号）",
+        "invite_relation": "邀请关系",
+        "invite_reward": "邀请奖励"
+      }
+    },
+    "invite_reward_status": {
+      "source": "规划/04 §3.2 invite_rewards；BR-INV-24 细则「资格记录与状态」「有效期」",
+      "description": "invite_rewards.status，邀请奖励活动资格与发放记录的状态；编码由契约线定，含义只在 BR-INV-24；不发与作废的原因只在后台可查，用户端不展示；budget_exhausted 2026-10-20 取消（无路径，BR-INV-24 有效期）",
+      "values": {
+        "qualified": "已取得资格（等触发）",
+        "deferred": "顺延（已触发，当日预算不够或暂停发放，次日起按触发先后补发）",
+        "processed": "已处理（两方各自已发或不发）",
+        "voided": "作废（终态，原因见 invite_reward_void_reason）",
+        "expired": "已过期（终态：有效期内没有可触发的自购子订单，到期由每日任务判定，释放总预算占用；取代 2026-10-20 前的预算用尽）"
+      }
+    },
+    "invite_reward_party_result": {
+      "source": "规划/04 §3.2 invite_rewards；BR-INV-24 细则「资格记录与状态」",
+      "description": "invite_rewards.inviter_result、invitee_result，一方的发放结果；处理前为空",
+      "values": {
+        "granted": "已发",
+        "skipped": "不发（原因见 invite_reward_skip_reason）"
+      }
+    },
+    "invite_reward_skip_reason": {
+      "source": "规划/04 §3.2 invite_rewards；BR-INV-24 ③、细则「判定顺序」第 4、5 步",
+      "description": "invite_rewards 两方各一的不发原因（可空）；前三个双方都不发，后四个只命中的一方不发、另一方照发；编码由契约线定，含义只在 BR-INV-24",
+      "values": {
+        "same_device": "同设备：两人的设备集合相交（BR-INV-08 ③ 口径），双方都不发",
+        "same_ip": "同 IP：被邀请人绑定时的 IP 与邀请人绑定前一段时间内的登录 IP 相同，双方都不发",
+        "deleted_phone_retained": "被邀请人手机号命中未过期的注销留存记录（BR-ID-28、BR-ID-06），双方都不发",
+        "multi_account": "该方被 BR-ID-37 标为同设备多账号，只该方不发",
+        "risk_restricted": "该方处于封禁、申诉中或冻结（risk_state ∈ {banned, appealing, frozen}），只该方不发",
+        "deleting": "该方处于注销流程（cooling、processing、done），只该方不发",
+        "minor": "该方为已识别未满 18 周岁（BR-ID-26），只该方不发"
+      }
+    },
+    "invite_reward_void_reason": {
+      "source": "规划/04 §3.2 invite_rewards；BR-INV-24 ③ ⑥、细则「判定顺序」第 2、3 步",
+      "description": "invite_rewards.void_reason，资格作废的原因（可空，仅 status=voided）；编码由契约线定，含义只在 BR-INV-24",
+      "values": {
+        "relation_changed": "关系已变：发放时被邀请人的上级已不是资格记录里的邀请人",
+        "order_clawed_back": "触发之后、发放之前触发订单被扣回（CLAWED_BACK，含部分退款扣回）",
+        "order_rights": "触发之后、发放之前触发订单进入维权"
+      }
+    },
+    "invite_reward_bind_source": {
+      "source": "规划/04 §3.2 invite_rewards；BR-INV-24 ①",
+      "description": "invite_rewards.bind_source，取得资格时的绑定渠道；后台改上级（admin）不取得资格，不在此列",
+      "values": {
+        "landing": "邀请落地页注册绑定",
+        "register": "注册时随登录绑定",
+        "backfill": "注册后补填邀请码"
+      }
+    },
+    "personal_data_copy_delivery": {
+      "source": "规划/04 §3.2 personal_data_copies、§6.6 users/{id}/data-exports；BR-ID-40 细则（CT-24q）",
+      "description": "personal_data_copies.delivery，个人信息副本的交付方式；登记时由两项通道情况判定（app_login_ok 与 phone_sms_ok 都为真 → in_app_sms，都为假 → wecom_session，只有一项为真时待法务确认、不受理）",
+      "values": {
+        "in_app_sms": "站内信与短信：站内信只带进入 App 内副本页（路由 DataCopy）的入口、不带链接，提取码短信发到绑定手机号，用户经 GET /v1/me/data-copies/{id}/download 下载",
+        "wecom_session": "企业微信会话：登记人经 POST /admin/v1/users/{user_id}/data-exports/{export_id}/download 取文件与一次性口令，在企业微信会话里发给用户，口令另行告知"
+      }
+    },
+    "personal_data_copy_status": {
+      "source": "规划/04 §3.2 personal_data_copies；BR-ID-40 细则、BR-ID-30 ⑨（CT-24q）",
+      "description": "personal_data_copies.status；未结束的是 pending、running、ready（同一用户同时最多 1 条）；迁移 pending→running→ready（文件已生成）→delivered（in_app_sms 发出提取码短信时，wecom_session 登记人第一次下载时）；生成失败或登记人失去下载权限（后台账号停用，或重新登记时发现已不同时持 user.data_export 与 pii.reveal_phone）且未交付→failed；文件生成后 24 小时→expired；账号进入注销 processing 时未结束的→cancelled",
+      "values": {
+        "pending": "已登记，等待生成",
+        "running": "生成中",
+        "ready": "文件已生成，尚未交付",
+        "delivered": "已交付（文件在 expires_at 前仍可下载）",
+        "failed": "失败（重新登记的新请求记 retry_of 并沿用截止时刻）",
+        "expired": "已过期（生成后 24 小时，文件已删除）",
+        "cancelled": "已取消（账号进入注销处理，文件一并删除）"
       }
     }
   }

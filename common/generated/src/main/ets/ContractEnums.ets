@@ -21,6 +21,7 @@ export enum AdminPermission {
   CONTENT_APP_VERSION = 'content.app_version',
   CONTENT_FUND_TERMS = 'content.fund_terms',
   CONTENT_PLATFORM_ICON = 'content.platform_icon',
+  NOTIFY_CHANNELS = 'notify.channels',
   CONFIG_GENERAL = 'config.general',
   CONFIG_RISK = 'config.risk',
   CONFIG_BUSINESS = 'config.business',
@@ -58,6 +59,7 @@ export enum AdminPermission {
   FUND_SETTLE_ADJUST = 'fund.settle_adjust',
   FUND_RECON = 'fund.recon',
   FUND_CASH_ENTRY = 'fund.cash_entry',
+  TAX_EXPORT_FULL = 'tax.export_full',
   AGENT_TRACE = 'agent.trace',
   AGENT_REPORT = 'agent.report'
 }
@@ -96,6 +98,8 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.CONTENT_FUND_TERMS;
     case 'content.platform_icon':
       return AdminPermission.CONTENT_PLATFORM_ICON;
+    case 'notify.channels':
+      return AdminPermission.NOTIFY_CHANNELS;
     case 'config.general':
       return AdminPermission.CONFIG_GENERAL;
     case 'config.risk':
@@ -170,6 +174,8 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.FUND_RECON;
     case 'fund.cash_entry':
       return AdminPermission.FUND_CASH_ENTRY;
+    case 'tax.export_full':
+      return AdminPermission.TAX_EXPORT_FULL;
     case 'agent.trace':
       return AdminPermission.AGENT_TRACE;
     case 'agent.report':
@@ -340,7 +346,8 @@ export function parseExportStatus(raw: string): ExportStatus | undefined {
 /** 契约枚举 export_resource */
 export enum ExportResource {
   USERS = 'users',
-  AUDIT_LOGS = 'audit_logs'
+  AUDIT_LOGS = 'audit_logs',
+  TAX_WITHDRAWALS = 'tax_withdrawals'
 }
 
 export function parseExportResource(raw: string): ExportResource | undefined {
@@ -349,6 +356,39 @@ export function parseExportResource(raw: string): ExportResource | undefined {
       return ExportResource.USERS;
     case 'audit_logs':
       return ExportResource.AUDIT_LOGS;
+    case 'tax_withdrawals':
+      return ExportResource.TAX_WITHDRAWALS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 audit_actor_kind */
+export enum AuditActorKind {
+  ADMIN = 'admin',
+  SYSTEM = 'system'
+}
+
+export function parseAuditActorKind(raw: string): AuditActorKind | undefined {
+  switch (raw) {
+    case 'admin':
+      return AuditActorKind.ADMIN;
+    case 'system':
+      return AuditActorKind.SYSTEM;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 audit_system_actor */
+export enum AuditSystemActor {
+  SYSTEM_RISK = 'system:risk'
+}
+
+export function parseAuditSystemActor(raw: string): AuditSystemActor | undefined {
+  switch (raw) {
+    case 'system:risk':
+      return AuditSystemActor.SYSTEM_RISK;
     default:
       return undefined;
   }
@@ -366,6 +406,398 @@ export function parseAdminClaimMatchField(raw: string): AdminClaimMatchField | u
       return AdminClaimMatchField.ORDER_NO;
     case 'paid_date':
       return AdminClaimMatchField.PAID_DATE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_order_flag */
+export enum AdminOrderFlag {
+  LOCKED = 'locked',
+  STATUS_LOCKED = 'status_locked',
+  RIGHTS_PENDING = 'rights_pending',
+  HOLD = 'hold'
+}
+
+export function parseAdminOrderFlag(raw: string): AdminOrderFlag | undefined {
+  switch (raw) {
+    case 'locked':
+      return AdminOrderFlag.LOCKED;
+    case 'status_locked':
+      return AdminOrderFlag.STATUS_LOCKED;
+    case 'rights_pending':
+      return AdminOrderFlag.RIGHTS_PENDING;
+    case 'hold':
+      return AdminOrderFlag.HOLD;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_order_history_field */
+export enum AdminOrderHistoryField {
+  PLATFORM = 'platform',
+  REBATE = 'rebate'
+}
+
+export function parseAdminOrderHistoryField(raw: string): AdminOrderHistoryField | undefined {
+  switch (raw) {
+    case 'platform':
+      return AdminOrderHistoryField.PLATFORM;
+    case 'rebate':
+      return AdminOrderHistoryField.REBATE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_order_history_source */
+export enum AdminOrderHistorySource {
+  SYNC = 'sync',
+  ADMIN = 'admin',
+  CLAIM = 'claim',
+  SYSTEM = 'system'
+}
+
+export function parseAdminOrderHistorySource(raw: string): AdminOrderHistorySource | undefined {
+  switch (raw) {
+    case 'sync':
+      return AdminOrderHistorySource.SYNC;
+    case 'admin':
+      return AdminOrderHistorySource.ADMIN;
+    case 'claim':
+      return AdminOrderHistorySource.CLAIM;
+    case 'system':
+      return AdminOrderHistorySource.SYSTEM;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 risk_rule_status */
+export enum RiskRuleStatus {
+  ENABLED = 'enabled',
+  DISABLED = 'disabled'
+}
+
+export function parseRiskRuleStatus(raw: string): RiskRuleStatus | undefined {
+  switch (raw) {
+    case 'enabled':
+      return RiskRuleStatus.ENABLED;
+    case 'disabled':
+      return RiskRuleStatus.DISABLED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 risk_action */
+export enum RiskAction {
+  PASS = 'pass',
+  MANUAL_REVIEW = 'manual_review',
+  BLOCK = 'block',
+  VOID_COMMISSION = 'void_commission'
+}
+
+export function parseRiskAction(raw: string): RiskAction | undefined {
+  switch (raw) {
+    case 'pass':
+      return RiskAction.PASS;
+    case 'manual_review':
+      return RiskAction.MANUAL_REVIEW;
+    case 'block':
+      return RiskAction.BLOCK;
+    case 'void_commission':
+      return RiskAction.VOID_COMMISSION;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 union_auth_status */
+export enum UnionAuthStatus {
+  ACTIVE = 'active',
+  EXPIRING = 'expiring',
+  EXPIRED = 'expired'
+}
+
+export function parseUnionAuthStatus(raw: string): UnionAuthStatus | undefined {
+  switch (raw) {
+    case 'active':
+      return UnionAuthStatus.ACTIVE;
+    case 'expiring':
+      return UnionAuthStatus.EXPIRING;
+    case 'expired':
+      return UnionAuthStatus.EXPIRED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 union_reauth_mode */
+export enum UnionReauthMode {
+  OAUTH = 'oauth',
+  MANUAL = 'manual',
+  NONE = 'none'
+}
+
+export function parseUnionReauthMode(raw: string): UnionReauthMode | undefined {
+  switch (raw) {
+    case 'oauth':
+      return UnionReauthMode.OAUTH;
+    case 'manual':
+      return UnionReauthMode.MANUAL;
+    case 'none':
+      return UnionReauthMode.NONE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_union_auth_session_status */
+export enum AdminUnionAuthSessionStatus {
+  PENDING = 'pending',
+  SUCCEEDED = 'succeeded',
+  FAILED = 'failed',
+  EXPIRED = 'expired'
+}
+
+export function parseAdminUnionAuthSessionStatus(raw: string): AdminUnionAuthSessionStatus | undefined {
+  switch (raw) {
+    case 'pending':
+      return AdminUnionAuthSessionStatus.PENDING;
+    case 'succeeded':
+      return AdminUnionAuthSessionStatus.SUCCEEDED;
+    case 'failed':
+      return AdminUnionAuthSessionStatus.FAILED;
+    case 'expired':
+      return AdminUnionAuthSessionStatus.EXPIRED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 union_pid_status */
+export enum UnionPidStatus {
+  PENDING = 'pending',
+  ACTIVE = 'active',
+  RETIRED = 'retired'
+}
+
+export function parseUnionPidStatus(raw: string): UnionPidStatus | undefined {
+  switch (raw) {
+    case 'pending':
+      return UnionPidStatus.PENDING;
+    case 'active':
+      return UnionPidStatus.ACTIVE;
+    case 'retired':
+      return UnionPidStatus.RETIRED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 product_pool_status */
+export enum ProductPoolStatus {
+  ACTIVE = 'active',
+  DISABLED = 'disabled'
+}
+
+export function parseProductPoolStatus(raw: string): ProductPoolStatus | undefined {
+  switch (raw) {
+    case 'active':
+      return ProductPoolStatus.ACTIVE;
+    case 'disabled':
+      return ProductPoolStatus.DISABLED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pool_item_status */
+export enum PoolItemStatus {
+  ONLINE = 'online',
+  OFFLINE = 'offline'
+}
+
+export function parsePoolItemStatus(raw: string): PoolItemStatus | undefined {
+  switch (raw) {
+    case 'online':
+      return PoolItemStatus.ONLINE;
+    case 'offline':
+      return PoolItemStatus.OFFLINE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 notify_channel */
+export enum NotifyChannel {
+  INBOX = 'inbox',
+  PUSH = 'push',
+  SMS = 'sms'
+}
+
+export function parseNotifyChannel(raw: string): NotifyChannel | undefined {
+  switch (raw) {
+    case 'inbox':
+      return NotifyChannel.INBOX;
+    case 'push':
+      return NotifyChannel.PUSH;
+    case 'sms':
+      return NotifyChannel.SMS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 sms_template_type */
+export enum SmsTemplateType {
+  VERIFY = 'verify',
+  NOTICE = 'notice'
+}
+
+export function parseSmsTemplateType(raw: string): SmsTemplateType | undefined {
+  switch (raw) {
+    case 'verify':
+      return SmsTemplateType.VERIFY;
+    case 'notice':
+      return SmsTemplateType.NOTICE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 notify_sms_state */
+export enum NotifySmsState {
+  DISABLED = 'disabled',
+  ENABLED = 'enabled',
+  ENABLED_NOT_READY = 'enabled_not_ready'
+}
+
+export function parseNotifySmsState(raw: string): NotifySmsState | undefined {
+  switch (raw) {
+    case 'disabled':
+      return NotifySmsState.DISABLED;
+    case 'enabled':
+      return NotifySmsState.ENABLED;
+    case 'enabled_not_ready':
+      return NotifySmsState.ENABLED_NOT_READY;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 notify_sms_test_status */
+export enum NotifySmsTestStatus {
+  ACCEPTED = 'accepted',
+  FAILED = 'failed',
+  NOT_SENT_NO_VERIFY_PHONE = 'not_sent_no_verify_phone'
+}
+
+export function parseNotifySmsTestStatus(raw: string): NotifySmsTestStatus | undefined {
+  switch (raw) {
+    case 'accepted':
+      return NotifySmsTestStatus.ACCEPTED;
+    case 'failed':
+      return NotifySmsTestStatus.FAILED;
+    case 'not_sent_no_verify_phone':
+      return NotifySmsTestStatus.NOT_SENT_NO_VERIFY_PHONE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_withdrawal_display_status */
+export enum AdminWithdrawalDisplayStatus {
+  PENDING_REVIEW = 'pending_review',
+  PENDING_HANDLE = 'pending_handle',
+  REJECTED = 'rejected',
+  PAID_MANUAL = 'paid_manual',
+  PAID_AUTO_SYSTEM = 'paid_auto_system',
+  PAID_AUTO_REVIEW = 'paid_auto_review',
+  PAYING = 'paying',
+  FAILED = 'failed'
+}
+
+export function parseAdminWithdrawalDisplayStatus(raw: string): AdminWithdrawalDisplayStatus | undefined {
+  switch (raw) {
+    case 'pending_review':
+      return AdminWithdrawalDisplayStatus.PENDING_REVIEW;
+    case 'pending_handle':
+      return AdminWithdrawalDisplayStatus.PENDING_HANDLE;
+    case 'rejected':
+      return AdminWithdrawalDisplayStatus.REJECTED;
+    case 'paid_manual':
+      return AdminWithdrawalDisplayStatus.PAID_MANUAL;
+    case 'paid_auto_system':
+      return AdminWithdrawalDisplayStatus.PAID_AUTO_SYSTEM;
+    case 'paid_auto_review':
+      return AdminWithdrawalDisplayStatus.PAID_AUTO_REVIEW;
+    case 'paying':
+      return AdminWithdrawalDisplayStatus.PAYING;
+    case 'failed':
+      return AdminWithdrawalDisplayStatus.FAILED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_settle_supplement_outcome */
+export enum AdminSettleSupplementOutcome {
+  GENERATED = 'generated',
+  DUPLICATE = 'duplicate'
+}
+
+export function parseAdminSettleSupplementOutcome(raw: string): AdminSettleSupplementOutcome | undefined {
+  switch (raw) {
+    case 'generated':
+      return AdminSettleSupplementOutcome.GENERATED;
+    case 'duplicate':
+      return AdminSettleSupplementOutcome.DUPLICATE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_recon_diff_outcome */
+export enum AdminReconDiffOutcome {
+  UNION = 'union',
+  OURS = 'ours'
+}
+
+export function parseAdminReconDiffOutcome(raw: string): AdminReconDiffOutcome | undefined {
+  switch (raw) {
+    case 'union':
+      return AdminReconDiffOutcome.UNION;
+    case 'ours':
+      return AdminReconDiffOutcome.OURS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_settle_bill_status */
+export enum AdminSettleBillStatus {
+  GENERATING = 'generating',
+  ISSUED = 'issued',
+  SETTLED = 'settled',
+  SETTLING = 'settling',
+  SCHEDULED = 'scheduled'
+}
+
+export function parseAdminSettleBillStatus(raw: string): AdminSettleBillStatus | undefined {
+  switch (raw) {
+    case 'generating':
+      return AdminSettleBillStatus.GENERATING;
+    case 'issued':
+      return AdminSettleBillStatus.ISSUED;
+    case 'settled':
+      return AdminSettleBillStatus.SETTLED;
+    case 'settling':
+      return AdminSettleBillStatus.SETTLING;
+    case 'scheduled':
+      return AdminSettleBillStatus.SCHEDULED;
     default:
       return undefined;
   }
@@ -522,6 +954,101 @@ export function parseAdminAdjustSubType(raw: string): AdminAdjustSubType | undef
       return AdminAdjustSubType.ACCOUNT_CLOSED;
     case 'OTHER':
       return AdminAdjustSubType.OTHER;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_adjustment_status */
+export enum AdminAdjustmentStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED'
+}
+
+export function parseAdminAdjustmentStatus(raw: string): AdminAdjustmentStatus | undefined {
+  switch (raw) {
+    case 'PENDING':
+      return AdminAdjustmentStatus.PENDING;
+    case 'APPROVED':
+      return AdminAdjustmentStatus.APPROVED;
+    case 'REJECTED':
+      return AdminAdjustmentStatus.REJECTED;
+    case 'CANCELLED':
+      return AdminAdjustmentStatus.CANCELLED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_adjustment_direction */
+export enum AdminAdjustmentDirection {
+  INCREASE = 'increase',
+  DECREASE = 'decrease'
+}
+
+export function parseAdminAdjustmentDirection(raw: string): AdminAdjustmentDirection | undefined {
+  switch (raw) {
+    case 'increase':
+      return AdminAdjustmentDirection.INCREASE;
+    case 'decrease':
+      return AdminAdjustmentDirection.DECREASE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_adjustment_ref_type */
+export enum AdminAdjustmentRefType {
+  RECON_DIFF = 'recon_diff',
+  WITHDRAWAL = 'withdrawal',
+  ORDER = 'order',
+  ACCOUNT_DELETION = 'account_deletion'
+}
+
+export function parseAdminAdjustmentRefType(raw: string): AdminAdjustmentRefType | undefined {
+  switch (raw) {
+    case 'recon_diff':
+      return AdminAdjustmentRefType.RECON_DIFF;
+    case 'withdrawal':
+      return AdminAdjustmentRefType.WITHDRAWAL;
+    case 'order':
+      return AdminAdjustmentRefType.ORDER;
+    case 'account_deletion':
+      return AdminAdjustmentRefType.ACCOUNT_DELETION;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_adjustment_contra_subject */
+export enum AdminAdjustmentContraSubject {
+  COMMISSION_REVENUE = 'COMMISSION_REVENUE',
+  UNION_RECEIVABLE = 'UNION_RECEIVABLE',
+  BAD_DEBT = 'BAD_DEBT',
+  MKT_EXPENSE = 'MKT_EXPENSE',
+  CASH_ALIPAY = 'CASH_ALIPAY',
+  CASH_WECHAT = 'CASH_WECHAT',
+  CASH_BANK = 'CASH_BANK'
+}
+
+export function parseAdminAdjustmentContraSubject(raw: string): AdminAdjustmentContraSubject | undefined {
+  switch (raw) {
+    case 'COMMISSION_REVENUE':
+      return AdminAdjustmentContraSubject.COMMISSION_REVENUE;
+    case 'UNION_RECEIVABLE':
+      return AdminAdjustmentContraSubject.UNION_RECEIVABLE;
+    case 'BAD_DEBT':
+      return AdminAdjustmentContraSubject.BAD_DEBT;
+    case 'MKT_EXPENSE':
+      return AdminAdjustmentContraSubject.MKT_EXPENSE;
+    case 'CASH_ALIPAY':
+      return AdminAdjustmentContraSubject.CASH_ALIPAY;
+    case 'CASH_WECHAT':
+      return AdminAdjustmentContraSubject.CASH_WECHAT;
+    case 'CASH_BANK':
+      return AdminAdjustmentContraSubject.CASH_BANK;
     default:
       return undefined;
   }
@@ -811,6 +1338,68 @@ export function parseWithdrawalChannelState(raw: string): WithdrawalChannelState
   }
 }
 
+/** 契约枚举 withdrawal_sub_text_branch */
+export enum WithdrawalSubTextBranch {
+  PROCESSING = 'processing',
+  WECHAT_WAIT_CONFIRM = 'wechat_wait_confirm',
+  WECHAT_CONFIRM_EXPIRED = 'wechat_confirm_expired',
+  WECHAT_CANCELING = 'wechat_canceling',
+  WECHAT_PROCESSING = 'wechat_processing',
+  AUTO_EXPECTED_SOON = 'auto_expected_soon',
+  MANUAL_REVIEW_PENDING = 'manual_review_pending',
+  MANUAL_REVIEW_OVERDUE = 'manual_review_overdue',
+  CHANNEL_PROCESSING = 'channel_processing',
+  PAYING_DELAYED = 'paying_delayed',
+  PAID_API = 'paid_api',
+  PAID_MANUAL = 'paid_manual',
+  REJECTED_OFFSET = 'rejected_offset',
+  REJECTED = 'rejected',
+  FAILED_ACCOUNT = 'failed_account',
+  FAILED_OTHER = 'failed_other',
+  FAILED_MANUAL = 'failed_manual'
+}
+
+export function parseWithdrawalSubTextBranch(raw: string): WithdrawalSubTextBranch | undefined {
+  switch (raw) {
+    case 'processing':
+      return WithdrawalSubTextBranch.PROCESSING;
+    case 'wechat_wait_confirm':
+      return WithdrawalSubTextBranch.WECHAT_WAIT_CONFIRM;
+    case 'wechat_confirm_expired':
+      return WithdrawalSubTextBranch.WECHAT_CONFIRM_EXPIRED;
+    case 'wechat_canceling':
+      return WithdrawalSubTextBranch.WECHAT_CANCELING;
+    case 'wechat_processing':
+      return WithdrawalSubTextBranch.WECHAT_PROCESSING;
+    case 'auto_expected_soon':
+      return WithdrawalSubTextBranch.AUTO_EXPECTED_SOON;
+    case 'manual_review_pending':
+      return WithdrawalSubTextBranch.MANUAL_REVIEW_PENDING;
+    case 'manual_review_overdue':
+      return WithdrawalSubTextBranch.MANUAL_REVIEW_OVERDUE;
+    case 'channel_processing':
+      return WithdrawalSubTextBranch.CHANNEL_PROCESSING;
+    case 'paying_delayed':
+      return WithdrawalSubTextBranch.PAYING_DELAYED;
+    case 'paid_api':
+      return WithdrawalSubTextBranch.PAID_API;
+    case 'paid_manual':
+      return WithdrawalSubTextBranch.PAID_MANUAL;
+    case 'rejected_offset':
+      return WithdrawalSubTextBranch.REJECTED_OFFSET;
+    case 'rejected':
+      return WithdrawalSubTextBranch.REJECTED;
+    case 'failed_account':
+      return WithdrawalSubTextBranch.FAILED_ACCOUNT;
+    case 'failed_other':
+      return WithdrawalSubTextBranch.FAILED_OTHER;
+    case 'failed_manual':
+      return WithdrawalSubTextBranch.FAILED_MANUAL;
+    default:
+      return undefined;
+  }
+}
+
 /** 契约枚举 payout_attempt_kind */
 export enum PayoutAttemptKind {
   TRANSFER = 'transfer',
@@ -1080,7 +1669,9 @@ export enum ReconDiffType {
   SETTLE_AMOUNT_MISMATCH = 'settle_amount_mismatch',
   SETTLE_MISSING = 'settle_missing',
   APPEAL_RESTORE = 'appeal_restore',
-  ESTIMATE_CHANGED_AFTER_CREDIT = 'estimate_changed_after_credit'
+  ESTIMATE_CHANGED_AFTER_CREDIT = 'estimate_changed_after_credit',
+  PAY_MISMATCH = 'pay_mismatch',
+  PAY_ANOMALY = 'pay_anomaly'
 }
 
 export function parseReconDiffType(raw: string): ReconDiffType | undefined {
@@ -1103,6 +1694,10 @@ export function parseReconDiffType(raw: string): ReconDiffType | undefined {
       return ReconDiffType.APPEAL_RESTORE;
     case 'estimate_changed_after_credit':
       return ReconDiffType.ESTIMATE_CHANGED_AFTER_CREDIT;
+    case 'pay_mismatch':
+      return ReconDiffType.PAY_MISMATCH;
+    case 'pay_anomaly':
+      return ReconDiffType.PAY_ANOMALY;
     default:
       return undefined;
   }
@@ -1152,6 +1747,57 @@ export function parseReconDiffStatus(raw: string): ReconDiffStatus | undefined {
       return ReconDiffStatus.WRITTEN_OFF;
     case 'closed':
       return ReconDiffStatus.CLOSED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 union_receipt_method */
+export enum UnionReceiptMethod {
+  ADMIN_ENTRY = 'ADMIN_ENTRY',
+  R1_RECON = 'R1_RECON'
+}
+
+export function parseUnionReceiptMethod(raw: string): UnionReceiptMethod | undefined {
+  switch (raw) {
+    case 'ADMIN_ENTRY':
+      return UnionReceiptMethod.ADMIN_ENTRY;
+    case 'R1_RECON':
+      return UnionReceiptMethod.R1_RECON;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 union_receipt_cash_account */
+export enum UnionReceiptCashAccount {
+  CASH_ALIPAY = 'CASH_ALIPAY',
+  CASH_BANK = 'CASH_BANK'
+}
+
+export function parseUnionReceiptCashAccount(raw: string): UnionReceiptCashAccount | undefined {
+  switch (raw) {
+    case 'CASH_ALIPAY':
+      return UnionReceiptCashAccount.CASH_ALIPAY;
+    case 'CASH_BANK':
+      return UnionReceiptCashAccount.CASH_BANK;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 admin_fund_water_level */
+export enum AdminFundWaterLevel {
+  NORMAL = 'normal',
+  LOW = 'low'
+}
+
+export function parseAdminFundWaterLevel(raw: string): AdminFundWaterLevel | undefined {
+  switch (raw) {
+    case 'normal':
+      return AdminFundWaterLevel.NORMAL;
+    case 'low':
+      return AdminFundWaterLevel.LOW;
     default:
       return undefined;
   }
@@ -1230,7 +1876,8 @@ export function parseDeviceIdSource(raw: string): DeviceIdSource | undefined {
 export enum OauthAttemptPurpose {
   LOGIN = 'login',
   STEP_UP = 'step_up',
-  PAYOUT_BIND = 'payout_bind'
+  PAYOUT_BIND = 'payout_bind',
+  REVERIFY = 'reverify'
 }
 
 export function parseOauthAttemptPurpose(raw: string): OauthAttemptPurpose | undefined {
@@ -1241,6 +1888,28 @@ export function parseOauthAttemptPurpose(raw: string): OauthAttemptPurpose | und
       return OauthAttemptPurpose.STEP_UP;
     case 'payout_bind':
       return OauthAttemptPurpose.PAYOUT_BIND;
+    case 'reverify':
+      return OauthAttemptPurpose.REVERIFY;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 reverify_method */
+export enum ReverifyMethod {
+  ID_NUMBER = 'id_number',
+  OAUTH = 'oauth',
+  MANUAL = 'manual'
+}
+
+export function parseReverifyMethod(raw: string): ReverifyMethod | undefined {
+  switch (raw) {
+    case 'id_number':
+      return ReverifyMethod.ID_NUMBER;
+    case 'oauth':
+      return ReverifyMethod.OAUTH;
+    case 'manual':
+      return ReverifyMethod.MANUAL;
     default:
       return undefined;
   }
@@ -1662,6 +2331,268 @@ export function parseBlockedRequestType(raw: string): BlockedRequestType | undef
   }
 }
 
+/** 契约枚举 appeal_source */
+export enum AppealSource {
+  APP = 'app',
+  ADMIN = 'admin'
+}
+
+export function parseAppealSource(raw: string): AppealSource | undefined {
+  switch (raw) {
+    case 'app':
+      return AppealSource.APP;
+    case 'admin':
+      return AppealSource.ADMIN;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 blocked_request_cause */
+export enum BlockedRequestCause {
+  BLOCKLIST = 'blocklist',
+  RULE = 'rule'
+}
+
+export function parseBlockedRequestCause(raw: string): BlockedRequestCause | undefined {
+  switch (raw) {
+    case 'blocklist':
+      return BlockedRequestCause.BLOCKLIST;
+    case 'rule':
+      return BlockedRequestCause.RULE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 blocklist_dimension */
+export enum BlocklistDimension {
+  PHONE = 'phone',
+  ID_NO = 'id_no',
+  ALIPAY = 'alipay',
+  BANK_CARD = 'bank_card',
+  WECHAT_OPENID = 'wechat_openid',
+  DEVICE = 'device',
+  RELATION_ID = 'relation_id',
+  ORDER_NO_SUFFIX = 'order_no_suffix',
+  CHANNEL = 'channel'
+}
+
+export function parseBlocklistDimension(raw: string): BlocklistDimension | undefined {
+  switch (raw) {
+    case 'phone':
+      return BlocklistDimension.PHONE;
+    case 'id_no':
+      return BlocklistDimension.ID_NO;
+    case 'alipay':
+      return BlocklistDimension.ALIPAY;
+    case 'bank_card':
+      return BlocklistDimension.BANK_CARD;
+    case 'wechat_openid':
+      return BlocklistDimension.WECHAT_OPENID;
+    case 'device':
+      return BlocklistDimension.DEVICE;
+    case 'relation_id':
+      return BlocklistDimension.RELATION_ID;
+    case 'order_no_suffix':
+      return BlocklistDimension.ORDER_NO_SUFFIX;
+    case 'channel':
+      return BlocklistDimension.CHANNEL;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 risk_hit_ref_type */
+export enum RiskHitRefType {
+  ORDER = 'order',
+  WITHDRAWAL = 'withdrawal',
+  BLOCKED_REQUEST = 'blocked_request',
+  INVITE_RELATION = 'invite_relation',
+  INVITE_REWARD = 'invite_reward'
+}
+
+export function parseRiskHitRefType(raw: string): RiskHitRefType | undefined {
+  switch (raw) {
+    case 'order':
+      return RiskHitRefType.ORDER;
+    case 'withdrawal':
+      return RiskHitRefType.WITHDRAWAL;
+    case 'blocked_request':
+      return RiskHitRefType.BLOCKED_REQUEST;
+    case 'invite_relation':
+      return RiskHitRefType.INVITE_RELATION;
+    case 'invite_reward':
+      return RiskHitRefType.INVITE_REWARD;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 invite_reward_status */
+export enum InviteRewardStatus {
+  QUALIFIED = 'qualified',
+  DEFERRED = 'deferred',
+  PROCESSED = 'processed',
+  VOIDED = 'voided',
+  EXPIRED = 'expired'
+}
+
+export function parseInviteRewardStatus(raw: string): InviteRewardStatus | undefined {
+  switch (raw) {
+    case 'qualified':
+      return InviteRewardStatus.QUALIFIED;
+    case 'deferred':
+      return InviteRewardStatus.DEFERRED;
+    case 'processed':
+      return InviteRewardStatus.PROCESSED;
+    case 'voided':
+      return InviteRewardStatus.VOIDED;
+    case 'expired':
+      return InviteRewardStatus.EXPIRED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 invite_reward_party_result */
+export enum InviteRewardPartyResult {
+  GRANTED = 'granted',
+  SKIPPED = 'skipped'
+}
+
+export function parseInviteRewardPartyResult(raw: string): InviteRewardPartyResult | undefined {
+  switch (raw) {
+    case 'granted':
+      return InviteRewardPartyResult.GRANTED;
+    case 'skipped':
+      return InviteRewardPartyResult.SKIPPED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 invite_reward_skip_reason */
+export enum InviteRewardSkipReason {
+  SAME_DEVICE = 'same_device',
+  SAME_IP = 'same_ip',
+  DELETED_PHONE_RETAINED = 'deleted_phone_retained',
+  MULTI_ACCOUNT = 'multi_account',
+  RISK_RESTRICTED = 'risk_restricted',
+  DELETING = 'deleting',
+  MINOR = 'minor'
+}
+
+export function parseInviteRewardSkipReason(raw: string): InviteRewardSkipReason | undefined {
+  switch (raw) {
+    case 'same_device':
+      return InviteRewardSkipReason.SAME_DEVICE;
+    case 'same_ip':
+      return InviteRewardSkipReason.SAME_IP;
+    case 'deleted_phone_retained':
+      return InviteRewardSkipReason.DELETED_PHONE_RETAINED;
+    case 'multi_account':
+      return InviteRewardSkipReason.MULTI_ACCOUNT;
+    case 'risk_restricted':
+      return InviteRewardSkipReason.RISK_RESTRICTED;
+    case 'deleting':
+      return InviteRewardSkipReason.DELETING;
+    case 'minor':
+      return InviteRewardSkipReason.MINOR;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 invite_reward_void_reason */
+export enum InviteRewardVoidReason {
+  RELATION_CHANGED = 'relation_changed',
+  ORDER_CLAWED_BACK = 'order_clawed_back',
+  ORDER_RIGHTS = 'order_rights'
+}
+
+export function parseInviteRewardVoidReason(raw: string): InviteRewardVoidReason | undefined {
+  switch (raw) {
+    case 'relation_changed':
+      return InviteRewardVoidReason.RELATION_CHANGED;
+    case 'order_clawed_back':
+      return InviteRewardVoidReason.ORDER_CLAWED_BACK;
+    case 'order_rights':
+      return InviteRewardVoidReason.ORDER_RIGHTS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 invite_reward_bind_source */
+export enum InviteRewardBindSource {
+  LANDING = 'landing',
+  REGISTER = 'register',
+  BACKFILL = 'backfill'
+}
+
+export function parseInviteRewardBindSource(raw: string): InviteRewardBindSource | undefined {
+  switch (raw) {
+    case 'landing':
+      return InviteRewardBindSource.LANDING;
+    case 'register':
+      return InviteRewardBindSource.REGISTER;
+    case 'backfill':
+      return InviteRewardBindSource.BACKFILL;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 personal_data_copy_delivery */
+export enum PersonalDataCopyDelivery {
+  IN_APP_SMS = 'in_app_sms',
+  WECOM_SESSION = 'wecom_session'
+}
+
+export function parsePersonalDataCopyDelivery(raw: string): PersonalDataCopyDelivery | undefined {
+  switch (raw) {
+    case 'in_app_sms':
+      return PersonalDataCopyDelivery.IN_APP_SMS;
+    case 'wecom_session':
+      return PersonalDataCopyDelivery.WECOM_SESSION;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 personal_data_copy_status */
+export enum PersonalDataCopyStatus {
+  PENDING = 'pending',
+  RUNNING = 'running',
+  READY = 'ready',
+  DELIVERED = 'delivered',
+  FAILED = 'failed',
+  EXPIRED = 'expired',
+  CANCELLED = 'cancelled'
+}
+
+export function parsePersonalDataCopyStatus(raw: string): PersonalDataCopyStatus | undefined {
+  switch (raw) {
+    case 'pending':
+      return PersonalDataCopyStatus.PENDING;
+    case 'running':
+      return PersonalDataCopyStatus.RUNNING;
+    case 'ready':
+      return PersonalDataCopyStatus.READY;
+    case 'delivered':
+      return PersonalDataCopyStatus.DELIVERED;
+    case 'failed':
+      return PersonalDataCopyStatus.FAILED;
+    case 'expired':
+      return PersonalDataCopyStatus.EXPIRED;
+    case 'cancelled':
+      return PersonalDataCopyStatus.CANCELLED;
+    default:
+      return undefined;
+  }
+}
+
 /** 契约枚举 notify_template_code */
 export enum NotifyTemplateCode {
   ORDER_TRACKED = 'ORDER_TRACKED',
@@ -1679,7 +2610,9 @@ export enum NotifyTemplateCode {
   BALANCE_ADJUSTED = 'BALANCE_ADJUSTED',
   SMS_CODE = 'SMS_CODE',
   UNION_AUTH_EXPIRING = 'UNION_AUTH_EXPIRING',
-  UNION_AUTH_EXPIRED = 'UNION_AUTH_EXPIRED'
+  UNION_AUTH_EXPIRED = 'UNION_AUTH_EXPIRED',
+  DATA_COPY_READY = 'DATA_COPY_READY',
+  DATA_COPY_CODE = 'DATA_COPY_CODE'
 }
 
 export function parseNotifyTemplateCode(raw: string): NotifyTemplateCode | undefined {
@@ -1716,6 +2649,10 @@ export function parseNotifyTemplateCode(raw: string): NotifyTemplateCode | undef
       return NotifyTemplateCode.UNION_AUTH_EXPIRING;
     case 'UNION_AUTH_EXPIRED':
       return NotifyTemplateCode.UNION_AUTH_EXPIRED;
+    case 'DATA_COPY_READY':
+      return NotifyTemplateCode.DATA_COPY_READY;
+    case 'DATA_COPY_CODE':
+      return NotifyTemplateCode.DATA_COPY_CODE;
     default:
       return undefined;
   }
@@ -2360,6 +3297,301 @@ export function parseClaimRejectReason(raw: string): ClaimRejectReason | undefin
       return ClaimRejectReason.NOT_IN_POOL;
     case 'ORDER_INVALID':
       return ClaimRejectReason.ORDER_INVALID;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 order_sync_mode */
+export enum OrderSyncMode {
+  WINDOW = 'window',
+  ORDER_NOS = 'order_nos'
+}
+
+export function parseOrderSyncMode(raw: string): OrderSyncMode | undefined {
+  switch (raw) {
+    case 'window':
+      return OrderSyncMode.WINDOW;
+    case 'order_nos':
+      return OrderSyncMode.ORDER_NOS;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 order_sync_status */
+export enum OrderSyncStatus {
+  QUEUED = 'queued',
+  RUNNING = 'running',
+  DONE = 'done',
+  FAILED = 'failed'
+}
+
+export function parseOrderSyncStatus(raw: string): OrderSyncStatus | undefined {
+  switch (raw) {
+    case 'queued':
+      return OrderSyncStatus.QUEUED;
+    case 'running':
+      return OrderSyncStatus.RUNNING;
+    case 'done':
+      return OrderSyncStatus.DONE;
+    case 'failed':
+      return OrderSyncStatus.FAILED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 rights_import_kind */
+export enum RightsImportKind {
+  RIGHTS = 'rights',
+  PUNISH = 'punish',
+  CHANNEL = 'channel'
+}
+
+export function parseRightsImportKind(raw: string): RightsImportKind | undefined {
+  switch (raw) {
+    case 'rights':
+      return RightsImportKind.RIGHTS;
+    case 'punish':
+      return RightsImportKind.PUNISH;
+    case 'channel':
+      return RightsImportKind.CHANNEL;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 rights_import_time_basis */
+export enum RightsImportTimeBasis {
+  PAID = 'paid',
+  RECEIVED = 'received'
+}
+
+export function parseRightsImportTimeBasis(raw: string): RightsImportTimeBasis | undefined {
+  switch (raw) {
+    case 'paid':
+      return RightsImportTimeBasis.PAID;
+    case 'received':
+      return RightsImportTimeBasis.RECEIVED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 rights_import_status */
+export enum RightsImportStatus {
+  QUEUED = 'queued',
+  RUNNING = 'running',
+  DONE = 'done',
+  FAILED = 'failed'
+}
+
+export function parseRightsImportStatus(raw: string): RightsImportStatus | undefined {
+  switch (raw) {
+    case 'queued':
+      return RightsImportStatus.QUEUED;
+    case 'running':
+      return RightsImportStatus.RUNNING;
+    case 'done':
+      return RightsImportStatus.DONE;
+    case 'failed':
+      return RightsImportStatus.FAILED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 rights_import_failure_reason */
+export enum RightsImportFailureReason {
+  INVALID_ROW = 'invalid_row',
+  ORDER_NOT_FOUND = 'order_not_found',
+  SUB_ORDER_NO_MISSING = 'sub_order_no_missing',
+  RECEIVED_AT_MISSING = 'received_at_missing',
+  PLATFORM_MISMATCH = 'platform_mismatch'
+}
+
+export function parseRightsImportFailureReason(raw: string): RightsImportFailureReason | undefined {
+  switch (raw) {
+    case 'invalid_row':
+      return RightsImportFailureReason.INVALID_ROW;
+    case 'order_not_found':
+      return RightsImportFailureReason.ORDER_NOT_FOUND;
+    case 'sub_order_no_missing':
+      return RightsImportFailureReason.SUB_ORDER_NO_MISSING;
+    case 'received_at_missing':
+      return RightsImportFailureReason.RECEIVED_AT_MISSING;
+    case 'platform_mismatch':
+      return RightsImportFailureReason.PLATFORM_MISMATCH;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_channel */
+export enum PayChannel {
+  WECHAT_PAY = 'wechat_pay',
+  ALIPAY = 'alipay'
+}
+
+export function parsePayChannel(raw: string): PayChannel | undefined {
+  switch (raw) {
+    case 'wechat_pay':
+      return PayChannel.WECHAT_PAY;
+    case 'alipay':
+      return PayChannel.ALIPAY;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_order_status */
+export enum PayOrderStatus {
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  CLOSED = 'CLOSED'
+}
+
+export function parsePayOrderStatus(raw: string): PayOrderStatus | undefined {
+  switch (raw) {
+    case 'PENDING':
+      return PayOrderStatus.PENDING;
+    case 'PAID':
+      return PayOrderStatus.PAID;
+    case 'CLOSED':
+      return PayOrderStatus.CLOSED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_refund_status */
+export enum PayRefundStatus {
+  PROCESSING = 'PROCESSING',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED'
+}
+
+export function parsePayRefundStatus(raw: string): PayRefundStatus | undefined {
+  switch (raw) {
+    case 'PROCESSING':
+      return PayRefundStatus.PROCESSING;
+    case 'SUCCESS':
+      return PayRefundStatus.SUCCESS;
+    case 'FAILED':
+      return PayRefundStatus.FAILED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_refund_target_type */
+export enum PayRefundTargetType {
+  PAY_ORDER = 'pay_order',
+  PAY_ANOMALY = 'pay_anomaly'
+}
+
+export function parsePayRefundTargetType(raw: string): PayRefundTargetType | undefined {
+  switch (raw) {
+    case 'pay_order':
+      return PayRefundTargetType.PAY_ORDER;
+    case 'pay_anomaly':
+      return PayRefundTargetType.PAY_ANOMALY;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_query_attempt_kind */
+export enum PayQueryAttemptKind {
+  QUERY = 'query',
+  CLOSE = 'close',
+  REFUND = 'refund',
+  REFUND_QUERY = 'refund_query'
+}
+
+export function parsePayQueryAttemptKind(raw: string): PayQueryAttemptKind | undefined {
+  switch (raw) {
+    case 'query':
+      return PayQueryAttemptKind.QUERY;
+    case 'close':
+      return PayQueryAttemptKind.CLOSE;
+    case 'refund':
+      return PayQueryAttemptKind.REFUND;
+    case 'refund_query':
+      return PayQueryAttemptKind.REFUND_QUERY;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_ledger_type */
+export enum PayLedgerType {
+  PAY_RECEIPT = 'PAY_RECEIPT',
+  PAY_REFUND = 'PAY_REFUND',
+  PAY_ANOMALY = 'PAY_ANOMALY',
+  PAY_FEE = 'PAY_FEE'
+}
+
+export function parsePayLedgerType(raw: string): PayLedgerType | undefined {
+  switch (raw) {
+    case 'PAY_RECEIPT':
+      return PayLedgerType.PAY_RECEIPT;
+    case 'PAY_REFUND':
+      return PayLedgerType.PAY_REFUND;
+    case 'PAY_ANOMALY':
+      return PayLedgerType.PAY_ANOMALY;
+    case 'PAY_FEE':
+      return PayLedgerType.PAY_FEE;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_refund_reason */
+export enum PayRefundReason {
+  USER_REQUEST = 'USER_REQUEST',
+  DUPLICATE_PAYMENT = 'DUPLICATE_PAYMENT',
+  ANOMALY_RECEIPT = 'ANOMALY_RECEIPT',
+  RECON_DIFF = 'RECON_DIFF',
+  OTHER = 'OTHER'
+}
+
+export function parsePayRefundReason(raw: string): PayRefundReason | undefined {
+  switch (raw) {
+    case 'USER_REQUEST':
+      return PayRefundReason.USER_REQUEST;
+    case 'DUPLICATE_PAYMENT':
+      return PayRefundReason.DUPLICATE_PAYMENT;
+    case 'ANOMALY_RECEIPT':
+      return PayRefundReason.ANOMALY_RECEIPT;
+    case 'RECON_DIFF':
+      return PayRefundReason.RECON_DIFF;
+    case 'OTHER':
+      return PayRefundReason.OTHER;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 pay_unavailable_reason */
+export enum PayUnavailableReason {
+  PAY_DISABLED = 'pay_disabled',
+  CHANNEL_DISABLED = 'channel_disabled',
+  PLATFORM_NOT_ALLOWED = 'platform_not_allowed',
+  BIZ_NOT_SELLABLE = 'biz_not_sellable'
+}
+
+export function parsePayUnavailableReason(raw: string): PayUnavailableReason | undefined {
+  switch (raw) {
+    case 'pay_disabled':
+      return PayUnavailableReason.PAY_DISABLED;
+    case 'channel_disabled':
+      return PayUnavailableReason.CHANNEL_DISABLED;
+    case 'platform_not_allowed':
+      return PayUnavailableReason.PLATFORM_NOT_ALLOWED;
+    case 'biz_not_sellable':
+      return PayUnavailableReason.BIZ_NOT_SELLABLE;
     default:
       return undefined;
   }
@@ -3028,7 +4260,7 @@ export class ContractEnums {
 
   private static build(): Map<string, string[]> {
     const all: Map<string, string[]> = new Map<string, string[]>();
-    all.set('admin_permission', ['dashboard.view', 'user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'agent.trace', 'agent.report']);
+    all.set('admin_permission', ['dashboard.view', 'user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'notify.channels', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'tax.export_full', 'agent.trace', 'agent.report']);
     all.set('admin_step_up_tier', ['totp', 'sms']);
     all.set('admin_login_step', ['totp', 'change_password', 'bind_totp']);
     all.set('admin_account_status', ['active', 'disabled']);
@@ -3036,14 +4268,39 @@ export class ContractEnums {
     all.set('admin_dashboard_todo_key', ['withdraw_review_pending', 'claim_review_pending', 'settle_bill_pending', 'recon_diff_open', 'appeal_pending', 'agent_report_overdue', 'beneficiary_held_overdue', 'union_auth_expiring']);
     all.set('admin_search_hit_type', ['order', 'user', 'withdrawal']);
     all.set('export_status', ['pending', 'running', 'done', 'failed', 'expired', 'cancelled']);
-    all.set('export_resource', ['users', 'audit_logs']);
+    all.set('export_resource', ['users', 'audit_logs', 'tax_withdrawals']);
+    all.set('audit_actor_kind', ['admin', 'system']);
+    all.set('audit_system_actor', ['system:risk']);
     all.set('admin_claim_match_field', ['order_no', 'paid_date']);
+    all.set('admin_order_flag', ['locked', 'status_locked', 'rights_pending', 'hold']);
+    all.set('admin_order_history_field', ['platform', 'rebate']);
+    all.set('admin_order_history_source', ['sync', 'admin', 'claim', 'system']);
+    all.set('risk_rule_status', ['enabled', 'disabled']);
+    all.set('risk_action', ['pass', 'manual_review', 'block', 'void_commission']);
+    all.set('union_auth_status', ['active', 'expiring', 'expired']);
+    all.set('union_reauth_mode', ['oauth', 'manual', 'none']);
+    all.set('admin_union_auth_session_status', ['pending', 'succeeded', 'failed', 'expired']);
+    all.set('union_pid_status', ['pending', 'active', 'retired']);
+    all.set('product_pool_status', ['active', 'disabled']);
+    all.set('pool_item_status', ['online', 'offline']);
+    all.set('notify_channel', ['inbox', 'push', 'sms']);
+    all.set('sms_template_type', ['verify', 'notice']);
+    all.set('notify_sms_state', ['disabled', 'enabled', 'enabled_not_ready']);
+    all.set('notify_sms_test_status', ['accepted', 'failed', 'not_sent_no_verify_phone']);
+    all.set('admin_withdrawal_display_status', ['pending_review', 'pending_handle', 'rejected', 'paid_manual', 'paid_auto_system', 'paid_auto_review', 'paying', 'failed']);
+    all.set('admin_settle_supplement_outcome', ['generated', 'duplicate']);
+    all.set('admin_recon_diff_outcome', ['union', 'ours']);
+    all.set('admin_settle_bill_status', ['generating', 'issued', 'settled', 'settling', 'scheduled']);
     all.set('ledger_type', ['REBATE_CREDIT', 'SHARE_CREDIT', 'REFERRAL_CREDIT', 'CLAWBACK', 'SETTLE_ADJUST', 'WITHDRAW_FREEZE', 'WITHDRAW_PAID', 'WITHDRAW_RETURN', 'WITHDRAW_FEE', 'TAX_WITHHOLD', 'REWARD', 'ADMIN_ADJUST', 'BAD_DEBT_WRITEOFF']);
     all.set('referral_credit_sub_type', ['DIRECT', 'INDIRECT']);
     all.set('clawback_sub_type', ['FULL', 'PART_REFUND', 'RIGHTS', 'PUNISH']);
     all.set('settle_adjust_sub_type', ['SETTLE_DIFF', 'PRICE_COMPARE', 'PRICE_PROTECT']);
     all.set('reward_sub_type', ['newbie', 'checkin', 'invite']);
     all.set('admin_adjust_sub_type', ['RESTORE', 'RECON_FIX', 'PAYOUT_RECOVERY', 'ACCOUNT_CLOSED', 'OTHER']);
+    all.set('admin_adjustment_status', ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']);
+    all.set('admin_adjustment_direction', ['increase', 'decrease']);
+    all.set('admin_adjustment_ref_type', ['recon_diff', 'withdrawal', 'order', 'account_deletion']);
+    all.set('admin_adjustment_contra_subject', ['COMMISSION_REVENUE', 'UNION_RECEIVABLE', 'BAD_DEBT', 'MKT_EXPENSE', 'CASH_ALIPAY', 'CASH_WECHAT', 'CASH_BANK']);
     all.set('beneficiary_role', ['self', 'share', 'direct', 'indirect']);
     all.set('forfeit_reason', ['banned', 'deleted', 'minor']);
     all.set('commission_rule_status', ['draft', 'published', 'revoked']);
@@ -3057,6 +4314,7 @@ export class ContractEnums {
     all.set('withdrawal_review_mode', ['auto', 'manual']);
     all.set('payout_method', ['alipay', 'bank_card', 'wechat']);
     all.set('withdrawal_channel_state', ['processing', 'wait_user_confirm', 'canceling']);
+    all.set('withdrawal_sub_text_branch', ['processing', 'wechat_wait_confirm', 'wechat_confirm_expired', 'wechat_canceling', 'wechat_processing', 'auto_expected_soon', 'manual_review_pending', 'manual_review_overdue', 'channel_processing', 'paying_delayed', 'paid_api', 'paid_manual', 'rejected_offset', 'rejected', 'failed_account', 'failed_other', 'failed_manual']);
     all.set('payout_attempt_kind', ['transfer', 'query', 'cancel']);
     all.set('withdraw_condition_reason', ['account_frozen', 'below_min', 'not_multiple', 'above_max', 'above_method_max', 'net_too_small', 'daily_count', 'monthly_count', 'payee_daily_count', 'payee_daily_users', 'self_purchase_required', 'payout_account_change_limit', 'payout_account_verify_limit']);
     all.set('payout_batch_kind', ['manual', 'auto']);
@@ -3068,13 +4326,17 @@ export class ContractEnums {
     all.set('settle_adjustment_status', ['pending', 'approved', 'rejected', 'voided_stale_seq', 'voided_by_clawback']);
     all.set('beneficiary_credit_kind', ['first_credit', 'reassign_credit', 'deferred']);
     all.set('beneficiary_credit_status', ['open', 'done', 'forfeited', 'voided']);
-    all.set('recon_diff_type', ['union_mismatch', 'channel_mismatch', 'ledger_mismatch', 'platform_restore', 'month_end_unbalanced', 'settle_amount_mismatch', 'settle_missing', 'appeal_restore', 'estimate_changed_after_credit']);
+    all.set('recon_diff_type', ['union_mismatch', 'channel_mismatch', 'ledger_mismatch', 'platform_restore', 'month_end_unbalanced', 'settle_amount_mismatch', 'settle_missing', 'appeal_restore', 'estimate_changed_after_credit', 'pay_mismatch', 'pay_anomaly']);
     all.set('payout_batch_item_result', ['paying', 'skipped', 'blocked', 'moved_out']);
     all.set('recon_diff_status', ['open', 'processing', 'adjusted', 'written_off', 'closed']);
+    all.set('union_receipt_method', ['ADMIN_ENTRY', 'R1_RECON']);
+    all.set('union_receipt_cash_account', ['CASH_ALIPAY', 'CASH_BANK']);
+    all.set('admin_fund_water_level', ['normal', 'low']);
     all.set('identity_level', ['basic', 'guest', 'member', 'phone', 'realname']);
     all.set('login_provider', ['wechat', 'apple', 'huawei']);
     all.set('device_id_source', ['idfv', 'android_id', 'oaid', 'odid']);
-    all.set('oauth_attempt_purpose', ['login', 'step_up', 'payout_bind']);
+    all.set('oauth_attempt_purpose', ['login', 'step_up', 'payout_bind', 'reverify']);
+    all.set('reverify_method', ['id_number', 'oauth', 'manual']);
     all.set('session_scope', ['full', 'deletion_only']);
     all.set('h5_token_scope', ['standard', 'read_only']);
     all.set('sms_purpose', ['login', 'bind', 'step_up']);
@@ -3094,7 +4356,18 @@ export class ContractEnums {
     all.set('appeal_status', ['processing', 'upheld', 'revoked']);
     all.set('appeal_target_type', ['account', 'order', 'blocked_request']);
     all.set('blocked_request_type', ['register', 'withdraw', 'phone_change', 'payout_account']);
-    all.set('notify_template_code', ['ORDER_TRACKED', 'ORDER_INVALID', 'CREDITED', 'CLAWBACK', 'WD_SUCCESS', 'WD_REJECTED', 'WD_FAILED', 'WD_OVERDUE', 'CLAIM_RESULT', 'RISK_STATE_CHANGED', 'APPEAL_RESULT', 'DELETION_PROGRESS', 'BALANCE_ADJUSTED', 'SMS_CODE', 'UNION_AUTH_EXPIRING', 'UNION_AUTH_EXPIRED']);
+    all.set('appeal_source', ['app', 'admin']);
+    all.set('blocked_request_cause', ['blocklist', 'rule']);
+    all.set('blocklist_dimension', ['phone', 'id_no', 'alipay', 'bank_card', 'wechat_openid', 'device', 'relation_id', 'order_no_suffix', 'channel']);
+    all.set('risk_hit_ref_type', ['order', 'withdrawal', 'blocked_request', 'invite_relation', 'invite_reward']);
+    all.set('invite_reward_status', ['qualified', 'deferred', 'processed', 'voided', 'expired']);
+    all.set('invite_reward_party_result', ['granted', 'skipped']);
+    all.set('invite_reward_skip_reason', ['same_device', 'same_ip', 'deleted_phone_retained', 'multi_account', 'risk_restricted', 'deleting', 'minor']);
+    all.set('invite_reward_void_reason', ['relation_changed', 'order_clawed_back', 'order_rights']);
+    all.set('invite_reward_bind_source', ['landing', 'register', 'backfill']);
+    all.set('personal_data_copy_delivery', ['in_app_sms', 'wecom_session']);
+    all.set('personal_data_copy_status', ['pending', 'running', 'ready', 'delivered', 'failed', 'expired', 'cancelled']);
+    all.set('notify_template_code', ['ORDER_TRACKED', 'ORDER_INVALID', 'CREDITED', 'CLAWBACK', 'WD_SUCCESS', 'WD_REJECTED', 'WD_FAILED', 'WD_OVERDUE', 'CLAIM_RESULT', 'RISK_STATE_CHANGED', 'APPEAL_RESULT', 'DELETION_PROGRESS', 'BALANCE_ADJUSTED', 'SMS_CODE', 'UNION_AUTH_EXPIRING', 'UNION_AUTH_EXPIRED', 'DATA_COPY_READY', 'DATA_COPY_CODE']);
     all.set('notify_category', ['service', 'subscription', 'marketing']);
     all.set('user_level', ['L1', 'L2', 'L3']);
     all.set('agent_intent', ['find_by_link', 'search', 'refine', 'order_query', 'rule_qa', 'handoff', 'clarify', 'out_of_scope', 'page_guide', 'earnings_query']);
@@ -3117,6 +4390,20 @@ export class ContractEnums {
     all.set('claim_evidence_level', ['strong', 'weak', 'none']);
     all.set('claim_item_decision', ['approved', 'rejected', 'cancelled']);
     all.set('claim_reject_reason', ['NO_EVIDENCE', 'EXPIRED_CLICK', 'NOT_TRACKED', 'OTHER_TLJ', 'FRAUD', 'OTHER', 'NOT_IN_POOL', 'ORDER_INVALID']);
+    all.set('order_sync_mode', ['window', 'order_nos']);
+    all.set('order_sync_status', ['queued', 'running', 'done', 'failed']);
+    all.set('rights_import_kind', ['rights', 'punish', 'channel']);
+    all.set('rights_import_time_basis', ['paid', 'received']);
+    all.set('rights_import_status', ['queued', 'running', 'done', 'failed']);
+    all.set('rights_import_failure_reason', ['invalid_row', 'order_not_found', 'sub_order_no_missing', 'received_at_missing', 'platform_mismatch']);
+    all.set('pay_channel', ['wechat_pay', 'alipay']);
+    all.set('pay_order_status', ['PENDING', 'PAID', 'CLOSED']);
+    all.set('pay_refund_status', ['PROCESSING', 'SUCCESS', 'FAILED']);
+    all.set('pay_refund_target_type', ['pay_order', 'pay_anomaly']);
+    all.set('pay_query_attempt_kind', ['query', 'close', 'refund', 'refund_query']);
+    all.set('pay_ledger_type', ['PAY_RECEIPT', 'PAY_REFUND', 'PAY_ANOMALY', 'PAY_FEE']);
+    all.set('pay_refund_reason', ['USER_REQUEST', 'DUPLICATE_PAYMENT', 'ANOMALY_RECEIPT', 'RECON_DIFF', 'OTHER']);
+    all.set('pay_unavailable_reason', ['pay_disabled', 'channel_disabled', 'platform_not_allowed', 'biz_not_sellable']);
     all.set('platform', ['taobao', 'jd', 'pdd', 'meituan', 'vip', 'douyin', 'eleme', 'kuaishou', 'suning']);
     all.set('key_stability', ['unverified', 'stable_24h', 'stable_7d', 'unstable']);
     all.set('client_platform', ['ios', 'android', 'harmony', 'h5', 'admin']);

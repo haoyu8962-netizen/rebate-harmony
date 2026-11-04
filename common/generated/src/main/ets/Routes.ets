@@ -108,8 +108,16 @@ export class Routes {
       [], [], false));
     all.set('Search', new RouteSpec('Search', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], null, false, false, null,
       [new RouteParamSpec('q', RouteParamType.STRING, null, null, 100, null), new RouteParamSpec('platform', RouteParamType.STRING, ['taobao', 'jd', 'pdd', 'meituan', 'vip', 'douyin', 'eleme', 'kuaishou', 'suning'], null, null, null)], [], false));
+    all.set('HotRankList', new RouteSpec('HotRankList', RouteKind.NATIVE, 'none', null, [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], null, false, false, null,
+      [new RouteParamSpec('platform', RouteParamType.STRING, ['taobao', 'jd', 'pdd', 'meituan', 'vip', 'douyin', 'eleme', 'kuaishou', 'suning'], null, null, null)], [], false));
     all.set('ProductDetail', new RouteSpec('ProductDetail', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], null, false, false, null,
       [new RouteParamSpec('platform', RouteParamType.STRING, ['taobao', 'jd', 'pdd', 'meituan', 'vip', 'douyin', 'eleme', 'kuaishou', 'suning'], null, null, null), new RouteParamSpec('product_key', RouteParamType.STRING, null, 3, 128, null), new RouteParamSpec('item_ref', RouteParamType.STRING, null, 1, 1024, null)], ['platform', 'product_key'], false));
+    all.set('ProductShare', new RouteSpec('ProductShare', RouteKind.NATIVE, 'phone', null, [RouteEntry.IN_APP], null, false, false, null,
+      [new RouteParamSpec('platform', RouteParamType.STRING, ['taobao', 'jd', 'pdd', 'meituan', 'vip', 'douyin', 'eleme', 'kuaishou', 'suning'], null, null, null), new RouteParamSpec('product_key', RouteParamType.STRING, null, 3, 128, null), new RouteParamSpec('link_id', RouteParamType.STRING, null, 1, null, null)], ['platform', 'product_key'], false));
+    all.set('ShareHub', new RouteSpec('ShareHub', RouteKind.NATIVE, 'phone', null, [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
+      [], [], false));
+    all.set('Favorites', new RouteSpec('Favorites', RouteKind.NATIVE, 'login', null, [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
+      [], [], false));
     all.set('AuthSheet', new RouteSpec('AuthSheet', RouteKind.NATIVE, 'login', '1.0.0', [RouteEntry.IN_APP], null, false, false, null,
       [new RouteParamSpec('platform', RouteParamType.STRING, ['taobao', 'jd', 'pdd', 'meituan', 'vip', 'douyin', 'eleme', 'kuaishou', 'suning'], null, null, null)], ['platform'], false));
     all.set('JumpTip', new RouteSpec('JumpTip', RouteKind.NATIVE, 'login', '1.0.0', [RouteEntry.IN_APP], null, false, false, null,
@@ -136,6 +144,8 @@ export class Routes {
       [], [], false));
     all.set('RealName', new RouteSpec('RealName', RouteKind.NATIVE, 'phone', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, 'fund',
       [], [], false));
+    all.set('Reverify', new RouteSpec('Reverify', RouteKind.NATIVE, 'login', null, [RouteEntry.IN_APP], null, false, false, null,
+      [], [], false));
     all.set('PayoutAccount', new RouteSpec('PayoutAccount', RouteKind.NATIVE, 'realname', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, 'fund',
       [], [], false));
     all.set('LaborAgreement', new RouteSpec('LaborAgreement', RouteKind.NATIVE, 'realname', '1.0.0', [RouteEntry.IN_APP], null, false, false, 'fund',
@@ -150,6 +160,8 @@ export class Routes {
       [], [], false));
     all.set('Appeal', new RouteSpec('Appeal', RouteKind.NATIVE, 'login', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
       [], [], false));
+    all.set('DataCopy', new RouteSpec('DataCopy', RouteKind.NATIVE, 'login', null, [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
+      [], [], false));
     all.set('ForceUpdate', new RouteSpec('ForceUpdate', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP], null, false, false, null,
       [], [], false));
     all.set('About', new RouteSpec('About', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
@@ -158,6 +170,10 @@ export class Routes {
       [], [], false));
     all.set('InviteShare', new RouteSpec('InviteShare', RouteKind.H5, 'phone', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], '/invite', false, true, null,
       [], [], false));
+    all.set('InviteBackfill', new RouteSpec('InviteBackfill', RouteKind.NATIVE, 'phone', '1.0.0', [RouteEntry.IN_APP], null, false, false, null,
+      [new RouteParamSpec('source', RouteParamType.STRING, ['me', 'login'], null, null, null)], [], false));
+    all.set('InviteLink', new RouteSpec('InviteLink', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.DEEPLINK], null, false, false, null,
+      [new RouteParamSpec('code', RouteParamType.STRING, null, 1, 16, null)], ['code'], false));
     all.set('Rules', new RouteSpec('Rules', RouteKind.H5, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], '/rules', false, false, null,
       [], [], false));
     all.set('Help', new RouteSpec('Help', RouteKind.H5, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], '/help', false, false, null,
@@ -165,7 +181,7 @@ export class Routes {
     all.set('Notice', new RouteSpec('Notice', RouteKind.H5, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], '/notice', false, false, null,
       [new RouteParamSpec('article_id', RouteParamType.STRING, null, 1, null, null)], [], false));
     all.set('Agreement', new RouteSpec('Agreement', RouteKind.H5, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], '/agreement', false, false, null,
-      [new RouteParamSpec('type', RouteParamType.STRING, ['agreement', 'privacy', 'sdk_list', 'labor_agreement'], null, null, null), new RouteParamSpec('version', RouteParamType.INTEGER, null, null, null, null, 1)], [], false));
+      [new RouteParamSpec('type', RouteParamType.STRING, ['agreement', 'privacy', 'sdk_list', 'labor_agreement', 'collect_list'], null, null, null), new RouteParamSpec('version', RouteParamType.INTEGER, null, null, null, null, 1)], [], false));
     all.set('WebPage', new RouteSpec('WebPage', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
       [new RouteParamSpec('url', RouteParamType.STRING, null, null, 2048, '^https://')], ['url'], false));
     all.set('ExternalPage', new RouteSpec('ExternalPage', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH, RouteEntry.DEEPLINK], null, false, false, null,

@@ -24,7 +24,7 @@
     }
   },
   "texts": {
-    "withdraw.sla_text": "工作日 24 小时内处理"
+    "withdraw.sla_text": "人工审核，工作日 24 小时内处理，节假日顺延"
   },
   "legal": {
     "privacy": {
@@ -39,7 +39,10 @@
     "required": false,
     "backfill_hours": 168,
     "bind_phone_guide": true,
-    "before_buy_tip": true
+    "before_buy_tip": true,
+    "reward_enabled": false,
+    "reward_amount_fen": 1000,
+    "eligibility_days": 30
   },
   "agent": {
     "enabled": true,
@@ -79,5 +82,10 @@
   },
   "claim": {
     "window_days": 30
+  },
+  "nickname": {
+    "min_len": 1,
+    "max_len": 16,
+    "monthly_limit": 3
   }
 }

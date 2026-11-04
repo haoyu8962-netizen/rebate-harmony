@@ -20,6 +20,7 @@
         "content.app_version": "版本管理（按端与渠道）：最新版本、推荐版本、更新文案、商店登记与默认商店、最低支持版本；只有提高最低支持版本时要二次验证（step-up）",
         "content.fund_terms": "修改资金术语键与资金类消息模板（清单见 BR-TEXT-12 细则「资金术语键」与 specs/fund-term-keys.yaml）（step-up）",
         "content.platform_icon": "平台标识上传、发布、回滚、恢复内置（BR-TEXT-24）",
+        "notify.channels": "通知渠道开关（推送、短信）、短信签名与模板 CODE 登记与测试发送；资金类编码改短信登记另需 content.fund_terms（04 §11.2、BR-TEXT-20 细则「短信渠道登记与后台渠道开关」）（step-up）",
         "config.general": "普通配置（不含 BR-TEXT-14 表 D 的隐私与权限文案键与 BR-TEXT-12 细则所列的资金术语键）",
         "config.risk": "风控规则与阈值（step-up）",
         "config.business": "返利规则版本、费率、提现规则与限额、自动到账设置（step-up）",
@@ -57,6 +58,7 @@
         "fund.settle_adjust": "补差批次（step-up）",
         "fund.recon": "对账与差错单处理（含以「已关闭（不处理）」结案，必填原因）",
         "fund.cash_entry": "平台资金台账录入：联盟回款、企业支付宝余额 W（step-up）",
+        "tax.export_full": "涉税全量导出（step-up）",
         "agent.trace": "Agent trace 查询（含 AI 举报列表的查看）",
         "agent.report": "AI 举报处理：标记已处理、填写处理说明"
       }
@@ -70,7 +72,7 @@
       }
     },
     "admin_login_step": {
-      "source": "规划/08 BR-ID-34 细则「首次绑定身份验证器」「首次登录强制改密码」；规划/04 §6.6 auth（CT-02f）",
+      "source": "规划/08 BR-ID-34 细则「首次绑定身份验证器」、BR-ID-43「首次登录强制改密码」；规划/04 §6.6 auth（CT-02f）",
       "description": "后台登录第一步通过后的下一步，凭中间凭证 login_ticket 完成；两步都完成才签发 admin_token",
       "values": {
         "totp": "已绑定身份验证器，输入动态码",
@@ -79,7 +81,7 @@
       }
     },
     "admin_account_status": {
-      "source": "规划/04 §3.2 admin_users.status；规划/08 BR-ID-34 细则「停用后台账号」（CT-02f）",
+      "source": "规划/04 §3.2 admin_users.status；规划/08 BR-ID-43「停用后台账号」（CT-02f）",
       "description": "后台账号状态；停用的账号名仍占用，不再分配给新账号",
       "values": {
         "active": "正常",
@@ -135,7 +137,23 @@
       "description": "后台导出任务的来源列表；创建时须持有该列表本身的权限点（括号内），filters 与该列表的查询参数同形；其他列表随各自的契约追加",
       "values": {
         "users": "用户列表 GET /admin/v1/users（user.list；filters 为 risk_state）",
-        "audit_logs": "审计日志 GET /admin/v1/audit-logs（登录即可，未持 audit.view_all 时只导出本人记录；filters 为 actor_id、target_type、target_id、permission、from、to）"
+        "audit_logs": "审计日志 GET /admin/v1/audit-logs（登录即可，未持 audit.view_all 时只导出本人记录；filters 为 actor_id、target_type、target_id、permission、from、to）",
+        "tax_withdrawals": "涉税季度导出 BR-WDR-21，没有对应列表（脱敏版 export + fund.view；全量版 unmasked 只要 tax.export_full 与 step-up，不被 fund.* 隐含；filters 为 quarter）"
+      }
+    },
+    "audit_actor_kind": {
+      "source": "规划/04 §3.2 audit_logs；编排裁定 D10-552（CT-24zj）",
+      "description": "GET /admin/v1/audit-logs 列表、详情的 actor_kind；只在系统行出现（值 system），后台账号的行不带本字段",
+      "values": {
+        "admin": "后台账号",
+        "system": "系统"
+      }
+    },
+    "audit_system_actor": {
+      "source": "规划/04 §3.2 audit_logs；编排裁定 D10-552（CT-24zj）",
+      "description": "审计日志系统行的 system_actor，值的格式是 ^system:[a-z_]+$，以后追加；中文名就是系统行的 actor_name 与导出的「操作者」列",
+      "values": {
+        "system:risk": "系统（风控）"
       }
     },
     "admin_claim_match_field": {
@@ -144,6 +162,181 @@
       "values": {
         "order_no": "订单号（用户填写的单号与该子订单的子单号或主单号）",
         "paid_date": "付款日期（+08:00 自然日）"
+      }
+    },
+    "admin_order_flag": {
+      "source": "规划/01 F-ADM-05；规划/04 §2.3、§3.2 orders；规划/08 BR-FUND-01 细则「订单锁定（展示标记）」、BR-ATTR-20、BR-FUND-06；design/specs/admin-orders.md 筛选「订单标记」（CT-24m）",
+      "description": "GET /admin/v1/orders 的 flag 筛选与列表项 flags 的键；locked 即 orders.locked（后台界面叫「归属已锁定」），status_locked 由 rebate_status 推导、不入库（后台界面叫「已锁定」）；中文名取 BR-TEXT-25 admin_dict，本契约不补文案",
+      "values": {
+        "locked": "归属已锁定（orders.locked，BR-ATTR-20）",
+        "status_locked": "已锁定（rebate_status ∈ VOID、CREDITED、CLAWED_BACK，BR-FUND-01 细则「订单锁定（展示标记）」）",
+        "rights_pending": "维权中（orders.rights_pending，BR-FUND-06）",
+        "hold": "暂停（orders.hold，BR-FUND-06）"
+      }
+    },
+    "admin_order_history_field": {
+      "source": "规划/04 §3.2 order_status_history.field（CT-24m）",
+      "description": "GET /admin/v1/orders/{order_id} 的 status_history[].field，这一行记的是哪个状态字段",
+      "values": {
+        "platform": "平台状态 platform_status",
+        "rebate": "返利状态 rebate_status"
+      }
+    },
+    "admin_order_history_source": {
+      "source": "规划/04 §3.2 order_status_history.source（CT-24m）",
+      "description": "GET /admin/v1/orders/{order_id} 的 status_history[].source，状态变化的来源",
+      "values": {
+        "sync": "订单同步",
+        "admin": "后台操作",
+        "claim": "找回",
+        "system": "系统"
+      }
+    },
+    "risk_rule_status": {
+      "source": "规划/04 §3.2 risk_rules.status、§6.6 risk-rules；规划/08 BR-ID-36 细则「规则清单的启停」（CT-24f，代理补全的默认）",
+      "description": "GET /admin/v1/risk-rules 列表项的 status；启停经 POST /admin/v1/risk-rules/{rule_id}/enable、…/disable；中文名取 BR-TEXT-25 admin_dict，本契约不补文案",
+      "values": {
+        "enabled": "启用（参与判定）",
+        "disabled": "停用（不参与判定、不写 risk_hits；已写的命中记录与申诉不受影响）"
+      }
+    },
+    "risk_action": {
+      "source": "规划/08 BR-ID-36；规划/04 §3.2 risk_rules / risk_hits.risk_action（CT-24f）",
+      "description": "风控规则命中后的动作，GET /admin/v1/risk-rules 列表项的 risk_action；取值与 risk_rules、risk_hits 的 CHECK 约束一致；中文名取 BR-TEXT-25 admin_dict（admin_dict.risk_action.*）",
+      "values": {
+        "pass": "通过（只记命中）",
+        "manual_review": "转人工",
+        "block": "拦截",
+        "void_commission": "作废佣金"
+      }
+    },
+    "union_auth_status": {
+      "source": "规划/04 §3.2 union_accounts.auth_status；规划/08 BR-ID-24（CT-24h）",
+      "description": "站长联盟授权状态；GET /admin/v1/union-accounts 的 auth_status；提醒节点 alert_stage 不对外返回；中文名取 BR-TEXT-25 admin_dict.union_accounts.auth_status",
+      "values": {
+        "active": "有效",
+        "expiring": "即将到期（已到 union.auth_alert_days 的提醒节点）",
+        "expired": "已过期或探测 / 调用返回授权失效（BR-ID-24 ④）"
+      }
+    },
+    "union_reauth_mode": {
+      "source": "规划/04 §6.6 union-accounts；规划/08 BR-ID-24 细则「后台告警手机号与重新授权会话」（编排裁定 D10-159 及其补充，CT-24h）",
+      "description": "该联盟账号站长凭据的更新方式，由服务端按平台登记表派生（不入库）；前端据此显示入口",
+      "values": {
+        "oauth": "走后台授权会话（POST …/reauthorize，回调后轮询结果）",
+        "manual": "站长凭据不是 OAuth、可在联盟后台重新取得（如京东推客授权 Key，CAP-JD-12），在后台录入新凭据（PUT …/credential）",
+        "none": "没有站长凭据可更新（按 规划/09 CAP-*-12 实测登记），不提供更新入口"
+      }
+    },
+    "admin_union_auth_session_status": {
+      "source": "规划/04 §3.2 admin_union_auth_sessions.status；规划/08 BR-ID-24 细则（CT-24h）",
+      "description": "后台站长重新授权会话的状态；state 单次使用、10 分钟有效",
+      "values": {
+        "pending": "已发起、回调未到",
+        "succeeded": "回调成功，凭据与到期时间已更新",
+        "failed": "回调失败（原因记在 error）",
+        "expired": "过期未用"
+      }
+    },
+    "union_pid_status": {
+      "source": "规划/04 §3.2 union_pids.status；规划/08 BR-ATTR-02 细则「后台登记与启停」（CT-24h）",
+      "description": "推广位状态；只有 pending→active（启用，须花卷云忽略确认与截图）、active→retired（停用）；三种状态都在白名单里，不可删除",
+      "values": {
+        "pending": "已登记、未启用（只有本状态可修改）",
+        "active": "启用中，可用于转链；同一 app × platform × pid_scene 至多一条",
+        "retired": "已停用，停止新转链，仍留在白名单"
+      }
+    },
+    "product_pool_status": {
+      "source": "规划/04 §3.2 product_pools；规划/01 F-ADM-10（CT-07d，取值是编排者默认）",
+      "description": "商品池状态",
+      "values": {
+        "active": "启用中",
+        "disabled": "已停用，读取时按空池处理"
+      }
+    },
+    "pool_item_status": {
+      "source": "规划/04 §3.2 pool_items.status；规划/08 BR-PROD-08 ③（CT-07d）",
+      "description": "商品池条目的上下架状态",
+      "values": {
+        "online": "上架，在有效期内可下发",
+        "offline": "下架（运营下架或联盟复核不通过，原因记在 invalid_reason）"
+      }
+    },
+    "notify_channel": {
+      "source": "规划/04 §3 notify_templates 渠道列、notify_logs.channel；规划/08 BR-TEXT-09 细则模板表渠道列、BR-TEXT-20 细则「短信渠道登记与后台渠道开关」（CT-24t）",
+      "description": "通知的发送渠道；后台只能开关 push 与 sms，inbox 不能由后台增删",
+      "values": {
+        "inbox": "站内信",
+        "push": "推送",
+        "sms": "短信"
+      }
+    },
+    "sms_template_type": {
+      "source": "规划/04 §3 notify_templates 短信渠道列（模板类型 verify / notice）；规划/08 BR-TEXT-20 细则「短信渠道登记与后台渠道开关」（CT-24t）",
+      "description": "短信服务商的模板类型；营销短信为 P1，不列入",
+      "values": {
+        "verify": "验证码",
+        "notice": "通知"
+      }
+    },
+    "notify_sms_state": {
+      "source": "规划/08 BR-TEXT-20 细则「短信渠道登记与后台渠道开关」（短信就绪条件，编排裁定 D10-337 ②、D10-339 ⑥）；规划/04 §3 notify_templates（CT-24t）",
+      "description": "GET /admin/v1/notify-channels 的 sms_state：该编码的短信现在怎样发",
+      "values": {
+        "disabled": "关（短信不在当前渠道里）",
+        "enabled": "开，且已就绪（各变体都有在用登记）或 SMS_CODE 用部署配置兜底：照发",
+        "enabled_not_ready": "开（未就绪）：默认渠道含短信、变体未全登记启用，服务端不发短信、只记录未发送，推送与站内信照发"
+      }
+    },
+    "notify_sms_test_status": {
+      "source": "规划/08 BR-TEXT-20 细则「短信渠道登记与后台渠道开关」（「待测试」登记与测试发送，编排裁定 D10-337 ①、D10-339 ①⑤）；规划/04 §3 notify_templates（CT-24t）",
+      "description": "待测试登记最近一次测试发送的结果",
+      "values": {
+        "accepted": "已受理（受理不等于送达），可启用新配置；选「稍后再启用」后仍是此值",
+        "failed": "测试失败（服务商拒收、出错或超时），原配置继续生效",
+        "not_sent_no_verify_phone": "未发送：保存时操作人没有登记验证手机号"
+      }
+    },
+    "admin_withdrawal_display_status": {
+      "source": "规划/08 BR-WDR-08 细则「与花卷云『会员提现管理』状态的映射」与「快捷筛选」；规划/01 F-ADM-07；design/specs/admin-withdrawals.md §2、§7 ⑤（CT-24y）",
+      "description": "GET /admin/v1/withdrawals 列表项与详情的 display_status 及同名筛选；由 status + review_mode + hold_reason 推导、不入库，不是新的提现状态（withdrawal_status 不变）；中文名取 BR-TEXT-25 admin_dict，本契约不补文案",
+      "values": {
+        "pending_review": "等待审核（PENDING_REVIEW，以及 hold_reason 不是 payer_side_after_transfer 的 APPROVED：人工审核通过待执行、判 auto 后执行受阻、发出转账前经 W9 退回）",
+        "pending_handle": "等待处理（APPROVED 且 hold_reason=payer_side_after_transfer：已发出转账、付款方侧失败后经 W9 退回，不可再次执行，BR-WDR-17）",
+        "rejected": "审核驳回（REJECTED）",
+        "paid_manual": "手动成功（PAID_MANUAL）",
+        "paid_auto_system": "自动成功 · 系统自动（PAID_API 且 review_mode=auto）",
+        "paid_auto_review": "自动成功 · 审核自动（PAID_API 且 review_mode 不是 auto）",
+        "paying": "打款中（PAYING，含 needs_manual=true）",
+        "failed": "提现失败（FAILED）"
+      }
+    },
+    "admin_settle_supplement_outcome": {
+      "source": "规划/08 BR-FUND-04 ⑧⑫；规划/01 F-ADM-08；design/specs/admin-settle-bills.md §4（CT-24zd）",
+      "description": "POST /admin/v1/settle-bills/{bill_id}/supplement-batches 响应的 outcome；无可纳入数据不是错误，outcome 仍为 generated、batch_ids 为空，不生成空批次",
+      "values": {
+        "generated": "已执行补充校验（本次新生成的批次在 batch_ids，可为空）",
+        "duplicate": "同一名义时刻已被认领（settle_jobs 唯一键），本次未生成，batch_ids 为空"
+      }
+    },
+    "admin_recon_diff_outcome": {
+      "source": "规划/08 BR-FUND-04 ④、校验结果表与例 2；编排裁定 D10-447 ②、D10-506（CT-24zf）",
+      "description": "POST /admin/v1/recon-diffs/{recon_diff_id}/close 的可选 outcome，B2-09h 起写入 recon_diffs.resolution.outcome；只对 type=settle_amount_mismatch（source R1）有意义，B2-09h 起其他差错单带它是 20001 data.fields=[outcome]；不传 = 无结构化结论，月结按需比金额；closed 状态本身不算结论，自由文本 reason 不解析",
+      "values": {
+        "union": "以联盟为准（账单金额不一致差错单；当前基数与结算额都等于结案金额时月结校验算相符，后续进补充批次）",
+        "ours": "以我方为准（月结校验不算相符）"
+      }
+    },
+    "admin_settle_bill_status": {
+      "source": "规划/08 BR-FUND-04 细则「月结账单状态」；规划/04 §2.5（月结账单状态由批次派生、不入库）；规划/01 F-ADM-08；design/specs/admin-settle-bills.md §1、§4（CT-24z）",
+      "description": "GET /admin/v1/settle-bills 列表项与详情的 status 及同名筛选；读时由账单最近一轮批次（首轮 = 该账单全部 kind=main 批次；每次补充发起一轮 = kind=supplement 且 (platform, created_at) 相同的批次；轮时刻取其批次 created_at 最大值，最近一轮 = 轮时刻最大者，并列取含最大 batch_id 的轮；驳回的 CANCELLED 不参与）派生、不另存状态（settle_bills 无状态列）；撤销定时回到 DRAFT 的批次可能不在最近一轮，不影响本状态，却仍由确认接口覆盖，此时账单状态可与待确认批次不一致，待确认以批次 status=DRAFT 为准（编排裁定 D10-444）；按下列顺序取第一条成立的；中文名取 BR-TEXT-25 admin_dict",
+      "values": {
+        "generating": "出账中（generated_at 为空：账单日任务校验与批次尚未全部生成）",
+        "issued": "已出账（已生成，最近一轮无非 CANCELLED 批次——无候选、平台 credit.enabled 为 off 只留校验结果或本轮全被驳回——或本轮有 DRAFT 批次）",
+        "settled": "已结算（本轮批次全部 DONE）",
+        "settling": "结算中（本轮有 EXECUTING / PARTIAL，或 CONFIRMED 且立即执行或 scheduled_at 已到）",
+        "scheduled": "待结算（其余：本轮未完成的批次都是 CONFIRMED 且 scheduled_at 未到）"
       }
     }
   }
