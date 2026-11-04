@@ -66,7 +66,7 @@ export class AccountDraftTexts {
     // ---- 冷静期（DeleteAccountCooling；G15 can_cancel=false 待补稿）
     m.set('deletion.cooling.badge', '冷静期中');
     m.set('deletion.cooling.title', '注销申请已提交');
-    m.set('deletion.cooling.deadline', '{time} 前可以撤回注销');
+    m.set('deletion.cooling.deadline', '{cancel_deadline} 前可以撤回注销');
     m.set('deletion.cooling.restore', '撤回后账号恢复正常使用');
     m.set('deletion.cooling.timeline.apply', '提交注销申请');
     m.set('deletion.cooling.timeline.cooling', '冷静期 7 天');

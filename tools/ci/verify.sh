@@ -317,6 +317,14 @@ python3 "$ROOT/tools/ci/homeapi/check_home_page_api.py" || fail_fast "homeapi-ho
 node "$ROOT/tools/ci/homeapi/run-logic.cjs" || fail_fast "homeapi-logic" "见上方真实产品断言"
 node "$ROOT/tools/ci/homeapi/check-arkts.cjs" --real || fail_fast "homeapi-arkts" "FU-X-HOME-PAGE-API 测试文件 ArkTS 严格检查失败"
 record "FU-X-HOME-PAGE-API 宿主检查" PASS "生产入口 / 假服务默认关 / 契约与生成物 / 基本模式白名单 / 取数调度 / ArkTS"
+# FU-HM-LOCK-PLACEHOLDERS：文案占位符通用守卫——产品代码里每个 fmt1 / fmt / format1 / format(KEY, VARS) / text(KEY).split('{x}') / 常量模板
+# 代入调用，代入名须在生效文案（契约 texts 优先、否则草稿）里存在、文案占位符须都有代入（tools/ci/lockph/check_placeholders.py，先自测）；
+# 冷静期截止 / 时间线与验证码倒计时两处升锁回归在契约与草稿回落下的真实渲染（run-logic.cjs，真实产品文案来源）。
+step "FU-HM-LOCK-PLACEHOLDERS 文案占位符检查"
+python3 "$ROOT/tools/ci/lockph/check_placeholders.py" --self-test || fail_fast "lockph-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/lockph/check_placeholders.py" || fail_fast "lockph-host" "见上方违反项"
+node "$ROOT/tools/ci/lockph/run-logic.cjs" || fail_fast "lockph-logic" "见上方真实产品断言"
+record "FU-HM-LOCK-PLACEHOLDERS 检查" PASS "占位符守卫（自测 14 个错误实现）/ 冷静期与倒计时两处回归"
 
 step "DS-02 纯逻辑与测试设施自测"
 node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"

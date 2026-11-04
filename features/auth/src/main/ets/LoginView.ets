@@ -1024,7 +1024,7 @@ export struct LoginView {
         }
         Blank()
         if (this.model.countdown > 0) {
-          Text(this.fmt(LoginKeys.CODE_COUNTDOWN, 'sec', String(this.model.countdown)))
+          Text(this.fmt(LoginKeys.CODE_COUNTDOWN, 'n', String(this.model.countdown)))
             .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary, undefined, true))
         } else {
           Text(this.t(LoginKeys.CODE_RESEND))

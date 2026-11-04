@@ -404,7 +404,7 @@ export struct DeleteAccountView {
         .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary, CouliFontWeight.semibold))
         .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
       if (this.flag('showCancelDeletion')) {
-        Text(fmt1(this.config.texts, 'deletion.cooling.deadline', 'time', this.text('coolingUntilText')))
+        Text(fmt1(this.config.texts, 'deletion.cooling.deadline', 'cancel_deadline', this.text('coolingUntilText')))
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
         Text(this.t('deletion.cooling.restore'))
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
