@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = '8699e5a'
 FIXTURE = 'tools/ci/me12wb/fixtures/privacy-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-b-harmony-v1-aux/make_baseline_b.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = '53ee6f11307a45267ce0da10ae6c2d8522a0bd9370fc69c9bfc64f3ee2a305ac'
+FIXTURE_SHA256 = '325595358d1a2ce5e8c766a8950de585c616baa0b8109aa46f14574cdb869be1'
 
 ME = 'features/me/src/main/ets/'
 V_PRIVACY = ME + 'PrivacyCenterView.ets'
@@ -1019,10 +1019,11 @@ MUTANTS = [
     ('staging 缺同意记录计数', FAKE_ME, "'me.consents_count'", "'me.count'"),
     ('夹具被改', VECTORS, '"clock": "2026-10-12T10:30:00+08:00"', '"clock": "2026-10-12T10:31:00+08:00"'),
     # ---- 名单与设施
-    ('主步不排除 Me12wbUi', 'tools/ci/verify.sh', 'Me12waUi,Me12wbUi main', 'Me12waUi main'),
+    # APP-12w-c-harmony 测试 v1（#24 只换定位串，H-R16）：主步再排除 Me12wcUi、device-test 再认 me12wc。
+    ('主步不排除 Me12wbUi', 'tools/ci/verify.sh', 'Me12waUi,Me12wbUi,Me12wcUi main', 'Me12waUi,Me12wcUi main'),
     ('没有 me12wb 设备步', 'tools/ci/verify.sh', 'entry-me12wb class=Me12wbUi me12wb', 'entry-me12wb class=Me12wbUi all'),
     ('verify 没跑本宿主自测', 'tools/ci/verify.sh', 'me12wb/check_privacy_visual.py" --self-test', 'me12wb/check_privacy_visual.py" --help'),
-    ('device-test 不认 me12wb', 'tools/ci/device-test.sh', 'me12wa|me12wb|all)', 'me12wa|all)'),
+    ('device-test 不认 me12wb', 'tools/ci/device-test.sh', 'me12wa|me12wb|me12wc|all)', 'me12wa|me12wc|all)'),
     ('名单少一条', CASES, 'me12wb_17_', 'me12wb_99_'),
     ('core 套件未登记', 'common/core/src/test/List.test.ets', '  me12wbPrivacyTest();\n', ''),
     ('entry 套件未登记', 'entry/src/ohosTest/ets/test/List.test.ets', '  me12wbUiTest();\n', ''),

@@ -28,6 +28,9 @@ let launchCount = 0;
 let catalog = false;
 let debugPanel = false;
 let neverReady = false;
+// APP-12w-c-harmony 测试 v6：首页列表变长时「Debug panel」在首屏以下，要滑过才出现（longHome）；swipes 记有界滚动次数。
+let longHome = false;
+let swipes = 0;
 let activeDriver;
 let activeDelegator;
 const clicked = [];
@@ -38,8 +41,11 @@ const clickable = label => ({ click: async () => {
 }});
 const startupDriver = {
   delayMs: async () => {}, waitForIdle: async () => true,
+  swipe: async () => { swipes++; },
   findComponent: async selector => {
-    if (selector.textValue === 'Debug panel') return launchCount >= 3 && !neverReady ? clickable('Debug panel') : undefined;
+    if (selector.idValue === 'home_list') return launchCount >= (longHome ? 1 : 3) ? { getBounds: async () => ({left:0, right:500, top:0, bottom:1000}) } : undefined;
+    if (selector.textValue === 'Debug panel') return (longHome ? swipes > 0 : launchCount >= 3) && !neverReady
+      ? { ...clickable('Debug panel'), getBounds: async () => ({left:10, right:400, top:500, bottom:560}) } : undefined;
     if (['不同意', '仍不同意'].includes(selector.textValue)) return clickable(selector.textValue);
     if (selector.typeValue === 'Scroll') {
       assert.equal(debugPanel, true);
@@ -297,6 +303,13 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   await assert.rejects(beforeHooks[0]);
   assert.equal(launchCount, 8);
   console.log('REFERENCE_ONLY startup: never-ready app fails after bounded retries');
+  // APP-12w-c-harmony 测试 v6：真实首页卡片加载后「Debug panel」落到首屏以下——须在首页列表里滚动找到，第一次拉起即就绪。
+  neverReady = false; longHome = true; launchCount = 0; swipes = 0; catalog = false; debugPanel = false;
+  await beforeHooks[0]();
+  assert.equal(launchCount, 1);
+  assert.ok(swipes > 0 && catalog);
+  longHome = false;
+  console.log('REFERENCE_ONLY startup: Debug panel below the fold is reached by bounded scrolling in home_list');
   const rows = load(path.join(testRoot, 'Ds02Expected.ets')).EXPECTED_CASES;
   const collect = load(path.join(testRoot, 'Ds02Traversal.ets')).collectRenderedCases;
   let checked = 0;

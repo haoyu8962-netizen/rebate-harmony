@@ -97,6 +97,7 @@ import meReviewR3Test from './MeReviewR3.test';
 import me12vVisualTest from './Me12vVisual.test';
 import me12waSettingsTest from './Me12waSettings.test';
 import me12wbPrivacyTest from './Me12wbPrivacy.test';
+import me12wcRiskTest from './Me12wcRisk.test';
 import homeVectorTest from './HomeVector.test';
 import homeIntegrationTest from './HomeIntegration.test';
 import homeFixR1Test from './HomeFixR1.test';
@@ -236,6 +237,7 @@ export default function testsuite() {
   me12waSettingsTest();
   // APP-12w-b-harmony：隐私中心 / 关于 / 客服视觉（逻辑零改动）——privacy-visual-vectors 夹具钉住分节、诊断白名单、客服决策与文案键。
   me12wbPrivacyTest();
+  me12wcRiskTest();
   homeVectorTest();
   homeIntegrationTest();
   homeFixR1Test();

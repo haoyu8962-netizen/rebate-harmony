@@ -2,11 +2,9 @@ import {
   MePhase, MeRecord, PendingWithdrawals, RiskLayout, RiskNoticeController, RiskNoticeSnapshot, WalletDraftTexts,
   WithdrawalText
 } from 'core';
-import {
-  CouliAnnounce, CouliButton, CouliColors, CouliFontWeight, CouliFormat, CouliIcon, CouliRadius, CouliSpacing,
-  CouliTextModifier, CouliTypography, ErrorState, PriceTerms
-} from 'designsystem';
-import { DraftMeTexts, MeCard, MeKeyValue, MeLink, MeNoticeBar, MePageFrame, MeTexts } from './MeKit';
+import { CouliAnnounce, CouliButton, CouliColors, CouliFormat, CouliSpacing, ErrorState, PriceTerms } from 'designsystem';
+import { DraftMeTexts, MeCard, MeLink, MeNoticeBar, MePageFrame, MeTexts } from './MeKit';
+import { RiskExitSep, RiskHero, RiskInfoRow, RiskNoteStrip, riskRowChipIcon, riskRowChipTone } from './RiskAppealParts';
 
 type JSONValue = Object | null;
 
@@ -142,46 +140,27 @@ export struct RiskNoticeView {
       case RiskLayout.BANNED_APPEALING:
         return 'risk.banned_appealing.note';
       case RiskLayout.BANNED_UPHELD:
-        return 'risk.banned_upheld.note';
+        return 'risk_notice.banned.upheld';
       case RiskLayout.FROZEN_APPEALING:
         return 'risk.frozen_appealing.note';
       case RiskLayout.FROZEN_UPHELD:
-        return 'risk.frozen_upheld.note';
+        return 'risk_notice.banned.upheld';
       default:
-        return this.str('frozenUntilText') !== null ? 'risk.frozen.note' : 'risk.frozen.note_no_until';
+        return this.str('frozenUntilText') !== null ? 'risk.frozen.note' : 'risk_notice.frozen.hint_no_until';
     }
   }
 
   @Builder
   hero() {
-    Column({ space: CouliSpacing.space4 }) {
-      Column() {
-        CouliIcon({ name: this.banned() ? 'shield' : 'clock', iconSize: 48, color: CouliColors.textSecondary })
-      }
-      .width(96)
-      .height(96)
-      .borderRadius(CouliRadius.card)
-      .backgroundColor(CouliColors.backgroundMuted)
-      .justifyContent(FlexAlign.Center)
-      .accessibilityLevel('no')
-      Column({ space: CouliSpacing.space2 }) {
-        Text(this.t(this.layout() === RiskLayout.NORMAL ? 'risk.normal.title' :
-          this.banned() ? 'risk.banned.title' : 'risk.frozen.title'))
-          .attributeModifier(new CouliTextModifier(CouliTypography.heading, CouliColors.textPrimary,
-            CouliFontWeight.semibold))
-          .textAlign(TextAlign.Center)
-          .id('risk_title')
-        if (this.layout() !== RiskLayout.NORMAL) {
-          Text(this.t(this.banned() ? 'risk.banned.desc' : 'risk.frozen.desc'))
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-            .textAlign(TextAlign.Center)
-        }
-      }
-      .alignItems(HorizontalAlign.Center)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Center)
-    .padding({ top: CouliSpacing.space4 })
+    RiskHero({
+      symbol: this.layout() === RiskLayout.NORMAL ? 'clock' : this.banned() ? 'lock' : 'pause_circle',
+      title: this.t(this.layout() === RiskLayout.NORMAL ? 'risk.normal.title' :
+        this.banned() ? 'risk.banned.title' : 'risk.frozen.title'),
+      desc: this.layout() === RiskLayout.NORMAL ? '' : this.t(this.banned() ?
+        (this.config.deleteAccountAvailable() ? 'risk.banned.desc' : 'risk.banned.desc.no_deletion') : 'risk.frozen.desc'),
+      iconId: 'risk_hero_icon',
+      titleId: 'risk_title'
+    })
   }
 
   /** 说明卡的行（标签、值、id）：最后一行不画分隔线。 */
@@ -192,7 +171,7 @@ export struct RiskNoticeView {
       rows.push([this.t('risk.reason'), this.t(reason), 'risk_reason']);
     }
     if (this.banned()) {
-      rows.push([this.t('risk.limit'), this.t('risk.limit.long'), 'risk_limit']);
+      rows.push([this.t('risk.limit'), this.t('risk_notice.period_none'), 'risk_limit']);
     }
     const until: string | null = this.str('frozenUntilText');
     if (until !== null) {
@@ -215,7 +194,8 @@ export struct RiskNoticeView {
   @Builder
   details() {
     ForEach(this.detailRows(), (row: string[], index: number) => {
-      MeKeyValue({ label: row[0], value: row[1], valueId: row[2], divider: index < this.detailRows().length - 1 })
+      RiskInfoRow({ label: row[0], value: row[1], valueId: row[2], divider: index < this.detailRows().length - 1,
+        chipTone: riskRowChipTone(row[2]), chipIcon: riskRowChipIcon(row[2]) })
     }, (row: string[]) => row[2] + '_' + row[1] + '_' + this.model.version)
   }
 
@@ -232,27 +212,32 @@ export struct RiskNoticeView {
         }
       })
     } else if (this.model.view !== null) {
-      this.hero()
-      if (this.layout() !== RiskLayout.NORMAL) {
-        MeCard({
-          content: () => {
-            this.details()
-          }
-        })
-        if (this.model.withdrawalsError.length > 0) {
-          // G16：进行中的提现读取失败只影响这一节（trace6 + 重试）。
-          MeNoticeBar({
-            text: this.t('risk.withdrawals') + PriceTerms.comma + this.model.withdrawalsError + '\n' + this.t('me.retry'),
-            tone: 'error',
-            barId: 'risk_withdrawals_error',
-            tappable: !this.model.blocked,
-            onTap: () => {
-              this.config.controller.retryWithdrawals();
+      Column({ space: CouliSpacing.space6 }) {
+        this.hero()
+        if (this.layout() !== RiskLayout.NORMAL) {
+          MeCard({
+            cardId: 'risk_info_card',
+            content: () => {
+              this.details()
             }
           })
+          if (this.model.withdrawalsError.length > 0) {
+            // G16：进行中的提现读取失败只影响这一节（trace6 + 重试）。
+            MeNoticeBar({
+              text: this.t('risk.withdrawals') + PriceTerms.comma + this.model.withdrawalsError + '\n' + this.t('me.retry'),
+              tone: 'error',
+              barId: 'risk_withdrawals_error',
+              tappable: !this.model.blocked,
+              onTap: () => {
+                this.config.controller.retryWithdrawals();
+              }
+            })
+          }
+          RiskNoteStrip({ text: this.t(this.noteKey()), barId: 'risk_note' })
         }
-        MeNoticeBar({ text: this.t(this.noteKey()), tone: 'info', barId: 'risk_note' })
       }
+      .width('100%')
+      .padding({ top: CouliSpacing.space4 })
     } else {
       Column() {
         LoadingProgress().width(40).height(40).color(CouliColors.textSecondary)
@@ -293,21 +278,23 @@ export struct RiskNoticeView {
         // banned 场景下【退出登录】与联系客服始终可用（读取失败时也显示）。
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center, alignItems: ItemAlign.Center }) {
           MeLink({ text: this.t('risk.contact_cs'), linkId: 'risk_contact_cs', onTap: () => this.config.customerService() })
-          Text('|')
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.borderSubtle))
-            .accessibilityLevel('no')
           // 控制器与它的身份在打开页面时固定（readonly），不读可观察状态（APP-09 第 63 条）。
+          // F-HM-74 ③：分隔符和后一个链接放进同一个 Row，200% 折行时不挂在行尾。
           if (this.config.deleteAccountAvailable()) {
-            MeLink({ text: this.t('settings.delete_account'), linkId: 'risk_delete_account',
-              onTap: () => this.config.deleteAccount(this.config.controller.identity) })
-            Text('|')
-              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.borderSubtle))
-              .accessibilityLevel('no')
+            Row() {
+              RiskExitSep()
+              MeLink({ text: this.t('settings.delete_account'), linkId: 'risk_delete_account',
+                onTap: () => this.config.deleteAccount(this.config.controller.identity) })
+            }
           }
-          MeLink({ text: this.t('risk.logout'), linkId: 'risk_logout',
-            onTap: () => this.config.logout(this.config.controller.identity) })
+          Row() {
+            RiskExitSep()
+            MeLink({ text: this.t('risk.logout'), linkId: 'risk_logout',
+              onTap: () => this.config.logout(this.config.controller.identity) })
+          }
         }
         .width('100%')
+        .id('risk_exits')
       }
     }
     .width('100%')

@@ -30,6 +30,10 @@ const FAKE_FILE: string = 'couli_debug_fake';
 const GET_ME_COUNT_KEY: string = 'me.get_count';
 const CONSENTS_COUNT_KEY: string = 'me.consents_count';
 const CONSENTS_TYPE_KEY: string = 'me.consents_last_type';
+// APP-12w-c-harmony H-R15 / D-3：申诉提交 / 列表计数与最近一次提交的请求体（设备红线 ① ② 数请求；只在 staging）。
+const APPEAL_SUBMIT_COUNT_KEY: string = 'me.appeal_submit_count';
+const APPEAL_LAST_BODY_KEY: string = 'me.appeal_last_body';
+const APPEAL_LIST_COUNT_KEY: string = 'me.appeal_list_count';
 const FILED_PLACEHOLDER: string = '[生成式 AI 服务公示文本：登记后由配置 agent.filing_text 下发，原样显示]';
 const HTTP_KF_URL: string = 'http://kf.example.test/couli';
 const LONG_NICKNAME: string = '一二三四五六七八九十一二三四五六';
@@ -127,6 +131,57 @@ export class DebugFakeMe implements MeContractPort {
     }
   }
 
+  /**
+   * APP-12w-c-harmony H-R15：每收到一次 POST /v1/me/appeals，me.appeal_submit_count 加 1 并记下请求体原文（me.appeal_last_body）；每收到一次
+   * GET /v1/me/appeals，me.appeal_list_count 加 1。与 me.get_count 同一文件、同一写法（十进制字符串，flushSync）。不论场景、成败都计。
+   */
+  static countAppeals(method: string, body: string | null): void {
+    const context: common.Context | null = DebugFakeMe.context;
+    if (context === null) {
+      return;
+    }
+    const key: string = method === 'POST' ? APPEAL_SUBMIT_COUNT_KEY : APPEAL_LIST_COUNT_KEY;
+    try {
+      const prefs: preferences.Preferences = preferences.getPreferencesSync(context, { name: FAKE_FILE });
+      const old: preferences.ValueType = prefs.getSync(key, '');
+      const n: number = typeof old === 'string' && (old as string).length > 0 ? Number(old as string) : 0;
+      prefs.putSync(key, String(Number.isInteger(n) ? n + 1 : 1));
+      if (method === 'POST') {
+        prefs.putSync(APPEAL_LAST_BODY_KEY, body ?? '');
+      }
+      prefs.flushSync();
+    } catch (e) {
+      hilog.warn(0x0000, 'Couli', '%{public}s', 'fake appeals count not written');
+    }
+  }
+
+  /**
+   * APP-12w-c-harmony H-R15 视觉场景（值取 specs/risk-appeal-visual-vectors.json）：rv_* 画板数据；banned_lifted（risk normal + revoked，
+   * 钱包摘要回 10006）；rv_lifted_history（risk banned + revoked）。命中时返回 true（申诉列表已按场景重置）。
+   */
+  private static resetVisual(s: string): boolean {
+    const content: string = DebugFakeMe.SAMPLE_CONTENT;
+    if (s === 'rv_banned_appealing') {
+      DebugFakeMe.appeals = [new FakeAppeal('appeal-visual-b1', 'processing', content, '2026-11-02T15:00:00+08:00', null)];
+    } else if (s === 'rv_banned_upheld') {
+      DebugFakeMe.appeals = [new FakeAppeal('appeal-visual-b1', 'upheld', content, '2026-11-02T15:00:00+08:00',
+        '2026-11-04T16:30:00+08:00')];
+    } else if (s === 'rv_frozen_appealing') {
+      DebugFakeMe.appeals = [new FakeAppeal('appeal-visual-f1', 'processing', content, '2026-11-03T09:20:00+08:00', null)];
+    } else if (s === 'rv_frozen_upheld') {
+      DebugFakeMe.appeals = [new FakeAppeal('appeal-visual-f1', 'upheld', content, '2026-11-03T09:20:00+08:00',
+        '2026-11-05T15:10:00+08:00')];
+    } else if (s === 'banned_lifted' || s === 'rv_lifted_history') {
+      DebugFakeMe.appeals = [new FakeAppeal('appeal-visual-b1', 'revoked', content, '2026-11-02T15:00:00+08:00',
+        '2026-11-04T16:30:00+08:00')];
+    } else if (s === 'rv_banned' || s === 'rv_frozen' || s === 'rv_frozen_no_until' || s === 'rv_submit_normal') {
+      DebugFakeMe.appeals = [];
+    } else {
+      return false;
+    }
+    return true;
+  }
+
   static readonly SAMPLE_CONTENT: string = '这几笔订单都是我自己正常购买的，收货后没有退款，请帮忙核实。';
 
   /** 换场景：重置昵称、申诉与计数。 */
@@ -137,6 +192,9 @@ export class DebugFakeMe implements MeContractPort {
     DebugFakeMe.serviceOn = true;
     DebugFakeMe.meAnswers = 0;
     const s: string = scene;
+    if (DebugFakeMe.resetVisual(s)) {
+      return;
+    }
     if (s === 'frozen_appealing' || s === 'banned_appealing') {
       DebugFakeMe.appeals = [new FakeAppeal('AP2026100900001', 'processing', DebugFakeMe.SAMPLE_CONTENT,
         '2026-10-09T15:00:00+08:00', null)];
@@ -157,13 +215,23 @@ export class DebugFakeMe implements MeContractPort {
         return '{"state":"frozen","reason_category":"abnormal_trade","frozen_until":"2026-10-15T00:00:00+08:00"}';
       case 'frozen_none':
         return '{"state":"frozen","reason_category":null,"frozen_until":null}';
+      case 'rv_frozen':
+      case 'rv_frozen_upheld':
       case 'frozen_upheld':
         return '{"state":"frozen","reason_category":"abnormal_trade","frozen_until":"2026-11-30T00:00:00+08:00"}';
+      case 'rv_frozen_no_until':
+        return '{"state":"frozen","reason_category":"abnormal_trade","frozen_until":null}';
+      case 'rv_frozen_appealing':
+        return '{"state":"appealing","reason_category":"abnormal_trade","frozen_until":"2026-11-30T00:00:00+08:00"}';
       case 'frozen_appealing':
         return '{"state":"appealing","reason_category":"abnormal_trade","frozen_until":null}';
+      case 'rv_banned':
+      case 'rv_banned_upheld':
+      case 'rv_lifted_history':
       case 'banned':
       case 'banned_upheld':
         return '{"state":"banned","reason_category":"malicious_rights","frozen_until":null}';
+      case 'rv_banned_appealing':
       case 'banned_appealing':
         return '{"state":"appealing","reason_category":"malicious_rights","frozen_until":null}';
       case 'new_category':
@@ -258,6 +326,13 @@ export class DebugFakeMe implements MeContractPort {
     if (content.indexOf('20001') >= 0) {
       return new FakeAnswer(20001, '{"fields":["content"]}', 300);
     }
+    // APP-12w-c-harmony H-R15：正文含「50001」→ 50001（应答带 trace_id，错误条显示 trace6）；含「42901」→ 42901 + Retry-After 30。
+    if (content.indexOf('50001') >= 0) {
+      return new FakeAnswer(50001, '{}', 300);
+    }
+    if (content.indexOf('42901') >= 0) {
+      return new FakeAnswer(42901, '{}', 300, '30');
+    }
     DebugFakeMe.serial++;
     const a: FakeAppeal = new FakeAppeal('AP20261010' + (100 + DebugFakeMe.serial), 'processing', content,
       '2026-10-10T12:00:00+08:00', null);
@@ -273,6 +348,7 @@ export class DebugFakeMe implements MeContractPort {
       return DebugFakeMe.me();
     }
     if (path.endsWith('/v1/me/appeals')) {
+      DebugFakeMe.countAppeals(method, body);
       return method === 'POST' ? DebugFakeMe.submit(body) : DebugFakeMe.appealList();
     }
     if (path.endsWith('/v1/consents')) {
@@ -289,6 +365,10 @@ export class DebugFakeMe implements MeContractPort {
     }
     if (path.indexOf('/v1/me/tips/') >= 0 && method === 'DELETE') {
       return new FakeAnswer(0, '{}', 300);
+    }
+    if (path.endsWith('/v1/wallet/summary') && (scene.startsWith('rv_banned') || scene === 'rv_lifted_history')) {
+      // APP-12w-c-harmony H-R15：rv_banned* / rv_lifted_history 也经钱包摘要 10006 落到 RiskNotice（置 enteredBy10006）。
+      return new FakeAnswer(10006, '{}', 300);
     }
     if (path.endsWith('/v1/wallet/summary') && (scene.startsWith('banned') || scene === 'normal_10006')) {
       // 封禁场景：白名单外的请求得到 10006（经真实网络层统一落到 RiskNotice，G09）。

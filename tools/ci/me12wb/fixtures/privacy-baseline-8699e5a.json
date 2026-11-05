@@ -216,7 +216,7 @@
    "features/me/src/main/ets/AccountKit.ets"
   ],
   [
-   "b7a1dcfc22493b96286185e68d42dec2281e109882ffc51dbbf2f39f210c827d",
+   "c8a378fcc6ad1089439d4739901c2c56216b3a52261cebf222b990984863a8ba",
    "features/me/src/main/ets/AppealView.ets"
   ],
   [
@@ -240,7 +240,11 @@
    "features/me/src/main/ets/PhoneChangeView.ets"
   ],
   [
-   "16f4b8550ada53702cf8575b01a490f4e644e6f42537a3a2ad5ee0536b49f4d4",
+   "8e77aa02dab1f132e536dc9f3fc376188d692c05b3bdc33f68fd90d374327b30",
+   "features/me/src/main/ets/RiskAppealParts.ets"
+  ],
+  [
+   "358bea1b5a9061390341ad380a09ce9084e1f3e016d1640c3470c1b1f3e42ffc",
    "features/me/src/main/ets/RiskNoticeView.ets"
   ],
   [

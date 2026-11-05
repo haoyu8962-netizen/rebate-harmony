@@ -67,6 +67,8 @@
     common/core/src/test/AccountVectorsData.ets               specs/account-vectors.json 全文（ACCOUNT_VECTORS_JSON，APP-13a，Codex 写的三端共用注销与换手机号向量）
     common/core/src/test/PrivacyVisualVectorsData.ets         specs/privacy-visual-vectors.json 全文（PRIVACY_VISUAL_VECTORS_JSON，APP-12w-b，
                                                               Android / iOS 写的三端共用隐私中心 / 关于 / 客服视觉夹具；--check 守与两端逐字节相同）
+    common/core/src/test/RiskAppealVisualVectorsData.ets      specs/risk-appeal-visual-vectors.json 全文（RISK_APPEAL_VISUAL_VECTORS_JSON，APP-12w-c，
+                                                              Android 写的三端共用账号状态 / 申诉视觉夹具；--check 守与 Android 逐字节相同）
     common/core/src/test/AgentStreamFixturesData.ets          契约快照 contracts/fixtures/agent-streams/*.ndjson 全文（AGENT_STREAM_FIXTURES，
                                                               APP-10，键为文件名，值为原文）
     entry/src/staging/ets/variant/AgentFixtures.ets           同一批 ndjson 原文（APP-10，只在 staging：Debug 假服务按启动参数
@@ -922,6 +924,35 @@ def gen_privacy_visual_vectors_data():
     return gen_vectors_data(PRIVACY_VISUAL_VECTORS, "PRIVACY_VISUAL_VECTORS_JSON",
                             "隐私中心 / 关于 / 联系客服视觉夹具（APP-12w-b）：specs/privacy-visual-vectors.json 全文，供 "
                             "Me12wbPrivacy.test.ets 解析。只在 src/test，不进产物。")
+
+
+RISK_APPEAL_VISUAL_VECTORS = os.path.join("specs", "risk-appeal-visual-vectors.json")
+# APP-12w-c-harmony 测试作者 v1（brief-c-harmony H-R14）：specs/risk-appeal-visual-vectors.json 整份照 rebate-android origin/main 6557750
+# 逐字节拷贝（489 行，sha256 下列；iOS 本地 origin/main 9a7b870 还没有这份文件）。文件里与鸿蒙不符的两处（about_this_file 写锁 a7c9f1f、
+# boards note 写「副文案 G-R08 不做」）不改；drafts 表里 H-R03 的四句鸿蒙走契约键，测试按「显示值逐字等于 drafts 值」映射，不改本文件。
+RISK_APPEAL_VISUAL_ANDROID_SHA256 = "2144a9a9cfbf7447f100d1367a053e21fb5bb4ed2f915df923921700a711a5f0"
+RISK_APPEAL_VISUAL_ANDROID_LINES = 489
+
+
+def gen_risk_appeal_visual_vectors_data():
+    """specs/risk-appeal-visual-vectors.json（APP-12w-c，三端同一份）：全文与 Android 基准逐字节一致才生成。"""
+    import hashlib
+    path = os.path.join(ROOT, RISK_APPEAL_VISUAL_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + RISK_APPEAL_VISUAL_VECTORS)
+    with open(path, "rb") as f:
+        data = f.read()
+    lines = data.decode("utf-8").count("\n")
+    if lines != RISK_APPEAL_VISUAL_ANDROID_LINES:
+        raise GenError("%s 行数 %d ≠ Android 基准 %d（H-R14：整份逐字节拷贝）" % (RISK_APPEAL_VISUAL_VECTORS, lines,
+                                                                  RISK_APPEAL_VISUAL_ANDROID_LINES))
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != RISK_APPEAL_VISUAL_ANDROID_SHA256:
+        raise GenError("%s 与 Android 基准不一致（sha256 %s ≠ %s；H-R14：鸿蒙差异在测试里映射，不改文件）"
+                       % (RISK_APPEAL_VISUAL_VECTORS, digest, RISK_APPEAL_VISUAL_ANDROID_SHA256))
+    return gen_vectors_data(RISK_APPEAL_VISUAL_VECTORS, "RISK_APPEAL_VISUAL_VECTORS_JSON",
+                            "账号状态 / 申诉视觉夹具（APP-12w-c）：specs/risk-appeal-visual-vectors.json 全文，供 "
+                            "Me12wcRisk.test.ets 解析。只在 src/test，不进产物。")
 
 
 HOME_VECTORS = os.path.join("specs", "home-sdui-vectors.json")
@@ -1981,6 +2012,7 @@ def build_outputs():
         os.path.join(CORE_MODULE, "src", "test", "WalletVectorsData.ets"): gen_wallet_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "MeVectorsData.ets"): gen_me_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "PrivacyVisualVectorsData.ets"): gen_privacy_visual_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "RiskAppealVisualVectorsData.ets"): gen_risk_appeal_visual_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "HomeVectorsData.ets"): gen_home_vectors_data(),
         os.path.join("entry", "src", "staging", "ets", "variant", "HomeGoldenPages.ets"): gen_home_golden_pages(),
         os.path.join(CORE_MODULE, "src", "test", "AgentVectorsData.ets"): gen_agent_vectors_data(),

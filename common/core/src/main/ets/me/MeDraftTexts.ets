@@ -215,6 +215,10 @@ export class MeDraftTexts {
     m.set('appeal.next.logout', '也可以退出登录。');
     m.set('appeal.next.frozen', '浏览、购物等其他功能照常使用；到期后提现会自动恢复，恢复时会发站内信通知你。');
     m.set('appeal.again', '再次申诉');
+    // APP-12w-c-harmony H-R04（编排 11-03 02:09 ②，三端同键）：申诉输入占位、内测版封禁说明句（不提注销）、维持页公开版第三条。
+    m.set('appeal.placeholder', '请说明情况，方便我们核实');
+    m.set('risk.banned.desc.no_deletion', '限制期间只能查看本页、提交申诉、联系客服或退出登录。');
+    m.set('appeal.next.logout.with_deletion', '不再使用，可以注销账号；也可以退出登录。');
     // ---- 客服半屏（CsHandoff、CsWechatMissing、CsOpenFailed；BR-TEXT-14 表 C cs.copy_link.done；G20）
     m.set('cs.title', '联系客服');
     m.set('cs.handoff.desc', '客服在微信里接待。点下方按钮会打开微信，进入凑狸企业微信客服的会话');

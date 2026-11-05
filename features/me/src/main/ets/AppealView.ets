@@ -1,12 +1,17 @@
+import { KeyboardAvoidMode, uiObserver } from '@kit.ArkUI';
 import {
   AppealController, AppealCopy, AppealSnapshot, AppealView as AppealRules, futureTimeText, MeMessage, MePhase, MeRecord,
   RiskReasonText
 } from 'core';
 import {
   CouliAnnounce, CouliButton, CouliButtonVariant, CouliChip, CouliChipTone, CouliColors, CouliFocus, CouliFontWeight,
-  CouliFormat, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography, ErrorState
+  CouliFormat, CouliSpacing, CouliTextModifier, CouliTypography, ErrorState
 } from 'designsystem';
-import { Bound, DraftMeTexts, MeCard, MeKeyValue, MeLink, MeNoticeBar, MePageFrame, MeTexts } from './MeKit';
+import { Bound, DraftMeTexts, MeCard, MeLink, MeNoticeBar, MePageFrame, MeTexts } from './MeKit';
+import {
+  AppealInfoCard, AppealTimeline, appealStateChipIcon, appealStateChipTone, BulletCard, InlineRow, RiskExitSep, RiskHero,
+  RiskInfoRow, RiskNoteStrip, timelineStates
+} from './RiskAppealParts';
 
 type JSONValue = Object | null;
 
@@ -74,10 +79,85 @@ export struct AppealView {
   @Param @Require config: AppealConfig;
   @Local model: AppealModel = new AppealModel();
   private lastSeq: number = 0;
+  /**
+   * H-R21 / G-R22（D10-633 (a)）：本页**可见期间**窗口改为 RESIZE 避让键盘（白底栏贴键盘上沿）；跟随所在 NavDestination 的显示 / 隐藏设与还原
+   * （ON_SHOWN 设、ON_HIDDEN 还原），被上层页压住时即还原，不外溢到 Wallet / DeleteAccount / Messages 等上层页；返回本页再设。
+   */
+  private savedAvoid: KeyboardAvoidMode | null = null;
+  private navDestinationId: string = '';
+  private navListener: ((info: uiObserver.NavDestinationInfo) => void) | null = null;
+  /** 提交页的滚动控制：字段错误 / 错误条出现时滚到底，键盘弹起（RESIZE）后可视区变矮也能看见（只滚动，不改焦点与播报）。 */
+  private scroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     this.config.controller.onChange = (s: AppealSnapshot): void => this.apply(s);
     this.apply(this.config.controller.snapshot);
+  }
+
+  /** 首次构建后只登记 NavDestination 状态监听（aboutToAppear 在守卫区内，逐字节不动）；避让方式的设与还原只在监听回调里随显示 / 隐藏做。 */
+  onDidBuild(): void {
+    const info: uiObserver.NavDestinationInfo | undefined = this.queryNavDestinationInfo();
+    if (info === undefined) {
+      return;
+    }
+    this.navDestinationId = info.navDestinationId;
+    const listener: (i: uiObserver.NavDestinationInfo) => void = (i: uiObserver.NavDestinationInfo): void => {
+      this.onNavState(i);
+    };
+    this.navListener = listener;
+    try {
+      this.getUIContext().getUIObserver().on('navDestinationUpdate', listener);
+    } catch (e) {
+      this.navListener = null;
+    }
+    // 本组件在所在 NavDestination 构建期内构建，首个 ON_SHOWN 在此之后到达，避让方式只在回调里设。
+  }
+
+  /** 本页显示 → 存下原避让方式并设 RESIZE；本页隐藏（被压住 / 出栈 / 清栈）→ 还原。只认本页的 navDestinationId。 */
+  private onNavState(info: uiObserver.NavDestinationInfo): void {
+    if (info.navDestinationId !== this.navDestinationId) {
+      return;
+    }
+    try {
+      const ui: UIContext = this.getUIContext();
+      if (info.state === uiObserver.NavDestinationState.ON_SHOWN) {
+        if (this.savedAvoid === null) {
+          this.savedAvoid = ui.getKeyboardAvoidMode();
+          ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+        }
+      } else if (info.state === uiObserver.NavDestinationState.ON_HIDDEN) {
+        const saved: KeyboardAvoidMode | null = this.savedAvoid;
+        this.savedAvoid = null;
+        if (saved !== null) {
+          ui.setKeyboardAvoidMode(saved);
+        }
+      }
+    } catch (e) {
+      // 忽略：取不到 UIContext 时不改避让方式。
+    }
+  }
+
+  private revealBottom(): void {
+    setTimeout(() => {
+      try {
+        this.scroller.scrollEdge(Edge.Bottom);
+      } catch (e) {
+        // 忽略。
+      }
+    }, 50);
+  }
+
+  /** 只注销监听（出栈 / 清栈时 ON_HIDDEN 已先到，避让方式已在回调里还原）。 */
+  aboutToDisappear(): void {
+    const listener: ((info: uiObserver.NavDestinationInfo) => void) | null = this.navListener;
+    this.navListener = null;
+    if (listener !== null) {
+      try {
+        this.getUIContext().getUIObserver().off('navDestinationUpdate', listener);
+      } catch (e) {
+        // 忽略。
+      }
+    }
   }
 
   private t(key: string): string {
@@ -169,38 +249,58 @@ export struct AppealView {
 
   @Builder
   targetCard() {
-    MeKeyValue({ label: this.t('appeal.type'), value: this.t('appeal.type.account') })
+    InlineRow({ label: this.t('appeal.type'), value: this.t('appeal.type.account') })
     if (this.model.currentStateKey !== null) {
       // R1-04：当前状态只按本次 getMe.risk.state（版式只决定文案组，不推断当前限制）。
-      MeKeyValue({
-        label: this.t('appeal.current_state'),
-        value: this.t(this.model.currentStateKey as string)
-      })
+      InlineRow({ label: this.t('appeal.current_state'), value: this.t(this.model.currentStateKey as string),
+        chipTone: appealStateChipTone(this.model.riskState), chipIcon: appealStateChipIcon(this.model.riskState),
+        chipId: 'appeal_state_chip' })
     }
     if (this.reasonText() !== null) {
-      MeKeyValue({ label: this.t('appeal.reason'), value: this.reasonText() as string, divider: this.frozenUntilText() !== null })
+      InlineRow({ label: this.t('appeal.reason'), value: this.reasonText() as string })
     }
     if (this.frozenUntilText() !== null) {
-      MeKeyValue({ label: this.t('appeal.frozen_until'), value: this.frozenUntilText() as string, divider: false })
+      InlineRow({ label: this.t('appeal.frozen_until'), value: this.frozenUntilText() as string })
     }
   }
 
   @Builder
   submitPage(bound: Bound) {
-    Text(this.t('appeal.target'))
-      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    MeCard({
+    AppealInfoCard({
+      title: this.t('appeal.target'),
+      cardId: 'appeal_target_card',
       content: () => {
         this.targetCard()
       }
     })
-    Text(this.t('appeal.content_label'))
-      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    TextArea({ text: this.model.input })
+    AppealInfoCard({
+      title: this.t('appeal.content_label'),
+      cardId: 'appeal_input_card',
+      content: () => {
+        this.inputBox(bound)
+      }
+    })
+    if (this.model.message.length > 0) {
+      Column() {
+        MeNoticeBar({ text: this.model.message, tone: 'error', barId: 'appeal_message', focusTarget: true })
+      }
+      .width('100%')
+      .onAppear(() => this.revealBottom())
+    }
+    // R2-01：「处理期间限制保持不变 / 提现仍暂停」只在当前仍受限时说。
+    RiskNoteStrip({ text: this.t(AppealCopy.submitNote(this.model.frozen, this.model.riskState)), barId: 'appeal_note' })
+  }
+
+  /** R13 / H-R10：系统 TextArea 只改外观（占位、占位色、min 160、内边距 8/12）；回调体、id、读屏名与错误描述、错误边色逐字原样。 */
+  @Builder
+  inputBox(bound: Bound) {
+    TextArea({ text: this.model.input, placeholder: this.t('appeal.placeholder') })
       .id('appeal_input')
       .width('100%')
-      .constraintSize({ minHeight: 120 })
+      .constraintSize({ minHeight: 160 })
+      .padding({ top: 8, bottom: 8, left: 12, right: 12 })
       .fontSize(CouliTypography.body.fontSize)
+      .placeholderColor(CouliColors.textSecondary)
       .backgroundColor(CouliColors.backgroundSurface)
       .borderRadius(12)
       .border({ width: 1, color: this.model.fieldError.length > 0 ? CouliColors.statusErrorText :
@@ -217,64 +317,19 @@ export struct AppealView {
         .id('appeal_field_error')
         .focusable(true)
         .focusBox(CouliFocus.box)
+        .onAppear(() => this.revealBottom())
     }
-    if (this.model.message.length > 0) {
-      MeNoticeBar({ text: this.model.message, tone: 'error', barId: 'appeal_message', focusTarget: true })
-    }
-    // R2-01：「处理期间限制保持不变 / 提现仍暂停」只在当前仍受限时说。
-    MeNoticeBar({ text: this.t(AppealCopy.submitNote(this.model.frozen, this.model.riskState)), tone: 'info',
-      barId: 'appeal_note' })
   }
 
   // ---------------------------------------------------------------- 进度页
 
   @Builder
-  timelineItem(title: string, desc: string, done: boolean, last: boolean) {
-    Row({ space: CouliSpacing.space3 }) {
-      Column() {
-        Circle({ width: 10, height: 10 })
-          .fill(done ? CouliColors.brandPrimary : CouliColors.borderSubtle)
-        if (!last) {
-          Column().width(2).height(40).margin({ top: 4 }).backgroundColor(CouliColors.borderSubtle)
-        }
-      }
-      .width(12)
-      .alignItems(HorizontalAlign.Center)
-      .padding({ top: 6 })
-      Column({ space: 2 }) {
-        Text(title)
-          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
-            done ? CouliFontWeight.semibold : CouliFontWeight.regular))
-        if (desc.length > 0) {
-          Text(desc)
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined, true))
-        }
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      .padding({ bottom: CouliSpacing.space3 })
-    }
-    .width('100%')
-    .alignItems(VerticalAlign.Top)
-    .accessibilityGroup(true)
-  }
-
-  @Builder
   contentCard() {
-    MeKeyValue({ label: this.t('appeal.type'), value: this.t('appeal.type.account') })
+    InlineRow({ label: this.t('appeal.type'), value: this.t('appeal.type.account') })
     if (this.reasonText() !== null) {
-      MeKeyValue({ label: this.t('appeal.reason'), value: this.reasonText() as string })
+      InlineRow({ label: this.t('appeal.reason'), value: this.reasonText() as string })
     }
-    Column({ space: CouliSpacing.space1 }) {
-      Text(this.t('appeal.content'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
-      Text(this.str(this.model.latest, 'content') ?? '')
-        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
-        .id('appeal_content')
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ top: CouliSpacing.space2, bottom: CouliSpacing.space2 })
+    InlineRow({ label: this.t('appeal.content'), value: this.str(this.model.latest, 'content') ?? '', valueId: 'appeal_content' })
   }
 
   /** 时间线「处理中」的说明（R2-01：只在当前仍受限时说限制保持不变 / 提现仍暂停）。 */
@@ -284,37 +339,51 @@ export struct AppealView {
   }
 
   @Builder
-  timelineCard(resultText: string, resultDone: boolean) {
-    Column() {
-      this.timelineItem(this.t('appeal.timeline.submitted'), this.time('created_at'), true, false)
-      this.timelineItem(this.t('appeal.timeline.processing'), this.processingDesc(), true, false)
-      this.timelineItem(this.t('appeal.timeline.result'), resultText, resultDone, true)
-    }
-    .width('100%')
-    .padding({ top: CouliSpacing.space3 })
+  timelineCard(resultText: string, upheld: boolean) {
+    AppealTimeline({
+      timelineId: 'appeal_timeline',
+      titles: [this.t('appeal.timeline.submitted'), this.t('appeal.timeline.processing'), this.t('appeal.timeline.result')],
+      descs: [this.time('created_at'), this.processingDesc(), resultText],
+      states: timelineStates(upheld)
+    })
   }
 
+  /** R16：处理中状态卡内容：胶囊（pending + 时钟）→ 标题 title 22/600（标题角色）→ 说明 14 次文字。 */
   @Builder
-  progressPage() {
+  progressStatus() {
     Column({ space: CouliSpacing.space2 }) {
-      CouliChip({ label: this.t('appeal.progress.badge'), tone: CouliChipTone.OUTLINE })
+      Row() {
+        CouliChip({ label: this.t('appeal.progress.badge'), tone: CouliChipTone.MUTED, icon: 'clock' })
+      }
+      .id('appeal_badge_chip')
       Text(this.t('appeal.progress.heading'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.heading, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
+        .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary, CouliFontWeight.semibold))
+        .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
         .id('appeal_progress_heading')
       Text(this.v('appeal.progress.desc.banned', 'appeal.progress.desc.frozen'))
         .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  progressPage() {
+    MeCard({
+      cardId: 'appeal_status_card',
+      vertical: CouliSpacing.space4,
+      content: () => {
+        this.progressStatus()
+      }
+    })
     MeCard({
       content: () => {
         this.timelineCard(this.v('appeal.timeline.result_pending.banned', 'appeal.timeline.result_pending.frozen'), false)
       }
     })
-    Text(this.t('appeal.content_section'))
-      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    MeCard({
+    AppealInfoCard({
+      title: this.t('appeal.content_section'),
+      cardId: 'appeal_content_card',
       content: () => {
         this.contentCard()
       }
@@ -331,25 +400,22 @@ export struct AppealView {
 
   @Builder
   liftedPage() {
-    Column({ space: CouliSpacing.space2 }) {
-      // R2-01：标题与说明只在本次 risk.state 为 normal 时说「已恢复 / 已解除」；当前重新受限或取不到时只说历史结论「申诉已通过」。
-      Text(this.t(AppealCopy.liftedTitle(this.model.frozen, this.model.riskState)))
-        .attributeModifier(new CouliTextModifier(CouliTypography.heading, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-        .id('appeal_result_title')
-      Text(this.t(AppealCopy.liftedDesc(this.model.riskState)))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Center)
-    .padding({ top: CouliSpacing.space4 })
+    // R2-01：标题与说明只在本次 risk.state 为 normal 时说「已恢复 / 已解除」；当前重新受限或取不到时只说历史结论「申诉已通过」。
+    RiskHero({
+      symbol: 'checkmark_circle',
+      tone: 'success',
+      title: this.t(AppealCopy.liftedTitle(this.model.frozen, this.model.riskState)),
+      desc: this.t(AppealCopy.liftedDesc(this.model.riskState)),
+      iconId: 'appeal_result_icon',
+      titleId: 'appeal_result_title'
+    })
     MeCard({
       content: () => {
         this.liftedCard()
       }
     })
     if (this.liftedNote().length > 0) {
-      MeNoticeBar({ text: this.liftedNote(), tone: 'info', barId: 'appeal_lifted_note' })
+      RiskNoteStrip({ text: this.liftedNote(), barId: 'appeal_lifted_note' })
     }
   }
 
@@ -364,93 +430,109 @@ export struct AppealView {
 
   @Builder
   liftedCard() {
-    MeKeyValue({ label: this.t('appeal.conclusion'), value: this.t('appeal.passed') })
-    MeKeyValue({ label: this.t('appeal.closed_at'), value: this.time('closed_at'),
+    // R20：已解除结论卡照画板为「标签 … 值」信息行（与账号状态信息卡同件：14 号、值右对齐、行 48、行间分隔）；结论值是 success 胶囊。
+    RiskInfoRow({ label: this.t('appeal.conclusion'), value: this.t('appeal.passed'), valueId: 'appeal_passed',
+      chipTone: CouliChipTone.SUCCESS, chipIcon: 'check', chipId: 'appeal_passed_chip' })
+    RiskInfoRow({ label: this.t('appeal.closed_at'), value: this.time('closed_at'), valueId: 'appeal_closed_at',
       divider: this.model.currentStateKey !== null })
     // R1-04：结论只表达历史；「提现 / 账号状态」一行按本次 risk.state（当前重新受限时如实显示）。
     if (this.model.frozen && this.model.withdrawStateKey !== null) {
-      MeKeyValue({ label: this.t('appeal.withdraw'), value: this.t(this.model.withdrawStateKey as string),
-        divider: false })
+      RiskInfoRow({ label: this.t('appeal.withdraw'), value: this.t(this.model.withdrawStateKey as string),
+        valueId: 'appeal_withdraw_state', divider: false })
     } else if (!this.model.frozen && this.model.currentStateKey !== null) {
-      MeKeyValue({ label: this.t('appeal.account_state'), value: this.t(this.model.currentStateKey as string),
-        divider: false })
+      RiskInfoRow({ label: this.t('appeal.account_state'), value: this.t(this.model.currentStateKey as string),
+        valueId: 'appeal_account_state', divider: false })
     }
   }
+
 
   @Builder
   upheldStateCard() {
     if (this.model.currentStateKey !== null) {
       // R1-04：维持原结论是历史结果；当前状态只按本次 risk.state。
-      MeKeyValue({
+      InlineRow({
         label: this.model.frozen ? this.t('appeal.withdraw') : this.t('appeal.state'),
-        value: this.t((this.model.frozen ? this.model.withdrawStateKey : this.model.currentStateKey) as string)
+        value: this.t((this.model.frozen ? this.model.withdrawStateKey : this.model.currentStateKey) as string),
+        chipTone: appealStateChipTone(this.model.riskState),
+        chipIcon: appealStateChipIcon(this.model.riskState),
+        chipId: 'appeal_state_chip'
       })
     }
     if (this.reasonText() !== null) {
-      MeKeyValue({ label: this.t('appeal.reason'), value: this.reasonText() as string })
+      InlineRow({ label: this.t('appeal.reason'), value: this.reasonText() as string })
     }
     if (this.model.currentBanned) {
-      MeKeyValue({ label: this.t('risk.limit'), value: this.t('risk.limit.long'), divider: false })
+      InlineRow({ label: this.t('risk.limit'), value: this.t('risk_notice.period_none') })
     } else if (this.frozenUntilText() !== null) {
-      MeKeyValue({ label: this.t('appeal.frozen_until'), value: this.frozenUntilText() as string, divider: false })
+      InlineRow({ label: this.t('appeal.frozen_until'), value: this.frozenUntilText() as string })
     }
+  }
+
+  /** R22：维持状态卡内容：胶囊（warning + 三角）→ 标题 title 22/600 → 说明 → 行内「处理时间」（closed_at 为空时不出这一行）。 */
+  @Builder
+  upheldStatus() {
+    Column({ space: CouliSpacing.space2 }) {
+      Row() {
+        CouliChip({ label: this.t('appeal.upheld.badge'), tone: CouliChipTone.WARNING, icon: 'alert' })
+      }
+      .id('appeal_badge_chip')
+      Text(this.t('appeal.upheld.title'))
+        .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary, CouliFontWeight.semibold))
+        .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+        .id('appeal_upheld_title')
+      Text(this.t('appeal.upheld.desc'))
+        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+      if (this.time('closed_at').length > 0) {
+        InlineRow({ label: this.t('appeal.closed_at'), value: this.time('closed_at') })
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
   upheldPage() {
-    Column({ space: CouliSpacing.space2 }) {
-      CouliChip({ label: this.t('appeal.upheld.badge'), tone: CouliChipTone.OUTLINE })
-      Text(this.t('appeal.upheld.title'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.heading, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-        .id('appeal_upheld_title')
-      Text(this.t('appeal.upheld.desc'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
+    MeCard({
+      cardId: 'appeal_status_card',
+      vertical: CouliSpacing.space4,
+      content: () => {
+        this.upheldStatus()
+      }
+    })
     MeCard({
       content: () => {
         this.timelineCard(this.config.texts.format('appeal.upheld.result_line',
           this.timeVars(this.time('closed_at'))), true)
       }
     })
-    Text(this.t(this.model.frozen ? 'appeal.current_frozen_state' : 'appeal.current_account_state'))
-      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    MeCard({
+    AppealInfoCard({
+      title: this.t(this.model.frozen ? 'appeal.current_frozen_state' : 'appeal.current_account_state'),
+      cardId: 'appeal_current_card',
       content: () => {
         this.upheldStateCard()
       }
     })
-    Column({ space: CouliSpacing.space1 }) {
-      Text(this.t('appeal.next'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-      if (AppealCopy.upheldFrozenNext(this.model.frozen, this.model.riskState)) {
-        Text(this.t('appeal.next.frozen'))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-      }
-      Text(this.t('appeal.next.again'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-      Text(this.t('appeal.next.cs'))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-      if (!this.model.frozen) {
-        Text(this.t(this.config.deleteAccountAvailable() ? 'appeal.next.delete_logout' : 'appeal.next.logout'))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-      }
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding(CouliSpacing.space3)
-    .borderRadius(CouliRadius.button)
-    .backgroundColor(CouliColors.backgroundMuted)
-    Text(this.t('appeal.content_section'))
-      .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
-    MeCard({
+    BulletCard({ title: this.t('appeal.next'), cardId: 'appeal_next_card', lines: this.nextLines() })
+    AppealInfoCard({
+      title: this.t('appeal.content_section'),
+      cardId: 'appeal_content_card',
       content: () => {
         this.contentCard()
       }
     })
+  }
+
+  private nextLines(): string[] {
+    const lines: string[] = [];
+    if (AppealCopy.upheldFrozenNext(this.model.frozen, this.model.riskState)) {
+      lines.push(this.t('appeal.next.frozen'));
+    }
+    lines.push(this.t('appeal.result.next.resubmit'));
+    lines.push(this.t('appeal.next.cs'));
+    if (!this.model.frozen) {
+      lines.push(this.t(this.config.deleteAccountAvailable() ? 'appeal.next.logout.with_deletion' : 'appeal.next.logout'));
+    }
+    return lines;
   }
 
   private timeVars(time: string): Map<string, string> {
@@ -535,6 +617,7 @@ export struct AppealView {
         } else if (this.model.layout === AppealRules.RESULT_UPHELD) {
           CouliButton({
             text: this.t('appeal.again'),
+            variant: CouliButtonVariant.SECONDARY,
             fullWidth: true,
             buttonId: 'appeal_again',
             onTap: () => this.config.controller.submitAgain(this.config.controller.identity)
@@ -543,35 +626,42 @@ export struct AppealView {
             MeLink({ text: this.t('appeal.contact_cs'), linkId: 'appeal_upheld_cs',
               onTap: () => this.config.customerService() })
             if (!this.model.frozen) {
-              Text('|')
-                .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.borderSubtle))
-                .accessibilityLevel('no')
               if (this.config.deleteAccountAvailable()) {
-                MeLink({ text: this.t('settings.delete_account'), linkId: 'appeal_delete_account',
-                  onTap: () => this.config.deleteAccount(this.config.controller.identity) })
-                Text('|')
-                  .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.borderSubtle))
-                  .accessibilityLevel('no')
+                Row() {
+                  RiskExitSep()
+                  MeLink({ text: this.t('settings.delete_account'), linkId: 'appeal_delete_account',
+                    onTap: () => this.config.deleteAccount(this.config.controller.identity) })
+                }
               }
-              MeLink({ text: this.t('risk.logout'), linkId: 'appeal_logout',
-                onTap: () => this.config.logout(this.config.controller.identity) })
+              Row() {
+                RiskExitSep()
+                MeLink({ text: this.t('risk.logout'), linkId: 'appeal_logout',
+                  onTap: () => this.config.logout(this.config.controller.identity) })
+              }
             }
           }
           .width('100%')
+          .id('appeal_exits')
         }
       }
       .width('100%')
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space3,
         bottom: CouliSpacing.space5 })
+      // R15 / R27 / H-R21：提交与维持版式是白底固定底栏 + 上沿 1px 分隔（≥600 时白底只到 600，H-S11 同口径）；其余版式无底色。
+      .backgroundColor(this.barred() ? CouliColors.backgroundSurface : Color.Transparent)
+      .border({ width: { top: this.barred() ? 1 : 0 }, color: { top: CouliColors.borderSubtle } })
+      .id(this.barred() ? 'appeal_bar' : 'appeal_footer')
     }
+  }
+
+  /** 底栏白底只在提交 / 维持版式（只读版式，不改按钮条件）。 */
+  private barred(): boolean {
+    return this.model.layout === AppealRules.SUBMIT || this.model.layout === AppealRules.RESULT_UPHELD;
   }
 
   private title(): string {
     if (this.model.layout === AppealRules.SUBMIT) {
       return this.t('appeal.title');
-    }
-    if (this.model.layout === AppealRules.RESULT_LIFTED && !this.model.frozen) {
-      return this.t('risk.title');
     }
     return this.t('appeal.progress.title');
   }
@@ -581,6 +671,7 @@ export struct AppealView {
       title: this.title(),
       backLabel: this.t('me.back'),
       scrollId: 'appeal_scroll',
+      scroller: this.scroller,
       content: () => {
         this.content()
       },

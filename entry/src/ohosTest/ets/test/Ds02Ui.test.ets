@@ -292,8 +292,19 @@ export default function ds02UiTest() {
             const privacy: Component = await driver.findComponent(ON.text(label));
             if (privacy !== null && privacy !== undefined) { await privacy.click(); await idle(); }
           }
-          const entry: Component = await driver.findComponent(ON.text('Debug panel'));
-          if (entry !== null && entry !== undefined) { ready = true; break; }
+          // APP-12w-c-harmony 测试 v6（#24 只改查找方式）：FU-X-HOME-PAGE-API 起 staging 首页（不开假服务）拉真实 getPage，卡片加载后
+          // 列表变长，页脚「Debug panel」落到首屏以下，不滚动直接找时好时坏。改为在首页列表里有界滚动查找（同文件已用的 searchUiComponent）；
+          // 列表还没出来或翻完找不到就照旧重拉再试。判据（找到入口、进目录）不变。
+          const list: Component = await driver.findComponent(ON.id('home_list'));
+          if (list !== null && list !== undefined) {
+            try {
+              const entry: Component = await searchUiComponent(driver, ON.id('home_list'), ON.text('Debug panel'));
+              if (entry !== null && entry !== undefined) { ready = true; break; }
+            } catch (e) {
+              // 只吞 DS02_UI_SEARCH_EXHAUSTED（本轮没找到，重拉再试，有界 8 轮）；任务停止等其它异常照旧抛出。
+              if (String(e).indexOf('DS02_UI_SEARCH_EXHAUSTED') < 0) { throw e as Error; }
+            }
+          }
         }
         expect(ready).assertTrue();
         const debug: Component = await driver.waitForComponent(ON.text('Debug panel'), 8000);
