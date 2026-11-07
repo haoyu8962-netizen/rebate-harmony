@@ -1,7 +1,7 @@
 {
   "rebate_platform": {
     "repo": "../rebate-platform",
-    "commit": "00deded0ef6f62716fcd8ca62f549dfdc1da4995"
+    "commit": "a89c1ec3a7f4de0b069742af909eba6545358ea3"
   },
   "design_tokens": {
     "repo": "../couli",
@@ -12,7 +12,7 @@
     "contracts/agent-stream.schema.json": "895bd7458fc9185e5b9022e316fc4313b90b84f91d75f72227bd3e907139fb9e",
     "contracts/apps.json": "b7c3e07ad63d52e7ec5b6021b13dc2003cabb0755adffa4af5079aa3ac2267dd",
     "contracts/bridge.schema.json": "553c7f79b4a803fcdab70d6efa5c0d631f9a8a3263f9fd7f373a053c654dc1e3",
-    "contracts/enums/admin.json": "0a31468548e9a376a822e896465781033bfd37e89cea123d950b42e6a6ca3f72",
+    "contracts/enums/admin.json": "15169659cbc717065f12d3c17893972a473b47d6271832e5c4acc026ea00a8ca",
     "contracts/enums/fund.json": "609f58a2598222e9b9c88364a77662c9c7efce5612fad7f84b43c133b62e3f5e",
     "contracts/enums/identity.json": "1fc21235dbe4c642da2bb698ca03a100828dba5366184fd5ec2e1bf92da45a19",
     "contracts/enums/ops.json": "cf931b2a615086bc3a37e781041baf2ab937fbce8457e4da04f029ef77f7ffc6",
@@ -20,7 +20,7 @@
     "contracts/enums/pay.json": "d77e1a6f1ccfb414500cf2c420e9dfa6babcab14441a533ebf6ec06449e297f1",
     "contracts/enums/platform.json": "cc4043466111363f8273dc48164f90d489b7e0e14fec5769d8a1e43af2b36a98",
     "contracts/enums/trade.json": "2baee49aac11b903b942fedf65835f6528baed8ba99c33aaad6afbcfc0f15fd8",
-    "contracts/error-codes.json": "c73af4261ea443dcd4ae07aeb22ded9ec844c85ae881555cdb5b01f48acd2540",
+    "contracts/error-codes.json": "954c14c589f9681d66fa5c8518ad482ee892638a1b6f2adfc2cd8c801dcb2d8f",
     "contracts/fixtures/agent-streams/cancelled.ndjson": "ce745cae752b6f7b8e3caa8930e6115488c1d3fd40174628fb33fb8f3b0909e8",
     "contracts/fixtures/agent-streams/disconnected.ndjson": "bf17e86ed82cd30caed137ddd091135970a2f2105f61376e77aeaec1e8d7a9cd",
     "contracts/fixtures/agent-streams/duplicate-ended-done.ndjson": "94a1043ae9eaa6480680ca31c1422149c0cc0884a32a0672513c79b2d281daab",
@@ -36,9 +36,9 @@
     "contracts/fixtures/agent-streams/tool-failed.ndjson": "dd813827b3f2ae00273a28522268fb85ab39d77424e36049b9769b2bfa8f3643",
     "contracts/fixtures/agent-streams/unknown-card-page-guide.ndjson": "5cbff17f14822116e9c09fc3ed06d10e1635f617db15c57ce5a21cbf520e06cc",
     "contracts/fixtures/agent-streams/unknown-card.ndjson": "5ec8039c7a83687bc226b15cd57129aacc677f0ebc2ffccf900d07a6f0a6749c",
-    "contracts/openapi.json": "366e96cf0793c7a58feee7fd7ecdfec6b4baa97677c4967cc52fa6e24b23655b",
+    "contracts/openapi.json": "4b658d0079bc173d5bed9081b122c202032b49247dc4afd45db0d2f2c0787214",
     "contracts/routes.json": "ab9b31952c979f61b40608edc982423423a38617f40b0937e3541e0766a31b06",
-    "contracts/texts.default.json": "23eac6f8bf02693840a02ac4828b226bff58a4458ffae467445ba5e2bb9881cc",
+    "contracts/texts.default.json": "3ddce957d12e696d6276fd676cd0e78a719d337615f8d99d0d511b551d3022db",
     "design/design-tokens.json": "97d2bf83ada062959987f348bc695c63fabc4adb3647f03e5c0895e2548e491c",
     "specs/app-stores.json": "19ad122d9cf7b92044819edd30c615f4f111668a0388eea28814394e130822cf",
     "specs/client-public-ids.json": "1ef9e57a1a77dc849899ec72f53d7911ff57b6583cb3eaf78527a3bc6fb9f7b3",

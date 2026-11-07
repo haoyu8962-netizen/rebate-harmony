@@ -1821,7 +1821,8 @@
           30101,
           30102,
           30153,
-          50301
+          50301,
+          50303
         ],
         "security": [
           {
@@ -2190,7 +2191,8 @@
                         "reason": null,
                         "est_rebate_fen": 269,
                         "paid_at": "2026-10-02T09:31:00+08:00",
-                        "is_other_product": false
+                        "is_other_product": false,
+                        "is_price_compare": false
                       }
                     ],
                     "next_cursor": null,
@@ -8330,7 +8332,9 @@
                     "clipboard": {
                       "consent_version": "2026-10-01"
                     },
-                    "bridge_origins": {},
+                    "bridge_origins": {
+                      "jws": "aGVhZGVy.cGF5bG9hZA.c2lnbmF0dXJl"
+                    },
                     "auth_tips": {},
                     "compliance": {},
                     "display": {},
@@ -8838,6 +8842,249 @@
                       "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
                     }
                   }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/ClientError"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/v1/products/{product_key}/feedback": {
+      "post": {
+        "operationId": "submitProductFeedback",
+        "tags": [
+          "trade"
+        ],
+        "summary": "Report a wrong price, rebate or product info on the detail page",
+        "description": "Product feedback from the detail page (01 F-PROD-15, 04 §6.3). Guests who accepted the\nprivacy policy and logged-in users may submit; the record is counted by device and also\nkeeps user_id when logged in (BR-ID-02 细则「商品反馈与进店」). Basic mode shows no entry and\nsends no request (BR-ID-11). The body carries only what BR-ID-30 细则「商品反馈记录」 lists:\nno contact fields, and any undefined field is 20001. link_id is the detail card's link,\nfrom which the server reads the quote snapshot; a link_id that does not exist or does not\nbelong to the app is 30144. A device submitting more than feedback.daily_limit_per_device\n(default 20) in one natural day (+08:00) gets 42901 and nothing is written. With\nfeedback.enabled off (features.flags.product_feedback=false) the client shows no entry and\nthe server answers 30145. Version gate: applied.\n",
+        "x-auth": "optional",
+        "x-signed": true,
+        "x-idempotent": true,
+        "x-min-version-gate": true,
+        "x-implementation": "planned",
+        "x-error-codes": [
+          30145,
+          20001,
+          30144,
+          42901,
+          10405
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AppId"
+          },
+          {
+            "$ref": "#/components/parameters/Platform"
+          },
+          {
+            "$ref": "#/components/parameters/AppVersion"
+          },
+          {
+            "$ref": "#/components/parameters/Build"
+          },
+          {
+            "$ref": "#/components/parameters/Channel"
+          },
+          {
+            "$ref": "#/components/parameters/TraceId"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Sign"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/ProductKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductFeedbackRequest"
+              },
+              "example": {
+                "platform": "jd",
+                "link_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a70",
+                "shown_final_price_fen": 12900,
+                "shown_rebate_fen": 350,
+                "quoted_at": "2026-11-06T10:15:00+08:00",
+                "reason": "price",
+                "note": null
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The feedback is recorded.",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductFeedbackResponse"
+                },
+                "example": {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "feedback_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5b10"
+                  },
+                  "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/ClientError"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/v1/products/{product_key}/shop/open": {
+      "post": {
+        "operationId": "openProductShop",
+        "tags": [
+          "trade"
+        ],
+        "summary": "Enter the product's shop — convert the shop link at tap time",
+        "description": "【进店】 on the product detail (BR-PRICE-21 细则「进店」, 04 §6.3). Identity requirements are\nthose of a purchase tap: not logged in → 10001; platform not authorized → 30101 / 30102 /\n30111 with the same data as open (BR-ID-02, BR-ID-17, BR-ID-22); convert.enabled.<platform>\noff → 50301 as on open. The server takes this shop's promotion link from\nshop.entry.source.<platform> with the identity injected as in BR-ATTR-05 (self_buy slot and\nthe current user's attribution parameters) and returns `jump` (same shape as open, 04 §8.4).\nThere is no scene (exception to BR-ATTR-08), no link is registered and no quote snapshot is\nwritten. shop.entry.enabled.<platform> off, or no shop entry source configured for the\nplatform → 30146 with data.reason=shop_entry_disabled. A conversion that does not produce\na promotion link carrying the user's attribution fails like a purchase conversion (50303\nand the other purchase-link codes, not 30146); the server never answers with a shop address\nwithout promotion parameters. A request stopped by 30101, 30102 or 30111 and sent again\nafter the user authorized is a new request with a new Idempotency-Key (BR-ID-10 细则).\nVersion gate: applied.\n",
+        "x-auth": "login",
+        "x-signed": true,
+        "x-idempotent": true,
+        "x-min-version-gate": true,
+        "x-implementation": "planned",
+        "x-error-codes": [
+          10001,
+          30101,
+          30102,
+          30111,
+          50301,
+          30146,
+          50303,
+          20001,
+          10405
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AppId"
+          },
+          {
+            "$ref": "#/components/parameters/Platform"
+          },
+          {
+            "$ref": "#/components/parameters/AppVersion"
+          },
+          {
+            "$ref": "#/components/parameters/Build"
+          },
+          {
+            "$ref": "#/components/parameters/Channel"
+          },
+          {
+            "$ref": "#/components/parameters/TraceId"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Sign"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/ProductKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopOpenRequest"
+              },
+              "example": {
+                "platform": "taobao",
+                "installed": "true"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Jump plan into the shop.",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopOpenResponse"
+                },
+                "example": {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "jump": {
+                      "primary": {
+                        "type": "universal_link",
+                        "value": "https://shop.example.test/s/1001?promo=placeholder"
+                      },
+                      "fallbacks": [],
+                      "expire_at": "2026-11-06T10:45:00+08:00"
+                    }
+                  },
+                  "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
                 }
               }
             }
@@ -27312,7 +27559,6 @@
         "summary": "The risk rule list (规则清单), not paged",
         "description": "Permission point `config.risk` (04 §11.2; read only, no step-up); lacking it is 10403 with\n`data.reason=admin_permission_denied`. Every risk_rules row of the console's app (04 §3.2;\nthe rules are seeded with B1-03, BR-ID-36), ordered by `scene`, then `rule_id`; not paged\nand not filtered (04 §6.6 risk-rules). Each row holds the fields of 04 §6.6 only:\n`rule_id`, `scene` (the code the rule seed registered; no closed list in this contract),\n`name` (display name), `risk_action` (BR-ID-36), `status` (enabled or disabled),\n`threshold_keys`, `version` and `updated_at`. The condition JSON is not returned.\n`threshold_keys` names the configuration items that hold the rule's thresholds (an empty\narray for a rule without one). Their current values and allowed ranges are not returned\nhere: they are read and changed only through /admin/v1/config-items (PUT\n/admin/v1/config-items/{key}, these keys being registered under `config.risk`), so each\nvalue has one write path. `version` is what POST /admin/v1/risk-rules/{rule_id}/enable and\n…/disable take as `expected_version`.\n",
         "x-auth": "admin",
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10403
@@ -27427,7 +27673,6 @@
         "summary": "Enable one risk rule",
         "description": "Permission point `config.risk` (04 §11.2); lacking it is 10403 with\n`data.reason=admin_permission_denied`. Step-up: totp tier on every call (without a valid\ntotp-tier `X-Step-Up-Token` → 10003 with `data.tier=totp`). Body checks (20001 with\n`data.fields` naming the field): `expected_version` is required; `reason` is optional\n(1–200 characters). An unknown `rule_id`, or one of another app, is 20001 with\n`data.fields=[rule_id]`. CAS: `expected_version` is the rule's `version` as GET\n/admin/v1/risk-rules listed it; a change sets `status` to enabled and adds 1, and a\nmismatch → 20902 with `data.resource=risk_rule`, refresh and retry (04 §6.6). A rule\nalready enabled, with a matching version, succeeds unchanged: `version` stays the same and\nit is not counted as a change, so no audit record is written (BR-ID-36 细则「规则清单的启停」).\nA change writes an audit record (action risk_rule_enable, before and after `status`,\n`reason`). Takes effect as for a configuration item change: the readers pick it up\nwithin their cache period (04 §10); judgements already made are not redone. The response\nis the rule's row as GET /admin/v1/risk-rules lists it now. No Idempotency-Key (04 §6.6).\n",
         "x-auth": "admin",
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10003,
@@ -27551,7 +27796,6 @@
         "summary": "Disable one risk rule",
         "description": "Permission point `config.risk` (04 §11.2); lacking it is 10403 with\n`data.reason=admin_permission_denied`. Step-up: totp tier on every call (without a valid\ntotp-tier `X-Step-Up-Token` → 10003 with `data.tier=totp`). Body checks (20001 with\n`data.fields` naming the field): `expected_version` is required; `reason` is optional\n(1–200 characters). An unknown `rule_id`, or one of another app, is 20001 with\n`data.fields=[rule_id]`. CAS: `expected_version` is the rule's `version` as GET\n/admin/v1/risk-rules listed it; a change sets `status` to disabled and adds 1, and a\nmismatch → 20902 with `data.resource=risk_rule`, refresh and retry (04 §6.6). A rule\nalready disabled, with a matching version, succeeds unchanged: `version` stays the same\nand it is not counted as a change, so no audit record is written (BR-ID-36 细则「规则清单的启停」).\nA disabled rule takes no part in judgements and writes no risk_hits; hits already\nwritten and their appeals are not affected. A change writes an audit record (action\nrisk_rule_disable, before and after `status`, `reason`). Takes effect as for a\nconfiguration item change: the readers pick it up within their cache period (04 §10);\njudgements already made are not redone. The threshold configuration items keep their\nvalues. The response is the rule's row as GET /admin/v1/risk-rules lists it now. No\nIdempotency-Key (04 §6.6).\n",
         "x-auth": "admin",
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10003,
@@ -30435,7 +30679,6 @@
         "summary": "Manual adjustments of the app, page by page, newest first",
         "description": "The 调账单 tab of the 调账与核销 console (01 F-ADM-08; 04 §3.2 admin_adjustments;\ndesign/specs/admin-adjustments.md §2, §4). Read only, no step-up. Permission point: any of\n`fund.adjust` or `fund.view` (04 §11.1, §11.2). Each row is AdminAdjustment. `amount_fen`\nis null on a system-prefilled ACCOUNT_CLOSED form that has no amount yet (it is taken when\nthe form is approved, BR-FUND-24 ⑧). 「已红冲」 is not a status: it is shown from\n`reversed_by_adjust_id` (BR-TEXT-25). `note` is internal and never reaches the member\n(BR-FUND-24 ⑦). Filters combine with AND: `reason_code`, `status`, `user_id` (the user_id\nonly; UID and phone number lookups go through GET /admin/v1/search). A value outside an\nenum or pattern is 20001 with `data.fields` naming the parameter; a `user_id` that names\nnothing of the app is an empty page. The tab's 待批准 count is the `total` of\n`status=PENDING`. Order: `created_at` descending (then `adjust_id` descending). Pages with\n`page` (as AdminPage; a page past the last one is `items=[]`) and `page_size` ≤ 200 (above\n200 is 20001, as AdminPageSize); `total` is the count of the filter set. Reading does not\nwrite an audit record.\n",
         "x-auth": "admin",
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10403,
@@ -30588,10 +30831,9 @@
           "admin-adjustments"
         ],
         "summary": "Submit a manual adjustment or a whole-form reversal, effective in one step (提交并生效)",
-        "description": "The only way a person adjusts a member's balance (BR-FUND-24; 04 §3.2 admin_adjustments;\ndesign/specs/admin-adjustments.md 新建抽屉, 红冲对话框, and the 【调整余额】 of the user detail).\nOne submission saves and approves at once: there is no 保存待批 and no 撤回, and the form\nis born APPROVED with `reviewed_by` equal to `created_by` (BR-FUND-24 细则「后台入口」, owner\n2026-10-18 ②; ADD-05). Permission point `fund.adjust` (04 §11.2). Step-up: sms tier\n(BR-ID-34): without a valid sms-tier `X-Step-Up-Token`, a totp-tier token included → 10003\nwith `data.tier=sms`; an account without a registered verify phone also gets\n`data.reason=verify_phone_missing`.\n\nRequest, one of two closed shapes (AdminAdjustmentCreateRequest):\n\n- A new adjustment: `user_id`; `direction`; `amount_fen`, integer fen > 0, no upper limit\n  (BR-FUND-24 ④); `reason_code`, one of RECON_FIX, PAYOUT_RECOVERY or OTHER. RESTORE comes\n  only from a difference (BR-FUND-22) and ACCOUNT_CLOSED only from the system (BR-FUND-24\n  ⑧), so neither can be chosen: 20001 at the schema. `refs`, the linked documents, at\n  most 10, without duplicates (`data.fields=[refs]`); `note`, the internal explanation,\n  at most 500 characters and not blank after trimming (blank → `data.fields=[note]`),\n  required for OTHER (`data.fields=[note]`); `contra_subject` with `contra_platform`, see\n  below.\n- A reversal: `reverses_adjust_id` and `note`, the reason for the reversal, required, as\n  above. The request carries no direction, amount, reason code, refs or subject: the\n  server takes them from the original (opposite direction, the original `amount_fen`,\n  whole form only, the same `reason_code`, `contra_subject` and `contra_platform`), and\n  any of those fields in the request is 20001 at the schema (BR-FUND-24 细则「红冲只按原单整笔」).\n  To correct +500 to +50: reverse the whole +500, then submit a new +50.\n\nWhat `data.fields` lists depends on where the body is refused. The schema comes first and\nreports both shapes: a body that fits neither shape (a `reason_code` of RESTORE or\nACCOUNT_CLOSED, a `note` over 500 characters, more than 10 `refs`, an `amount_fen` of 0, a\nvalue outside an enum, a missing required field, a field of the other shape) is 20001\nwith `data.fields` listing what fails in each of the two shapes, usually fields of the\nother shape too, plus `body`; it does not single out the field at fault. Every\n`data.fields` naming one field in this description is a check the service makes after the\nbody has fit one shape.\n\nLinked documents by reason code (BR-FUND-24 ②③), all refused as 20001 with\n`data.fields=[refs]`: RECON_FIX needs at least one `recon_diff`. PAYOUT_RECOVERY needs at\nleast one `recon_diff` and exactly one `withdrawal`. OTHER needs at least one document of\nany type, or none at all when `note` is the 客服处理说明 that stands in for it (③; `note`\nis required for OTHER either way). `ref_id` is `recon_diffs.id`, `withdrawals.id`, the\n`order_key` of a sub-order, or `deletion_requests.id`.\n\nContra subject (BR-FUND-24 ⑥; specs/ledger-rules.md §6, whitelist pending the finance\nconfirmation): for RECON_FIX and OTHER the operator chooses `contra_subject` from\nCOMMISSION_REVENUE, UNION_RECEIVABLE, BAD_DEBT or MKT_EXPENSE (missing → 20001 with\n`data.fields=[contra_subject]`, another value fails at the schema); `contra_platform` is\nrequired exactly for UNION_RECEIVABLE (else `data.fields=[contra_platform]`). For\nPAYOUT_RECOVERY both are refused (20001 on the field): the server takes the cash subject\nfrom the withdrawal's channel (CASH_ALIPAY, CASH_WECHAT or CASH_BANK).\n\nOrder of checks: `fund.adjust` (10403 with `data.reason=admin_permission_denied`; the\nrefusal writes an audit record, action adjustment_denied, BR-FUND-24 例（无权限）) → step-up\n(10003) → body (20001: the schema, then the checks above) → an unknown `user_id` or one of\nanother app is 20001 with `data.fields=[user_id]`; an unknown `reverses_adjust_id` or one\nof another app is 20001 with `data.fields=[reverses_adjust_id]`; a `ref_id` that names\nnothing of the app, a `recon_diff` of source R4 (a 收款对账 difference never leads to a\nbalance adjustment, BR-PAY-07; see AdminReconDiffIdPath), or a `withdrawal` or\n`account_deletion` of another member, is 20001 with `data.fields=[refs]` and\n`data.reason=adjust_ref_invalid` → an original already reversed\nis 20902 with `data.resource=admin_adjustment` (a form can be reversed once, BR-FUND-16;\nthe console refreshes and shows 已红冲; the unique constraint on `reverses_adjust_id`\nanswers the same under a race) → the guards, each refusal 20001: an original that is not\nAPPROVED, or that is itself a reversal, with `data.fields=[reverses_adjust_id]` and\n`data.reason=reverse_not_allowed`; a member already deleted with the field of the request\n(`user_id` or `reverses_adjust_id`) and `data.reason=adjust_user_deleted`.\n\nEffects, in one transaction under the member's balance lock: the balance is read again\nand the form (`status=APPROVED`) and its ADMIN_ADJUST voucher (sub_type = `reason_code`)\nare written, an increase debiting the contra subject and crediting\nUSER_BALANCE.available, a decrease the other way round. The voucher uniq_key is\n`ADJ:{adjust_id}`, and `ADJ:{original adjust_id}:REVERSE` for a reversal, posted with the\nreversal templates of specs/ledger-rules.md §5. A decrease, a reversal included, may take\n`available` below 0 (BR-FUND-24 ⑤, BR-FUND-10); `frozen` is never written. Linking a\ndifference does not change its status: it is closed through its own operations. Writes an\naudit record (action adjustment_create or adjustment_reverse, with the `adjust_id`, the\n`user_id`, the direction, amount and reason code, `available` before and after and, for\na reversal, the original; no personal data). What the member sees (one ADMIN_ADJUST line\nin the balance history, the in-app message on a decrease; BR-FUND-24 ⑦, BR-TEXT-19) is not\npart of this response.\n\n`Idempotency-Key` is required: same key and body → the first result; same key with\nanother body → 20901; same key while still running → 40901. The step-up token is a header\nand not part of the body hash, so a replay after a 10003 keeps its key.\n",
+        "description": "The only way a person adjusts a member's balance (BR-FUND-24; 04 §3.2 admin_adjustments;\ndesign/specs/admin-adjustments.md 新建抽屉, 红冲对话框, and the 【调整余额】 of the user detail).\nOne submission saves and approves at once: there is no 保存待批 and no 撤回, and the form\nis born APPROVED with `reviewed_by` equal to `created_by` (BR-FUND-24 细则「后台入口」, owner\n2026-10-18 ②; ADD-05). Permission point `fund.adjust` (04 §11.2). Step-up: sms tier\n(BR-ID-34): without a valid sms-tier `X-Step-Up-Token`, a totp-tier token included → 10003\nwith `data.tier=sms`; an account without a registered verify phone also gets\n`data.reason=verify_phone_missing`.\n\nRequest, one of two closed shapes (AdminAdjustmentCreateRequest):\n\n- A new adjustment: `user_id`; `direction`; `amount_fen`, integer fen > 0, no upper limit\n  (BR-FUND-24 ④); `reason_code`, one of RECON_FIX, PAYOUT_RECOVERY or OTHER. RESTORE comes\n  only from a difference (BR-FUND-22) and ACCOUNT_CLOSED only from the system (BR-FUND-24\n  ⑧), so neither can be chosen: 20001 at the schema. `refs`, the linked documents, at\n  most 10, without duplicates (`data.fields=[refs]`); `note`, the internal explanation,\n  at most 500 characters and not blank after trimming (blank → `data.fields=[note]`),\n  required for OTHER (`data.fields=[note]`); `contra_subject` with `contra_platform`, see\n  below.\n- A reversal: `reverses_adjust_id` and `note`, the reason for the reversal, required, as\n  above. The request carries no direction, amount, reason code, refs or subject: the\n  server takes them from the original (opposite direction, the original `amount_fen`,\n  whole form only, the same `reason_code`, `contra_subject` and `contra_platform`), and\n  any of those fields in the request is 20001 at the schema (BR-FUND-24 细则「红冲只按原单整笔」).\n  To correct +500 to +50: reverse the whole +500, then submit a new +50.\n\nWhat `data.fields` lists depends on where the body is refused. The schema comes first and\nreports both shapes: a body that fits neither shape (a `reason_code` of RESTORE or\nACCOUNT_CLOSED, a `note` over 500 characters, more than 10 `refs`, an `amount_fen` of 0, a\nvalue outside an enum, a missing required field, a field of the other shape) is 20001\nwith `data.fields` listing what fails in each of the two shapes, usually fields of the\nother shape too, plus `body`; it does not single out the field at fault. Every\n`data.fields` naming one field in this description is a check the service makes after the\nbody has fit one shape.\n\nLinked documents by reason code (BR-FUND-24 ②③), all refused as 20001 with\n`data.fields=[refs]`: RECON_FIX needs at least one `recon_diff`. PAYOUT_RECOVERY needs at\nleast one `recon_diff` and exactly one `withdrawal`. OTHER needs at least one document of\nany type, or none at all when `note` is the 客服处理说明 that stands in for it (③; `note`\nis required for OTHER either way). `ref_id` is `recon_diffs.id`, `withdrawals.id`, the\n`order_key` of a sub-order, or `deletion_requests.id`.\n\nContra subject (BR-FUND-24 ⑥; specs/ledger-rules.md §6, whitelist pending the finance\nconfirmation): for RECON_FIX and OTHER the operator chooses `contra_subject` from\nCOMMISSION_REVENUE, UNION_RECEIVABLE, BAD_DEBT or MKT_EXPENSE (missing → 20001 with\n`data.fields=[contra_subject]`, another value fails at the schema); `contra_platform` is\nrequired exactly for UNION_RECEIVABLE (else `data.fields=[contra_platform]`). For\nPAYOUT_RECOVERY both are refused (20001 on the field): the server takes the cash subject\nfrom the withdrawal's channel (CASH_ALIPAY, CASH_WECHAT or CASH_BANK).\n\nThe route schema runs first (D10-590 ⑥, as every console route): a malformed body is 20001\nbefore any of the checks below, with or without `fund.adjust`, and writes no audit record.\nOrder of checks: `fund.adjust` (10403 with `data.reason=admin_permission_denied`; the\nrefusal writes an audit record, action adjustment_denied, BR-FUND-24 例（无权限）) → step-up\n(10003) → body (20001: the schema, then the checks above) → an unknown `user_id` or one of\nanother app is 20001 with `data.fields=[user_id]`; an unknown `reverses_adjust_id` or one\nof another app is 20001 with `data.fields=[reverses_adjust_id]`; a `ref_id` that names\nnothing of the app, a `recon_diff` of source R4 (a 收款对账 difference never leads to a\nbalance adjustment, BR-PAY-07; see AdminReconDiffIdPath), or a `withdrawal` or\n`account_deletion` of another member, is 20001 with `data.fields=[refs]` and\n`data.reason=adjust_ref_invalid` → an original already reversed\nis 20902 with `data.resource=admin_adjustment` (a form can be reversed once, BR-FUND-16;\nthe console refreshes and shows 已红冲; the unique constraint on `reverses_adjust_id`\nanswers the same under a race) → the guards, each refusal 20001: an original that is not\nAPPROVED, or that is itself a reversal, with `data.fields=[reverses_adjust_id]` and\n`data.reason=reverse_not_allowed`; a member already deleted with the field of the request\n(`user_id` or `reverses_adjust_id`) and `data.reason=adjust_user_deleted`; a member in\ndeletion (users.status deleting) takes no new manual form, only the reversal of an approved\nACCOUNT_CLOSED form (D10-590 ④), anything else 20001 with the field of the request and\n`data.reason=adjust_user_deleted`.\n\nEffects, in one transaction under the member's balance lock: the balance is read again\nand the form (`status=APPROVED`) and its ADMIN_ADJUST voucher (sub_type = `reason_code`)\nare written, an increase debiting the contra subject and crediting\nUSER_BALANCE.available, a decrease the other way round. The voucher uniq_key is\n`ADJ:{adjust_id}`, and `ADJ:{original adjust_id}:REVERSE` for a reversal, posted with the\nreversal templates of specs/ledger-rules.md §5. A decrease, a reversal included, may take\n`available` below 0 (BR-FUND-24 ⑤, BR-FUND-10); `frozen` is never written. Linking a\ndifference does not change its status: it is closed through its own operations. Writes an\naudit record (action adjustment_create or adjustment_reverse, with the `adjust_id`, the\n`user_id`, the direction, amount and reason code, `available` before and after and, for\na reversal, the original; no personal data). What the member sees (one ADMIN_ADJUST line\nin the balance history, the in-app message on a decrease; BR-FUND-24 ⑦, BR-TEXT-19) is not\npart of this response.\n\n`Idempotency-Key` is required: same key and body → the first result; same key with\nanother body → 20901; same key while still running → 40901. The step-up token is a header\nand not part of the body hash, so a replay after a 10003 keeps its key.\n",
         "x-auth": "admin",
         "x-idempotent": true,
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10003,
@@ -30778,7 +31020,6 @@
         "summary": "One manual adjustment, with a balance preview while it can still be executed",
         "description": "One form of the 调账单 tab (01 F-ADM-08; 04 §3.2 admin_adjustments;\ndesign/specs/admin-adjustments.md 批准对话框, 红冲对话框). Read only, no step-up. Permission\npoint: any of `fund.adjust` or `fund.view` (04 §11.1, §11.2). `adjustment` is the list\nrow, next to it `balance_preview`: what executing the form now would do to `available` (BR-FUND-24\n④). Only two kinds of form have one: a PENDING form, whose amount is the current\n`available` (0 when `available` is not above 0, see POST .../approve), and an APPROVED\nform that is not a reversal, has not been reversed and whose member is not deleted,\npreviewing its reversal. Every other form has `balance_preview=null`, so also an APPROVED\nform of a deleted member, whose reversal POST /admin/v1/adjustments refuses with\n`adjust_user_deleted`: the available balance before and after an executed form is read\nfrom its voucher, and is not kept on the form. The preview is a reading, not\na promise: approving and reversing read the balance again in their own transaction. An\nunknown `adjust_id` or a form of another app is 20001 with `data.fields=[adjust_id]` (no\n404). Reading does not write an audit record.\n",
         "x-auth": "admin",
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10403,
@@ -31043,7 +31284,7 @@
           "admin-adjustments"
         ],
         "summary": "Reject a system-prefilled ACCOUNT_CLOSED form with a required reason",
-        "description": "The 【驳回】 of the 批准对话框 (BR-FUND-24 ① and 细则「驳回与撤回不需二次验证」;\ndesign/specs/admin-adjustments.md). Only a PENDING form can be rejected, which means a\nsystem-prefilled ACCOUNT_CLOSED form (see POST .../approve). Permission point `fund.adjust`\n(04 §11.2). No step-up of either tier: only approval needs one.\n\nRequest: `reason`, required: after trimming surrounding whitespace 1–200 characters, else\n20001 with `data.fields=[reason]`.\n\nOrder of checks: `fund.adjust` (10403 with `data.reason=admin_permission_denied`) → body\n(20001) → an unknown `adjust_id` or a form of another app is 20001 with\n`data.fields=[adjust_id]` (no 404) → a form that is no longer PENDING is 20902 with\n`data.resource=admin_adjustment` (refresh).\n\nEffects, in one transaction: the form becomes REJECTED, `reject_note` the trimmed reason,\n`reviewed_by` the caller and `reviewed_at`; `amount_fen` stays null. No voucher, and no\nbalance moves. Writes an audit record (action adjustment_reject, with the `adjust_id`,\nthe `user_id` and the reason; no personal data).\n\n`Idempotency-Key` is required: same key and body → the first result; same key with\nanother body → 20901; same key while still running → 40901.\n",
+        "description": "The 【驳回】 of the 批准对话框 (BR-FUND-24 ① and 细则「驳回与撤回不需二次验证」;\ndesign/specs/admin-adjustments.md). Only a PENDING form can be rejected, which means a\nsystem-prefilled ACCOUNT_CLOSED form (see POST .../approve). Permission point `fund.adjust`\n(04 §11.2). No step-up of either tier: only approval needs one.\n\nRequest: `reason`, required: after trimming surrounding whitespace 1–200 characters, else\n20001 with `data.fields=[reason]`.\n\nOrder of checks: `fund.adjust` (10403 with `data.reason=admin_permission_denied`) → body\n(20001) → an unknown `adjust_id` or a form of another app is 20001 with\n`data.fields=[adjust_id]` (no 404) → a form that is no longer PENDING is 20902 with\n`data.resource=admin_adjustment` (refresh).\n\nEffects, in one transaction: the form becomes REJECTED, `reject_note` the trimmed reason,\n`reviewed_by` the caller and `reviewed_at`; `amount_fen` stays null. No voucher, and no\nbalance moves. Writes an audit record (action adjustment_reject, with the `adjust_id`,\nthe `user_id` and the reason; no personal data). The deletion does not go back: its\nclosing gate stays pending with a warning, and the next accounting day the deletion\nprocessing prefills a new ACCOUNT_CLOSED form while none is PENDING (D10-590 ③).\n\n`Idempotency-Key` is required: same key and body → the first result; same key with\nanother body → 20901; same key while still running → 40901.\n",
         "x-auth": "admin",
         "x-idempotent": true,
         "x-implementation": "planned",
@@ -31079,7 +31320,7 @@
                 "$ref": "#/components/schemas/AdminAdjustmentRejectRequest"
               },
               "example": {
-                "reason": "用户已撤回注销申请，无需处理"
+                "reason": "预填金额与核对结果不一致，次日按系统补建的新单处理"
               }
             }
           }
@@ -31123,7 +31364,7 @@
                       "created_at": "2026-12-01T02:00:00+08:00",
                       "reviewed_by": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5b01",
                       "reviewed_at": "2026-12-02T09:30:00+08:00",
-                      "reject_note": "用户已撤回注销申请，无需处理",
+                      "reject_note": "预填金额与核对结果不一致，次日按系统补建的新单处理",
                       "voucher_id": null
                     }
                   },
@@ -31956,10 +32197,9 @@
           "admin-withdrawals"
         ],
         "summary": "Record withdrawals paid outside the channel interface, each on its own (批量手动打款)",
-        "description": "The 【批量手动打款】 of the withdrawal page; one withdrawal is a batch of one (01 F-ADM-07;\nBR-WDR-16, BR-WDR-08 W8, BR-WDR-09, BR-WDR-17; ruling D10-595). Finance has already paid the\nmember from a company account and records it here, so this is the way out while a channel's\ntransfer interface is not open. Permission point `payout.manual_entry`; a super admin holds\nevery point. Step-up: totp tier (BR-ID-34): one valid totp-tier `X-Step-Up-Token` covers the\nwhole request; without one → 10003 with `data.tier=totp`. Entering and confirming are one\nsubmission and one person may do both, also the reviewer (BR-WDR-16, ADD-05);\n`manual_entry_by` and `manual_confirm_by` are both the caller. A separate confirmation step\nis not offered.\n\nRequest (AdminWithdrawalBatchManualPaidRequest): `items`, 1 to 200 (200 is 代理补全的默认,\nD10-595), each with `withdrawal_id`, `channel_order_id` (the Alipay or bank transfer serial\nnumber, by the withdrawal's snapshot channel; 1 to 64 characters and no whitespace, so that\na stray space cannot make the same number look new; compared exactly, case included),\n`paid_at` (when the money was really paid) and `paid_fen` (integer fen, the amount really\npaid; any integer reaches the item's own check). A withdrawal may appear only once: a duplicate `withdrawal_id` is 20001 with\n`data.fields=[items]`.\n\nOrder of checks: the route schema comes first, before the permission and step-up checks, as\non every admin route (D10-591): a body that fails it is 20001 with `data.fields` naming the\nfield, also for a caller without the permission point or a token, and nothing is written.\nThen `payout.manual_entry` (10403 with `data.reason=admin_permission_denied`) → step-up\n(10003) → the duplicate check. After that the answer is 200 and each item has its own\nresult: an item that cannot be recorded never fails the others.\n\nEach item runs in its own transaction, in the order given, under the member's locks and the\nwithdrawal's row lock, and the first check that fails is its result, in `items`, one per\nrequest item in request order: `paid`, or `skipped` with `reason`:\n\n- `not_found`: an unknown id, one of another app, or one that is not a UUID (which never\n  reaches the database).\n- `not_approved`: not APPROVED. W8 starts only there (BR-WDR-16). EXECUTE and W8 both\n  require APPROVED under a CAS, and the first to commit wins, so the loser gets this and\n  no money moves twice.\n- `channel_not_allowed`: a wechat withdrawal; W8 is not open to it (BR-WDR-33 ⑧).\n- `amount_mismatch`: `paid_fen` is not exactly the withdrawal's `net_fen` (BR-WDR-16).\n- `paid_at_invalid`: `paid_at` is more than 5 minutes after the injected Clock, or before\n  the withdrawal's `created_at` (代理补全的默认: no one can pay in the future or before the\n  member asked, and the tax export and the watermark read this time).\n- `has_transfer_attempt`: a kind=transfer attempt with result pending, success or unknown.\n  That money may be out, so such a withdrawal ends through BR-WDR-15. An attempt that\n  definitely failed does not stop W8.\n- `query_required` or `query_success`: while the switch\n  `payout.proven_success_writeoff.enabled` is on (default on), a withdrawal with\n  `hold_reason=payer_side_after_transfer` is checked against its latest query, because a\n  transfer the channel reported as failed may still have been paid (BR-WDR-08 W8,\n  BR-WDR-17, 决-08 A). No query yet, or a latest query with an unknown result, is\n  `query_required`. A latest query that succeeded is `query_success`: the channel paid, so\n  this withdrawal ends through W11, and recording an offline payment too would pay twice. A\n  latest query with result fail lets it through. BR-WDR-17 also allows 「订单不存在」, but that\n  answer is recorded with result unknown and has no verified channel code yet (BR-WDR-22,\n  BR-WDR-28), so until one is registered it is `query_required`: the safe direction. With\n  the switch off this check does not run.\n- `member_blocked`: a withdrawal block of the member (BR-WDR-05): risk state frozen, banned\n  or appealing over either, an effective withdraw hold, available below 0, or\n  `blocked_reason` set.\n- `channel_order_id_taken`: `(app_id, channel_order_id)` is already on a withdrawal,\n  whichever way it was paid, and also an earlier item of this request; two requests racing\n  for one number are settled by the unique index, and the loser gets this.\n- `identity_missing`: the member has no verified real name, so `tax_ytd` cannot be updated\n  (BR-WDR-20). The money was paid and this needs a person; nothing is written.\n\nNot checked, because they gate EXECUTE and not W8: `payout.enabled`, `payout.queue_paused`,\nthe channel switches (a bank_card withdrawal has only this way out while that channel is\noff, BR-WDR-32 ①) and the watermark (BR-WDR-18). An unexpected failure of one item ends the\nrequest with 5xx; items already recorded stay recorded, and the same key runs the rest again\n(those come back `not_approved`).\n\nEffects of each paid item, on one transaction: APPROVED → PAID_MANUAL (W8) with `paid_at` as\ngiven, `channel_order_id`, `manual_entry_by` and `manual_confirm_by`, and `hold_reason` and\n`hold_at` cleared; the success voucher of BR-WDR-09 with the key `wd:{withdrawal_id}:PAID`\nand the cash subject of the snapshot channel (WITHDRAW:SUCCESS:CASH_ALIPAY or CASH_BANK), the\nsame as a success through the channel; `tax_ytd` updated (BR-WDR-20);\nwallet.withdrawal_changed, which sends the member the result message (BR-WDR-26); and an\naudit record (action withdrawal_manual_paid, with the `withdrawal_id`, the status before and\nafter, `channel_order_id`, `paid_at` and `paid_fen`; no personal data). A withdrawal on a\nbatch stays on it. A skipped item writes nothing: the 执行结果 column of BR-WDR-16 is rendered\nfrom this response and is not stored, so after a reload a skipped withdrawal is an ordinary\nAPPROVED row again.\n\n`Idempotency-Key` is required: same key and body → the first result; same key with another\nbody → 20901; same key while still running → 40901. The step-up token is a header and not\npart of the body hash, so a replay after a 10003 keeps its key.\n",
+        "description": "The 【批量手动打款】 of the withdrawal page; one withdrawal is a batch of one (01 F-ADM-07;\nBR-WDR-16, BR-WDR-08 W8, BR-WDR-09, BR-WDR-17; ruling D10-595). Finance has already paid the\nmember from a company account and records it here, so this is the way out while a channel's\ntransfer interface is not open. Permission point `payout.manual_entry`; a super admin holds\nevery point. Step-up: totp tier (BR-ID-34): one valid totp-tier `X-Step-Up-Token` covers the\nwhole request; without one → 10003 with `data.tier=totp`. Entering and confirming are one\nsubmission and one person may do both, also the reviewer (BR-WDR-16, ADD-05);\n`manual_entry_by` and `manual_confirm_by` are both the caller. A separate confirmation step\nis not offered.\n\nRequest (AdminWithdrawalBatchManualPaidRequest): `items`, 1 to 200 (200 is 代理补全的默认,\nD10-595), each with `withdrawal_id`, `channel_order_id` (the Alipay or bank transfer serial\nnumber, by the withdrawal's snapshot channel; 1 to 64 characters with no whitespace, so that\na stray space cannot make the same number look new, and no NUL, which the database cannot\nstore; compared exactly, case included),\n`paid_at` (when the money was really paid) and `paid_fen` (integer fen, the amount really\npaid; any integer reaches the item's own check). A withdrawal may appear only once: a duplicate `withdrawal_id` is 20001 with\n`data.fields=[items]`.\n\nOrder of checks: the route schema comes first, before the permission and step-up checks, as\non every admin route (D10-591): a body that fails it is 20001 with `data.fields` naming the\nfield, also for a caller without the permission point or a token, and nothing is written.\nThen `payout.manual_entry` (10403 with `data.reason=admin_permission_denied`) → step-up\n(10003) → the duplicate check. After that the answer is 200 and each item has its own\nresult: an item that cannot be recorded never fails the others.\n\nEach item runs in its own transaction, in the order given, under the member's locks and the\nwithdrawal's row lock, and the first check that fails is its result, in `items`, one per\nrequest item in request order: `paid`, or `skipped` with `reason`:\n\n- `not_found`: an unknown id, one of another app, or one that is not a UUID (which never\n  reaches the database).\n- `not_approved`: not APPROVED. W8 starts only there (BR-WDR-16). EXECUTE and W8 both\n  require APPROVED under a CAS, and the first to commit wins, so the loser gets this and\n  no money moves twice.\n- `channel_not_allowed`: a wechat withdrawal; W8 is not open to it (BR-WDR-33 ⑧).\n- `amount_mismatch`: `paid_fen` is not exactly the withdrawal's `net_fen` (BR-WDR-16).\n- `paid_at_invalid`: `paid_at` is more than 5 minutes after the injected Clock, or before\n  the withdrawal's `created_at` (代理补全的默认: no one can pay in the future or before the\n  member asked, and the tax export and the watermark read this time).\n- `has_transfer_attempt`: a kind=transfer attempt with result pending, success or unknown.\n  That money may be out, so such a withdrawal ends through BR-WDR-15. An attempt that\n  definitely failed does not stop W8.\n- `query_required` or `query_success`: while the switch\n  `payout.proven_success_writeoff.enabled` is on (default on), a withdrawal with\n  `hold_reason=payer_side_after_transfer` is checked against its latest query, because a\n  transfer the channel reported as failed may still have been paid (BR-WDR-08 W8,\n  BR-WDR-17, 决-08 A). No query yet, or a latest query with an unknown result, is\n  `query_required`. A latest query that succeeded is `query_success`: the channel paid, so\n  this withdrawal ends through W11, and recording an offline payment too would pay twice. A\n  latest query with result fail lets it through. BR-WDR-17 also allows 「订单不存在」, but that\n  answer is recorded with result unknown and has no verified channel code yet (BR-WDR-22,\n  BR-WDR-28), so until one is registered it is `query_required`: the safe direction. With\n  the switch off this check does not run.\n- `member_blocked`: a withdrawal block of the member (BR-WDR-05): risk state frozen, banned\n  or appealing over either, an effective withdraw hold, available below 0, or\n  `blocked_reason` set.\n- `channel_order_id_taken`: `(app_id, channel_order_id)` is already on a withdrawal,\n  whichever way it was paid, and also an earlier item of this request; two requests racing\n  for one number are settled by the unique index, and the loser gets this.\n- `identity_missing`: the member has no verified real name, so `tax_ytd` cannot be updated\n  (BR-WDR-20). The money was paid and this needs a person; nothing is written.\n\nNot checked, because they gate EXECUTE and not W8: `payout.enabled`, `payout.queue_paused`,\nthe channel switches (a bank_card withdrawal has only this way out while that channel is\noff, BR-WDR-32 ①) and the watermark (BR-WDR-18). An unexpected failure of one item ends the\nrequest with 5xx; items already recorded stay recorded, and the same key runs the rest again\n(those come back `not_approved`).\n\nEffects of each paid item, on one transaction: APPROVED → PAID_MANUAL (W8) with `paid_at` as\ngiven, `channel_order_id`, `manual_entry_by` and `manual_confirm_by`, and `hold_reason` and\n`hold_at` cleared; the success voucher of BR-WDR-09 with the key `wd:{withdrawal_id}:PAID`\nand the cash subject of the snapshot channel (WITHDRAW:SUCCESS:CASH_ALIPAY or CASH_BANK), the\nsame as a success through the channel; `tax_ytd` updated (BR-WDR-20);\nwallet.withdrawal_changed, which sends the member the result message (BR-WDR-26); and an\naudit record (action withdrawal_manual_paid, with the `withdrawal_id`, the status before and\nafter, `channel_order_id`, `paid_at` and `paid_fen`; no personal data). A withdrawal on a\nbatch stays on it. A skipped item writes nothing: the 执行结果 column of BR-WDR-16 is rendered\nfrom this response and is not stored, so after a reload a skipped withdrawal is an ordinary\nAPPROVED row again.\n\n`Idempotency-Key` is required: same key and body → the first result; same key with another\nbody → 20901; same key while still running → 40901. The step-up token is a header and not\npart of the body hash, so a replay after a 10003 keeps its key.\n",
         "x-auth": "admin",
         "x-idempotent": true,
-        "x-implementation": "planned",
         "x-error-codes": [
           10001,
           10003,
@@ -32039,6 +32279,359 @@
                         "reason": "amount_mismatch"
                       }
                     ]
+                  },
+                  "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "4XX": {
+            "description": "Not processed (codes in contracts/error-codes.yaml).",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "examples": {
+                  "stepUpRequired": {
+                    "$ref": "#/components/examples/AdminStepUpRequiredTotp"
+                  },
+                  "noPermission": {
+                    "$ref": "#/components/examples/AdminPermissionDenied"
+                  },
+                  "tokenExpired": {
+                    "$ref": "#/components/examples/AdminTokenExpired"
+                  }
+                }
+              }
+            }
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/admin/v1/unknown-payouts": {
+      "get": {
+        "operationId": "adminListUnknownPayouts",
+        "tags": [
+          "admin-withdrawals"
+        ],
+        "summary": "Withdrawals whose transfer result stayed unknown past the limit, waiting for a person (未知结果处置)",
+        "description": "The list of the 24 hour unknown disposal page (01 F-ADM-07; BR-WDR-14, BR-WDR-15; ruling\nD10-625). Read only, no step-up. Permission point `payout.execute` (BR-WDR-15 sets no point\nof its own); a super admin holds every point. Reading does not write an audit record.\n\nRows are the withdrawals of the console's app in status PAYING with `needs_manual=true`,\nlongest waiting first: `withdrawal_id`, `out_biz_no`, the masked `user` as in\nlistAdminWithdrawals (no payee account or name), `payout_channel`, `amount_fen`, `net_fen`,\n`first_transfer_at` (T, the earliest kind=transfer attempt), `latest_query` (the newest\nkind=query attempt, null when there is none: `result`, `at`, and what the channel answered,\n`resp_code`, `resp_sub_code`, `channel_status`, `channel_order_id` and `paid_at`, each null\nwhen absent and never the payee's account or name, so that a person can read the answer and\nuse it as proof), and `fail_blockers`, what\nstops this withdrawal from being judged failed right now, in the order of\nadminResolveUnknownPayout's checks. While the channel's 「订单不存在」 code and the bill read\nare missing (D10-625) it always holds `resolve_bill_unverifiable` and\n`resolve_query_unverifiable`, so the page can say why before anyone submits.\n",
+        "x-auth": "admin",
+        "x-error-codes": [
+          10001,
+          10403,
+          20001
+        ],
+        "security": [
+          {
+            "adminBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TraceId"
+          },
+          {
+            "$ref": "#/components/parameters/AdminPage"
+          },
+          {
+            "$ref": "#/components/parameters/AdminPageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the withdrawals waiting for a person.",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUnknownPayoutPageResponse"
+                },
+                "example": {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "items": [
+                      {
+                        "withdrawal_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4fc001",
+                        "out_biz_no": "W2026110200000000000000000000001",
+                        "user": {
+                          "user_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5b01",
+                          "phone_masked": "138****0000"
+                        },
+                        "payout_channel": "alipay",
+                        "amount_fen": 10000,
+                        "net_fen": 9800,
+                        "first_transfer_at": "2026-11-02T09:00:00+08:00",
+                        "latest_query": {
+                          "result": "unknown",
+                          "at": "2026-11-03T09:00:00+08:00",
+                          "resp_code": null,
+                          "resp_sub_code": null,
+                          "channel_status": null,
+                          "channel_order_id": null,
+                          "paid_at": null
+                        },
+                        "fail_blockers": [
+                          "resolve_bill_unverifiable",
+                          "resolve_query_unverifiable"
+                        ]
+                      }
+                    ],
+                    "page": 1,
+                    "page_size": 20,
+                    "total": 1
+                  },
+                  "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "4XX": {
+            "description": "Not available (codes in contracts/error-codes.yaml).",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "examples": {
+                  "noPermission": {
+                    "$ref": "#/components/examples/AdminPermissionDenied"
+                  },
+                  "tokenExpired": {
+                    "$ref": "#/components/examples/AdminTokenExpired"
+                  }
+                }
+              }
+            }
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/admin/v1/withdrawals/{withdrawal_id}/query": {
+      "post": {
+        "operationId": "adminQueryPayoutResult",
+        "tags": [
+          "admin-withdrawals"
+        ],
+        "summary": "Ask the channel once more about a withdrawal; the answer lands later (立即查询)",
+        "description": "The 【立即查询】 of the disposal page (BR-WDR-15; rulings D10-595 ③, D10-596 ①, D10-625). The\nchannel keys live only in the payout process, so this queues one query and answers\n`submitted`; the result appears as `latest_query` when the job has run, and the page refreshes\nto see it. Permission point `payout.execute`; a super admin holds every point. Step-up: totp\ntier (BR-ID-34): without a valid totp-tier `X-Step-Up-Token` → 10003 with `data.tier=totp`.\nThe request has no body fields.\n\nOrder of checks: the route schema first, as on every admin route (D10-591). Then\n`payout.execute` (10403 with `data.reason=admin_permission_denied`) → step-up (10003) → an\nunknown `withdrawal_id` or one of another app is 20001 with `data.fields=[withdrawal_id]`\n(no 404) → a withdrawal that is neither of the two below is 20902 with\n`data.resource=withdrawal`.\n\nTwo kinds of withdrawal can be queried: PAYING with `needs_manual=true` (automatic queries\nhave stopped, BR-WDR-14), and APPROVED with `hold_reason=payer_side_after_transfer`, which\nhas no other way to get a query recorded and needs one before W3 or W8 (BR-WDR-17, D10-596 ①).\n\nThe job asks the channel once, on the withdrawal's own out_biz_no, and only appends one\nkind=query attempt. **It moves nothing:** no status change even on a success or a definite\nfailure, no voucher, no next query point, no second transfer (BR-WDR-14). A person ends the\nwithdrawal through adminResolveUnknownPayout, W3, W8 or W11. 「订单不存在」 is recorded as result\nunknown until its channel code is verified (BR-WDR-22, BR-WDR-28).\n\nWrites an audit record (action payout_query_request, with the `withdrawal_id`, the status and\nno personal data) on the transaction that queues the job. `Idempotency-Key` is required:\nsame key and body → the first answer and no second job; same key with another body → 20901;\nsame key while still running → 40901. A new key queries again. The step-up token is a header\nand not part of the body hash, so a replay after a 10003 keeps its key.\n",
+        "x-auth": "admin",
+        "x-idempotent": true,
+        "x-error-codes": [
+          10001,
+          10003,
+          10403,
+          20001,
+          20901,
+          20902,
+          40901
+        ],
+        "security": [
+          {
+            "adminBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TraceId"
+          },
+          {
+            "$ref": "#/components/parameters/AdminStepUpToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/AdminWithdrawalIdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPayoutQueryRequest"
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The query is queued, or the first answer of the same key.",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPayoutQueryResponse"
+                },
+                "example": {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "withdrawal_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4fc001",
+                    "result": "submitted"
+                  },
+                  "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "4XX": {
+            "description": "Not processed (codes in contracts/error-codes.yaml).",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "examples": {
+                  "stepUpRequired": {
+                    "$ref": "#/components/examples/AdminStepUpRequiredTotp"
+                  },
+                  "noPermission": {
+                    "$ref": "#/components/examples/AdminPermissionDenied"
+                  },
+                  "tokenExpired": {
+                    "$ref": "#/components/examples/AdminTokenExpired"
+                  }
+                }
+              }
+            }
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/admin/v1/withdrawals/{withdrawal_id}/resolve": {
+      "post": {
+        "operationId": "adminResolveUnknownPayout",
+        "tags": [
+          "admin-withdrawals"
+        ],
+        "summary": "End a withdrawal whose result stayed unknown (W10, 未知结果处置)",
+        "description": "The 【确认处置】 of the disposal page (BR-WDR-15, BR-WDR-08 W10, BR-WDR-09, BR-WDR-14; rulings\nD10-595, D10-625, D10-626). Permission point `payout.execute`; a super admin holds every point;\none person may do it (ADD-05). Step-up: totp tier (BR-ID-34): without a valid totp-tier\n`X-Step-Up-Token` → 10003 with `data.tier=totp`.\n\nRequest (AdminUnknownPayoutResolveRequest): `resolution`, `paid` or `failed`; `proof_text`,\nthe pasted proof, the query answer or the bill line naming this out_biz_no, 1 to 4000\ncharacters and not blank after trimming (text only, no file upload, D10-595 ②; stored in\n`proof_file` and not shown to the member). With `paid`, also `channel_order_id` (1 to 64\ncharacters, no whitespace or NUL, compared exactly) and `paid_at` (when the channel paid).\n\nOrder of checks: the route schema first, as on every admin route (D10-591). Then\n`payout.execute` (10403 with `data.reason=admin_permission_denied`) → step-up (10003) →\na blank `proof_text`, or `paid` without `channel_order_id` or `paid_at`, is 20001 with\n`data.fields` naming them → an unknown `withdrawal_id` or one of another app is 20001 with\n`data.fields=[withdrawal_id]` (no 404) → a withdrawal not PAYING with `needs_manual=true`, or\nchanged by another request, is 20902 with `data.resource=withdrawal`. A `needs_manual`\nwithdrawal never becomes PAID_MANUAL and is never transferred again (BR-WDR-15).\n\n**`paid`** (the proof shows the channel succeeded): while the latest kind=query attempt has\nresult fail and `recon_channel` has no success line for this out_biz_no, 20001 with\n`data.fields=[resolution]` and `data.reason=resolve_query_failed`: the channel said the\ntransfer failed and nothing contradicts it, so telling the member the money arrived could be\nfalse, and the bill reconciliation of that day would not catch it afterwards. A later query\nor a bill line lifts this; the money stays frozen meanwhile. `paid_at` more than 5 minutes\nafter the injected Clock, or before T, is 20001 with `data.fields=[paid_at]` and\n`data.reason=resolve_paid_at_invalid`; a `channel_order_id` already on another withdrawal is\n20001 with `data.fields=[channel_order_id]` and `data.reason=resolve_order_id_taken`, also\nwhen two requests race and the unique index settles it. Otherwise, on one transaction: W10 to\nPAID_API with `paid_at`, `channel_order_id`, `manual_resolution=paid`, `resolver_ids` the caller\nand `proof_file`; the success voucher of W5 (`wd:{withdrawal_id}:PAID`, the snapshot channel's\ncash subject, BR-WDR-09); `tax_ytd` (BR-WDR-20); wallet.withdrawal_changed, which sends the\nmember the result message; and an audit record (action withdrawal_resolve, with the\n`withdrawal_id`, the status before and after, `resolution`, `channel_order_id` and `paid_at`; no\npersonal data and not the proof text). A member without a verified real name fails `tax_ytd`:\n20001 with `data.fields=[withdrawal_id]` and `data.reason=resolve_identity_missing`, nothing\nwritten, because the money was paid and this needs a person.\n\n**`failed`** (BR-WDR-15): refunding money that actually left is a double payment, so every\ncondition is checked by the server and nothing in the request can vouch for one. In order,\nthe first that does not hold is 20001 with `data.fields=[resolution]` and its `data.reason`:\n\n- `resolve_too_early`: less than 24 hours since T.\n- `resolve_bill_unverifiable`: the bills of T's day and the next must both be downloaded and\n  both lack this out_biz_no. There is no read yet that tells a downloaded bill without this\n  line from a bill not downloaded, and not finding a line is never taken as absent.\n- `resolve_query_unverifiable`: the latest query must be 「订单不存在」. That answer has no\n  verified channel code yet and is recorded as unknown (BR-WDR-22, BR-WDR-28).\n\n**So today every `failed` is refused, and nothing is written (D10-625, D10-626).** The target,\nonce the bill read and the code exist, is W10 to FAILED with `WITHDRAW:RETURN` and a\n`withdraw_holds` row (`manual_failed_watch`, `withdraw.manual_failed_hold_days`, default 7) on\none transaction; that path comes with its own task and rule tests before the Alipay channel\nopens. A wechat withdrawal has its own conditions (BR-WDR-33 ⑧) and is refused the same way\nuntil then.\n\n`Idempotency-Key` is required: same key and body → the first result; same key with another\nbody → 20901; same key while still running → 40901. 2xxxx refusals are not stored, so a fixed\nrequest can reuse its key. The step-up token is a header and not part of the body hash, so a\nreplay after a 10003 keeps its key.\n",
+        "x-auth": "admin",
+        "x-idempotent": true,
+        "x-error-codes": [
+          10001,
+          10003,
+          10403,
+          20001,
+          20901,
+          20902,
+          40901
+        ],
+        "security": [
+          {
+            "adminBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TraceId"
+          },
+          {
+            "$ref": "#/components/parameters/AdminStepUpToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/AdminWithdrawalIdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUnknownPayoutResolveRequest"
+              },
+              "examples": {
+                "paid": {
+                  "summary": "The proof shows the channel paid",
+                  "value": {
+                    "resolution": "paid",
+                    "proof_text": "账单行：out_biz_no=W20261103001，成功，9800 分",
+                    "channel_order_id": "20261103220014001",
+                    "paid_at": "2026-11-03T09:30:00+08:00"
+                  }
+                },
+                "failed": {
+                  "summary": "Refused today; see the description",
+                  "value": {
+                    "resolution": "failed",
+                    "proof_text": "查询返回订单不存在；当日与次日账单都没有"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The withdrawal ended, or the first result of the same key.",
+            "headers": {
+              "X-Trace-Id": {
+                "$ref": "#/components/headers/TraceId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUnknownPayoutResolveResponse"
+                },
+                "example": {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "withdrawal_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4fc001",
+                    "status": "PAID_API",
+                    "manual_resolution": "paid",
+                    "channel_order_id": "20261103220014001",
+                    "paid_at": "2026-11-03T09:30:00+08:00"
                   },
                   "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
                 }
@@ -33924,7 +34517,7 @@
           "admin-withdrawals"
         ],
         "summary": "Group the chosen withdrawals into a batch and execute it (批量自动打款、执行所选)",
-        "description": "The 【批量自动打款】 of the withdrawal review page and the 【执行所选】 of the payout console (01\nF-ADM-07; BR-WDR-11, BR-WDR-12, BR-WDR-18; design/specs/admin-withdrawals.md,\nadmin-payouts.md; ruling D10-595). Permission point `payout.execute`; a super admin holds\nevery point; the executor may be the reviewer of the same withdrawal (ADD-05). Step-up: totp\ntier (BR-ID-34): without a valid totp-tier `X-Step-Up-Token` → 10003 with `data.tier=totp`.\n\nRequest (AdminPayoutBatchCreateRequest): `withdrawal_ids`, 1 to 200 ids without duplicates\n(200 is 代理补全的默认, D10-595; a duplicate is 20001 with `data.fields=[withdrawal_ids]`).\n\nOrder of checks: the route schema comes first, before the permission and step-up checks, as\non every admin route (D10-591): a body that fails it is 20001 with `data.fields` naming the\nfield, also for a caller without the permission point or a token, and nothing is written.\nThen `payout.execute` (10403 with `data.reason=admin_permission_denied`) → step-up (10003) →\nthe duplicate check. After that the answer is 200, and whether the batch ran is in the data.\n\nOne transaction, the three steps of BR-WDR-12:\n\n- ① The whole batch is refused when `payout.enabled` is off or `payout.queue_paused` is on.\n- ② Each id is judged under its row lock: still APPROVED; no withdrawal block of the member\n  (BR-WDR-05); no transfer attempt of any result; its channel enabled and not paused. An id\n  that does not pass stays APPROVED, or whatever status it had, and is listed in `left`. An\n  unknown id, one of another app or one that is not a UUID is listed with `not_approved`,\n  the same as one that left APPROVED; a non-UUID id never reaches the database.\n- ③ The watermark of what passed, per channel (BR-WDR-18, D10-285, D10-288). When what\n  passed is all on one channel, a failure refuses the whole batch: `rejected`, no\n  withdrawal moves, nothing is sent. When it spans several channels, a failing channel's\n  withdrawals stay APPROVED and are listed in `left` with the watermark reason, while the\n  other channels run; if every channel fails, the outcome is still `executed`, with `paying`\n  empty.\n\nAnswer (AdminPayoutBatchResult): `outcome` is `executed` or `rejected`. `executed`:\n`batch_id`, the new batch (kind=manual); `paying`, the ids that moved APPROVED → PAYING (W4),\npossibly none; `left`, the others with `reason` (not_approved, member_blocked,\nhas_transfer_attempt, channel_disabled, or a watermark reason on a batch of several\nchannels). `rejected`: `reason` (payout_disabled, queue_paused, watermark_stale,\nwatermark_below_forecast, watermark_usable_exceeded), `channel` for a watermark reason, and\n`batch_id` null, `paying` and `left` empty.\n\nEffects of `executed`: an APPROVED withdrawal already on another batch is moved to the new\none first by a CAS and the old batch keeps its item as moved_out (BR-WDR-12), including one\nlisted in `left` with member_blocked, has_transfer_attempt or channel_disabled; one left\nwith not_approved or a watermark reason is not moved. Each paying withdrawal gets\n`executor_id` the caller, `executed_at` the injected Clock and `execute_seq` + 1, its\ntransfer job on the same transaction and wallet.withdrawal_changed. No voucher here: the\nmoney stays frozen until the result (BR-WDR-09). The transfer itself runs in the payout\nprocess, which reviews each withdrawal again and may hold it (W9, BR-WDR-13). Writes an\naudit record for either outcome (action payout_batch_execute, with the `outcome`, the\n`batch_id` or `reason`, and the counts and ids of `paying` and `left`; no personal data).\n\n`Idempotency-Key` is required: same key and body → the first result, a `rejected` one too;\nsame key with another body → 20901; same key while still running → 40901. After fixing what\nrefused a batch (a fresh W, say), submit with a new key. The step-up token is a header and\nnot part of the body hash, so a replay after a 10003 keeps its key.\n",
+        "description": "The 【批量自动打款】 of the withdrawal review page and the 【执行所选】 of the payout console (01\nF-ADM-07; BR-WDR-11, BR-WDR-12, BR-WDR-18; design/specs/admin-withdrawals.md,\nadmin-payouts.md; ruling D10-595). Permission point `payout.execute`; a super admin holds\nevery point; the executor may be the reviewer of the same withdrawal (ADD-05). Step-up: totp\ntier (BR-ID-34): without a valid totp-tier `X-Step-Up-Token` → 10003 with `data.tier=totp`.\n\nRequest (AdminPayoutBatchCreateRequest): `withdrawal_ids`, 1 to 200 ids without duplicates\n(200 is 代理补全的默认, D10-595; a duplicate is 20001 with `data.fields=[withdrawal_ids]`).\n\nOrder of checks: the route schema comes first, before the permission and step-up checks, as\non every admin route (D10-591): a body that fails it is 20001 with `data.fields` naming the\nfield, also for a caller without the permission point or a token, and nothing is written.\nThen `payout.execute` (10403 with `data.reason=admin_permission_denied`) → step-up (10003) →\nthe duplicate check. After that the answer is 200, and whether the batch ran is in the data.\n\nOne transaction, the three steps of BR-WDR-12:\n\n- ① The whole batch is refused when `payout.enabled` is off or `payout.queue_paused` is on.\n- ② Each id is judged under its row lock: still APPROVED; no withdrawal block of the member\n  (BR-WDR-05); no transfer attempt of any result; its channel enabled and not paused. An id\n  that does not pass stays APPROVED, or whatever status it had, and is listed in `left`. An\n  unknown id, one of another app or one that is not a UUID is listed with `not_approved`,\n  the same as one that left APPROVED; a non-UUID id never reaches the database.\n- ③ The watermark of what passed, per channel (BR-WDR-18, D10-285, D10-288). When what\n  passed is all on one channel, a failure refuses the whole batch: `rejected`, no\n  withdrawal moves, nothing is sent. When it spans several channels, a failing channel's\n  withdrawals stay APPROVED and are listed in `left` with the watermark reason, while the\n  other channels run; if every channel fails, the outcome is still `executed`, with `paying`\n  empty.\n\nAnswer (AdminPayoutBatchResult): `outcome` is `executed` or `rejected`. `executed`:\n`batch_id`, the new batch (kind=manual); `paying`, the ids that moved APPROVED → PAYING (W4),\npossibly none; `left`, the others with `reason` (not_approved, member_blocked,\nhas_transfer_attempt, channel_disabled, or a watermark reason on a batch of several\nchannels). `rejected`: `reason` (payout_disabled, queue_paused, watermark_stale,\nwatermark_below_forecast, watermark_usable_exceeded), `channel` for a watermark reason, and\n`batch_id` null, `paying` and `left` empty.\n\nEffects of `executed`: an APPROVED withdrawal already on another batch is moved to the new\none first by a CAS and the old batch keeps its item as moved_out (BR-WDR-12), including one\nlisted in `left` with member_blocked, has_transfer_attempt or channel_disabled; one left\nwith not_approved or a watermark reason is not moved. A withdrawal left with any reason but\nnot_approved that was on no batch joins the new one (`batch_id`, BR-WDR-11, D10-609), so a\nlater batch moves it and this one records moved_out. A `rejected` answer writes none of this,\nand not_approved never joins. Each paying withdrawal gets\n`executor_id` the caller, `executed_at` the injected Clock and `execute_seq` + 1, its\ntransfer job on the same transaction and wallet.withdrawal_changed. No voucher here: the\nmoney stays frozen until the result (BR-WDR-09). The transfer itself runs in the payout\nprocess, which reviews each withdrawal again and may hold it (W9, BR-WDR-13). Writes an\naudit record for either outcome (action payout_batch_execute, with the `outcome`, the\n`batch_id` or `reason`, and the counts and ids of `paying` and `left`; no personal data).\n\n`Idempotency-Key` is required: same key and body → the first result, a `rejected` one too;\nsame key with another body → 20901; same key while still running → 40901. After fixing what\nrefused a batch (a fresh W, say), submit with a new key. The step-up token is a header and\nnot part of the body hash, so a replay after a 10003 keeps its key.\n",
         "x-auth": "admin",
         "x-idempotent": true,
         "x-error-codes": [
@@ -40127,6 +40720,14 @@
             "shop_type": "tmall",
             "title": "降噪蓝牙耳机 5.3",
             "image": "https://img.example.test/p/7Kq9LmN3pQ.jpg",
+            "images": [
+              {
+                "url": "https://img.example.test/p/7Kq9LmN3pQ.jpg"
+              },
+              {
+                "url": "https://img.example.test/p/7Kq9LmN3pQ-2.jpg"
+              }
+            ],
             "shop_name": "示例旗舰店",
             "price_fen": 3990,
             "coupon_fen": 1000,
@@ -40152,7 +40753,13 @@
               "price_basis"
             ],
             "ad_label": null,
-            "availability": "ok"
+            "availability": "ok",
+            "coupon_end_at": "2026-10-10T23:59:59+08:00",
+            "sales_text": null,
+            "shop_logo": null,
+            "shop_scores": [],
+            "shop_entry": true,
+            "price_spec_hint": "spec_uncertain"
           },
           "trace_id": "0199a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
         }
@@ -42287,6 +42894,21 @@
         "description": "Configuration block whose inner shape is not fixed by 规划/04 yet.",
         "additionalProperties": true
       },
+      "ConfigBridgeOrigins": {
+        "type": "object",
+        "description": "Signed whitelist of the origins whose pages the client's trusted web container serves and\nlets call the bridge (04 §10.1 可信容器白名单 + 签名; 02 §12.6; 03 §5.1 / §5.2; 12 §9 B-04;\nD10-608 / D10-610 / D10-612). Always present.\n\njws is a JWS compact serialization (RFC 7515) `header.payload.signature`, each part\nbase64url without padding:\n- header: {\"alg\": \"ES256\", \"kid\": <signing key id>, \"typ\": \"couli-bridge-origins+jws\"}.\n- payload: {\"v\": 1, \"app_id\": <the caller's app>, \"env\": \"local\" | \"test\" | \"staging\" |\n  \"prod\", \"version\": <integer >= 0>, \"origins\": [<origin>, ...]}. Each origin is a\n  normalized https origin: lowercase host, no path, query, fragment, credentials or\n  wildcard, port 443 omitted, other ports kept (`https://host[:port]`). origins is non-empty\n  and always contains the origin of h5_base_url. There is no expiry.\n- signature: ECDSA P-256 over SHA-256 of the ASCII `header.payload`, as the raw 64-byte\n  R‖S (IEEE P1363, RFC 7518 §3.4), not DER.\n\nServer: origins come from the console config item bridge_origins (an unsigned {origins});\nversion is that item's version, so it grows with every save. Without the item, or when the\nstored value is not a usable list, the server signs [origin of h5_base_url] (version 0\nwithout the item, the item's version otherwise). The signature is cached per\n(app_id, env, version, origins) and signing key (kid), so the same version answers the\nsame jws byte for byte and the /v1/config ETag (config_version) stays stable; a new\nversion changes both. The private key is the api entry's configuration signing key\n(CONFIG_SIGN_KEY_FILE / CONFIG_SIGN_KEY_ID), separate from the JWT key.\n\nClient (03 §5.1 取用顺序): verify the signature with the public key that the package\ncarries for the header's kid and the build's env, then check typ, v = 1, app_id and env\nequal its own, and version >= the version of the last good whitelist (no rollback). Only\nthen use origins and store it as the last good whitelist; on any failure keep the last good\nwhitelist (or the packaged one) and never write the failed value as last good (AC-S1-180\n②). Origins compare as in 03 §5.2: the page URL's normalized origin equals one entry\nexactly.\n\nKey rotation: the package carries two kids per env (current + next). The server switches\nCONFIG_SIGN_KEY_ID / CONFIG_SIGN_KEY_FILE to the next key only after the packages that\ncarry it are released; the signature of the same version then changes once (new kid), and\nthe old key is retired after clients that only know it are gone.\n",
+        "additionalProperties": false,
+        "required": [
+          "jws"
+        ],
+        "properties": {
+          "jws": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+            "description": "JWS compact serialization signed with ES256 (see the schema description)."
+          }
+        }
+      },
       "ConfigClipboard": {
         "type": "object",
         "description": "Clipboard block of /v1/config (04 §10.1). consent_version is the current version (a\nstring) of the purpose statement for automatic clipboard recognition; the client compares\nit with the user's feature consent version (BR-ID-16 门槛②). The other fields (local\nfilter rules and so on) are typed later by the contract / native line and pass through\nas-is for now. When the stored value does not fit this shape the server sends {} for the\nwhole key (04 config_items 统一规则).\n",
@@ -44084,6 +44706,13 @@
           "is_other_product": {
             "type": "boolean",
             "description": "A shared order whose bought product is not the shared one."
+          },
+          "is_price_compare": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "orders.is_price_compare (04 §6.4, 2026-11-05). true: the client shows the 「比价订单」 tag\n(text key order.tag.price_compare, BR-TEXT-03; not a display_status, amounts unchanged).\nSet only from the union order API field (BR-CALC-16); null on a platform whose field is\nnot yet verified, and the server does not set it before then. null, false or absent:\nno tag. Optional: added to an existing /v1 shape (contracts/README rule 8).\n"
           }
         },
         "not": {
@@ -49361,7 +49990,7 @@
         "properties": {
           "flags": {
             "type": "object",
-            "description": "Client switches by key: agent.entry.visible, clipboard.enabled.<platform>,\nhome.fallback, h5.route.<page>.enabled, ui.grayscale (03 §4.3);\nexternal_page.product_intercept (a platform product page inside the third-party page\ncontainer goes back to the native product detail) and external_page.union_host_block\n(the container does not load union platform pages; derived from the server setting of\nthe same name; a client that cannot read it treats it as on) (BR-ATTR-29);\nearnings.dashboard.visible (earnings dashboard entry, derived from\nearnings.dashboard.enabled, BR-FUND-25).\nClipboard switches (BR-ID-16 细则「服务端开关」): clipboard.enabled.<platform> filters\nrecognition by e-commerce platform; clipboard.auto_read.<client> (client is ios, android\nor harmony) turns off automatic clipboard reading on that client. A missing key counts\nas on; these keys can only turn a feature off, never turn on what the user turned off.\naccount.phone_change_enabled: client copy of the phone change switch, for display only\n(a missing key counts as on); the server still decides on every request (BR-ID-06 细则).\n",
+            "description": "Client switches by key: agent.entry.visible, clipboard.enabled.<platform>,\nhome.fallback, h5.route.<page>.enabled, ui.grayscale (03 §4.3);\nexternal_page.product_intercept (a platform product page inside the third-party page\ncontainer goes back to the native product detail) and external_page.union_host_block\n(the container does not load union platform pages; derived from the server setting of\nthe same name; a client that cannot read it treats it as on) (BR-ATTR-29);\nearnings.dashboard.visible (earnings dashboard entry, derived from\nearnings.dashboard.enabled, BR-FUND-25).\nClipboard switches (BR-ID-16 细则「服务端开关」): clipboard.enabled.<platform> filters\nrecognition by e-commerce platform; clipboard.auto_read.<client> (client is ios, android\nor harmony) turns off automatic clipboard reading on that client. A missing key counts\nas on; these keys can only turn a feature off, never turn on what the user turned off.\naccount.phone_change_enabled: client copy of the phone change switch, for display only\n(a missing key counts as on); the server still decides on every request (BR-ID-06 细则).\nproduct_feedback (product feedback entry on the detail page, derived from\nfeedback.enabled) and jd_plus_note (PLUS note on JD product details, derived from\ndetail.jd_plus_note.enabled) (04 §10.1, §10.2): derived values win over a key of the\nsame name in the base dictionary; a client that finds the key missing or false shows\nnothing (no default-on in the client).\n",
             "additionalProperties": {
               "type": "boolean"
             }
@@ -49748,7 +50377,7 @@
       },
       "Config": {
         "type": "object",
-        "description": "Top-level keys of /v1/config (04 §10.1, excerpt). Keys added after v0.9 (external_page,\nlink_patterns, external_hosts, app_update, help_links, claim, platform_icons,\nlkg_max_age_sec, config_version, bridge_disabled_methods, nickname) are optional, so a client keeps reading an older last-good configuration (04 §5「兼容」); the\nserver always sends them, except that platform_icons lists only the marks with a published\nreplacement image (BR-TEXT-24). jump_tip, bridge_origins, auth_tips, compliance and display are not\nshaped by 04 yet and stay free-form; the task that consumes each one types it\n(bridge_origins with CT-03). clipboard is ConfigClipboard (only consent_version is typed).\n",
+        "description": "Top-level keys of /v1/config (04 §10.1, excerpt). Keys added after v0.9 (external_page,\nlink_patterns, external_hosts, app_update, help_links, claim, platform_icons,\nlkg_max_age_sec, config_version, bridge_disabled_methods, nickname) are optional, so a client keeps reading an older last-good configuration (04 §5「兼容」); the\nserver always sends them, except that platform_icons lists only the marks with a published\nreplacement image (BR-TEXT-24). jump_tip, auth_tips, compliance and display are not\nshaped by 04 yet and stay free-form; the task that consumes each one types it.\nbridge_origins is the signed whitelist ConfigBridgeOrigins (CT-03c / F1-02zzzb, D10-610).\nclipboard is ConfigClipboard (only consent_version is typed).\n",
         "additionalProperties": false,
         "required": [
           "dict_version",
@@ -49815,7 +50444,7 @@
             "$ref": "#/components/schemas/ConfigClipboard"
           },
           "bridge_origins": {
-            "$ref": "#/components/schemas/FreeForm"
+            "$ref": "#/components/schemas/ConfigBridgeOrigins"
           },
           "auth_tips": {
             "$ref": "#/components/schemas/FreeForm"
@@ -50021,7 +50650,7 @@
       },
       "ProductCta": {
         "type": "object",
-        "description": "Buy button chosen by the server; the client never decides it (BR-TEXT-12, 拍板第二批\nTRADE-21): btn.buy.coupon (有券有返), btn.buy (无券有返 and amount_unknown),\nbtn.buy.no_rebate (无返利); other keys come with login_required and taolijin cards.\n",
+        "description": "Buy button chosen by the server and sent as cta.text_key; the client never decides it\n(BR-TEXT-12 细则「购买按钮」, 拍板第二批 TRADE-21, changed 2026-11-05): btn.buy.rebate\n(rebate_basis=normal with a single amount), btn.buy.rebate_unknown (amount_unknown),\nrebate_login_to_view (login_required), btn.buy (pages that show no rebate amount, i.e.\nLinkLanding), btn.buy.no_rebate (the card turns no-rebate on tap); the same key with or\nwithout a coupon. Taolijin cards follow BR-TEXT-15. Since 2026-11-05 btn.buy.coupon and\nbtn.buy.rebate_suffix are kept but unused, and their key names are not reused.\n",
         "additionalProperties": false,
         "required": [
           "text_key"
@@ -50135,6 +50764,14 @@
               "null"
             ],
             "format": "uri"
+          },
+          "images": {
+            "type": "array",
+            "description": "Only on GET /v1/products/{product_key} (product detail, FU-DETAIL-GALLERY, D10-649);\nabsent on every other card (search, lists, sections, parse, rank, favourites). Main image\nfirst, then the extra images of the union product API in their order; deduplicated\nbefore the cut, at most 9, addresses unchanged (same as the share page images,\nBR-ATTR-10 细则「分享页与分享赚入口页」); [] when the union gives no image. Not\ndownloaded, edited or kept in any business table. A single image shows as today.\n",
+            "maxItems": 9,
+            "items": {
+              "$ref": "#/components/schemas/ShareImage"
+            }
           },
           "shop_name": {
             "type": [
@@ -50257,6 +50894,79 @@
           "favorited": {
             "type": "boolean",
             "description": "Only on the product detail response (GET /v1/products/{product_key}): whether the\ncaller has favorited this product; false when not logged in (规划/01 F-PROD-12).\n"
+          },
+          "coupon_end_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Only on GET /v1/products/{product_key} (product detail, 04 §8.3「商品详情专用字段」,\nD10-664); absent on every other card (search, lists, sections, parse, rank, favourites,\nAgent). End time of the selected coupon, ISO 8601 with +08:00, normalised as BR-PRICE-01\n细则「时间与剩余量」 (no time zone read as +08:00; a date-only end becomes the next day\n00:00:00+08:00). Non-null only when coupon_fen > 0 and the union gives the selected\ncoupon's end time; null while the platform's `detail.coupon_end.enabled.<platform>` is\noff (default off until 规划/09 registers the field's meaning and time zone). Display:\nBR-PRICE-04 细则「商品详情的券标签」; null or absent shows only the amount part of the\ncoupon tag, with no default end time.\n"
+          },
+          "sales_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only on GET /v1/products/{product_key} (04 §8.3「商品详情专用字段」); absent on every\nother card. The union's sales field as an unchanged string (for now only pinduoduo\nsales_tip), same meaning as `sales_text` of GET /v1/rank/hot; never computed or\nestimated (BR-TEXT-13 细则「虚拟数据」). Null when the platform's\n`detail.sales.enabled.<platform>` is off or the union gives none; null or absent hides\nthe sales line.\n"
+          },
+          "shop_logo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "description": "Only on GET /v1/products/{product_key} (04 §8.3「商品详情专用字段」); absent on every\nother card. Shop logo address as the union gives it; for now only pinduoduo\n`mall_img_url` may carry one (official docs, not yet recorded, 规划/09 §6 U-92); the\ntaobao and jd product APIs give none. Null or absent: the client shows the platform\nmark instead (规划/03 §10.2 `StoreCard`).\n"
+          },
+          "shop_scores": {
+            "type": "array",
+            "description": "Only on GET /v1/products/{product_key} (04 §8.3「商品详情专用字段」); absent on every\nother card. Shop scores as the union gives them, each key at most once; [] while the\nplatform's `detail.shop_scores.enabled.<platform>` is off. The client shows each item\nas label (`shop.score.<key>`) plus the unchanged value, hides an empty item and hides\nthe whole line when none is left (BR-TEXT-14 表 C「商品详情·店铺评分」, BR-TEXT-13\n细则「虚拟数据」).\n",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/ProductShopScore"
+            }
+          },
+          "shop_entry": {
+            "type": "boolean",
+            "description": "Only on GET /v1/products/{product_key} (04 §8.3「商品详情专用字段」); absent on every\nother card. Whether the shop can be entered, decided by the server per BR-PRICE-21\n细则「进店」 (`shop.entry.enabled.<platform>` on, the product has a shop id and the\nconfigured source can make a shop link carrying the user's attribution). false or\nabsent: no 【进店】 and the shop block is not tappable.\n"
+          },
+          "price_spec_hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Spec qualifier of the price, decided by the server per BR-PROD-04 (and its 细则); the\nclient never infers it from title, spec_text or prices. price_from: the union returned\na price range or the price is known to be the lowest spec's, so the main price reads\n「¥x 起」 (amount per BR-TEXT-10, e.g. 券后 ¥29.9 起) with no further note.\nspec_uncertain: the spec the product-level price belongs to cannot be determined, so\n`spec_min_price_note` (规格以下单页为准) is shown beside the price (on product detail\nin the coupon tag row, BR-PRICE-04 细则「商品详情的券标签」). null: neither. Carried by\nevery card response (BR-PROD-04: beside the price on cards and on product detail;\nD10-688); list-type cards give null until the server-side judgement (S-19) covers them.\nAbsent is read as null.\n",
+            "enum": [
+              "price_from",
+              "spec_uncertain",
+              null
+            ]
+          }
+        }
+      },
+      "ProductShopScore": {
+        "type": "object",
+        "description": "One shop score of the product detail card (04 §8.3「商品详情专用字段」).",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "desc (描述), serv (服务), lgst (物流), level (店铺等级); labels `shop.score.<key>`\n(BR-TEXT-14 表 C). Unknown keys are skipped by the client.\n",
+            "enum": [
+              "desc",
+              "serv",
+              "lgst",
+              "level"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The union's value unchanged (pinduoduo 高 / 中 / 低, jd shop level digits), not a\ndictionary key and never computed; the jd level scale is shown as is until 规划/09\nconfirms it.\n"
           }
         }
       },
@@ -50961,6 +51671,154 @@
           },
           "data": {
             "$ref": "#/components/schemas/ParseInputData"
+          },
+          "trace_id": {
+            "$ref": "#/components/schemas/TraceId"
+          }
+        }
+      },
+      "ProductFeedbackRequest": {
+        "type": "object",
+        "description": "Body of product feedback (04 §6.3). Only the fields BR-ID-30 细则「商品反馈记录」 lists;\nno contact fields, and any other field is 20001. The shown_* fields and quoted_at are\nwhat the page displayed at the time; the server keeps them as given next to the quote\nsnapshot of link_id.\n",
+        "additionalProperties": false,
+        "required": [
+          "platform",
+          "link_id",
+          "shown_final_price_fen",
+          "shown_rebate_fen",
+          "quoted_at",
+          "reason"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/PlatformCode"
+          },
+          "item_ref": {
+            "$ref": "#/components/schemas/ItemRef"
+          },
+          "link_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "shown_final_price_fen": {
+            "$ref": "#/components/schemas/Fen",
+            "minimum": 0
+          },
+          "shown_rebate_fen": {
+            "$ref": "#/components/schemas/NullableFen",
+            "minimum": 0,
+            "description": "Rebate amount shown on the page; null when the page showed none."
+          },
+          "quoted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Quote time shown with the price."
+          },
+          "reason": {
+            "type": "string",
+            "description": "price / rebate / info / other (BR-TEXT-14 feedback.reason.*).",
+            "enum": [
+              "price",
+              "rebate",
+              "info",
+              "other"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100,
+            "description": "Optional note, at most 100 characters (BR-TEXT-14 表 C feedback.note.*)."
+          }
+        }
+      },
+      "ProductFeedbackResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "feedback_id"
+        ],
+        "properties": {
+          "feedback_id": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      },
+      "ProductFeedbackResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "msg",
+          "data",
+          "trace_id"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SuccessCode"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductFeedbackResult"
+          },
+          "trace_id": {
+            "$ref": "#/components/schemas/TraceId"
+          }
+        }
+      },
+      "ShopOpenRequest": {
+        "type": "object",
+        "description": "Body of the shop entry (04 §6.3); no scene (BR-ATTR-08 exception).",
+        "additionalProperties": false,
+        "required": [
+          "platform"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/PlatformCode"
+          },
+          "item_ref": {
+            "$ref": "#/components/schemas/ItemRef"
+          },
+          "installed": {
+            "$ref": "#/components/schemas/InstalledState",
+            "description": "Default unknown; H5 always sends unknown (BR-ATTR-27 ①)."
+          }
+        }
+      },
+      "ShopOpenResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "jump"
+        ],
+        "properties": {
+          "jump": {
+            "$ref": "#/components/schemas/JumpPlan"
+          }
+        }
+      },
+      "ShopOpenResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "msg",
+          "data",
+          "trace_id"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SuccessCode"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ShopOpenResult"
           },
           "trace_id": {
             "$ref": "#/components/schemas/TraceId"
@@ -57434,7 +58292,8 @@
         "description": "The system identity that acted (enum audit_system_actor, values of the form\nsystem:<name>; more are appended later). Only system rows carry it; rows of an admin\naccount leave it out.\n",
         "pattern": "^system:[a-z_]+$",
         "enum": [
-          "system:risk"
+          "system:risk",
+          "system:payout"
         ]
       },
       "AdminAuditLogListItem": {
@@ -65774,8 +66633,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64,
-            "pattern": "^\\S+$",
-            "description": "The Alipay or bank transfer serial number; no whitespace, compared exactly."
+            "pattern": "^[^\\s\\u0000]+$",
+            "description": "The Alipay or bank transfer serial number; no whitespace or NUL, compared exactly."
           },
           "paid_at": {
             "type": "string",
@@ -65865,6 +66724,339 @@
           },
           "data": {
             "$ref": "#/components/schemas/AdminWithdrawalBatchManualPaid"
+          },
+          "trace_id": {
+            "$ref": "#/components/schemas/TraceId"
+          }
+        }
+      },
+      "AdminUnknownPayoutFailBlocker": {
+        "type": "string",
+        "description": "A condition of a `failed` resolution that does not hold now, by its refusal reason.",
+        "enum": [
+          "resolve_too_early",
+          "resolve_bill_unverifiable",
+          "resolve_query_unverifiable"
+        ]
+      },
+      "AdminUnknownPayoutLatestQuery": {
+        "type": "object",
+        "description": "The newest kind=query attempt.",
+        "additionalProperties": false,
+        "required": [
+          "result",
+          "at",
+          "resp_code",
+          "resp_sub_code",
+          "channel_status",
+          "channel_order_id",
+          "paid_at"
+        ],
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "success",
+              "fail",
+              "unknown"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resp_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resp_sub_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channel_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The order status the channel answered, as received."
+          },
+          "channel_order_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paid_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The time the channel answered, when it gave one."
+          }
+        }
+      },
+      "AdminUnknownPayoutItem": {
+        "type": "object",
+        "description": "One withdrawal waiting for a person; see GET /admin/v1/unknown-payouts.",
+        "additionalProperties": false,
+        "required": [
+          "withdrawal_id",
+          "out_biz_no",
+          "user",
+          "payout_channel",
+          "amount_fen",
+          "net_fen",
+          "first_transfer_at",
+          "latest_query",
+          "fail_blockers"
+        ],
+        "properties": {
+          "withdrawal_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "out_biz_no": {
+            "$ref": "#/components/schemas/AdminWithdrawalOutBizNo"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AdminWithdrawalUser"
+          },
+          "payout_channel": {
+            "$ref": "#/components/schemas/AdminPayoutChannelCode"
+          },
+          "amount_fen": {
+            "$ref": "#/components/schemas/Fen"
+          },
+          "net_fen": {
+            "$ref": "#/components/schemas/Fen"
+          },
+          "first_transfer_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "T, the earliest kind=transfer attempt."
+          },
+          "latest_query": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminUnknownPayoutLatestQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fail_blockers": {
+            "type": "array",
+            "description": "In the order of adminResolveUnknownPayout's checks.",
+            "items": {
+              "$ref": "#/components/schemas/AdminUnknownPayoutFailBlocker"
+            }
+          }
+        }
+      },
+      "AdminUnknownPayoutPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminUnknownPayoutItem"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AdminUnknownPayoutPageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "msg",
+          "data",
+          "trace_id"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SuccessCode"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdminUnknownPayoutPage"
+          },
+          "trace_id": {
+            "$ref": "#/components/schemas/TraceId"
+          }
+        }
+      },
+      "AdminPayoutQueryRequest": {
+        "type": "object",
+        "description": "No fields; see POST /admin/v1/withdrawals/{withdrawal_id}/query.",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "AdminPayoutQuerySubmitted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "withdrawal_id",
+          "result"
+        ],
+        "properties": {
+          "withdrawal_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "result": {
+            "type": "string",
+            "description": "The query is queued; the answer appears later as latest_query.",
+            "enum": [
+              "submitted"
+            ]
+          }
+        }
+      },
+      "AdminPayoutQueryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "msg",
+          "data",
+          "trace_id"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SuccessCode"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdminPayoutQuerySubmitted"
+          },
+          "trace_id": {
+            "$ref": "#/components/schemas/TraceId"
+          }
+        }
+      },
+      "AdminUnknownPayoutResolveRequest": {
+        "type": "object",
+        "description": "How a person ends the withdrawal; see POST /admin/v1/withdrawals/{withdrawal_id}/resolve.",
+        "additionalProperties": false,
+        "required": [
+          "resolution",
+          "proof_text"
+        ],
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "paid",
+              "failed"
+            ]
+          },
+          "proof_text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "The pasted proof, not blank after trimming; not shown to the member."
+          },
+          "channel_order_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[^\\s\\u0000]+$",
+            "description": "Required with paid. The channel's serial number; no whitespace or NUL, compared exactly."
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Required with paid. When the channel paid, checked against T and the injected Clock."
+          }
+        }
+      },
+      "AdminUnknownPayoutResolved": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "withdrawal_id",
+          "status",
+          "manual_resolution",
+          "channel_order_id",
+          "paid_at"
+        ],
+        "properties": {
+          "withdrawal_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "status": {
+            "type": "string",
+            "description": "Only PAID_API today; a failed resolution is refused (D10-625).",
+            "enum": [
+              "PAID_API"
+            ]
+          },
+          "manual_resolution": {
+            "type": "string",
+            "enum": [
+              "paid"
+            ]
+          },
+          "channel_order_id": {
+            "type": "string"
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminUnknownPayoutResolveResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "msg",
+          "data",
+          "trace_id"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SuccessCode"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdminUnknownPayoutResolved"
           },
           "trace_id": {
             "$ref": "#/components/schemas/TraceId"

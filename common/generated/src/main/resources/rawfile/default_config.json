@@ -58,7 +58,9 @@
   "clipboard": {
     "consent_version": "2026-10-01"
   },
-  "bridge_origins": {},
+  "bridge_origins": {
+    "jws": "aGVhZGVy.cGF5bG9hZA.c2lnbmF0dXJl"
+  },
   "auth_tips": {},
   "compliance": {},
   "display": {},

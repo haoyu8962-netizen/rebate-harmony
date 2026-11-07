@@ -153,7 +153,8 @@
       "source": "规划/04 §3.2 audit_logs；编排裁定 D10-552（CT-24zj）",
       "description": "审计日志系统行的 system_actor，值的格式是 ^system:[a-z_]+$，以后追加；中文名就是系统行的 actor_name 与导出的「操作者」列",
       "values": {
-        "system:risk": "系统（风控）"
+        "system:risk": "系统（风控）",
+        "system:payout": "系统（打款）"
       }
     },
     "admin_claim_match_field": {

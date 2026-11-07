@@ -382,13 +382,16 @@ export function parseAuditActorKind(raw: string): AuditActorKind | undefined {
 
 /** 契约枚举 audit_system_actor */
 export enum AuditSystemActor {
-  SYSTEM_RISK = 'system:risk'
+  SYSTEM_RISK = 'system:risk',
+  SYSTEM_PAYOUT = 'system:payout'
 }
 
 export function parseAuditSystemActor(raw: string): AuditSystemActor | undefined {
   switch (raw) {
     case 'system:risk':
       return AuditSystemActor.SYSTEM_RISK;
+    case 'system:payout':
+      return AuditSystemActor.SYSTEM_PAYOUT;
     default:
       return undefined;
   }
@@ -4270,7 +4273,7 @@ export class ContractEnums {
     all.set('export_status', ['pending', 'running', 'done', 'failed', 'expired', 'cancelled']);
     all.set('export_resource', ['users', 'audit_logs', 'tax_withdrawals']);
     all.set('audit_actor_kind', ['admin', 'system']);
-    all.set('audit_system_actor', ['system:risk']);
+    all.set('audit_system_actor', ['system:risk', 'system:payout']);
     all.set('admin_claim_match_field', ['order_no', 'paid_date']);
     all.set('admin_order_flag', ['locked', 'status_locked', 'rights_pending', 'hold']);
     all.set('admin_order_history_field', ['platform', 'rebate']);

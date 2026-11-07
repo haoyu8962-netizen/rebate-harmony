@@ -82,7 +82,7 @@ export class ApiOperations {
     ApiOperations.put(all, new ApiOperation('recordConsent', 'POST', '/v1/consents', 'optional', false, false, null, [20001, 10401, 10402, 10405], ['full', 'deletion_only'], 'conditional', false));
     ApiOperations.put(all, new ApiOperation('issueH5Token', 'POST', '/v1/auth/h5-token', 'login', false, false, null, [10405], ['full'], 'true', false));
     ApiOperations.put(all, new ApiOperation('listUnionBindings', 'GET', '/v1/unions/bindings', 'login', false, false, null, [], ['full'], 'not_marked', false));
-    ApiOperations.put(all, new ApiOperation('getUnionAuthUrl', 'GET', '/v1/unions/{platform}/auth-url', 'login', false, false, null, [30101, 30102, 30153, 50301], ['full'], 'not_marked', false));
+    ApiOperations.put(all, new ApiOperation('getUnionAuthUrl', 'GET', '/v1/unions/{platform}/auth-url', 'login', false, false, null, [30101, 30102, 30153, 50301, 50303], ['full'], 'not_marked', false));
     ApiOperations.put(all, new ApiOperation('bindUnion', 'POST', '/v1/unions/{platform}/bindings', 'login', true, true, null, [20001, 30101, 30102, 30104, 30151, 30153, 10405], ['full'], 'true', false));
     ApiOperations.put(all, new ApiOperation('listOrders', 'GET', '/v1/orders', 'login', false, false, null, [], ['full'], 'not_marked', false));
     ApiOperations.put(all, new ApiOperation('listOrderClaims', 'GET', '/v1/orders/claims', 'login', false, false, null, [], ['full'], 'not_marked', false));
@@ -147,6 +147,8 @@ export class ApiOperations {
     ApiOperations.put(all, new ApiOperation('searchProducts', 'GET', '/v1/products/search', 'optional', false, false, null, [50304], ['full'], 'not_marked', false));
     ApiOperations.put(all, new ApiOperation('getProduct', 'GET', '/v1/products/{product_key}', 'optional', false, false, null, [30141, 30143, 50401], ['full'], 'not_marked', false));
     ApiOperations.put(all, new ApiOperation('getProductPriceTrend', 'GET', '/v1/products/{product_key}/price-trend', 'none', false, false, null, [], ['full'], 'not_marked', false));
+    ApiOperations.put(all, new ApiOperation('submitProductFeedback', 'POST', '/v1/products/{product_key}/feedback', 'optional', true, true, null, [30145, 20001, 30144, 42901, 10405], ['full'], 'true', true));
+    ApiOperations.put(all, new ApiOperation('openProductShop', 'POST', '/v1/products/{product_key}/shop/open', 'login', true, true, null, [10001, 30101, 30102, 30111, 50301, 30146, 50303, 20001, 10405], ['full'], 'true', true));
     ApiOperations.put(all, new ApiOperation('getHotRank', 'GET', '/v1/rank/hot', 'optional', false, false, null, [20001, 50304], ['full'], 'not_marked', false));
     ApiOperations.put(all, new ApiOperation('getSearchHotWords', 'GET', '/v1/search/hot-words', 'none', false, false, null, [], ['full'], 'not_marked', false));
     ApiOperations.put(all, new ApiOperation('listFavorites', 'GET', '/v1/me/favorites', 'login', false, false, null, [], ['full'], 'not_marked', false));

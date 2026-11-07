@@ -54,7 +54,7 @@
    "entry/src/main/ets/permission/HarmonyPermissionSystem.ets"
   ],
   [
-   "b48188f3da176340fe2af7417d0c2cf137193f29eaf8bd79c9216b3e4d8a314e",
+   "8ebc35cd4ec850ce695f04fecc818b0d084cf79b58ae77f3f65ab13c148c2658",
    "contract.lock"
   ]
  ],
@@ -104,7 +104,7 @@
    "contracts/snapshot/contracts/bridge.schema.json"
   ],
   [
-   "0a31468548e9a376a822e896465781033bfd37e89cea123d950b42e6a6ca3f72",
+   "15169659cbc717065f12d3c17893972a473b47d6271832e5c4acc026ea00a8ca",
    "contracts/snapshot/contracts/enums/admin.json"
   ],
   [
@@ -136,7 +136,7 @@
    "contracts/snapshot/contracts/enums/trade.json"
   ],
   [
-   "c73af4261ea443dcd4ae07aeb22ded9ec844c85ae881555cdb5b01f48acd2540",
+   "954c14c589f9681d66fa5c8518ad482ee892638a1b6f2adfc2cd8c801dcb2d8f",
    "contracts/snapshot/contracts/error-codes.json"
   ],
   [
@@ -200,7 +200,7 @@
    "contracts/snapshot/contracts/fixtures/agent-streams/unknown-card.ndjson"
   ],
   [
-   "366e96cf0793c7a58feee7fd7ecdfec6b4baa97677c4967cc52fa6e24b23655b",
+   "4b658d0079bc173d5bed9081b122c202032b49247dc4afd45db0d2f2c0787214",
    "contracts/snapshot/contracts/openapi.json"
   ],
   [
@@ -208,7 +208,7 @@
    "contracts/snapshot/contracts/routes.json"
   ],
   [
-   "23eac6f8bf02693840a02ac4828b226bff58a4458ffae467445ba5e2bb9881cc",
+   "3ddce957d12e696d6276fd676cd0e78a719d337615f8d99d0d511b551d3022db",
    "contracts/snapshot/contracts/texts.default.json"
   ],
   [

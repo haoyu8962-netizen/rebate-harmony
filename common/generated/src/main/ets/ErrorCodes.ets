@@ -81,6 +81,8 @@ export class ErrorCodes {
     all.set(30142, new ErrorCodeInfo(30142, 422, RetryKind.NOT_APPLICABLE, reasons([], []), true, false));
     all.set(30143, new ErrorCodeInfo(30143, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30144, new ErrorCodeInfo(30144, 404, RetryKind.AFTER_ACTION, reasons([], []), false, false));
+    all.set(30145, new ErrorCodeInfo(30145, 422, RetryKind.NEVER, reasons([], []), false, false));
+    all.set(30146, new ErrorCodeInfo(30146, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30151, new ErrorCodeInfo(30151, 422, RetryKind.NEVER, reasons([], []), false, false));
     all.set(30152, new ErrorCodeInfo(30152, 422, RetryKind.NOT_APPLICABLE, reasons([], []), true, false));
     all.set(30153, new ErrorCodeInfo(30153, 422, RetryKind.NEVER, reasons([], []), false, false));
