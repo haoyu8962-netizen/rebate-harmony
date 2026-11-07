@@ -15,6 +15,8 @@
     theme/CouliThemeTokens.ets）——与 DesignTokens 同一份锁定快照 design/design-tokens.json，同一次生成、同一次 --check
     common/generated/Index.ets                                模块统一导出
     common/designsystem/src/test/FormatVectorsData.ets        specs/format-vectors.json 全文（DS-01，格式向量单测用）
+    common/designsystem/src/test/CtaKeyVectorsData.ets        specs/cta-key-vectors.json 全文（FU-X-CTA-KEY-DRIFT，三端共用购买按钮
+                                                              cta 文案键向量；--check 守与 iOS 原件逐字节相同）
     common/core/src/test/RouterVectorsData.ets                specs/router-vectors.json 全文（APP-02a，Router 向量单测用）
     common/core/src/test/TestDebugRoutes.ets                  debug_only 路由表的测试副本（APP-02a，core 单测注册调试路由用）
     common/core/src/test/PrivacyGateVectorsData.ets           specs/privacy-gate-vectors.json 全文（APP-02b，隐私闸门向量单测用）
@@ -927,6 +929,34 @@ def gen_privacy_visual_vectors_data():
     return gen_vectors_data(PRIVACY_VISUAL_VECTORS, "PRIVACY_VISUAL_VECTORS_JSON",
                             "隐私中心 / 关于 / 联系客服视觉夹具（APP-12w-b）：specs/privacy-visual-vectors.json 全文，供 "
                             "Me12wbPrivacy.test.ets 解析。只在 src/test，不进产物。")
+
+
+CTA_KEY_VECTORS = os.path.join("specs", "cta-key-vectors.json")
+# FU-X-CTA-KEY-DRIFT-harmony（D10-861）：specs/cta-key-vectors.json 整份照 rebate-ios FU-X-CTA-KEY-DRIFT-ios 逐字节拷贝（95 行，
+# sha256 下列；安卓副本同值）。鸿蒙差异（下架判「稍后再试」+ error.30141，D10-907 ①）在测试里映射，不改本文件。
+CTA_VECTORS_IOS_SHA256 = "d93b2905983bb07a8cca624f3a8af2a9a9b7220e49f34d43886270cb32f4bc40"
+CTA_VECTORS_IOS_LINES = 95
+
+
+def gen_cta_key_vectors_data():
+    """specs/cta-key-vectors.json（三端同一份）：全文与 iOS 基准逐字节一致才生成 designsystem 本机单测的字符串常量。"""
+    import hashlib
+    path = os.path.join(ROOT, CTA_KEY_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + CTA_KEY_VECTORS)
+    with open(path, "rb") as f:
+        data = f.read()
+    lines = data.decode("utf-8").count("\n")
+    if lines != CTA_VECTORS_IOS_LINES:
+        raise GenError("%s 行数 %d ≠ iOS 基准 %d（D10-861：三端逐字节照抄）" % (CTA_KEY_VECTORS, lines,
+                                                                    CTA_VECTORS_IOS_LINES))
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != CTA_VECTORS_IOS_SHA256:
+        raise GenError("%s 与 iOS 基准不一致（sha256 %s ≠ %s；D10-907：鸿蒙差异在测试里映射，不改文件）"
+                       % (CTA_KEY_VECTORS, digest, CTA_VECTORS_IOS_SHA256))
+    return gen_vectors_data(CTA_KEY_VECTORS, "CTA_KEY_VECTORS_JSON",
+                            "购买按钮 cta 文案键向量（FU-X-CTA-KEY-DRIFT）：specs/cta-key-vectors.json 全文，供 "
+                            "CtaKeyVector.test.ets 解析。只在 src/test，不进产物。")
 
 
 RISK_APPEAL_VISUAL_VECTORS = os.path.join("specs", "risk-appeal-visual-vectors.json")
@@ -2010,6 +2040,7 @@ def build_outputs():
         os.path.join(MODULE, "src", "release", "ets", "DebugOnly.ets"): RELEASE_DEBUG_ONLY,
         os.path.join(MODULE, "src", "test", "ContractSnapshotData.ets"): gen_snapshot_data(),
         os.path.join(DS_MODULE, "src", "test", "FormatVectorsData.ets"): gen_format_vectors_data(),
+        os.path.join(DS_MODULE, "src", "test", "CtaKeyVectorsData.ets"): gen_cta_key_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "RouterVectorsData.ets"): gen_router_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "PrivacyGateVectorsData.ets"): gen_privacy_gate_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "UpdateGateVectorsData.ets"): gen_update_gate_vectors_data(),

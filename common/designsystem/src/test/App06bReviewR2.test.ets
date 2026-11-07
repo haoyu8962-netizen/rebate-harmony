@@ -39,7 +39,7 @@ export default function app06bReviewR2Test() {
       expect(d.price.mainLabel).assertEqual('');
       expect(d.price.subLine === null).assertTrue();
       expect(d.price.noCoupon).assertFalse();
-      expect(d.buyBase).assertEqual(PriceTerms.buy);
+      expect(d.buyBase).assertEqual('<btn.buy>');
       // 服务端明确价格不可用、或没有补齐标记的缺价卡：仍按价格不可用（BR-PRICE-01）
       const u: ProductCardData = ProductCardMapper.fromCard(
         pending(',"client_price_pending":true,"availability":"price_unavailable"'), new KeyTexts(), true);

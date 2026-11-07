@@ -138,6 +138,7 @@ import pendingInviteHM13cTest from './PendingInviteHM13c.test';
 import pendingInviteHM13dTest from './PendingInviteHM13d.test';
 import loginHM13aTest from './LoginHM13a.test';
 import quickLoginHM14aTest from './QuickLoginHM14a.test';
+import ctaKeyDetailTest from './CtaKeyDetail.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -293,4 +294,6 @@ export default function testsuite() {
   stagingHostsTest();
   // FU-X-HOME-PAGE-API：首页走契约 getPage + 卡片自取数 listPageSectionItems，假服务只在测试参数下（D10-604 ①）。
   homePageApiTest();
+  // FU-X-CTA-KEY-DRIFT：详情可买判定 / 购买前核对 / AI 卡解码不看 cta 键在不在锁内（守卫）。
+  ctaKeyDetailTest();
 }

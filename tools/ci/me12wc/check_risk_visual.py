@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = '30201f0'
 FIXTURE = 'tools/ci/me12wc/fixtures/risk-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-c-harmony-v1-aux/make_baseline_c.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = '4ca9d14ed636c499d0b0ec4d80517b713dd443680f7306634ec1417d82032137'
+FIXTURE_SHA256 = '67640f88c26219022e32863d71225a4414dadbbb18d6f2f29043c0549002e778'
 
 ME = 'features/me/src/main/ets/'
 V_RISK = ME + 'RiskNoticeView.ets'

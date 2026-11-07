@@ -1,10 +1,15 @@
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { DefaultTexts } from 'generated';
 import { BuyButtonState } from '../components/Price';
 import { ProductCardData, ProductTag } from '../components/ProductCard';
 import { CouliFormat } from './CouliFormat';
-import { EstNetModel, PriceTagModel, RebateTagModel } from './PriceModels';
+import { EstNetModel, PriceTagModel, RebateKind, RebateTagContent, RebateTagModel } from './PriceModels';
 import { PriceTerms } from './PriceTerms';
 
-/** 卡片映射要的文案（调用方给：DefaultTexts → 草稿表；缺键返回空串）。 */
+/**
+ * 卡片映射要的文案（调用方给：DefaultTexts → 草稿表；缺键返回空串，有的调用方返回键名本身）。
+ * 购买按钮动词渲染不出时按缺键兜底（见 ProductCardMapper.buyText）。
+ */
 export interface ProductCardTexts {
   text(key: string): string;
 }
@@ -28,6 +33,31 @@ export class ProductCardKeys {
   static readonly COMING_SOON: string = 'platform_coming_soon';
   /** 商品已下架（契约 error.30141）：下架卡的购买按钮文字（禁用）。 */
   static readonly OFF_SHELF: string = 'error.30141';
+  /** 购买按钮的兜底文案键（契约 btn.buy「购买」）：cta.text_key 渲染不出时先经调用方 texts，再取包内契约字典（FU-X-CTA-KEY-DRIFT R2）。 */
+  static readonly BUY_FALLBACK: string = 'btn.buy';
+}
+
+/** 购买按钮文案里的金额变量（btn.buy.rebate「购买预估返 {amount}」）。 */
+const AMOUNT_VAR: string = '{amount}';
+
+/**
+ * cta 文案键渲染不出时的默认诊断（FU-X-CTA-KEY-DRIFT R3）：只记 text_key 原值，不带商品、用户、链接、店铺、价格；warn 级，Release 也输出。
+ * 同一进程里同一个键只记一次（列表每次映射都会走到这里，免得刷屏）；最多记住 LIMIT 个键，之后的新键每次照记、不再去重。
+ * 调用方注入的 onCtaFallback 不经这里，每次缺键都会收到。
+ */
+class CtaKeyLog {
+  private static readonly LIMIT: number = 32;
+  private static readonly logged: Set<string> = new Set<string>();
+
+  static fallback(key: string): void {
+    if (CtaKeyLog.logged.has(key)) {
+      return;
+    }
+    if (CtaKeyLog.logged.size < CtaKeyLog.LIMIT) {
+      CtaKeyLog.logged.add(key);
+    }
+    hilog.warn(0x0000, 'CouliCta', 'cta text_key %{public}s not renderable, fallback btn.buy', key);
+  }
 }
 
 /** BR-PRICE-11：age_sec 超过 300 秒（或 stale=true）时在取价处提示价格可能已变化；正好 300 秒不提示。 */
@@ -44,7 +74,8 @@ function stringOrEmpty(value: Object | null | undefined): string {
 /**
  * 接口的 ProductCard（openapi 9cd1e6f，searchProducts / getProduct 的 JSON 对象）→ DesignSystem 的 ProductCardData。
  * 只做格式化，不做计算（BR-PRICE-17）：价格、返利、预估返后都用服务端字段经 PriceTagModel / RebateTagModel / EstNetModel。
- * - 购买按钮动词：服务端 cta.text_key（BR-TEXT-12、TRADE-21）；三个已登记的键取 PriceTerms（N-11 补键前），其余经 texts。
+ * - 购买按钮动词：服务端 cta.text_key（BR-TEXT-12、TRADE-21），一律经调用方 texts；{amount} 只在单一金额时用同卡返利标签的金额填。
+ *   渲染不出（空串、键名本身、填完仍有花括号）回落 btn.buy 并记一条诊断，按钮状态照旧；没有 cta 或空键仍禁用（FU-X-CTA-KEY-DRIFT R1–R4）。
  * - 优惠标签：服务端 benefit_tags 原样（「预售」由 ProductCardTags 按 is_presale 放置，不重复）。
  * - 口径说明：disclaimer_keys 按数组顺序取文字（BR-PRICE-17）；含 rebate_compare 时卡片底行带「以结算为准」前缀。
  * - 取价时间（详情大卡）：「取价 今天 HH:mm」（quoted_at，BR-TEXT-11 列表过去时间口径）。
@@ -56,15 +87,22 @@ function stringOrEmpty(value: Object | null | undefined): string {
 export class ProductCardMapper {
   /**
    * 按卡片自己的平台取购买状态再映射（APP-07 共性第 32 条：剪贴板多卡弹层与单卡复用搜索卡的同一映射）。statusOf(platform) 返回
-   * features.platform_status（含 50301 覆盖）的当前值；配置变化时调用方重新映射。
+   * features.platform_status（含 50301 覆盖）的当前值；配置变化时调用方重新映射。onCtaFallback 原样交给 fromCard。
    */
   static fromCardWithStatus(card: Record<string, Object>, texts: ProductCardTexts, buyEnabled: boolean,
-    statusOf: (platform: string) => string, nowMillis: number = Date.now()): ProductCardData {
-    return ProductCardMapper.fromCard(card, texts, buyEnabled, nowMillis, statusOf(stringOrEmpty(card['platform'])));
+    statusOf: (platform: string) => string, nowMillis: number = Date.now(),
+    onCtaFallback: (key: string) => void = (key: string): void => CtaKeyLog.fallback(key)): ProductCardData {
+    return ProductCardMapper.fromCard(card, texts, buyEnabled, nowMillis, statusOf(stringOrEmpty(card['platform'])),
+      onCtaFallback);
   }
 
+  /**
+   * onCtaFallback：这次映射遇到渲染不出的 cta.text_key 时调一次，只给 text_key 原值（R3）；缺省写 hilog（CtaKeyLog）。
+   * 生产调用方一律用缺省值，测试注入回调收集诊断。
+   */
   static fromCard(card: Record<string, Object>, texts: ProductCardTexts, buyEnabled: boolean = true,
-    nowMillis: number = Date.now(), purchaseStatus: string = ProductCardMapper.PURCHASE_ON): ProductCardData {
+    nowMillis: number = Date.now(), purchaseStatus: string = ProductCardMapper.PURCHASE_ON,
+    onCtaFallback: (key: string) => void = (key: string): void => CtaKeyLog.fallback(key)): ProductCardData {
     const d: ProductCardData = new ProductCardData();
     const platform: string = stringOrEmpty(card['platform']);
     const basis: string = stringOrEmpty(card['rebate_basis']);
@@ -108,8 +146,8 @@ export class ProductCardMapper {
     const cta: Object | undefined = card['cta'];
     const ctaKey: string = cta !== undefined && cta !== null && typeof cta === 'object'
       ? stringOrEmpty((cta as Record<string, Object>)['text_key']) : '';
-    d.buyBase = ProductCardMapper.buyText(ctaKey, texts);
-    // 价格不可用：按钮「稍后再试」（禁用，BR-PRICE-01）；其余按调用方给的可点状态。
+    d.buyBase = ProductCardMapper.buyText(ctaKey, texts, d.rebate, onCtaFallback);
+    // 价格不可用：按钮「稍后再试」（禁用，BR-PRICE-01）；其余按调用方给的可点状态。缺键已由 buyText 回落 btn.buy，不在这里置灰。
     d.buyState = d.priceUnavailable ? BuyButtonState.RETRY_LATER
       : (buyEnabled && d.buyBase.length > 0 ? BuyButtonState.NORMAL : BuyButtonState.DISABLED);
     if (!d.priceUnavailable && purchaseStatus !== ProductCardMapper.PURCHASE_ON) {
@@ -202,18 +240,36 @@ export class ProductCardMapper {
     return age !== null && age > STALE_AGE_SEC;
   }
 
-  /** 购买按钮动词（cta.text_key → 文字）。 */
-  static buyText(key: string, texts: ProductCardTexts): string {
-    switch (key) {
-      case 'btn.buy.coupon':
-        return PriceTerms.buyCoupon;
-      case 'btn.buy':
-        return PriceTerms.buy;
-      case 'btn.buy.no_rebate':
-        return PriceTerms.buyNoRebate;
-      default:
-        return key.length > 0 ? texts.text(key) : '';
+  /**
+   * 购买按钮动词（cta.text_key → 文字，FU-X-CTA-KEY-DRIFT R1–R4）：
+   * - 键为空（没有 cta 或 text_key 为空串）：返回 ''，按钮禁用；不兜底、不记诊断（R4）。
+   * - 其余键一律经调用方 texts（R1，已登记的 btn.buy 等也不再写死 PriceTerms）；{amount} 只在单一金额（RebateKind.AMOUNT）时
+   *   用 rebate.amountText 填（与同卡返利标签同一个 CouliFormat.money 结果）。
+   * - 渲染不出（R2）：记一条诊断（R3），改用 btn.buy——先经调用方 texts，仍渲染不出再取包内契约字典；都没有返回 ''，不抛错。
+   */
+  static buyText(key: string, texts: ProductCardTexts, rebate: RebateTagContent,
+    onCtaFallback: (key: string) => void): string {
+    if (key.length === 0) {
+      return '';
     }
+    const amount: string | null = rebate.kind === RebateKind.AMOUNT ? rebate.amountText : null;
+    const own: string | null = ProductCardMapper.renderCta(key, texts.text(key), amount);
+    if (own !== null) {
+      return own;
+    }
+    onCtaFallback(key);
+    const fallback: string = ProductCardKeys.BUY_FALLBACK;
+    return ProductCardMapper.renderCta(fallback, texts.text(fallback), amount)
+      ?? ProductCardMapper.renderCta(fallback, DefaultTexts.text(fallback) ?? '', amount) ?? '';
+  }
+
+  /** cta 文案的渲染（R2）：空串、键名本身、填完 {amount} 后仍有花括号（含 {amount} 填不上）都算渲染不出，返回 null。 */
+  private static renderCta(key: string, raw: string, amount: string | null): string | null {
+    if (raw.length === 0 || raw === key) {
+      return null;
+    }
+    const text: string = amount !== null && amount.length > 0 ? raw.split(AMOUNT_VAR).join(amount) : raw;
+    return text.indexOf('{') >= 0 || text.indexOf('}') >= 0 ? null : text;
   }
 
   static disclaimerKeys(card: Record<string, Object>): string[] {

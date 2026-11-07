@@ -240,19 +240,28 @@ export class BuyButtonModel {
    * BR-TEXT-14 表 C btn.buy.rebate_suffix：只有单一金额（kind=amount）、金额隐藏开关未打开、页面显示返利金额时，
    * 在调用方给的动词后拼「 · 预估返 ¥x」；金额与同卡 RebateTag 是同一个格式化结果。
    * loading、禁用、「稍后再试」不拼后缀由组件 BuyButton 处理（本函数没有状态入参）。
+   * 动词里已经有这笔金额（btn.buy.rebate「购买预估返 ¥x」，FU-X-CTA-KEY-DRIFT R1）时不再拼后缀。
    * TODO(N-13)：未知 context 不拼后缀（编排者裁定）。
    */
   static text(base: string, rebate: RebateTagContent, amountHidden: boolean, context: string): string {
-    if (!BuyButtonModel.appendsSuffix(rebate, amountHidden, context) || rebate.amountText === null) {
+    if (!BuyButtonModel.appendsSuffix(rebate, amountHidden, context) || rebate.amountText === null
+      || BuyButtonModel.namesAmount(base, rebate)) {
       return base;
     }
     return base + ' ' + PriceTerms.buySuffix.replace('{amount}', rebate.amountText);
   }
 
-  /** 读屏名称：可见文字在开头；区间按钮只显示动词时补返利区间；无返利补「暂无返利」；金额隐藏时不读金额（adaptation-a11y-spec §9）。 */
+  /**
+   * 读屏名称：可见文字在开头；区间按钮只显示动词时补返利区间；无返利补「暂无返利」；金额隐藏时不读金额（adaptation-a11y-spec §9）。
+   * 动词里已经有这笔金额时金额只读一次：把动词里可见的返利标签文字（「预估返 ¥x」）换成读屏写法（「预估返 x 元」），不再追加；
+   * 动词里没有整段标签文字时原样返回。
+   */
   static spoken(base: string, rebate: RebateTagContent, amountHidden: boolean, context: string): string {
     const showsAmount: boolean = !amountHidden && BuyButtonModel.pageShowsAmount(context);
     if (showsAmount && rebate.hasAmount) {
+      if (BuyButtonModel.namesAmount(base, rebate)) {
+        return base.indexOf(rebate.text) >= 0 ? base.split(rebate.text).join(rebate.spokenText) : base;
+      }
       return base + PriceTerms.comma + rebate.spokenText;
     }
     return base;
@@ -269,5 +278,10 @@ export class BuyButtonModel {
 
   private static appendsSuffix(rebate: RebateTagContent, amountHidden: boolean, context: string): boolean {
     return rebate.kind === RebateKind.AMOUNT && !amountHidden && BuyButtonModel.pageShowsAmount(context);
+  }
+
+  /** 动词里已经含这笔返利金额（与同卡返利标签同一个格式化结果，如 btn.buy.rebate 填好的「购买预估返 ¥2.69」）。 */
+  private static namesAmount(base: string, rebate: RebateTagContent): boolean {
+    return rebate.amountText !== null && rebate.amountText.length > 0 && base.indexOf(rebate.amountText) >= 0;
   }
 }

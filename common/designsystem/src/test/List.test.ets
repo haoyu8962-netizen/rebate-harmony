@@ -18,6 +18,7 @@ import fx05aWiringTest from './Fx05aWiring.test';
 import hm07vHomeTileTest from './Hm07vHomeTile.test';
 import hm07vOverlayLayoutTest from './Hm07vOverlayLayout.test';
 import tokensPipeThemeTest from './TokensPipeTheme.test';
+import ctaKeyVectorTest from './CtaKeyVector.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -40,4 +41,6 @@ export default function testsuite() {
   hm07vHomeTileTest();
   hm07vOverlayLayoutTest();
   tokensPipeThemeTest();
+  // FU-X-CTA-KEY-DRIFT：cta 文案键向量（specs/cta-key-vectors.json）与未知键兜底。
+  ctaKeyVectorTest();
 }

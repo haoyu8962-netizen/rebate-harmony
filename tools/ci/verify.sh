@@ -363,6 +363,13 @@ python3 "$ROOT/tools/ci/lockph/check_placeholders.py" --self-test || fail_fast "
 python3 "$ROOT/tools/ci/lockph/check_placeholders.py" || fail_fast "lockph-host" "见上方违反项"
 node "$ROOT/tools/ci/lockph/run-logic.cjs" || fail_fast "lockph-logic" "见上方真实产品断言"
 record "FU-HM-LOCK-PLACEHOLDERS 检查" PASS "占位符守卫（自测 14 个错误实现）/ 冷静期与倒计时两处回归"
+# FU-X-CTA-KEY-DRIFT（D10-856 / D10-857 / D10-861）：锁 a89c1ec3a 与四个同名快照、向量与 iOS 逐字节、五个调用点的文案函数对 cta 键等同
+# 向量 contract 模式、默认诊断只带 text_key、调用方不覆盖诊断、两个新套件已登记（tools/ci/ctakey/check_cta_key.py，先自测）；新套件 ArkTS 严格检查。
+step "FU-X-CTA-KEY-DRIFT cta 文案键宿主检查"
+python3 "$ROOT/tools/ci/ctakey/check_cta_key.py" --self-test || fail_fast "ctakey-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/ctakey/check_cta_key.py" || fail_fast "ctakey-host" "见上方违反项"
+node "$ROOT/tools/ci/ctakey/check-arkts.cjs" --real || fail_fast "ctakey-arkts" "FU-X-CTA-KEY-DRIFT 测试文件 ArkTS 严格检查失败"
+record "FU-X-CTA-KEY-DRIFT 宿主检查" PASS "锁 / 同名快照 / 向量 / 调用点文案函数 / 默认诊断 / 登记（自测 29 个错误实现）/ ArkTS"
 
 step "FU-HM-DEVICE-FLAKE 设备测试设施自测"
 node "$ROOT/tools/ci/flake/run-logic.cjs" || fail_fast "flake-logic" "见上方 FlakeKit 断言"
