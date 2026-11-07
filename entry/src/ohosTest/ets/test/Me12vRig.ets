@@ -17,6 +17,7 @@ import {
   windowLayoutWidth
 } from './Hm07vHomeRig';
 import { argb, check, GUEST, maxDiff, nodesOf, screenTexts, typeName } from './Hm07vOverlayRig';
+import { scene } from './FlakeKit';
 
 // ---------------------------------------------------------------- 文案（MeDraftTexts / 契约字典原文）
 
@@ -263,11 +264,26 @@ export async function opensExactlyOnce(id: string, what: string, side: string = 
   const scroll: Component | null = await maybe(ON.id(ID_SCROLL));
   const covered: boolean = scroll === null || !(await isVisibleOnScreen(ID_SCROLL));
   check(covered, 'ME12V_NOT_NAVIGATED ' + what + ' 点了没有打开新页', await safeTexts());
+  // FU-HM-DEVICE-FLAKE：判据与时序不变（一次返回回到「我的」页根且该控件仍在）；只在失败时多带现场——返回后页面栈里的 NavDestination 数
+  // （0 = 返回已生效、只是「我的」没及时出现；≥1 = 仍停在子页，压了两页或返回没生效）与前台窗口（不是本 App 即返回键被别的窗口吃掉）。
+  // 按返回前不取组件树（评审 r1 S2-5：成功路径不插入额外延时；代价是区分不了「压两页」与「返回没生效」，需要时由本线另查）。
   await hm07vDriver.pressBack();
   await hm07vDriver.delayMs(1200);
   await idle();
-  check((await maybe(ON.id(ID_SCROLL), 2000)) !== null && (await maybe(ON.id(id), 2000)) !== null,
-    'ME12V_PUSHED_TWICE ' + what + ' 一次返回没回到「我的」页（打开了不止一页）', await safeTexts());
+  const back: boolean = (await maybe(ON.id(ID_SCROLL), 2000)) !== null && (await maybe(ON.id(id), 2000)) !== null;
+  check(back, 'ME12V_PUSHED_TWICE ' + what + ' 一次返回没回到「我的」页（打开了不止一页）',
+    back ? '' : (await safeTexts()) + ' navAfterBack=' + (await navDepth()) + ' ' + (await scene(hm07vDriver)));
+}
+
+/** 当前页面栈里的 NavDestination 个数（组件树；诊断用，取不到写原因）。 */
+export async function navDepth(): Promise<string> {
+  try {
+    const out: Record<string, Object>[] = [];
+    nodesOf(await appTree(), out);
+    return String(out.filter((n: Record<string, Object>): boolean => typeName(n) === 'NavDestination').length);
+  } catch (e) {
+    return '?';
+  }
 }
 
 async function isVisibleOnScreen(id: string): Promise<boolean> {

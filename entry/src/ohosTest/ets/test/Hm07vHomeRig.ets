@@ -17,6 +17,7 @@ import { display, window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { UIAbility } from '@kit.AbilityKit';
 import { EXPECTED_COLORS, ExpectedColor } from './Ds02Expected';
+import { captureChecked, isNoCandidates, scene, Shot, waitUntil } from './FlakeKit';
 
 export const hm07vDriver: Driver = Driver.create();
 const driver: Driver = hm07vDriver;
@@ -44,7 +45,11 @@ const MEMBER_CODE: string = '654321';
 // ---------------------------------------------------------------- UiTest 基础
 
 export async function idle(): Promise<void> {
-  expect(await driver.waitForIdle(200, 8000)).assertTrue();
+  // FU-HM-DEVICE-FLAKE：判据不变（8 s 内界面空闲）；不空闲时失败信息写明是「不空闲」并带前台窗口 / 最近截屏重拍，不再是无名的「expect true」。
+  const settled: boolean = await driver.waitForIdle(200, 8000);
+  if (!settled) {
+    expect('HM07VA_NOT_IDLE 8s ' + (await scene(driver))).assertEqual('idle');
+  }
 }
 
 export async function maybe(on: On, timeoutMs: number = 0): Promise<Component | null> {
@@ -276,6 +281,34 @@ export async function ensureFull(scene: string): Promise<void> {
   await node(ON.id('home_search_entry'), '完整功能首页搜索入口');
 }
 
+/**
+ * FU-HM-DEVICE-FLAKE（前置自愈）：会员首页。完整功能首页上若仍是游客（上一条登录用例没走完，F-HM-85 的「member_main 连带」），
+ * 经同一条【登录领返利】→ 登录页 → 假服务验证码登录补上，再按 scene 拉起。已是会员则与 ensureFull 完全相同。
+ */
+export async function ensureMemberHome(scene: string): Promise<void> {
+  await ensureFull(scene);
+  await scrollTop();
+  const login: Component | null = await maybe(ON.id('home_guest_value_login'), 1500);
+  if (login === null) { return; }
+  // 留痕（评审 r1 S2-3）：补登录被触发即说明会员态在进入本条前丢了，hilog 可按 HM07VA_SELF_HEAL 统计频率（计入 F-HM-85 口径）。
+  console.info('HM07VA_SELF_HEAL member login (scene=' + scene + ')');
+  await login.click();
+  await idle();
+  await node(ON.id('login_phone'), '前置自愈：经 Router 打开登录页', 8000);
+  try {
+    await loginOnLoginPage();
+  } catch (e) {
+    // 同 value_card_login：补登录没走完时先关掉登录页再报红，后面的用例不连带。
+    const close: Component | null = await maybe(ON.id('login_close'));
+    if (close !== null) {
+      await close.click();
+      await driver.delayMs(800);
+    }
+    throw e as Error;
+  }
+  await launch(Launch.of(scene));
+}
+
 /** 在已打开的登录页上用假服务验证码登录（老用户 654321）。 */
 export async function loginOnLoginPage(): Promise<void> {
   // 测试 v2：先勾协议再输手机号。设备探针实测：输入后软键盘（带「来自剪贴板」建议栏）不收起，【获取验证码】弹出的「同意并获取验证码」
@@ -288,18 +321,85 @@ export async function loginOnLoginPage(): Promise<void> {
   const phone: Component = await node(ON.id('login_phone'), '登录页手机号');
   await phone.inputText(MEMBER_PHONE);
   await idle();
+  // FU-HM-DEVICE-FLAKE（#24 只改等待）：点【获取验证码】前先等输入真正落到手机号框、按钮可点且位置不再变（软键盘弹出 / 收起会挪布局），
+  // 各最多 3 s；等不到也照原样去点（判据仍是下面的验证码输入框）。
+  await waitUntil(driver, async (): Promise<boolean> => {
+    const p: Component | null = await maybe(ON.id('login_phone'));
+    return p !== null && (await p.getText()).replace(/\s/g, '') === MEMBER_PHONE;
+  }, 3000);
+  await settledEnabled(ON.id('login_get_code'), 3000);
   await tap(ON.id('login_get_code'), '【获取验证码】');
-  const agree: Component | null = await maybe(ON.text('同意并获取验证码'), 3000);
-  if (agree !== null) {
-    await agree.click();
-    await idle();
+  // FU-HM-DEVICE-FLAKE（#24 只改等待）：原先「同意」半屏只等 3 s、之后再等验证码 10 s；改为同一轮里两样一起看——半屏出现就点（等多久都点），
+  // 验证码输入框出现即止。上限仍是 3 + 10 = 13 s（点了半屏的再给 10 s）。
+  let agreed: boolean = false;
+  let found: Component | null = null;
+  let end: number = Date.now() + 13000;
+  while (found === null && Date.now() < end) {
+    found = await maybe(ON.id('login_code'));
+    if (found === null && !agreed) {
+      const agree: Component | null = await maybe(ON.text('同意并获取验证码'));
+      if (agree !== null) {
+        await agree.click();
+        await idle();
+        agreed = true;
+        end = Date.now() + 10000;
+        continue;
+      }
+    }
+    if (found === null) { await driver.delayMs(200); }
   }
-  const code: Component = await node(ON.id('login_code'), '验证码输入', 10000);
+  if (found === null) {
+    expect('HM07VA_MISSING 验证码输入 ' + (await loginScene())).assertEqual('验证码输入');
+  }
+  const code: Component = found as Component;
   await code.inputText(MEMBER_CODE);
   await driver.delayMs(2500);
   await idle();
   // 登录成功后回到首页（Login 出栈）；新用户引导等不在老用户路径上。
   expect(await gone(ON.id('login_code'), 10000) ? 'login' : 'HM07VA_LOGIN_NOT_FINISHED').assertEqual('login');
+}
+
+/** 等节点可点且两次读到的位置相同（间隔 300 ms），最多 timeoutMs；只是等待，结果不作判定。 */
+async function settledEnabled(on: On, timeoutMs: number): Promise<void> {
+  let last: string = '';
+  await waitUntil(driver, async (): Promise<boolean> => {
+    const c: Component | null = await maybe(on);
+    if (c === null) { return false; }
+    try {
+      const r: Rect = await c.getBounds();
+      const key: string = [r.left, r.top, r.right, r.bottom].join(',');
+      const ok: boolean = key === last && (await c.isEnabled());
+      last = key;
+      return ok;
+    } catch (e) {
+      if (isNoCandidates(e as Object)) { last = ''; return false; }
+      throw e as Error;
+    }
+  }, timeoutMs, 300);
+}
+
+/** 登录页现场（只用于失败信息）：手机号框文字、【获取验证码】是否在 / 可点 / 位置、同意半屏、屏上文字、前台窗口与最近截屏重拍。 */
+async function loginScene(): Promise<string> {
+  const parts: string[] = [];
+  try {
+    const phone: Component | null = await maybe(ON.id('login_phone'));
+    parts.push('phone=' + (phone === null ? 'none' : await phone.getText()));
+    const gc: Component | null = await maybe(ON.id('login_get_code'));
+    if (gc === null) {
+      parts.push('getCode=none');
+    } else {
+      const r: Rect = await gc.getBounds();
+      parts.push('getCode=' + (await gc.isEnabled()) + '@' + [r.left, r.top, r.right, r.bottom].join(','));
+    }
+    parts.push('sheet=' + ((await maybe(ON.text('同意并获取验证码'))) !== null));
+    const texts: string[] = [];
+    for (const t of (await all(ON.type('Text'))).slice(0, 12)) { texts.push(await t.getText()); }
+    parts.push('texts=' + texts.join('|'));
+  } catch (e) {
+    parts.push('scene-error ' + String(e));
+  }
+  parts.push(await scene(driver));
+  return parts.join(' ');
 }
 
 // ---------------------------------------------------------------- 滚动
@@ -684,20 +784,14 @@ async function readPixelMap(pm: image.PixelMap): Promise<Pixels> {
   return new Pixels(info.size.width, info.size.height, new Uint8Array(buffer));
 }
 
-let shots: number = 0;
-
+/**
+ * FU-HM-DEVICE-FLAKE（#24 只改截屏这一步的取得方式）：经 FlakeKit.captureChecked 截屏——每次新文件名，截出来不是一张真截图（返回 false、
+ * 解码失败、尺寸不符、有透明像素；verify-4 me12wb_02 的「0/0/0」、FU-HM-LOCK-PLACEHOLDERS r1 的「浅色价值卡覆盖 0」都是整块全零）就
+ * 等 idle 重拍，最多 3 次，仍不行抛 FLAKE_CAPTURE_INVALID。返回的像素与取色、容差判定都不变。
+ */
 export async function capture(r: Rect): Promise<Pixels> {
-  shots++;
-  const path: string = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().cacheDir + '/hm07va-' + shots + '.png';
-  expect(await driver.screenCapture(path, r)).assertTrue();
-  const source: image.ImageSource = image.createImageSource(path);
-  const pm: image.PixelMap = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
-  try {
-    return await readPixelMap(pm);
-  } finally {
-    await pm.release();
-    await source.release();
-  }
+  const s: Shot = await captureChecked(driver, r, 'hm07va');
+  return new Pixels(s.width, s.height, s.bytes);
 }
 
 export function token(key: string, dark: boolean): number[] {

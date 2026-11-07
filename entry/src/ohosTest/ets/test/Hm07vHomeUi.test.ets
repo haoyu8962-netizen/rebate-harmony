@@ -15,7 +15,7 @@ import { runUiTask } from './Ds02UiSession';
 import {
   a11yOf, all, AMOUNT_UNKNOWN_LABEL, hitRects, regionRaw, appUi, atLeast, BASIS_COUPON, BASIS_GENERAL, BASIS_REBATE, bestDiff, hitRect,
   startTileFixture, capture, defaults, density, ensureBasic, ensureFull,
-  flatten, fullRect, fullRectOrNull, gone, GUEST_DESC, GUEST_LOGIN, hit48, hm07vDriver, launch, Launch, loginOnLoginPage,
+  ensureMemberHome, flatten, fullRect, fullRectOrNull, gone, GUEST_DESC, GUEST_LOGIN, hit48, hm07vDriver, launch, Launch, loginOnLoginPage,
   maybe, mediaRef, near, node, OLD_PASTE_SUBTITLE, OLD_PASTE_TITLE, overlaps, PASTE_HINT, patchShare, Pixels, rect,
   relaunchCold, reveal, scrollTop, SEARCH_PLACEHOLDER, subtree, swipeDown, swipeUp, tap, token, units, vp, windowLayoutWidth,
   windowWidthVp
@@ -687,7 +687,8 @@ export default function hm07vHomeUiTest() {
     });
 
     it('hm07va_member_main_v3_sections_order_spacing_and_cards', 0, async () => {
-      await ensureFull(MAIN);
+      // FU-HM-DEVICE-FLAKE（#24 前置自愈）：上一条登录没走完时这里补登录，不再连带红；断言不变。
+      await ensureMemberHome(MAIN);
       await scrollTop();
       check((await maybe(ON.id('home_guest_value'))) === null, '会员无价值卡');
       const paste: Rect = await rect(ON.id('home_paste_card'), '粘贴卡');

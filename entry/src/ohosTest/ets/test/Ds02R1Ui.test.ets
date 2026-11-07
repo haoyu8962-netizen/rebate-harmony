@@ -3,9 +3,9 @@ import { abilityDelegatorRegistry, Driver, ON, On, Component, Rect } from '@kit.
 import { display } from '@kit.ArkUI';
 import { KeyCode } from '@kit.InputKit';
 import { pasteboard, BusinessError } from '@kit.BasicServicesKit';
-import { image } from '@kit.ImageKit';
 import { assertTargets, assertFourColumns } from './Ds02R1Assertions';
 import { runUiTask, drainUiTasks, uiCheckpoint } from './Ds02UiSession';
+import { captureChecked, Shot } from './FlakeKit';
 
 const driver: Driver = Driver.create();
 function it(name: string, flags: number, body: () => Promise<void>): void {
@@ -113,24 +113,18 @@ async function readonlyUnchanged(): Promise<void> {
 // 不依赖可选 OCR；只验证指定文字区域的实际颜色，标题截断另列人工验收。
 async function renderedInk(on: On, hex: string, phase: string): Promise<void> {
   const rect: Rect = await (await node(on)).getBounds();
-  const path: string = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().cacheDir + '/ds02-r1-ink-' + phase + '.png';
-  expect(await driver.screenCapture(path, rect)).assertTrue();
-  const source: image.ImageSource = image.createImageSource(path);
-  const pixels: image.PixelMap = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
-  try {
-    const info: image.ImageInfo = await pixels.getImageInfo();
-    const bytes: Uint8Array = new Uint8Array(info.size.width * info.size.height * 4);
-    await pixels.readPixelsToBuffer(bytes.buffer);
-    const red: number = parseInt(hex.substring(1, 3), 16);
-    const green: number = parseInt(hex.substring(3, 5), 16);
-    const blue: number = parseInt(hex.substring(5, 7), 16);
-    let matches: number = 0;
-    for (let i: number = 0; i < bytes.length; i += 4) {
-      if (Math.abs(bytes[i] - red) <= 8 && Math.abs(bytes[i + 1] - green) <= 8 &&
-        Math.abs(bytes[i + 2] - blue) <= 8) { matches++; }
-    }
-    expect(matches >= 3).assertTrue();
-  } finally { await pixels.release(); await source.release(); }
+  // FU-HM-DEVICE-FLAKE（#24 只改截屏取得方式）：经 FlakeKit.captureChecked（截出来不是真截图就有界重拍），匹配阈值不变。
+  const shot: Shot = await captureChecked(driver, rect, 'ds02-r1-ink-' + phase);
+  const bytes: Uint8Array = shot.bytes;
+  const red: number = parseInt(hex.substring(1, 3), 16);
+  const green: number = parseInt(hex.substring(3, 5), 16);
+  const blue: number = parseInt(hex.substring(5, 7), 16);
+  let matches: number = 0;
+  for (let i: number = 0; i < bytes.length; i += 4) {
+    if (Math.abs(bytes[i] - red) <= 8 && Math.abs(bytes[i + 1] - green) <= 8 &&
+      Math.abs(bytes[i + 2] - blue) <= 8) { matches++; }
+  }
+  expect(matches >= 3).assertTrue();
 }
 
 export default function ds02R1UiTest() {

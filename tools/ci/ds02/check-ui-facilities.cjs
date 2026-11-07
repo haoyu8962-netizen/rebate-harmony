@@ -31,6 +31,9 @@ let neverReady = false;
 // APP-12w-c-harmony 测试 v6：首页列表变长时「Debug panel」在首屏以下，要滑过才出现（longHome）；swipes 记有界滚动次数。
 let longHome = false;
 let swipes = 0;
+// FU-HM-DEVICE-FLAKE v4：vanishOn = 第几次拉起时翻页后 home_list 消失（首页整页重建，verify5 的 :58 容器断言）；swipeError = 翻页抛非查找类异常。
+let vanishOn = 0;
+let swipeError = null;
 let activeDriver;
 let activeDelegator;
 const clicked = [];
@@ -41,8 +44,9 @@ const clickable = label => ({ click: async () => {
 }});
 const startupDriver = {
   delayMs: async () => {}, waitForIdle: async () => true,
-  swipe: async () => { swipes++; },
+  swipe: async () => { if (swipeError) throw swipeError; swipes++; },
   findComponent: async selector => {
+    if (selector.idValue === 'home_list' && launchCount === vanishOn && swipes > 0) return undefined;
     if (selector.idValue === 'home_list') return launchCount >= (longHome ? 1 : 3) ? { getBounds: async () => ({left:0, right:500, top:0, bottom:1000}) } : undefined;
     if (selector.textValue === 'Debug panel') return (longHome ? swipes > 0 : launchCount >= 3) && !neverReady
       ? { ...clickable('Debug panel'), getBounds: async () => ({left:10, right:400, top:500, bottom:560}) } : undefined;
@@ -308,8 +312,28 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   await beforeHooks[0]();
   assert.equal(launchCount, 1);
   assert.ok(swipes > 0 && catalog);
-  longHome = false;
   console.log('REFERENCE_ONLY startup: Debug panel below the fold is reached by bounded scrolling in home_list');
+  // FU-HM-DEVICE-FLAKE v4：翻页途中 home_list 消失 → 本轮没找到（DS02_UI_CONTAINER_GONE），重拉后照常进目录。
+  vanishOn = 1; launchCount = 0; swipes = 0; catalog = false; debugPanel = false;
+  await beforeHooks[0]();
+  assert.equal(launchCount, 2);
+  assert.ok(catalog);
+  vanishOn = 0;
+  // 其它异常（如翻页传输错误）不被吸收，beforeAll 照旧红、不重拉。
+  swipeError = new Error('SWIPE_TRANSPORT_ERROR'); launchCount = 0; swipes = 0; catalog = false; debugPanel = false;
+  await assert.rejects(beforeHooks[0], /SWIPE_TRANSPORT_ERROR/);
+  assert.equal(launchCount, 1);
+  swipeError = null;
+  longHome = false;
+  // 其它调用方：容器找不到 / 零面积仍是失败（抛 DS02_UI_CONTAINER_GONE），不返回节点、不放宽。
+  const sessionMod = load(path.join(testRoot, 'Ds02UiSession.ets'));
+  const noSwipe = async () => assert.fail('must not swipe without a container');
+  await assert.rejects(sessionMod.searchUiComponent({ findComponent: async () => undefined, swipe: noSwipe },
+    ON.id('catalog-index'), ON.id('x')), /DS02_UI_CONTAINER_GONE/);
+  await assert.rejects(sessionMod.searchUiComponent({ findComponent: async sel => sel.idValue === 'catalog-index'
+    ? { getBounds: async () => ({ left: 0, right: 0, top: 0, bottom: 0 }) } : undefined, swipe: noSwipe },
+    ON.id('catalog-index'), ON.id('x')), /DS02_UI_CONTAINER_GONE/);
+  console.log('REFERENCE_ONLY startup: home_list vanishing mid-scroll counts as a miss and relaunches; other errors stay red; other callers still fail on missing container');
   const rows = load(path.join(testRoot, 'Ds02Expected.ets')).EXPECTED_CASES;
   const collect = load(path.join(testRoot, 'Ds02Traversal.ets')).collectRenderedCases;
   let checked = 0;

@@ -90,8 +90,31 @@ hs() {
 MODEL="$(hs param get const.product.model | tr -d '\r' | head -1 | sed 's/ *$//' || true)"
 SOFTWARE="$(hs param get const.product.software.version | tr -d '\r' | head -1 | sed 's/ *$//' || true)"
 API="$(hs param get const.ohos.apiversion | tr -d '\r' | head -1 | sed 's/ *$//' || true)"
-[ -n "$API" ] || die "设备 $DEVICE 不响应（hdc shell 失败）"
+# FU-HM-DEVICE-FLAKE（环境）：hdc 失联时 shell 也会「成功」返回一行 [Fail][E001005] Device not found…（dev6 实测），只认纯数字 API 级别。
+[[ "$API" =~ ^[0-9]+$ ]] || die "设备 $DEVICE 不响应（hdc shell 失败：${API:-空}）"
 echo "设备：${DEVICE}（型号 ${MODEL:-未知}，系统 ${SOFTWARE:-未知}，API ${API}）"
+# FU-HM-DEVICE-FLAKE（环境就绪）：hdc 显示 Connected ≠ 系统就绪（APP-12w-c verify-2 / 2c 冷启动后 DS 目录 beforeAll 全挂）。
+# 开跑前等开机完成（bootevent.boot.completed=true，最多 COULI_HM_BOOT_WAIT 秒，缺省 300）；冷启动刚完成（开机不足 90 秒）再多留 30 秒
+# 让桌面与系统服务起稳。超时即失败（不跳过、不带病开跑）。打印开机时长，失败时可区分「冷启动后首步」与「长跑后」。
+boot_wait="${COULI_HM_BOOT_WAIT:-300}"
+boot_end=$((SECONDS + boot_wait))
+while :; do
+    boot_state="$(hs param get bootevent.boot.completed 2>&1 | tr -d '\r\n' || true)"
+    [ "$(printf '%s' "$boot_state" | tr -d ' ')" = "true" ] && break
+    # 评审 r1 S2-7：等待中 hdc 失联（返回 [Fail]… / Device not found）立即按「失联」失败，不白等满、不误报「开机未完成」。
+    case "$boot_state" in
+        *"[Fail]"*|*"not found"*|*"Not found"*) die "设备 $DEVICE 失联：不响应（hdc shell 失败：${boot_state}）" ;;
+    esac
+    [ "$SECONDS" -lt "$boot_end" ] || die "设备 $DEVICE 在 ${boot_wait} 秒内没有开机完成（bootevent.boot.completed≠true）"
+    sleep 5
+done
+# 只认「数字 + 小数」开头的输出（读不到 / 无权限时为空，不额外等待；开机完成已由上面保证）。
+UPTIME="$(hs cat /proc/uptime 2>/dev/null | tr -d '\r' | sed -nE 's/^([0-9]+)\.[0-9]+ .*/\1/p' | head -1 || true)"
+if [ -n "$UPTIME" ] && [ "$UPTIME" -lt 90 ]; then
+    echo "设备刚开机 ${UPTIME} 秒，等 30 秒再开跑"
+    sleep 30
+fi
+echo "设备就绪：bootevent.boot.completed=true，开机 ${UPTIME:-?} 秒"
 
 # ---------------------------------------------------------------- 签名
 mkdir -p "$WORK"
@@ -156,6 +179,15 @@ hs power-shell setmode 602 >/dev/null 2>&1 || true
 RESULT="$WORK/aa-test-$MODULE.log"
 rc=0
 started_seconds=$SECONDS
+# FU-HM-DEVICE-FLAKE（环境）：宿主负载与交换区用量（只打印，不判定）。宿主交换区将满时模拟器整体变慢 / 应用被判冻结（APP_INPUT_BLOCK →
+# App died，dev4 主步实测同时 swap 用 20.0/21.5 GB），偶发红时先看这两行。
+host_stats() {
+    printf 'load=%s swap_used=%s/%s' "$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 "," $3 "," $4 }')" \
+        "$(sysctl -n vm.swapusage 2>/dev/null | awk '{ print $6 }')" "$(sysctl -n vm.swapusage 2>/dev/null | awk '{ print $3 }')"
+}
+echo "HOST_AT_START $(host_stats || true)"
+# FU-HM-DEVICE-FLAKE（评审 r2 S2-A）：清空设备 hilog，跑完后抓本步的设施留痕（补登录 HM07VA_SELF_HEAL、截屏重拍 FLKRIG、v5 起 DS02_BEFOREALL_TRAIL）进步骤日志。只打印、不判定。
+hs hilog -r >/dev/null 2>&1 || true
 # Hypium 1.0.24 只支持统一单例上限；entry 的大组件及每个 ProductCard 变体给足 600s。
 # 也覆盖直接调用此脚本的路径；整轮 1800s 验收门槛（D10-232，原 900s，提速后改回）仍在下方独立检查。
 case_timeout="${COULI_HM_TEST_CASE_TIMEOUT:-60000}"
@@ -163,6 +195,17 @@ if [ "$MODULE" = entry_test ]; then case_timeout=600000; fi
 with_timeout "${COULI_HM_TEST_TOTAL_TIMEOUT:-600}" "$HDC" -t "$DEVICE" shell aa test -b "$BUNDLE" -m "$MODULE" -s unittest OpenHarmonyTestRunner \
     -s timeout "$case_timeout" ${FILTER_ARGS[@]+"${FILTER_ARGS[@]}"} >"$RESULT" 2>&1 || rc=$?
 elapsed_seconds=$((SECONDS - started_seconds))
+echo "HOST_AT_END $(host_stats || true)"
+# 设施留痕（只打印、不判定）：hilog 环形缓冲在长步里可能已翻转，计数是下限；FLAKE_CAPTURE_INVALID 另从 aa test 输出里数。
+TRACE="$WORK/flake-trace.log"
+hs "hilog -x" 2>/dev/null | tr -d '\r' | { grep -E 'HM07VA_SELF_HEAL|FLKRIG|DS02_BEFOREALL_TRAIL' || true; } >"$TRACE" || true
+self_heal="$(grep -c 'HM07VA_SELF_HEAL' "$TRACE" 2>/dev/null || true)"
+retake="$(grep -c 'FLKRIG capture retake' "$TRACE" 2>/dev/null || true)"
+invalid="$(grep -c 'FLAKE_CAPTURE_INVALID' "$RESULT" 2>/dev/null || true)"
+# v5（评审 r4 S2-1）：Ds02Ui beforeAll 吸收的首页容器消失次数（DS02_BEFOREALL_TRAIL 行求和；绿跑也有）。
+ds02_gone="$({ grep -o 'DS02_BEFOREALL_TRAIL container_gone=[0-9]*' "$TRACE" 2>/dev/null || true; } | awk -F= '{ s += $2 } END { print s + 0 }')"
+tail -50 "$TRACE" | sed 's/^/  trace: /' || true
+echo "FLAKE_TRACE self_heal=${self_heal:-0} capture_retake=${retake:-0} capture_invalid=${invalid:-0} ds02_container_gone=${ds02_gone:-0}（只打印，不参与判定；hilog 计数为下限）"
 with_timeout 60 "$HDC" -t "$DEVICE" uninstall "$BUNDLE" >/dev/null 2>&1 || true
 tr -d '\r' <"$RESULT" >"$RESULT.txt"
 mv "$RESULT.txt" "$RESULT"

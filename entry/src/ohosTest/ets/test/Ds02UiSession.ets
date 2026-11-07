@@ -55,10 +55,17 @@ export async function searchUiComponent(driver: Driver, container: On, selector:
       uiCheckpoint();
       const list: Component = await driver.findComponent(container);
       uiCheckpoint();
-      expect(list !== null && list !== undefined).assertTrue();
+      // FU-HM-DEVICE-FLAKE v4（#24 只改诊断）：容器找不到 / 零面积原为 expect(...).assertTrue()（AssertException），改抛带
+      // DS02_UI_CONTAINER_GONE 的 Error。对所有调用方仍是失败（抛错、不返回、不放宽）；只让 Ds02Ui beforeAll 能按码认出
+      // 「首页翻页途中整页重建、容器消失」，计入本轮没找到后重拉（verify5 147 条 beforeAll 红即此处 :58 的 AssertException）。
+      if (list === null || list === undefined) {
+        throw new Error('DS02_UI_CONTAINER_GONE: container not found at page ' + page);
+      }
       const view: Rect = await list.getBounds();
       uiCheckpoint();
-      expect(view.right > view.left && view.bottom > view.top).assertTrue();
+      if (!(view.right > view.left && view.bottom > view.top)) {
+        throw new Error('DS02_UI_CONTAINER_GONE: container has empty bounds at page ' + page);
+      }
       const found: Component = await driver.findComponent(selector.within(container));
       uiCheckpoint();
       if (found !== null && found !== undefined) {

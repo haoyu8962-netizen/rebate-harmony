@@ -1,12 +1,12 @@
 import { describe, it as hypiumIt, expect, beforeAll, afterAll, beforeEach, afterEach } from '@ohos/hypium';
 import { abilityDelegatorRegistry, Driver, ON, On, Component, Rect, MatchPattern } from '@kit.TestKit';
 import { MeasureText } from '@kit.ArkUI';
-import { image } from '@kit.ImageKit';
 import { display } from '@kit.ArkUI';
 import { EXPECTED_CASES, EXPECTED_COLORS, ExpectedCase, ExpectedColor } from './Ds02Expected';
 
 import { collectRenderedCases } from './Ds02Traversal';
 import { runUiTask, drainUiTasks, searchUiComponent } from './Ds02UiSession';
+import { captureChecked, isNoCandidates, scene, Shot, trace } from './FlakeKit';
 
 const driver: Driver = Driver.create();
 
@@ -162,19 +162,13 @@ async function assertCircle(control: Component): Promise<void> {
   await idle();
   await driver.delayMs(800);
   const bounds: Rect = await control.getBounds();
-  const path: string = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().cacheDir + '/ds02-checkbox.png';
-  const captured: boolean = await driver.screenCapture(path, bounds);
-  expect(captured).assertTrue();
-  const source: image.ImageSource = image.createImageSource(path);
-  const pixels: image.PixelMap = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
-  try {
-    const info: image.ImageInfo = await pixels.getImageInfo();
-    const w: number = info.size.width;
-    const h: number = info.size.height;
+  // FU-HM-DEVICE-FLAKE（#24 只改截屏取得方式）：经 FlakeKit.captureChecked（截出来不是真截图就有界重拍）；下面的形状与色差判定不变。
+  const shot: Shot = await captureChecked(driver, bounds, 'ds02-checkbox');
+  {
+    const w: number = shot.width;
+    const h: number = shot.height;
     expect(Math.abs(w - h) <= 2 && w >= 18).assertTrue();
-    const buffer: ArrayBuffer = new ArrayBuffer(w * h * 4);
-    await pixels.readPixelsToBuffer(buffer);
-    const bytes: Uint8Array = new Uint8Array(buffer);
+    const bytes: Uint8Array = shot.bytes;
     const cornerX: number = Math.floor(w * 0.12);
     const cornerY: number = Math.floor(h * 0.12);
     // 四角接近背景；中部侧翼有选中底色。避开中央白色勾和抗锯齿边缘。
@@ -184,35 +178,24 @@ async function assertCircle(control: Component): Promise<void> {
       }
     }
     expect(distance(bytes, w, Math.floor(w * 0.22), Math.floor(h / 2), 0, 0) > 60).assertTrue();
-  } finally {
-    await pixels.release();
-    await source.release();
   }
 }
 
 async function assertButtonSurface(control: Component, dark: boolean): Promise<void> {
   expect(await control.getType()).assertEqual('Button');
   const bounds: Rect = await control.getBounds();
-  const path: string = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().cacheDir + '/ds02-surface.png';
-  expect(await driver.screenCapture(path, bounds)).assertTrue();
-  const source: image.ImageSource = image.createImageSource(path);
-  const pixels: image.PixelMap = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
-  try {
-    const info: image.ImageInfo = await pixels.getImageInfo();
-    const buffer: ArrayBuffer = new ArrayBuffer(info.size.width * info.size.height * 4);
-    await pixels.readPixelsToBuffer(buffer);
-    const bytes: Uint8Array = new Uint8Array(buffer);
+  // FU-HM-DEVICE-FLAKE（#24 只改截屏取得方式）：经 FlakeKit.captureChecked（verify-3 本用例 false 与 me12wb_02 0/0/0 同类）；取点与容差不变。
+  const shot: Shot = await captureChecked(driver, bounds, 'ds02-surface');
+  {
+    const bytes: Uint8Array = shot.bytes;
     const rows: ExpectedColor[] = EXPECTED_COLORS.filter((row: ExpectedColor): boolean => row.key === 'background.surface');
     expect(rows.length).assertEqual(1);
     expect(rows[0].light !== rows[0].dark).assertTrue();
     const expected: number = Number.parseInt((dark ? rows[0].dark : rows[0].light).substring(1), 16);
-    const offset: number = (Math.floor(info.size.height * 0.2) * info.size.width + Math.floor(info.size.width * 0.2)) * 4;
+    const offset: number = (Math.floor(shot.height * 0.2) * shot.width + Math.floor(shot.width * 0.2)) * 4;
     expect(Math.abs(bytes[offset] - ((expected >> 16) & 255)) <= 10).assertTrue();
     expect(Math.abs(bytes[offset + 1] - ((expected >> 8) & 255)) <= 10).assertTrue();
     expect(Math.abs(bytes[offset + 2] - (expected & 255)) <= 10).assertTrue();
-  } finally {
-    await pixels.release();
-    await source.release();
   }
 }
 
@@ -273,6 +256,16 @@ async function windowTitleBounds(kind: string): Promise<Rect> {
   return bounds;
 }
 
+// FU-HM-DEVICE-FLAKE v4（#24 只改查找 / 诊断）：beforeAll 里可按「本轮没找到」吸收的查找异常，返回记入 trail 的标签；
+// 其它异常（任务停止、断言、传输错误等）返回 '' 由调用处照旧抛出。exhausted 只在会重拉的首页查找处吸收。
+function searchMiss(e: Object, allowExhausted: boolean): string {
+  const text: string = String(e);
+  if (text.indexOf('DS02_UI_CONTAINER_GONE') >= 0) { return 'container-gone'; }
+  if (isNoCandidates(e)) { return 'nocandidates'; }
+  if (allowExhausted && text.indexOf('DS02_UI_SEARCH_EXHAUSTED') >= 0) { return 'exhausted'; }
+  return '';
+}
+
 export default function ds02UiTest() {
   describe('Ds02Ui', () => {
     beforeEach(async (): Promise<void> => { await drainUiTasks(driver); });
@@ -282,41 +275,91 @@ export default function ds02UiTest() {
         // 指定应用模块，避免同 bundle 的 entry_test/TestAbility 留在前台。
         // 测试框架异步拉起 Hello World 时可能抢前台；有界重拉真实 Ability，直到业务入口就绪。
         let ready: boolean = false;
+        // FU-HM-DEVICE-FLAKE（#24 只改查找 / 等待；判据「找到入口、进目录」不变）：单跑本套件的设备探针 4 次里 3 次 beforeAll 挂
+        // （probe1-pc1 / probe2-pc2：首页整页重建，home_list、「Debug panel」句柄读 bounds / 点击时 NoCandidates；probe2-pc1：
+        // 冷启动后 8 轮 findComponent 都没等到 home_list，每轮只等 0.5 s + idle 就重拉，重拉本身又让首页重建）。改为：
+        //   ① 每轮拉起后最多 16 × 0.5 s 等 home_list 出现（期间照旧处理隐私首启弹窗），等到再找入口；
+        //   ② NoCandidates 按「本轮没找到」处理（仍计入有界 8 轮）；
+        //   ③ 点「Debug panel」碰上 NoCandidates 时重找再点，最多 3 次；
+        //   ④ 8 轮都不就绪时，失败信息带每轮的结果与前台窗口 / 最近截屏重拍。
+        // v4（verify5：147 条 beforeAll 红，栈 Ds02UiSession.ets:58 容器断言）：翻页途中首页整页重建、home_list 消失时
+        // searchUiComponent 改抛 DS02_UI_CONTAINER_GONE；这里与 NoCandidates 同样计本轮没找到（trail 记 n:container-gone）后重拉。
+        // 点「Debug panel」后的重找、Debug 面板 Scroll 里找「Component catalog」同一口径：容器消失 / NoCandidates 有界重找 3 次。
+        const trail: string[] = [];
         for (let attempt: number = 0; attempt < 8; attempt++) {
           await abilityDelegatorRegistry.getAbilityDelegator().startAbility({
             bundleName: 'com.couli.hm', moduleName: 'entry', abilityName: 'EntryAbility'
           });
           await driver.delayMs(500);
           await idle();
-          for (const label of ['不同意', '仍不同意']) {
-            const privacy: Component = await driver.findComponent(ON.text(label));
-            if (privacy !== null && privacy !== undefined) { await privacy.click(); await idle(); }
-          }
           // APP-12w-c-harmony 测试 v6（#24 只改查找方式）：FU-X-HOME-PAGE-API 起 staging 首页（不开假服务）拉真实 getPage，卡片加载后
           // 列表变长，页脚「Debug panel」落到首屏以下，不滚动直接找时好时坏。改为在首页列表里有界滚动查找（同文件已用的 searchUiComponent）；
           // 列表还没出来或翻完找不到就照旧重拉再试。判据（找到入口、进目录）不变。
-          const list: Component = await driver.findComponent(ON.id('home_list'));
-          if (list !== null && list !== undefined) {
+          let list: Component | null = null;
+          for (let poll: number = 0; poll < 16 && list === null; poll++) {
+            for (const label of ['不同意', '仍不同意']) {
+              const privacy: Component = await driver.findComponent(ON.text(label));
+              if (privacy !== null && privacy !== undefined) { await privacy.click(); await idle(); }
+            }
+            const found: Component = await driver.findComponent(ON.id('home_list'));
+            if (found !== null && found !== undefined) { list = found; } else { await driver.delayMs(500); }
+          }
+          if (list === null) { trail.push(attempt + ':no-home_list'); continue; }
+          try {
+            const entry: Component = await searchUiComponent(driver, ON.id('home_list'), ON.text('Debug panel'));
+            if (entry !== null && entry !== undefined) { ready = true; break; }
+          } catch (e) {
+            // 只吞 DS02_UI_SEARCH_EXHAUSTED、DS02_UI_CONTAINER_GONE 与 NoCandidates（本轮没找到，重拉再试，有界 8 轮）；任务停止等其它异常照旧抛出。
+            const miss: string = searchMiss(e as Object, true);
+            if (miss === '') { throw e as Error; }
+            trail.push(attempt + ':' + miss);
+          }
+        }
+        expect(ready ? 'ready' : 'DS02_NOT_READY ' + trail.join(' ') + ' ' + (await scene(driver))).assertEqual('ready');
+        let opened: boolean = false;
+        for (let tries: number = 0; tries < 3 && !opened; tries++) {
+          const debug: Component = await driver.waitForComponent(ON.text('Debug panel'), 8000);
+          expect(debug !== null && debug !== undefined).assertTrue();
+          try {
+            await debug.click();
+            opened = true;
+          } catch (e) {
+            if (!isNoCandidates(e as Object)) { throw e as Error; }
+            trail.push('click' + tries + ':nocandidates');
             try {
-              const entry: Component = await searchUiComponent(driver, ON.id('home_list'), ON.text('Debug panel'));
-              if (entry !== null && entry !== undefined) { ready = true; break; }
-            } catch (e) {
-              // 只吞 DS02_UI_SEARCH_EXHAUSTED（本轮没找到，重拉再试，有界 8 轮）；任务停止等其它异常照旧抛出。
-              if (String(e).indexOf('DS02_UI_SEARCH_EXHAUSTED') < 0) { throw e as Error; }
+              await searchUiComponent(driver, ON.id('home_list'), ON.text('Debug panel'));
+            } catch (again) {
+              const miss: string = searchMiss(again as Object, false);
+              if (miss === '') { throw again as Error; }
+              trail.push('click' + tries + ':' + miss);
             }
           }
         }
-        expect(ready).assertTrue();
-        const debug: Component = await driver.waitForComponent(ON.text('Debug panel'), 8000);
-        expect(debug !== null && debug !== undefined).assertTrue();
-        await debug.click();
+        expect(opened ? 'opened' : 'DS02_DEBUG_NOT_OPENED ' + trail.join(' ')).assertEqual('opened');
         await idle();
-        // 进入 Debug 面板的转场结束前 Scroll 可能还没挂上；等它出现，不用一次性 findComponent。
-        const scroll: Component = await driver.waitForComponent(ON.type('Scroll'), 8000);
-        expect(scroll !== null && scroll !== undefined).assertTrue();
-        const entry: Component = await searchUiComponent(driver, ON.type('Scroll'), ON.text('Component catalog'));
-        expect(entry !== null && entry !== undefined).assertTrue();
-        await entry.click();
+        let clickedCatalog: boolean = false;
+        for (let tries: number = 0; tries < 3 && !clickedCatalog; tries++) {
+          // 进入 Debug 面板的转场结束前 Scroll 可能还没挂上；等它出现，不用一次性 findComponent。
+          const scroll: Component = await driver.waitForComponent(ON.type('Scroll'), 8000);
+          expect(scroll !== null && scroll !== undefined).assertTrue();
+          try {
+            const entry: Component = await searchUiComponent(driver, ON.type('Scroll'), ON.text('Component catalog'));
+            expect(entry !== null && entry !== undefined).assertTrue();
+            await entry.click();
+            clickedCatalog = true;
+          } catch (e) {
+            const miss: string = searchMiss(e as Object, false);
+            if (miss === '') { throw e as Error; }
+            trail.push('catalog' + tries + ':' + miss);
+          }
+        }
+        expect(clickedCatalog ? 'clicked' : 'DS02_CATALOG_NOT_CLICKED ' + trail.join(' ')).assertEqual('clicked');
+        // v5（评审 r4 S2-1）：绿跑也留痕（只打印、不参与判定）：首页 / 点入口 / 目录三处吸收次数进 hilog，device-test.sh 抓进 FLAKE_TRACE。
+        trace('DS02_BEFOREALL_TRAIL container_gone=' + trail.filter((t: string): boolean => t.endsWith(':container-gone')).length +
+          ' nocandidates=' + trail.filter((t: string): boolean => t.endsWith(':nocandidates')).length +
+          ' click_retries=' + trail.filter((t: string): boolean => t.startsWith('click')).length +
+          ' catalog_retries=' + trail.filter((t: string): boolean => t.startsWith('catalog')).length +
+          ' trail=' + (trail.length === 0 ? '-' : trail.join(' ')));
         await node('catalog-index');
       });
     });

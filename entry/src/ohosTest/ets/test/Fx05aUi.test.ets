@@ -10,6 +10,7 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { ConfigurationConstant } from '@kit.AbilityKit';
 import { EXPECTED_COLORS, ExpectedColor } from './Ds02Expected';
 import { runUiTask } from './Ds02UiSession';
+import { captureChecked, Shot } from './FlakeKit';
 
 const driver: Driver = Driver.create();
 
@@ -147,17 +148,10 @@ async function readPixelMap(pixels: image.PixelMap): Promise<Pixels> {
   return new Pixels(info.size.width, info.size.height, new Uint8Array(buffer));
 }
 
+// FU-HM-DEVICE-FLAKE（#24 只改截屏取得方式）：经 FlakeKit.captureChecked（每次新文件名；截出来不是真截图就有界重拍）。
 async function capture(rect: Rect, tag: string): Promise<Pixels> {
-  const path: string = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().cacheDir + '/fx05a-' + tag + '.png';
-  expect(await driver.screenCapture(path, rect)).assertTrue();
-  const source: image.ImageSource = image.createImageSource(path);
-  const map: image.PixelMap = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
-  try {
-    return await readPixelMap(map);
-  } finally {
-    await map.release();
-    await source.release();
-  }
+  const shot: Shot = await captureChecked(driver, rect, 'fx05a-' + tag);
+  return new Pixels(shot.width, shot.height, shot.bytes);
 }
 
 /** 已安装包里的资源字节（不存在时抛错，由调用方判断）。 */

@@ -59,6 +59,9 @@ export async function collectRenderedCases(driver: Driver, component: string,
     'catalog-sample/' + component + '/' + row.variant + '/' + row.state);
   const seen: Set<string> = new Set<string>();
   const deadline: number = Date.now() + 120000;
+  // FU-HM-DEVICE-FLAKE：只记轨迹进 MISSING 失败信息（耗时、每轮页数与结束原因），不参与任何判定。
+  const started: number = Date.now();
+  const trail: string[] = [];
   // 首轮沿当前方向；若惯性跳过样例，反向低速补扫。两轮共用截止时间，
   // 不再在 120s 后追加逐项、无法取消的 scrollSearch。
   for (let pass: number = 0; pass < 2 && seen.size < required.length; pass++) {
@@ -69,7 +72,10 @@ export async function collectRenderedCases(driver: Driver, component: string,
     let unchangedSwipes: number = 0;
     const directionEdge: string = edges[backwards ? 0 : edges.length - 1];
     let preferSeenProbe: boolean = false;
+    let pages: number = 0;
+    let ended: string = 'pages';
     for (let page: number = 0; page < 320 && Date.now() < deadline; page++) {
+      pages = page + 1;
       uiCheckpoint();
       const viewport: Rect | undefined = await currentBounds(driver, container);
       if (viewport === undefined) { continue; }
@@ -88,7 +94,7 @@ export async function collectRenderedCases(driver: Driver, component: string,
           anchorViewport = viewport;
         }
       }
-      if (seen.size === required.length || Date.now() >= deadline) { break; }
+      if (seen.size === required.length || Date.now() >= deadline) { ended = seen.size === required.length ? 'all' : 'deadline'; break; }
       const x: number = Math.floor(viewport.left + (viewport.right - viewport.left) * 0.02);
       const top: number = Math.floor(viewport.top + (viewport.bottom - viewport.top) * 0.15);
       const bottom: number = Math.floor(viewport.bottom - (viewport.bottom - viewport.top) * 0.15);
@@ -110,7 +116,7 @@ export async function collectRenderedCases(driver: Driver, component: string,
         if (after !== undefined && afterViewport !== undefined && intersects(after, afterViewport)) {
           // 探针若恰好也是缺项，只有本次真实可见读数才能计入；下屏不重复测量。
           if (required.indexOf(anchorId) >= 0) { seen.add(anchorId); }
-          if (seen.size === required.length) { break; }
+          if (seen.size === required.length) { ended = 'all'; break; }
           // 内部节点满屏裁剪时，无论多少次 top/完整矩形相同都继续扫。
           // 满屏首/末样例必须由明确 id 确认；该方向已没有后续清单样例。
           const reference: boolean = anchor !== undefined &&
@@ -119,6 +125,7 @@ export async function collectRenderedCases(driver: Driver, component: string,
           const stable: boolean = reference && anchor !== undefined && anchorViewport !== undefined &&
             sameRect(anchor, after) && sameRect(anchorViewport, viewport) && sameRect(viewport, afterViewport);
           unchangedSwipes = stable ? unchangedSwipes + 1 : 0;
+          if (unchangedSwipes >= 2) { ended = 'stable@' + anchorId; }
           if (unchangedSwipes >= 2) { break; }
           anchor = after;
           anchorViewport = afterViewport;
@@ -129,8 +136,10 @@ export async function collectRenderedCases(driver: Driver, component: string,
         }
       }
     }
+    trail.push('pass' + pass + (backwards ? '↑' : '↓') + ' pages=' + pages + ' end=' + (Date.now() >= deadline && ended === 'pages' ? 'deadline' : ended));
   }
   uiCheckpoint();
   // 每个三元组仍各自断言。未查到、离屏、零面积、预算耗尽都不能算已展示。
-  for (const id of required) { expect(seen.has(id) ? id : 'MISSING:' + id).assertEqual(id); }
+  const how: string = ' [t=' + (Date.now() - started) + 'ms ' + trail.join('; ') + ']';
+  for (const id of required) { expect(seen.has(id) ? id : 'MISSING:' + id + how).assertEqual(id); }
 }

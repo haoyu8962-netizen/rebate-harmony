@@ -5,8 +5,8 @@
 #   tools/ci/verify.sh          全量：生成物检查 → lint（项目规则 + codelinter）→ 违反样例必须报错 → 桥启动脚本 node 执行测试 → 镜像 + ohpm install（锁文件不变）
 #                               → SDK 版本核对 → Debug / Staging / Release 三套 assembleHap（每套核对 API 版本、API 20 兼容告警、应用名）
 #                               → Hypium 本机单测（designsystem 另在 TZ=UTC / America/Los_Angeles 各跑一次）
-#                               → 设备测试（core + entry 的 ohosTest，需已连接的鸿蒙模拟器 / 真机；没有就失败，不跳过）
 #                               → release-scan 自测 → Release 制品扫描 → Staging / Debug 必须命中全部标记
+#                               → 设备测试（core + entry 的 ohosTest，需已连接的鸿蒙模拟器 / 真机；没有就失败，不跳过）
 #   tools/ci/verify.sh --fast   只到生成物检查、项目 lint、SDK 版本核对与一次 Debug 构建
 #
 # 环境变量（都有默认值）：
@@ -22,6 +22,8 @@
 #
 # 失败语义：set -euo pipefail；每一步（含复制产物、rsync、解析结果）失败都让整体以非零退出，并打印已完成步骤的汇总。
 # 只有 grep 的「无匹配」（exit 1）在明确判断处当成正常。
+# 例外（FU-HM-DEVICE-FLAKE，D10-642 ①）：设备步（最后一段）不首红即停——每个设备步都跑完，再按汇总判失败（仍非零退出）；
+# 没有设备 / 设备不响应仍立即失败。构建、单元、静态检查（含 Release 制品扫描）照旧 fail-fast，且都排在设备步之前。
 # 兼容 macOS 自带 bash 3.2；路径一律加引号。
 set -euo pipefail
 
@@ -348,6 +350,12 @@ python3 "$ROOT/tools/ci/lockph/check_placeholders.py" --self-test || fail_fast "
 python3 "$ROOT/tools/ci/lockph/check_placeholders.py" || fail_fast "lockph-host" "见上方违反项"
 node "$ROOT/tools/ci/lockph/run-logic.cjs" || fail_fast "lockph-logic" "见上方真实产品断言"
 record "FU-HM-LOCK-PLACEHOLDERS 检查" PASS "占位符守卫（自测 14 个错误实现）/ 冷静期与倒计时两处回归"
+
+step "FU-HM-DEVICE-FLAKE 设备测试设施自测"
+node "$ROOT/tools/ci/flake/run-logic.cjs" || fail_fast "flake-logic" "见上方 FlakeKit 断言"
+python3 "$ROOT/tools/ci/flake/test_device_steps.py" || fail_fast "flake-device-steps" "见上方设备步汇总 / 复跑脚本断言"
+node "$ROOT/tools/ci/flake/check-arkts.cjs" --real || fail_fast "flake-arkts" "见上方 ArkTS 报错"
+record "FU-HM-DEVICE-FLAKE 设施自测" PASS "截屏校验重拍 / 有界等待 / 设备步跑完再汇总 / 复跑同包 / ArkTS（替身，不算设备通过）"
 
 step "DS-02 纯逻辑与测试设施自测"
 node "$ROOT/tools/ci/ds02/run-unit.cjs" || fail_fast "ds02-logic" "见上方真实产品断言"
@@ -718,7 +726,52 @@ run_unit_tests designsystem common/designsystem
 run_unit_tests designsystem common/designsystem UTC
 run_unit_tests designsystem common/designsystem America/Los_Angeles
 
-# ---------------------------------------------------------------- 7b. 设备测试（ohosTest，鸿蒙模拟器 / 真机）
+# ---------------------------------------------------------------- 7b. Release 制品扫描
+# FU-HM-DEVICE-FLAKE（D10-642 ①）：静态的制品扫描挪到设备步之前（只依赖第 6 步的制品），仍 fail-fast；设备步排在最后、跑完再汇总，
+# 设备步红时「构建、单元、静态检查都已通过」在同一轮里即可核对。
+export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"
+
+step "release-scan 失败路径自测（非 ZIP、假 unzip / python3 返回 127 等必须失败）"
+"$ROOT/tools/ci/release-scan-selftest.sh" "$OUT_DIR/scan-selftest" || fail_fast "release-scan 失败路径自测" "见上方输出"
+record "release-scan 失败路径自测" PASS "12 个出错用例均非零退出，6 个正向用例符合预期（含 APP-10b R1-04 测试源码标记反向自测）"
+
+step "release-scan：Release 必须不命中"
+if "$ROOT/tools/ci/release-scan.sh" "$OUT_DIR/Release.hap"; then
+    record "release-scan Release" PASS "未命中"
+else
+    fail_fast "release-scan Release" "exit $?（1 = 含调试残留，2 = 扫描出错）"
+fi
+
+step "F-X-05a：Release 包内平台图字节与清单一致（V7）"
+python3 "$ROOT/tools/ci/fx05a/check_platform_icons.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "fx05a-hap" "Release 包内平台图与源文件不一致或混入清单 / 替身，见上方输出"
+record "F-X-05a Release 平台图" PASS "包内字节 = couli 原图"
+
+step "HM-07v-a：深色启动参数 Release 不含、Staging / Debug 含（H-V06）"
+python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "hm07v-hap Release" "Release 制品含 couli_debug_color_mode，见上方输出"
+for cfg in Staging Debug; do
+    python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --hap-staging "$OUT_DIR/$cfg.hap" \
+        || fail_fast "hm07v-hap $cfg" "$cfg 制品缺 couli_debug_color_mode"
+done
+record "HM-07v-a 深色入口制品检查" PASS "Release 不含；Staging / Debug 含"
+
+step "HM-05r：Release 制品不声明 READ_PASTEBOARD（D1：CAP-X-02 实测前不声明、探测恒 not_eligible）"
+python3 "$ROOT/tools/ci/hm05r/check_hm05r.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "hm05r-hap Release" "Release 制品的 module.json 声明了 READ_PASTEBOARD，见上方输出"
+record "HM-05r Release 权限声明" PASS "未声明 ohos.permission.READ_PASTEBOARD"
+
+for cfg in Staging Debug; do
+    step "release-scan --self-test：$cfg 必须命中全部标记"
+    if "$ROOT/tools/ci/release-scan.sh" --self-test "$OUT_DIR/$cfg.hap"; then
+        record "release-scan --self-test $cfg" PASS "全部内容标记命中"
+    else
+        fail_fast "release-scan --self-test $cfg" "exit $?（1 = 有标记没命中，2 = 扫描出错）"
+    fi
+done
+
+
+# ---------------------------------------------------------------- 8. 设备测试（ohosTest，鸿蒙模拟器 / 真机）
 # FU-HM-0718 第 1 轮修复 R1-01：Local Test 里 fileIo 是空实现，真实文件系统行为（statSync 的错误码、FileSlot 遇到查不了的路径）
 # 只能在设备上验。core 的 src/ohosTest 构建成测试包（target ohosTest，与 Release 同一套 src/release），由 device-test.sh 签名、
 # 安装、aa test 并解析结果。**没有已连接的设备 / 模拟器就失败，不跳过**（先启动 DevEco 模拟器，或设 COULI_HM_DEVICE）。
@@ -781,6 +834,15 @@ run_device_test_hap() {
     local out="$OUT_DIR/device-test-$label.log" work="$OUT_DIR/device-test"
     # 每一步独立工作目录（aa test 结果文件同名，分步时不能互相覆盖）。
     if [ "$label" != "$module" ]; then work="$OUT_DIR/device-test-$label"; fi
+    # FU-HM-DEVICE-FLAKE（评审 r1 S1-1）：开跑前打印本步所用两包的 sha256（固定格式，rerun-device-step.sh 据此核「同一个安装包」）。
+    local app_sha="none" test_sha="missing"
+    if [ -n "$application_hap" ]; then
+        app_sha="missing"
+        if [ -f "$application_hap" ]; then app_sha="$(shasum -a 256 "$application_hap" | awk '{ print $1 }')"; fi
+    fi
+    if [ -f "$hap" ]; then test_sha="$(shasum -a 256 "$hap" | awk '{ print $1 }')"; fi
+    echo "DEVICE_HAP_SHA256 step=$label app=$app_sha test=$test_sha"
+    record "hap-sha256 $label" INFO "app=$app_sha test=$test_sha"
     if COULI_HM_TEST_FILTER="$6" COULI_HM_DEVICE_SET="$7" \
         "$ROOT/tools/ci/device-test.sh" "$hap" "$test_module" "$work" "$application_hap" >"$out" 2>&1; then
         code=0
@@ -788,13 +850,32 @@ run_device_test_hap() {
         code=$?
     fi
     cat "$out"
+    # 评审 r2 S2-A：设施留痕计数（补登录 / 截屏重拍 / 截屏无效）进汇总，只打印、不判定。
+    local trace
+    trace="$({ grep -E '^FLAKE_TRACE ' "$out" || true; } | tail -1)"
+    if [ -n "$trace" ]; then record "flake-trace $label" INFO "${trace#FLAKE_TRACE }"; fi
     if [ "$code" -ne 0 ]; then
-        fail_fast "device-test $label" "exit ${code}（没有设备、安装失败、有用例失败或超过 1800 秒），见 $out"
+        device_step_failed "$label" "exit ${code}（安装失败、有用例失败或超过 1800 秒），见 $out" "$out"
+        return 0
     fi
     local pass
     pass="$({ grep -E '^DEVICE_TEST_PASS' "$out" || true; } | tail -1)"
-    [ -n "$pass" ] || fail_fast "device-test $label" "device-test.sh 退出 0 但没有 DEVICE_TEST_PASS 行"
+    if [ -z "$pass" ]; then
+        device_step_failed "$label" "device-test.sh 退出 0 但没有 DEVICE_TEST_PASS 行" "$out"
+        return 0
+    fi
     record "device-test $label" PASS "${pass#DEVICE_TEST_PASS }"
+}
+# FU-HM-DEVICE-FLAKE（D10-642 ①）：设备步不再首红即停——记下失败、接着跑后面的设备步，全部跑完后在下方统一判失败（整体仍非零退出）。
+# 例外（环境问题，后面各步必然同样失败）：没有设备 / 设备不响应 / 失联 / 开机未完成，立即 fail-fast。测试包构建、同源核对、API 兼容等仍在
+# run_device_tests 里 fail-fast（属构建）。
+device_step_failed() {
+    # $1 步骤名 $2 说明 $3 该步日志
+    if grep -qE '没有已连接的鸿蒙设备|不响应（hdc shell 失败|没有开机完成|失联' "$3" 2>/dev/null; then
+        fail_fast "device-test $1" "$2（设备不可用，后续设备步不再跑）"
+    fi
+    record "device-test $1" FAIL "$2"
+    DEVICE_FAILED="${DEVICE_FAILED:-} $1"
 }
 run_device_tests core common/core core_test
 # HM-07v-a（编排 D10-405 D4、测试 v2 T0）：entry 拆成两个设备步，同锁、同一个测试包，各自计时、各自 1800 秒门槛、各自必跑名单：
@@ -824,48 +905,11 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wb class=Me12wbUi me12wb
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wc class=Me12wcUi me12wc
-
-# ---------------------------------------------------------------- 8. Release 制品扫描
-export COULI_SCAN_WORK_DIR="$OUT_DIR/scan-work"
-
-step "release-scan 失败路径自测（非 ZIP、假 unzip / python3 返回 127 等必须失败）"
-"$ROOT/tools/ci/release-scan-selftest.sh" "$OUT_DIR/scan-selftest" || fail_fast "release-scan 失败路径自测" "见上方输出"
-record "release-scan 失败路径自测" PASS "12 个出错用例均非零退出，6 个正向用例符合预期（含 APP-10b R1-04 测试源码标记反向自测）"
-
-step "release-scan：Release 必须不命中"
-if "$ROOT/tools/ci/release-scan.sh" "$OUT_DIR/Release.hap"; then
-    record "release-scan Release" PASS "未命中"
-else
-    fail_fast "release-scan Release" "exit $?（1 = 含调试残留，2 = 扫描出错）"
+# 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
+if [ -n "${DEVICE_FAILED:-}" ]; then
+    echo "DEVICE_STEPS_FAILED${DEVICE_FAILED}"
+    fail_fast "device-test${DEVICE_FAILED}" "以上设备步红（其余设备步均已跑完，结果见汇总）"
 fi
-
-step "F-X-05a：Release 包内平台图字节与清单一致（V7）"
-python3 "$ROOT/tools/ci/fx05a/check_platform_icons.py" --hap "$OUT_DIR/Release.hap" \
-    || fail_fast "fx05a-hap" "Release 包内平台图与源文件不一致或混入清单 / 替身，见上方输出"
-record "F-X-05a Release 平台图" PASS "包内字节 = couli 原图"
-
-step "HM-07v-a：深色启动参数 Release 不含、Staging / Debug 含（H-V06）"
-python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --hap "$OUT_DIR/Release.hap" \
-    || fail_fast "hm07v-hap Release" "Release 制品含 couli_debug_color_mode，见上方输出"
-for cfg in Staging Debug; do
-    python3 "$ROOT/tools/ci/hm07v/check_home_visual.py" --hap-staging "$OUT_DIR/$cfg.hap" \
-        || fail_fast "hm07v-hap $cfg" "$cfg 制品缺 couli_debug_color_mode"
-done
-record "HM-07v-a 深色入口制品检查" PASS "Release 不含；Staging / Debug 含"
-
-step "HM-05r：Release 制品不声明 READ_PASTEBOARD（D1：CAP-X-02 实测前不声明、探测恒 not_eligible）"
-python3 "$ROOT/tools/ci/hm05r/check_hm05r.py" --hap "$OUT_DIR/Release.hap" \
-    || fail_fast "hm05r-hap Release" "Release 制品的 module.json 声明了 READ_PASTEBOARD，见上方输出"
-record "HM-05r Release 权限声明" PASS "未声明 ohos.permission.READ_PASTEBOARD"
-
-for cfg in Staging Debug; do
-    step "release-scan --self-test：$cfg 必须命中全部标记"
-    if "$ROOT/tools/ci/release-scan.sh" --self-test "$OUT_DIR/$cfg.hap"; then
-        record "release-scan --self-test $cfg" PASS "全部内容标记命中"
-    else
-        fail_fast "release-scan --self-test $cfg" "exit $?（1 = 有标记没命中，2 = 扫描出错）"
-    fi
-done
 
 summary
 echo "结果：通过"
