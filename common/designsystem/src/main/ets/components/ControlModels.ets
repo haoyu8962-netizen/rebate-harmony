@@ -1,5 +1,4 @@
 import { DesignTokens } from 'generated';
-import { CouliThemeTokens } from '../theme/CouliThemeTokens';
 
 /**
  * DS-02 基础控件的纯逻辑（无资源、无 ArkUI 依赖；本机单测直接导入本文件，F-HM-57）。组件库的 CouliCheckbox、AgreementCheckRow、
@@ -7,7 +6,7 @@ import { CouliThemeTokens } from '../theme/CouliThemeTokens';
  */
 
 function component(key: string): number {
-  const value: number | undefined = CouliThemeTokens.component.get(key);
+  const value: number | undefined = DesignTokens.component.get(key);
   if (value === undefined) {
     throw new Error('missing component token: ' + key);
   }

@@ -5,7 +5,7 @@ export { ThemeShadowLayer } from './CouliThemeTokens';
 
 /**
  * DS-02 主题映射（纯逻辑：不引用资源、不依赖 Context，本机单测直接导入本文件，F-HM-57）。
- * 取值全部来自 CouliThemeTokens（令牌 v0.4.0 生成物）；页面不直接用这里的字符串，而用 CouliColors（资源限定词 base / dark）。
+ * 取值全部来自 CouliThemeTokens（锁定快照的生成物，与 generated/DesignTokens 同源）；页面不直接用这里的字符串，而用 CouliColors（资源限定词 base / dark）。
  */
 
 /** 颜色令牌：键去掉 `color.`，值为鸿蒙 #RRGGBB / #AARRGGBB（八位已换位）。dark=true 取深色。 */

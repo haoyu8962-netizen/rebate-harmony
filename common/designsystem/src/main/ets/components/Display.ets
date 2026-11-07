@@ -1,7 +1,7 @@
 import { CouliColors } from '../CouliColors';
 import { CouliComponentMetrics, CouliFocus, CouliInteraction, CouliRadius, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
-import { CouliThemeTokens } from '../theme/CouliThemeTokens';
+import { DesignTokens } from 'generated';
 import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
 
@@ -11,7 +11,7 @@ import { CouliTextModifier } from './CouliText';
  */
 
 function token(key: string): number {
-  return CouliThemeTokens.component.get(key) ?? 0;
+  return DesignTokens.component.get(key) ?? 0;
 }
 
 export enum ListRowAccessory {

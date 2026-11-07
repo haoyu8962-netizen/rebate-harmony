@@ -2,7 +2,6 @@ import { LengthMetrics } from '@kit.ArkUI';
 import { DesignTokens, ShadowLayerToken } from 'generated';
 import { couliColorResource } from './CouliColors';
 import { CouliColorMode } from './components/ColorMode';
-import { CouliThemeTokens } from './theme/CouliThemeTokens';
 
 function metric(table: Map<string, number>, key: string, group: string): number {
   const value: number | undefined = table.get(key);
@@ -55,31 +54,31 @@ export class CouliComponentMetrics {
   /** 焦点环 focus.width / focus.offset。 */
   static readonly focusWidth: number = metric(DesignTokens.focus, 'width', 'focus');
   static readonly focusOffset: number = metric(DesignTokens.focus, 'offset', 'focus');
-  // DS-02 新增组件令牌 T4、T6–T12（令牌 v0.4.0，CouliThemeTokens.component；契约快照仍是 v0.3.0）。
-  static readonly iconSmall: number = metric(CouliThemeTokens.component, 'icon.small', 'component');
-  static readonly iconInline: number = metric(CouliThemeTokens.component, 'icon.inline', 'component');
-  static readonly iconMedium: number = metric(CouliThemeTokens.component, 'icon.medium', 'component');
-  static readonly fieldMinHeight: number = metric(CouliThemeTokens.component, 'field.min-height', 'component');
-  static readonly codeCellHeight: number = metric(CouliThemeTokens.component, 'code-cell.height', 'component');
-  static readonly checkboxSize: number = metric(CouliThemeTokens.component, 'checkbox.size', 'component');
-  static readonly checkboxMaxScale: number = metric(CouliThemeTokens.component, 'checkbox.max-scale', 'component');
-  static readonly chipHeight: number = metric(CouliThemeTokens.component, 'chip.height', 'component');
-  static readonly tabIndicatorHeight: number = metric(CouliThemeTokens.component, 'tab-indicator.height', 'component');
-  static readonly tagMinHeight: number = metric(CouliThemeTokens.component, 'tag.min-height', 'component');
+  // DS-02 新增组件令牌 T4、T6–T12：与上面同一张 DesignTokens.component（锁定快照，组件尺寸只此一份）。
+  static readonly iconSmall: number = metric(DesignTokens.component, 'icon.small', 'component');
+  static readonly iconInline: number = metric(DesignTokens.component, 'icon.inline', 'component');
+  static readonly iconMedium: number = metric(DesignTokens.component, 'icon.medium', 'component');
+  static readonly fieldMinHeight: number = metric(DesignTokens.component, 'field.min-height', 'component');
+  static readonly codeCellHeight: number = metric(DesignTokens.component, 'code-cell.height', 'component');
+  static readonly checkboxSize: number = metric(DesignTokens.component, 'checkbox.size', 'component');
+  static readonly checkboxMaxScale: number = metric(DesignTokens.component, 'checkbox.max-scale', 'component');
+  static readonly chipHeight: number = metric(DesignTokens.component, 'chip.height', 'component');
+  static readonly tabIndicatorHeight: number = metric(DesignTokens.component, 'tab-indicator.height', 'component');
+  static readonly tagMinHeight: number = metric(DesignTokens.component, 'tag.min-height', 'component');
   static readonly platformBadgeMinHeight: number =
-    metric(CouliThemeTokens.component, 'platform-badge.min-height', 'component');
-  static readonly countBadgeSize: number = metric(CouliThemeTokens.component, 'count-badge.size', 'component');
-  static readonly imageList: number = metric(CouliThemeTokens.component, 'image.list', 'component');
-  static readonly gridCellMinHeight: number = metric(CouliThemeTokens.component, 'grid-cell.min-height', 'component');
-  static readonly oauthSize: number = metric(CouliThemeTokens.component, 'oauth.size', 'component');
-  static readonly oauthGap: number = metric(CouliThemeTokens.component, 'oauth.gap', 'component');
+    metric(DesignTokens.component, 'platform-badge.min-height', 'component');
+  static readonly countBadgeSize: number = metric(DesignTokens.component, 'count-badge.size', 'component');
+  static readonly imageList: number = metric(DesignTokens.component, 'image.list', 'component');
+  static readonly gridCellMinHeight: number = metric(DesignTokens.component, 'grid-cell.min-height', 'component');
+  static readonly oauthSize: number = metric(DesignTokens.component, 'oauth.size', 'component');
+  static readonly oauthGap: number = metric(DesignTokens.component, 'oauth.gap', 'component');
 }
 
 /**
  * 可见焦点样式（adaptation-a11y-spec §8；令牌 color.focus.ring、focus.width、focus.offset）：
  * 2vp 松叶绿实线、距控件 2vp，只在键盘 / 辅助输入获得焦点时由系统绘制。
  * DS-02 评审 r1 R1-03：FocusBoxStyle 只收解析好的 ColorMetrics，资源不会随深浅重解析；`box` 按 CouliColorMode 当前深浅取
- * focus.ring 的浅 / 深两套值（浅 #26735B、深 #5DBB97，来自令牌 v0.4.0），在 build 里读取即随深浅切换重新取色。
+ * focus.ring 的浅 / 深两套值（锁定快照 color.focus.ring 的 value / dark，经生成的 CouliThemeTokens），在 build 里读取即随深浅切换重新取色。
  */
 export class CouliFocus {
   private static readonly lightBox: FocusBoxStyle = CouliFocus.build(false);
@@ -105,23 +104,13 @@ export class CouliFocus {
 }
 
 /**
- * 阴影令牌 shadow.card / shadow.floating → ArkUI ShadowOptions。DS-02：颜色取资源 shadow_card / shadow_floating（令牌 v0.4.0 的
- * 颜色 × 不透明度，浅 / 深两套，gen_theme.py 生成），深色自动换成黑色阴影；半径与偏移两套相同。
+ * 阴影令牌 shadow.card / shadow.floating → ArkUI ShadowOptions。DS-02：颜色取资源 shadow_card / shadow_floating（锁定快照 shadow.* 的
+ * 颜色 × 不透明度，浅 / 深两套，gen_theme.py 生成），深色自动换成黑色阴影；半径与偏移两套相同（几何读 DesignTokens.shadows）。
+ * 遮罩色不在这里算：统一用令牌 color.overlay.scrim（CouliShadowMask.color = CouliColors.overlayScrim）。
  */
 export class CouliShadow {
   static readonly card: ShadowOptions = CouliShadow.options('card');
   static readonly floating: ShadowOptions = CouliShadow.options('floating');
-
-  /** 遮罩 rgba(40, 37, 31, 0.4)：GUIDE §2，取 text.primary 墨棕 + 0.4 不透明度（令牌没有单列遮罩色）。 */
-  static mask(baseHex: string): string {
-    return CouliShadow.argb(baseHex, 0.4);
-  }
-
-  static argb(hex: string, opacity: number): string {
-    const alpha: number = Math.round(opacity * 255);
-    const a: string = (alpha < 16 ? '0' : '') + alpha.toString(16).toUpperCase();
-    return '#' + a + hex.substring(1);
-  }
 
   private static options(name: string): ShadowOptions {
     const layers: ShadowLayerToken[] | undefined = DesignTokens.shadows.get(name);

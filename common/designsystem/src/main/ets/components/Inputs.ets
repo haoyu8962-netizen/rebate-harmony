@@ -1,7 +1,7 @@
 import { CouliColors } from '../CouliColors';
 import { CouliComponentMetrics, CouliFocus, CouliInteraction, CouliRadius, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
-import { CouliThemeTokens } from '../theme/CouliThemeTokens';
+import { DesignTokens } from 'generated';
 import { CodeCellLayout } from './CodeCells';
 import { CouliTextModifier } from './CouliText';
 import { CouliFontScale } from './FontScale';
@@ -14,7 +14,7 @@ import { CouliFontScale } from './FontScale';
  */
 
 function token(key: string): number {
-  return CouliThemeTokens.component.get(key) ?? 0;
+  return DesignTokens.component.get(key) ?? 0;
 }
 
 export enum FieldState {

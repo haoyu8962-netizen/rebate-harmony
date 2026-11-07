@@ -1,6 +1,6 @@
 // DesignSystem：设计令牌 → ArkUI 常量、格式化纯函数与组件模型、ArkUI 组件（DS-01，@ComponentV2）。
 export { CouliColors, CouliTheme, couliColorResource, couliColorResourceName } from './src/main/ets/CouliColors';
-// DS-02：浅 / 深两套主题的纯逻辑（无资源引用）与令牌 v0.4.0 生成数据。
+// DS-02：浅 / 深两套主题的纯逻辑（无资源引用）与锁定快照生成数据。
 export {
   resolveColorTokens, resolveShadowTokens, buildSystemColors, ThemeShadowLayer
 } from './src/main/ets/theme/CouliThemeMapping';

@@ -2,7 +2,7 @@ import { LengthMetrics, SegmentButtonV2Item, SegmentButtonV2Items, TabSegmentBut
 import { CouliColors } from '../CouliColors';
 import { CouliComponentMetrics, CouliFocus, CouliInteraction, CouliRadius, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
-import { CouliThemeTokens } from '../theme/CouliThemeTokens';
+import { DesignTokens } from 'generated';
 import { CouliColorMode } from './ColorMode';
 import { CheckboxMetrics, ChoiceState, SingleSelection } from './ControlModels';
 import { CouliTextModifier } from './CouliText';
@@ -14,7 +14,7 @@ import { CouliFontScale } from './FontScale';
  */
 
 function token(key: string): number {
-  return CouliThemeTokens.component.get(key) ?? 0;
+  return DesignTokens.component.get(key) ?? 0;
 }
 
 /** 预览按下态（目录页静态展示用）：系统按压反馈是瞬时的，样例用同色浅底表示「按下」。 */

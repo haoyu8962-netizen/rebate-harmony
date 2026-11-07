@@ -27,7 +27,7 @@ function res(path: string): Resource {
 /**
  * 颜色令牌的语义名（三端一致：令牌路径 `brand.primary` → `brandPrimary`，连字符同样转驼峰）。
  * DS-02 起取值是资源（ResourceColor）：浅色取 resources/base、深色取 resources/dark，页面与组件跟随系统 / 应用颜色模式自动换值，
- * 不在视图里判断深浅。两套数值的唯一源是令牌 v0.4.0（color.* 的 value / dark）。
+ * 不在视图里判断深浅。两套数值的唯一源是锁定快照 contracts/snapshot/design/design-tokens.json（color.* 的 value / dark）。
  */
 export class CouliColors {
   static readonly brandPrimary: Resource = res('brand.primary');
@@ -76,11 +76,11 @@ export class CouliColors {
   static readonly badgeBackground: Resource = res('badge.background');
 
   /**
-   * 契约快照令牌路径 → 语义名（DesignTokens.colors，contract.lock 锁定的 v0.3.0 键；DS-02 新增的 T1–T5 颜色在 CouliThemeTokens）。
+   * 契约快照令牌路径 → 语义名（DesignTokens.colors，contract.lock 锁定快照的全部颜色键）。
    */
   static readonly semanticNames: Map<string, string> = CouliColors.buildNames();
 
-  /** 契约快照里的浅色原值（#RRGGBB 字符串；只给需要字符串的旧调用与核对用，界面取色一律用上面的资源）。 */
+  /** 锁定快照里的浅色原串（#RRGGBB；8 位为 CSS 顺序 #RRGGBBAA，不是鸿蒙 #AARRGGBB；只给需要字符串的旧调用与核对用，界面取色一律用上面的资源）。 */
   static token(path: string): string {
     const value: string | undefined = DesignTokens.colors.get(path);
     if (value === undefined) {
@@ -89,7 +89,7 @@ export class CouliColors {
     return value;
   }
 
-  /** 全部颜色令牌（v0.4.0，键去掉 color.）→ 资源；系统组件主题（CouliTheme.install）用它，深色随资源限定词。 */
+  /** 全部颜色令牌（锁定快照，键去掉 color.）→ 资源；系统组件主题（CouliTheme.install）用它，深色随资源限定词。 */
   static tokenResources(): Map<string, ResourceColor> {
     const map: Map<string, ResourceColor> = new Map<string, ResourceColor>();
     CouliThemeTokens.colors.forEach((token: ThemeColorToken) => {
