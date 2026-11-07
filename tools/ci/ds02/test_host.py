@@ -20,7 +20,7 @@ from ds02_test_data import leaves, argb
 
 
 def palette():
-    return [(key, leaf) for key, leaf in leaves(json.loads((FIX / 'design-tokens.v0.4.0.json').read_text())['tokens'])
+    return [(key, leaf) for key, leaf in leaves(json.loads((ROOT / 'contracts/snapshot/design/design-tokens.json').read_text())['tokens'])
             if leaf['type'] == 'color']
 
 

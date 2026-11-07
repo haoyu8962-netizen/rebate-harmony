@@ -1,4 +1,4 @@
-"""DS-02 独立测试期望；不读取产品目录清单，不产出产品代码。"""
+"""DS-02 独立测试期望；令牌取锁定快照 contracts/snapshot/design/design-tokens.json，不读取产品目录清单，不产出产品代码。"""
 import csv
 import hashlib
 import json
@@ -20,11 +20,12 @@ def argb(value):
 
 def build_test_outputs(root):
     fixtures = Path(root) / "tools/ci/ds02/fixtures"
-    source = fixtures / "design-tokens.v0.4.0.json"
+    # TOKENS-PIPE：颜色 / 阴影期望从锁定快照派生（与产品同一份令牌源，快照本身由 sync.sh --check 逐字节核对 couli 锁定提交）。
+    source = Path(root) / "contracts/snapshot/design/design-tokens.json"
     tokens = json.loads(source.read_text())["tokens"]
     quote = lambda value: json.dumps(value, ensure_ascii=False)
     lines = ["// 生成物，禁止手改；tools/codegen/gen.py；仅测试数据。",
-             "// v0.4.0 原件 SHA256: " + hashlib.sha256(source.read_bytes()).hexdigest(),
+             "// 快照 SHA256: " + hashlib.sha256(source.read_bytes()).hexdigest(),
              "export class ExpectedColor {",
              "  key: string; light: string; dark: string;",
              "  constructor(key: string, light: string, dark: string) {",

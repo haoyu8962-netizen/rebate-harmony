@@ -1,4 +1,4 @@
-// 生成物，禁止手改；来源 specs/design-tokens.v0.4.0.json（tools/codegen/gen_theme.py 生成）
+// 生成物，禁止手改；来源 contracts/snapshot/design/design-tokens.json（锁定快照；tools/codegen/gen_theme.py 生成）
 // 浅色 = value、深色 = dark；颜色键为去掉 color. 的点分路径，取值是鸿蒙 #RRGGBB / #AARRGGBB。
 // 纯数据：不引用资源、不依赖 Context，主题映射与本机单测都从这里读（F-HM-57）。
 
@@ -48,7 +48,7 @@ export class ThemeShadowToken {
 }
 
 export class CouliThemeTokens {
-  static readonly version: string = "0.4.0";
+  static readonly version: string = "0.5.1";
   static readonly colors: ThemeColorToken[] = [
     new ThemeColorToken("brand.primary", "#C44820", "#C44820"),
     new ThemeColorToken("brand.emphasis", "#A83B1F", "#F0956B"),
@@ -83,6 +83,10 @@ export class CouliThemeTokens {
     new ThemeColorToken("source.text", "#655E57", "#B5ACA2"),
     new ThemeColorToken("source.background", "#FFFFFF", "#24211E"),
     new ThemeColorToken("source.border", "#E4DED5", "#3A3530"),
+    new ThemeColorToken("platform.tag.taobao", "#D53D00", "#D53D00"),
+    new ThemeColorToken("platform.tag.tmall", "#EA0031", "#EA0031"),
+    new ThemeColorToken("platform.tag.jd", "#E02018", "#E02018"),
+    new ThemeColorToken("platform.tag.pdd", "#EB0007", "#EB0007"),
     new ThemeColorToken("button.primary.default.background", "#C44820", "#C44820"),
     new ThemeColorToken("button.primary.default.text", "#FFFFFF", "#FFFFFF"),
     new ThemeColorToken("button.primary.pressed.background", "#A83B1F", "#A83B1F"),
@@ -92,6 +96,7 @@ export class CouliThemeTokens {
     new ThemeColorToken("button.inverse.background", "#FFFFFF", "#FFFFFF"),
     new ThemeColorToken("button.inverse.text", "#A83B1F", "#A83B1F"),
     new ThemeColorToken("overlay.scrim", "#6628251F", "#8C000000"),
+    new ThemeColorToken("overlay.on-image", "#8C000000", "#8C000000"),
     new ThemeColorToken("control.checked", "#C44820", "#C44820"),
     new ThemeColorToken("badge.background", "#C44820", "#C44820"),
   ];
@@ -100,34 +105,4 @@ export class CouliThemeTokens {
     new ThemeShadowToken("card", [new ThemeShadowLayer(0, 2, 8, 0, "#28251F", 0.06)], [new ThemeShadowLayer(0, 2, 8, 0, "#000000", 0.3)]),
     new ThemeShadowToken("floating", [new ThemeShadowLayer(0, 8, 24, 0, "#28251F", 0.12)], [new ThemeShadowLayer(0, 8, 24, 0, "#000000", 0.45)]),
   ];
-  /** component.*：键为去掉 component. 的点分路径（如 'checkbox.size'），dimension 按 vp、number 原样。 */
-  static readonly component: Map<string, number> = CouliThemeTokens.buildComponent();
-
-  private static buildComponent(): Map<string, number> {
-    const map: Map<string, number> = new Map<string, number>();
-    map.set("button.min-height", 48);
-    map.set("button.padding-inline", 20);
-    map.set("button.padding-block", 12);
-    map.set("button.gap", 8);
-    map.set("control.min-height", 44);
-    map.set("control.border-width", 1);
-    map.set("icon.default", 24);
-    map.set("icon.small", 14);
-    map.set("icon.inline", 16);
-    map.set("icon.medium", 20);
-    map.set("field.min-height", 52);
-    map.set("code-cell.height", 56);
-    map.set("checkbox.size", 18);
-    map.set("checkbox.max-scale", 1.5);
-    map.set("chip.height", 32);
-    map.set("tab-indicator.height", 2);
-    map.set("tag.min-height", 22);
-    map.set("platform-badge.min-height", 20);
-    map.set("count-badge.size", 18);
-    map.set("image.list", 96);
-    map.set("grid-cell.min-height", 72);
-    map.set("oauth.size", 48);
-    map.set("oauth.gap", 32);
-    return map;
-  }
 }

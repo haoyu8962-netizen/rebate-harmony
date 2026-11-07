@@ -1,57 +1,93 @@
 import { describe, it, expect, afterAll } from '@ohos/hypium';
 import { abilityDelegatorRegistry, Driver } from '@kit.TestKit';
 import { ConfigurationConstant } from '@kit.AbilityKit';
-import { CouliColors } from 'designsystem';
+import { CouliColors, couliColorResource, couliColorResourceName } from 'designsystem';
 import { EXPECTED_COLORS, ExpectedColor } from './Ds02Expected';
 
+// 按键比对（TOKENS-PIPE-harmony，#24 / D10-693 ④：由按下标改按键，等于收紧）：每个令牌键 → 真实取值，与 EXPECTED_COLORS
+// 的键集合必须完全相等（不多、不少、不重名），再逐键核浅 / 深。v0.5.1 起 EXPECTED_COLORS 49 行，令牌键序变化不影响比对。
+class SemanticColor {
+  key: string;
+  value: ResourceColor;
+
+  constructor(key: string, value: ResourceColor) {
+    this.key = key;
+    this.value = value;
+  }
+}
+
 // 必须读取真实语义 getter，不能拿源表替代。SDK 资源限定词与 alpha 换位在真机校验。
-function semanticValues(): ResourceColor[] {
+function semanticValues(): SemanticColor[] {
   return [
-    CouliColors.brandPrimary,
-    CouliColors.brandEmphasis,
-    CouliColors.brandSecondary,
-    CouliColors.brandSubtle,
-    CouliColors.backgroundCanvas,
-    CouliColors.backgroundAdminCanvas,
-    CouliColors.backgroundSurface,
-    CouliColors.backgroundMuted,
-    CouliColors.backgroundPlaceholder,
-    CouliColors.textPrimary,
-    CouliColors.textSecondary,
-    CouliColors.textInverse,
-    CouliColors.textLink,
-    CouliColors.priceText,
-    CouliColors.rebateText,
-    CouliColors.rebateBackground,
-    CouliColors.rebateSolidBackground,
-    CouliColors.rebateSolidText,
-    CouliColors.statusPendingText,
-    CouliColors.statusPendingBackground,
-    CouliColors.statusSuccessText,
-    CouliColors.statusSuccessBackground,
-    CouliColors.statusWarningText,
-    CouliColors.statusWarningBackground,
-    CouliColors.statusErrorText,
-    CouliColors.statusErrorBackground,
-    CouliColors.borderSubtle,
-    CouliColors.borderControl,
-    CouliColors.borderActive,
-    CouliColors.focusRing,
-    CouliColors.sourceText,
-    CouliColors.sourceBackground,
-    CouliColors.sourceBorder,
-    CouliColors.buttonPrimaryDefaultBackground,
-    CouliColors.buttonPrimaryDefaultText,
-    CouliColors.buttonPrimaryPressedBackground,
-    CouliColors.buttonPrimaryPressedText,
-    CouliColors.buttonPrimaryDisabledBackground,
-    CouliColors.buttonPrimaryDisabledText,
-    CouliColors.buttonInverseBackground,
-    CouliColors.buttonInverseText,
-    CouliColors.overlayScrim,
-    CouliColors.controlChecked,
-    CouliColors.badgeBackground
+    new SemanticColor('brand.primary', CouliColors.brandPrimary),
+    new SemanticColor('brand.emphasis', CouliColors.brandEmphasis),
+    new SemanticColor('brand.secondary', CouliColors.brandSecondary),
+    new SemanticColor('brand.subtle', CouliColors.brandSubtle),
+    new SemanticColor('background.canvas', CouliColors.backgroundCanvas),
+    new SemanticColor('background.admin-canvas', CouliColors.backgroundAdminCanvas),
+    new SemanticColor('background.surface', CouliColors.backgroundSurface),
+    new SemanticColor('background.muted', CouliColors.backgroundMuted),
+    new SemanticColor('background.placeholder', CouliColors.backgroundPlaceholder),
+    new SemanticColor('text.primary', CouliColors.textPrimary),
+    new SemanticColor('text.secondary', CouliColors.textSecondary),
+    new SemanticColor('text.inverse', CouliColors.textInverse),
+    new SemanticColor('text.link', CouliColors.textLink),
+    new SemanticColor('price.text', CouliColors.priceText),
+    new SemanticColor('rebate.text', CouliColors.rebateText),
+    new SemanticColor('rebate.background', CouliColors.rebateBackground),
+    new SemanticColor('rebate.solid.background', CouliColors.rebateSolidBackground),
+    new SemanticColor('rebate.solid.text', CouliColors.rebateSolidText),
+    new SemanticColor('status.pending.text', CouliColors.statusPendingText),
+    new SemanticColor('status.pending.background', CouliColors.statusPendingBackground),
+    new SemanticColor('status.success.text', CouliColors.statusSuccessText),
+    new SemanticColor('status.success.background', CouliColors.statusSuccessBackground),
+    new SemanticColor('status.warning.text', CouliColors.statusWarningText),
+    new SemanticColor('status.warning.background', CouliColors.statusWarningBackground),
+    new SemanticColor('status.error.text', CouliColors.statusErrorText),
+    new SemanticColor('status.error.background', CouliColors.statusErrorBackground),
+    new SemanticColor('border.subtle', CouliColors.borderSubtle),
+    new SemanticColor('border.control', CouliColors.borderControl),
+    new SemanticColor('border.active', CouliColors.borderActive),
+    new SemanticColor('focus.ring', CouliColors.focusRing),
+    new SemanticColor('source.text', CouliColors.sourceText),
+    new SemanticColor('source.background', CouliColors.sourceBackground),
+    new SemanticColor('source.border', CouliColors.sourceBorder),
+    new SemanticColor('button.primary.default.background', CouliColors.buttonPrimaryDefaultBackground),
+    new SemanticColor('button.primary.default.text', CouliColors.buttonPrimaryDefaultText),
+    new SemanticColor('button.primary.pressed.background', CouliColors.buttonPrimaryPressedBackground),
+    new SemanticColor('button.primary.pressed.text', CouliColors.buttonPrimaryPressedText),
+    new SemanticColor('button.primary.disabled.background', CouliColors.buttonPrimaryDisabledBackground),
+    new SemanticColor('button.primary.disabled.text', CouliColors.buttonPrimaryDisabledText),
+    new SemanticColor('button.inverse.background', CouliColors.buttonInverseBackground),
+    new SemanticColor('button.inverse.text', CouliColors.buttonInverseText),
+    new SemanticColor('overlay.scrim', CouliColors.overlayScrim),
+    new SemanticColor('control.checked', CouliColors.controlChecked),
+    new SemanticColor('badge.background', CouliColors.badgeBackground)
   ];
+}
+
+// v0.5.1 新增、暂无语义名的 5 个键（D10-693 ③：待 v3 U1 / U2 定名，三端命名对照表「待定」）：按产品资源名取值，
+// 真机核 overlay.on-image 的 8 位换位（#0000008C → #8C000000）。
+const PENDING_SEMANTIC_KEYS: string[] = ['platform.tag.taobao', 'platform.tag.tmall', 'platform.tag.jd', 'platform.tag.pdd',
+  'overlay.on-image'];
+
+function pendingValues(): SemanticColor[] {
+  return PENDING_SEMANTIC_KEYS.map((key: string) => new SemanticColor(key, couliColorResource(couliColorResourceName(key))));
+}
+
+function actualByKey(): Map<string, ResourceColor> {
+  const all: SemanticColor[] = semanticValues().concat(pendingValues());
+  const map: Map<string, ResourceColor> = new Map<string, ResourceColor>();
+  for (const row of all) {
+    expect(map.has(row.key)).assertFalse();
+    map.set(row.key, row.value);
+  }
+  return map;
+}
+
+function expectedHex(row: ExpectedColor, dark: boolean): number {
+  const hex: string = (dark ? row.dark : row.light).substring(1);
+  return Number.parseInt(hex.length === 6 ? 'FF' + hex : hex, 16) >>> 0;
 }
 
 function resolve(color: ResourceColor): number {
@@ -84,13 +120,16 @@ export default function ds02ResourcesDeviceTest() {
           ConfigurationConstant.ColorMode.COLOR_MODE_DARK : ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
         const settled: boolean = await Driver.create().waitForIdle(200, 8000);
         expect(settled).assertTrue();
-        const values: ResourceColor[] = semanticValues();
-        expect(values.length).assertEqual(EXPECTED_COLORS.length);
-        for (let index: number = 0; index < EXPECTED_COLORS.length; index++) {
-          const row: ExpectedColor = EXPECTED_COLORS[index];
-          const hex: string = (dark ? row.dark : row.light).substring(1);
-          const expected: number = Number.parseInt(hex.length === 6 ? 'FF' + hex : hex, 16) >>> 0;
-          expect(resolve(values[index])).assertEqual(expected);
+        const actual: Map<string, ResourceColor> = actualByKey();
+        // 键集合双向相等：EXPECTED 的每个键都有真实取值，真实取值里没有 EXPECTED 之外的键。
+        expect(actual.size).assertEqual(EXPECTED_COLORS.length);
+        for (const row of EXPECTED_COLORS) {
+          const value: ResourceColor | undefined = actual.get(row.key);
+          expect(row.key + ':' + (value !== undefined)).assertEqual(row.key + ':true');
+          if (value === undefined) {
+            continue;
+          }
+          expect(row.key + '=' + resolve(value)).assertEqual(row.key + '=' + expectedHex(row, dark));
         }
       });
     }

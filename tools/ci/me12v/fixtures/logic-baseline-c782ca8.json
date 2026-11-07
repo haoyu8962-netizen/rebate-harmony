@@ -737,7 +737,7 @@
    "common/designsystem/Brand.ets"
   ],
   [
-   "b79ad2e2b746f3b0dac6bbcf7f29eae42c14359cbe7bf17820444f7a52889f9a",
+   "aa612f7fef32b54b9aefcb973c86c2ef8ef6358b6ff1b23d32d628a9c3472e67",
    "common/designsystem/Index.ets"
   ],
   [
@@ -769,7 +769,7 @@
    "common/designsystem/platform-icons/manifest.json"
   ],
   [
-   "c3787f5e7ff99815a16136b1aeab6b9ea09697f663bcb994a3af3f690bdb0b4a",
+   "909ba74d658f99a0cb7ac8bea9f8103f0c4b2b3eabdf5b584a7bc1d19ddc9045",
    "common/designsystem/src/main/ets/CouliColors.ets"
   ],
   [
@@ -777,7 +777,7 @@
    "common/designsystem/src/main/ets/CouliLayout.ets"
   ],
   [
-   "d91f4f787846c6691cc4ffb6b9fcd1a61b418cdca1bac9c2e13b82ce2cd5d5d9",
+   "8ac0f5247ccbb34a9cfc3a83222e6a688b7bf315a31d99888a6406884c5484e1",
    "common/designsystem/src/main/ets/CouliMetrics.ets"
   ],
   [
@@ -809,11 +809,11 @@
    "common/designsystem/src/main/ets/components/ColorMode.ets"
   ],
   [
-   "79a534cdb8776ccf471a2017a3a4c5e457c22776c072357359f528a11d2091dd",
+   "f3f7725bda340ad630546fd92dc14a0b00b30745c2e7d11f0bf5ce6cf288b837",
    "common/designsystem/src/main/ets/components/ControlModels.ets"
   ],
   [
-   "bd4e5d1936eea625c9e60c43dbd6d2cb2e2c2a013e8fee704303aefdd9404ad5",
+   "371105e2e55c28e197568fa59d66410cc979ef85f2595f95ed22282a374fb8b5",
    "common/designsystem/src/main/ets/components/Controls.ets"
   ],
   [
@@ -833,7 +833,7 @@
    "common/designsystem/src/main/ets/components/DisclaimerNote.ets"
   ],
   [
-   "018904a3176c112778d4d41e42c0233fa7c3ea56004a1b4ca43f891c22ad6522",
+   "da299aedc844bb4a529b4d68f043862c23a965101030e029706011b8c843a2a3",
    "common/designsystem/src/main/ets/components/Display.ets"
   ],
   [
@@ -841,7 +841,7 @@
    "common/designsystem/src/main/ets/components/FontScale.ets"
   ],
   [
-   "4f73c43a9868ee34546fd7a2ae6c0d0313cab1fd679fb9b3de0a826771f5f4af",
+   "f64392f4ba45e35f38d7944ecaecaf656d86e86f55640fe97bd9655735672569",
    "common/designsystem/src/main/ets/components/Inputs.ets"
   ],
   [
@@ -945,11 +945,11 @@
    "common/designsystem/src/main/ets/logic/TextScale.ets"
   ],
   [
-   "d85a097b7f39edb7223345f3239d1cd3886f0d0dc6c74a48f3b6657398ff8da2",
+   "812cf26d485ef0cd0daac19c356ca6e0b69dbe743eae671c3fc2f0c04888e9a8",
    "common/designsystem/src/main/ets/theme/CouliThemeMapping.ets"
   ],
   [
-   "73acc8a6d9ab40deb39393c06c661974660ef09055073e7dd744137daec8f8c7",
+   "1895ee26db24f0cc2191a04349cab4afe1e7a76f5c866b04549a7b10c05263c4",
    "common/designsystem/src/main/ets/theme/CouliThemeTokens.ets"
   ],
   [
@@ -957,7 +957,7 @@
    "common/designsystem/src/main/module.json5"
   ],
   [
-   "8e69874a7795c3fc855b0c34a3bf77040b568319c2052c199d0ec46395ae6306",
+   "ff12c4f495a8173beacd34cce609de610807632a4ba59739b2a913ee0af56347",
    "common/designsystem/src/main/resources/base/element/color.json"
   ],
   [
@@ -981,7 +981,7 @@
    "common/designsystem/src/main/resources/base/media/taobao.png"
   ],
   [
-   "64fc818a4320b4e8c807b2eb0b92a6db2f35f1907198195cd5d2321a05528c26",
+   "b2993599bf3e6e63fa5c0b2b0299d4d00e8577aabbd596e810941dbba75d17e6",
    "common/designsystem/src/main/resources/dark/element/color.json"
   ],
   [

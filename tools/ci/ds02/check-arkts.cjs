@@ -23,7 +23,8 @@ try {
   const resourceTest = fs.readFileSync(path.join(root, tests[5]), 'utf8');
   const names = [...resourceTest.matchAll(/CouliColors\.(\w+)/g)].map(m => m[1]);
   const colorTypes = path.join(tmp, 'colors.d.ts');
-  fs.writeFileSync(colorTypes, 'export declare class CouliColors {\n' + names.map(n => 'static ' + n + ': ResourceColor;').join('\n') + '\n}\n');
+  fs.writeFileSync(colorTypes, 'export declare class CouliColors {\n' + names.map(n => 'static ' + n + ': ResourceColor;').join('\n') + '\n}\n' +
+    'export declare function couliColorResource(name: string): Resource;\nexport declare function couliColorResourceName(path: string): string;\n');
   const etsConfig = ts.readConfigFile(path.join(loader, 'tsconfig.json'), ts.sys.readFile).config.compilerOptions.ets;
   const options = { experimentalDecorators: true, lib: ['lib.es2021.d.ts'], strict: true, strictPropertyInitialization: true, target: ts.ScriptTarget.ES2020,
     module: ts.ModuleKind.ES2020, moduleResolution: ts.ModuleResolutionKind.NodeJs, noEmit: true, skipLibCheck: true,

@@ -176,6 +176,19 @@ step "gen.py --check"
 python3 "$ROOT/tools/codegen/gen.py" --check || fail_fast "gen.py --check" "生成物与快照不一致"
 record "gen.py --check" PASS
 
+# TOKENS-PIPE-harmony：所有令牌只从锁定快照一条链路生成（brief-harmony §4-2）。管线检查先自测（合成合规参照件全过、错误实现逐个打红）
+# 再查本仓库：无旁路副本与悬空引用、版本 / 快照指纹唯一、资源与 DesignTokens / CouliThemeTokens 逐叶等于快照、无手抄深色表 / 手算遮罩、
+# 组件尺寸只一份、锁是 f088f04 或其后代；生成器单测（8 位色、colorsDark / shadowsDark、1.5、单源、--check 覆盖、HM-LINT-11 反例）；
+# 两个 Hypium 套件与设备测试按键比对的 node 执行（设备那份是离线演练，不算设备通过）；ArkTS 严格检查。
+step "TOKENS-PIPE 令牌管线检查"
+python3 "$ROOT/tools/ci/tokens/check_tokens_pipe.py" --self-test || fail_fast "tokens-pipe 自测" "见上方输出"
+python3 "$ROOT/tools/ci/tokens/check_tokens_pipe.py" || fail_fast "tokens-pipe" "见上方违反项"
+python3 "$ROOT/tools/codegen/test_tokens.py" || fail_fast "tokens-gen-unit" "见上方用例断言"
+node "$ROOT/tools/ci/tokens/run-logic.cjs" --self-test || fail_fast "tokens-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/tokens/run-logic.cjs" || fail_fast "tokens-logic" "见上方真实产品断言"
+node "$ROOT/tools/ci/tokens/check-arkts.cjs" --real || fail_fast "tokens-arkts" "TOKENS-PIPE 测试文件 ArkTS 严格检查失败"
+record "TOKENS-PIPE 令牌管线" PASS "单源 / 无副本 / 逐叶 / 无手抄 / 组件尺寸一份 / 锁血缘 / 生成器单测 / 主题读取 / ArkTS"
+
 # CT-LOCK-01：contract.lock 与快照一致（锁定提交重建逐字节相同 + lock files 哈希相同）。
 # 必须按锁定提交重建核对（R1-02）：取不到上游仓库或其中没有锁定提交就失败，不退化成只比哈希（只比哈希用
 # sync.sh --check-hashes-only 单独跑，不算本步 PASS）。上游仓库按顺序推导：

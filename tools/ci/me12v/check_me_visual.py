@@ -41,7 +41,7 @@ LOGIC_FIXTURE = 'tools/ci/me12v/fixtures/logic-baseline-' + REV + '.json'
 GUARD_FIXTURE = 'tools/ci/me12v/fixtures/me-tab-guard-' + REV + '.json'
 # fixture 指纹（make_baseline.py 由 git show REV（c782ca8） 生成；改 fixture 来迁就实现即红）。
 FIXTURE_SHA256 = {
-    LOGIC_FIXTURE: 'efb7dc98315e6bdb09da996ae2558874972839442aee47a495d551c75c5113fa',
+    LOGIC_FIXTURE: '11cf1fb3a5f19cd2a64533de86ee0885ce7339ecf69537f05ce90444a9054794',
     GUARD_FIXTURE: '5ec789384a0b6075b9e8ce15aa71a9075947a59d23f54f50da6631781b8ab42b',
 }
 

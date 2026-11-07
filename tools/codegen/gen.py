@@ -11,6 +11,8 @@
     common/generated/src/staging/ets/DebugRoutes.ets          debug_only 路由（只进 Debug / Staging）
     common/generated/src/{staging,release}/ets/DebugOnly.ets  按 target 二选一，由 Index.ets 经 'generated/ets/DebugOnly' 导出
     common/generated/src/test/ContractSnapshotData.ets        一致性测试用的快照全文（只在 test 目录）
+    gen_theme.py 的 5 个产物（TOKENS-PIPE：designsystem base / dark color.json、entry base / dark color.json、
+    theme/CouliThemeTokens.ets）——与 DesignTokens 同一份锁定快照 design/design-tokens.json，同一次生成、同一次 --check
     common/generated/Index.ets                                模块统一导出
     common/designsystem/src/test/FormatVectorsData.ets        specs/format-vectors.json 全文（DS-01，格式向量单测用）
     common/core/src/test/RouterVectorsData.ets                specs/router-vectors.json 全文（APP-02a，Router 向量单测用）
@@ -84,6 +86,7 @@ import shutil
 import sys
 import tempfile
 from ds02_test_data import build_test_outputs
+import gen_theme
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SNAPSHOT = os.path.join(ROOT, "contracts", "snapshot")
@@ -1135,15 +1138,22 @@ def gen_tokens():
     data = load("design/design-tokens.json")
     tokens = data["tokens"]
     colors = []
+    colors_dark = []
+
+    def color(path, value):
+        # 只认 #RRGGBB 与 CSS 顺序的 #RRGGBBAA（D10-693），原串照抄（大小写、通道顺序都不动；资源的 #AARRGGBB 由 gen_theme 派生）。
+        if not isinstance(value, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?", value):
+            raise GenError("颜色令牌 %s 不是 #RRGGBB / #RRGGBBAA：%r" % (path, value))
+        return value
 
     def walk(node, prefix):
         for key, child in node.items():
             path = key if not prefix else prefix + "." + key
             if isinstance(child, dict) and "value" in child:
-                value = child["value"]
-                if not isinstance(value, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
-                    raise GenError("颜色令牌 %s 不是 #RRGGBB：%r" % (path, value))
-                colors.append((path, value))
+                colors.append((path, color(path, child["value"])))
+                if "dark" not in child:
+                    raise GenError("颜色令牌 %s 缺 dark（不回落浅色）" % path)
+                colors_dark.append((path, color(path + ".dark", child["dark"])))
             elif isinstance(child, dict):
                 walk(child, path)
 
@@ -1166,6 +1176,8 @@ def gen_tokens():
     lines.append("export class DesignTokens {")
     lines.append("  static readonly version: string = %s;" % ts_str(data["metadata"]["version"]))
     lines.append("  static readonly colors: Map<string, string> = DesignTokens.buildColors();")
+    lines.append("  /** color.* 的深色（dark 原串，键与 colors 相同；8 位为 CSS 顺序 #RRGGBBAA）。 */")
+    lines.append("  static readonly colorsDark: Map<string, string> = DesignTokens.buildColorsDark();")
     lines.append("  static readonly spacing: Map<string, number> = DesignTokens.buildSpacing();")
     lines.append("  static readonly radius: Map<string, number> = DesignTokens.buildRadius();")
     lines.append("  static readonly fontSize: Map<string, number> = DesignTokens.buildFontSize();")
@@ -1178,13 +1190,16 @@ def gen_tokens():
     lines.append("  static readonly focus: Map<string, number> = DesignTokens.buildFocus();")
     lines.append("  /** shadow.*（DS-01）：每层 x / y / blur / spread / color / opacity；none 为空数组。 */")
     lines.append("  static readonly shadows: Map<string, ShadowLayerToken[]> = DesignTokens.buildShadows();")
-    lines.append("")
-    lines.append("  private static buildColors(): Map<string, string> {")
-    lines.append("    const map: Map<string, string> = new Map<string, string>();")
-    for k, v in colors:
-        lines.append("    map.set(%s, %s);" % (ts_str(k), ts_str(v)))
-    lines.append("    return map;")
-    lines.append("  }")
+    lines.append("  /** shadow.* 的深色（键与 shadows 相同；none 为空数组）。 */")
+    lines.append("  static readonly shadowsDark: Map<string, ShadowLayerToken[]> = DesignTokens.buildShadowsDark();")
+    for method, rows in (("buildColors", colors), ("buildColorsDark", colors_dark)):
+        lines.append("")
+        lines.append("  private static %s(): Map<string, string> {" % method)
+        lines.append("    const map: Map<string, string> = new Map<string, string>();")
+        for k, v in rows:
+            lines.append("    map.set(%s, %s);" % (ts_str(k), ts_str(v)))
+        lines.append("    return map;")
+        lines.append("  }")
     for method, node, label in (("buildSpacing", tokens["space"], "space"), ("buildRadius", tokens["radius"], "radius"),
                                 ("buildFontSize", tokens["font"]["size"], "font.size"),
                                 ("buildLineHeight", tokens["font"]["line-height"], "font.line-height"),
@@ -1225,26 +1240,35 @@ def gen_tokens():
         lines.append("    map.set(%s, %s);" % (ts_str(k), num(v)))
     lines.append("    return map;")
     lines.append("  }")
-    lines.append("")
-    lines.append("  private static buildShadows(): Map<string, ShadowLayerToken[]> {")
-    lines.append("    const map: Map<string, ShadowLayerToken[]> = new Map<string, ShadowLayerToken[]>();")
-    for name, leaf in tokens["shadow"].items():
-        layers = leaf.get("value")
-        if not isinstance(layers, list):
-            raise GenError("shadow.%s 不是数组" % name)
-        parts = []
-        for layer in layers:
-            for f in ("x", "y", "blur", "spread", "opacity"):
-                if not isinstance(layer.get(f), (int, float)) or isinstance(layer.get(f), bool):
-                    raise GenError("shadow.%s.%s 不是数字" % (name, f))
-            if not re.fullmatch(r"#[0-9A-Fa-f]{6}", str(layer.get("color"))):
-                raise GenError("shadow.%s.color 不是 #RRGGBB" % name)
-            parts.append("new ShadowLayerToken(%s, %s, %s, %s, %s, %s)" % (
-                num(layer["x"]), num(layer["y"]), num(layer["blur"]), num(layer["spread"]),
-                ts_str(layer["color"]), num(layer["opacity"])))
-        lines.append("    map.set(%s, [%s]);" % (ts_str(name), ", ".join(parts)))
-    lines.append("    return map;")
-    lines.append("  }")
+    for method, dark in (("buildShadows", False), ("buildShadowsDark", True)):
+        lines.append("")
+        lines.append("  private static %s(): Map<string, ShadowLayerToken[]> {" % method)
+        lines.append("    const map: Map<string, ShadowLayerToken[]> = new Map<string, ShadowLayerToken[]>();")
+        for name, leaf in tokens["shadow"].items():
+            layers = leaf.get("value")
+            where = "shadow." + name
+            if not isinstance(layers, list):
+                raise GenError("%s 不是数组" % where)
+            if dark and layers:
+                # 有层的阴影必须带 dark（不回落浅色）；none 这类空数组取自己的 value。
+                if "dark" not in leaf:
+                    raise GenError("%s 缺 dark（不回落浅色）" % where)
+                layers, where = leaf["dark"], where + ".dark"
+                if not isinstance(layers, list):
+                    raise GenError("%s 不是数组" % where)
+            parts = []
+            for layer in layers:
+                for f in ("x", "y", "blur", "spread", "opacity"):
+                    if not isinstance(layer.get(f), (int, float)) or isinstance(layer.get(f), bool):
+                        raise GenError("%s.%s 不是数字" % (where, f))
+                if not re.fullmatch(r"#[0-9A-Fa-f]{6}", str(layer.get("color"))):
+                    raise GenError("%s.color 不是 #RRGGBB" % where)
+                parts.append("new ShadowLayerToken(%s, %s, %s, %s, %s, %s)" % (
+                    num(layer["x"]), num(layer["y"]), num(layer["blur"]), num(layer["spread"]),
+                    ts_str(layer["color"]), num(layer["opacity"])))
+            lines.append("    map.set(%s, [%s]);" % (ts_str(name), ", ".join(parts)))
+        lines.append("    return map;")
+        lines.append("  }")
     lines.append("}")
     shadow_class = [
         "",
@@ -2024,6 +2048,8 @@ def build_outputs():
             gen_core_test_debug_routes(route_entry_type, route_entry_values),
     }
     outputs.update(build_test_outputs(ROOT))
+    # TOKENS-PIPE：主题资源与 CouliThemeTokens 同一次从锁定快照生成，--check 一并覆盖（gen_theme.check 仍供 HM-LINT-11）。
+    outputs.update(gen_theme.build_outputs())
     outputs[os.path.join(MODULE, "Index.ets")] = INDEX % index_exports(outputs, main)
     return outputs
 

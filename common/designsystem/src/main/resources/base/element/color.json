@@ -133,6 +133,22 @@
       "value": "#E4DED5"
     },
     {
+      "name": "color_platform_tag_taobao",
+      "value": "#D53D00"
+    },
+    {
+      "name": "color_platform_tag_tmall",
+      "value": "#EA0031"
+    },
+    {
+      "name": "color_platform_tag_jd",
+      "value": "#E02018"
+    },
+    {
+      "name": "color_platform_tag_pdd",
+      "value": "#EB0007"
+    },
+    {
       "name": "color_button_primary_default_background",
       "value": "#C44820"
     },
@@ -167,6 +183,10 @@
     {
       "name": "color_overlay_scrim",
       "value": "#6628251F"
+    },
+    {
+      "name": "color_overlay_on_image",
+      "value": "#8C000000"
     },
     {
       "name": "color_control_checked",

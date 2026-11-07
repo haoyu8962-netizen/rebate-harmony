@@ -1,5 +1,5 @@
 // 生成物，禁止手改；tools/codegen/gen.py；仅测试数据。
-// v0.4.0 原件 SHA256: 11539dc0cc88ecd9f980134a16f53744671036f35e75749f26e8d28977c69921
+// 快照 SHA256: 97d2bf83ada062959987f348bc695c63fabc4adb3647f03e5c0895e2548e491c
 export class ExpectedColor {
   key: string; light: string; dark: string;
   constructor(key: string, light: string, dark: string) {
@@ -40,6 +40,10 @@ export const EXPECTED_COLORS: ExpectedColor[] = [
   new ExpectedColor("source.text", "#655E57", "#B5ACA2"),
   new ExpectedColor("source.background", "#FFFFFF", "#24211E"),
   new ExpectedColor("source.border", "#E4DED5", "#3A3530"),
+  new ExpectedColor("platform.tag.taobao", "#D53D00", "#D53D00"),
+  new ExpectedColor("platform.tag.tmall", "#EA0031", "#EA0031"),
+  new ExpectedColor("platform.tag.jd", "#E02018", "#E02018"),
+  new ExpectedColor("platform.tag.pdd", "#EB0007", "#EB0007"),
   new ExpectedColor("button.primary.default.background", "#C44820", "#C44820"),
   new ExpectedColor("button.primary.default.text", "#FFFFFF", "#FFFFFF"),
   new ExpectedColor("button.primary.pressed.background", "#A83B1F", "#A83B1F"),
@@ -49,6 +53,7 @@ export const EXPECTED_COLORS: ExpectedColor[] = [
   new ExpectedColor("button.inverse.background", "#FFFFFF", "#FFFFFF"),
   new ExpectedColor("button.inverse.text", "#A83B1F", "#A83B1F"),
   new ExpectedColor("overlay.scrim", "#6628251F", "#8C000000"),
+  new ExpectedColor("overlay.on-image", "#8C000000", "#8C000000"),
   new ExpectedColor("control.checked", "#C44820", "#C44820"),
   new ExpectedColor("badge.background", "#C44820", "#C44820"),
 ];

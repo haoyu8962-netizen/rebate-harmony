@@ -32,8 +32,9 @@
     HM-LINT-9 webview-navbar-size  APP-04 R4-01：TrustedWebView.ets 的标题栏 navBar() 里不得出现 Image 组件或百分比高度。
                                    标题栏只有最小高度，百分比高度会参照整页、把标题栏撑满并挤掉 layoutWeight(1) 的网页区域；
                                    背景图只能用 backgroundImage 等背景属性（不参与尺寸测量）
-    HM-LINT-11 theme-drift         DS-02：designsystem 的 resources/base|dark 颜色资源与 theme/CouliThemeTokens.ets 与令牌源副本
-                                   specs/design-tokens.v0.4.0.json 不一致（tools/codegen/gen_theme.py --check；只在检查仓库本身时）
+    HM-LINT-11 theme-drift         DS-02：designsystem 的 resources/base|dark 颜色资源、entry 启动窗底色与 theme/CouliThemeTokens.ets
+                                   与锁定快照 contracts/snapshot/design/design-tokens.json 不一致（tools/codegen/gen_theme.py --check；
+                                   只在检查仓库本身时）
     [design-system-required]       DS-02 G1 警告（不计入违反、不改退出码）：features / entry 直接用 Checkbox / Toggle / Radio /
                                    TextInput / TextArea / Search / .bindSheet / openCustomDialog / showToast，应改用组件库
     HM-LINT-10 debug-mock-gate     F-X-02：entry/src/staging 里只有 DebugFakeServer.ets 能读 DebugFakeServer.enabled。其余调试替身
@@ -984,15 +985,15 @@ def lint(root, warnings=None):
 
 
 def theme_drift():
-    """HM-LINT-11 theme-drift（DS-02）：designsystem 的浅 / 深颜色资源与主题数据必须与令牌源副本一致（tools/codegen/gen_theme.py --check）。
-    gen.py 与 verify.sh 冻结在 DS-02 测试指纹里，这一检查挂在 lint.py 检查仓库本身时（--root 的样例目录不查）。"""
+    """HM-LINT-11 theme-drift（DS-02）：designsystem 的浅 / 深颜色资源与主题数据必须与锁定快照一致（tools/codegen/gen_theme.py --check）。
+    TOKENS-PIPE 起 gen.py --check 也纳入这些产物；这一检查照旧挂在 lint.py 检查仓库本身时（--root 的样例目录不查）。"""
     sys.path.insert(0, os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")), "tools", "codegen"))
     try:
         import gen_theme
         drift = gen_theme.check()
     except Exception as e:  # 生成器自身出错（源缺失、格式不对）同样算违反
         return ["tools/codegen/gen_theme.py:1: HM-LINT-11 主题生成器失败：%s" % e]
-    return ["%s:1: HM-LINT-11 与令牌源副本不一致（运行 python3 tools/codegen/gen_theme.py）" % rel for rel in drift]
+    return ["%s:1: HM-LINT-11 与锁定快照不一致（运行 python3 tools/codegen/gen_theme.py）" % rel for rel in drift]
 
 
 def main(argv):
