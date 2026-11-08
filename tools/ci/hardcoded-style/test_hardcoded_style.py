@@ -830,6 +830,64 @@ class VerifyStep(Base):
                          'verify.sh 本步的说明文字仍提系统控件（D10-901 已撤回控件计数）')
 
 
+class LintScanScope(Base):
+    """v6（编排 D10-788）：lint.py HM-LINT-1…9 的扫描范围（SCAN_DIRS = entry / common / features）里，**源码集内**（<模块>/src/<集>/**，
+    集 = main / staging / release 等会进制品的源码树）不再套 SKIP_DIRS——名为 mock / build / oh_modules / node_modules / .hvigor /
+    .preview / .test / ohosTest 的子目录照扫，与 HM-LINT-10（FU-HM-0718：范围内不套 SKIP_DIRS）同口径。
+    保持现状：测试源码集 src/ohosTest、src/mock（Hypium 本地测试 mock 源码集，如 common/core/src/mock）整体不扫；src/test 现状照扫。
+    模块根下的生成 / 依赖目录（<模块>/build、oh_modules、node_modules、.hvigor、.preview、.test）不是源码集，继续跳过：
+    HM-LINT-10 的范围本身就是一个源码集（entry/src/staging），它的「不套 SKIP_DIRS」只针对源码集内部；模块根下这些目录是
+    hvigor / ohpm 产出的编译中间物与三方依赖，不是本仓库手写源码，扫它们只会把三方库的写法误报成违反。"""
+    PRIVACY = "import { MobPush } from 'mobpush';\nexport function boot(ctx: object): void {\n  MobPush.init(ctx);\n}\n"
+    V1 = "@Component\nexport struct OldView {\n  @State n: number = 0;\n  build() {}\n}\n"
+    INCLUDED_DIRS = [
+        'features/home/src/main/ets/mock', 'features/home/src/main/ets/build', 'entry/src/main/ets/oh_modules',
+        'entry/src/main/ets/.hvigor', 'entry/src/release/ets/.preview', 'common/core/src/main/ets/node_modules',
+        'features/me/src/main/ets/.test', 'features/me/src/main/ets/ohosTest', 'entry/src/staging/ets/mock',
+        'entry/src/staging/ets/build', 'common/core/src/release/ets/mock', 'common/core/src/staging/ets/build',
+        # 现状已扫，钉住不回退
+        'features/home/src/main/ets/plain', 'features/home/src/test',
+        # v7（评审 r4 S2-1）：集内多层嵌套、集内名为 src 的子目录、嵌套模块的源码集
+        'features/home/src/main/ets/mock/build/oh_modules', 'features/home/src/main/ets/src/ohosTest',
+        'features/home/sub/src/main/ets/mock',
+    ]
+    EXCLUDED_DIRS = [
+        # 测试源码集（保持现状）
+        'features/home/src/ohosTest/ets/test', 'entry/src/ohosTest/ets/test', 'common/core/src/mock',
+        # 模块根下的生成 / 依赖目录（非源码集）
+        'features/home/build/default/intermediates/ets', 'features/home/oh_modules/lib', 'features/home/node_modules/lib',
+        'entry/.hvigor/cache', 'entry/.preview/ets', 'common/core/.test/ets', 'entry/build/default/ets',
+    ]
+
+    def run_lint(self, root):
+        r = subprocess.run([sys.executable, str(LINT), '--root', str(root)], capture_output=True, text=True, timeout=900)
+        return r.returncode, r.stdout + r.stderr
+
+    def test_skip_dirs_inside_source_sets_are_scanned(self):
+        root = self.tmp()
+        for d in self.INCLUDED_DIRS + self.EXCLUDED_DIRS:
+            write(root / d / 'PushBoot.ets', self.PRIVACY)
+            write(root / d / 'OldView.ets', self.V1)
+        code, out = self.run_lint(root)
+        self.assertEqual(code, 1, out)
+        for d in self.INCLUDED_DIRS:
+            with self.subTest(included=d):
+                self.assertRegex(out, re.escape(d + '/PushBoot.ets:3:') + r'.*HM-LINT-4', '隐私类规则漏扫 ' + d + '\n' + out)
+                self.assertRegex(out, re.escape(d + '/OldView.ets:1:') + r'.*HM-LINT-2', '普通规则漏扫 ' + d + '\n' + out)
+        for d in self.EXCLUDED_DIRS:
+            with self.subTest(excluded=d):
+                self.assertNotIn(d + '/', out)
+
+    def test_real_tree_lint_still_clean(self):
+        code, out = self.run_lint_real()
+        self.assertEqual(code, 0, out)
+        self.assertIn('lint.py：0 处违反', out)
+
+    def run_lint_real(self):
+        r = subprocess.run([sys.executable, str(LINT)], capture_output=True, text=True, timeout=900)
+        return r.returncode, r.stdout + r.stderr
+
+
 class RealTree(Base):
     """实现与正式基线落地后才能绿：真实工作树按正式基线 exit 0，正式基线 == 生成结果。"""
 

@@ -16,6 +16,10 @@
 第 2 轮修复：注释 / 字符串 / 正则 / 导入一律由 TypeScript 解析器给出——hm10-scan.js --lex，与 HM-LINT-10 同一条解析链；lint.py 只消费
 它输出的 JSON，不再手写词法；字符串与模块名一律按解码后的值比较；解析链缺失或输出不完整按 3）。
 
+扫描范围（HM-LINT-1…9，D10-788）：entry / common / features 下的 .ets / .ts。源码集 <模块>/src/<集>/ 内部不按 SKIP_DIRS 剪枝
+（集内 mock / build 等子目录照扫）；src/ohosTest、src/mock 两个测试源码集整集跳过（src/test 照扫）；源码集之外的模块根生成 / 依赖
+目录（build、oh_modules、node_modules、.hvigor、.preview、.test）继续跳过；不跟随符号链接。HM-LINT-10 的范围另见下文。
+
 规则（命中任一即退出 1，每行输出带规则号）：
     HM-LINT-1 no-cjk-in-features   features/ 下 .ets 的字符串字面量含中日韩字符（BR-TEXT-12：文案经字典取键）
     HM-LINT-2 no-v1-decorators     出现 V1 状态管理装饰器（只用 V2：@ComponentV2、@Local、@Param、@ObservedV2、@Trace …）
@@ -59,6 +63,10 @@ import sys
 FEATURES = ["home", "search", "product", "agent", "orders", "wallet", "me", "auth", "web"]
 SCAN_DIRS = ["entry", "common", "features"]
 SKIP_DIRS = {"oh_modules", "node_modules", "build", ".hvigor", ".test", ".preview", "ohosTest", "mock"}
+# D10-788（LINT-STYLE-harmony r4）：HM-LINT-1…9 只在「源码集之外」（模块根及以上：build / oh_modules / .hvigor 等生成与依赖目录）
+# 按 SKIP_DIRS 剪枝；源码集 <模块>/src/<集>/ 内部不剪枝（集内 mock / build 等子目录是手写源码，会被 import 进制品）；
+# <集> 为下面这些测试源码集时整集跳过（src/test 现状照扫，不在此列）。
+TEST_SOURCE_SETS = {"ohosTest", "mock"}
 
 CJK = re.compile(r"[　-〿㐀-䶿一-鿿豈-﫿＀-￯]")
 V1_DECORATORS = [
@@ -711,8 +719,13 @@ def self_test_hm10():
 
 
 def ets_files(root, incomplete):
-    """HM-LINT-1…9 的扫描范围（SCAN_DIRS 下的 .ets / .ts，跳过 SKIP_DIRS）。FU-HM-0718 第 3 项 ①：某个子目录无法列举时
-    os.walk 默认静默跳过整棵子树——现在经 onerror 记进 incomplete（lint 以 4 退出），不再当成扫完。"""
+    """HM-LINT-1…9 的扫描范围：SCAN_DIRS 下的 .ets / .ts（D10-788 口径）：
+    ① 源码集 <模块>/src/<集>/ 内部不按 SKIP_DIRS 剪枝——集内名为 mock / build / oh_modules / .hvigor / ohosTest 等的子目录照扫
+       （与 HM-LINT-10「范围内不套 SKIP_DIRS」同口径）；
+    ② <集> 为 TEST_SOURCE_SETS（src/ohosTest、src/mock：Hypium 测试与本地测试 mock 源码集）时整集跳过；src/test 等其他集照扫；
+    ③ 源码集之外（模块根下的 build / oh_modules / node_modules / .hvigor / .preview / .test 等生成与依赖目录）仍按 SKIP_DIRS 跳过。
+    不跟随符号链接（os.walk 默认）。FU-HM-0718 第 3 项 ①：某个子目录无法列举时 os.walk 默认静默跳过整棵子树——现在经 onerror
+    记进 incomplete（lint 以 4 退出），不再当成扫完。"""
     def walk_failed(err):
         incomplete.append("%s: 扫描目录无法列举（%s），该子树没有扫到，无法保证扫完"
                           % (os.path.relpath(err.filename or root, root), err.strerror or err))
@@ -727,7 +740,13 @@ def ets_files(root, incomplete):
             incomplete.append("%s: 扫描目录无法查询（%s），无法保证扫完" % (top, e.strerror or e))
             continue
         for dirpath, dirnames, names in os.walk(base, onerror=walk_failed):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+            parts = os.path.relpath(dirpath, root).replace(os.sep, "/").split("/")
+            if "src" in parts[:-1]:
+                pass  # 源码集 <模块>/src/<集>/ 内部：不剪枝
+            elif parts[-1] == "src":
+                dirnames[:] = [d for d in dirnames if d not in TEST_SOURCE_SETS]  # 测试源码集整集跳过
+            else:
+                dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]  # 源码集之外：生成 / 依赖目录跳过
             for name in names:
                 if name.endswith(".ets") or name.endswith(".ts"):
                     yield os.path.join(dirpath, name)
