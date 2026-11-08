@@ -1,0 +1,28 @@
+{
+  "counts": {
+    "couli-g1/click-without-feedback": 3,
+    "couli-g1/edge-effect-none": 2,
+    "couli-g1/hide-title-bar": 2,
+    "couli-g1/self-drawn-control": 2
+  },
+  "lines": {
+    "couli-g1/click-without-feedback": [
+      13,
+      21,
+      24
+    ],
+    "couli-g1/edge-effect-none": [
+      28,
+      31
+    ],
+    "couli-g1/hide-title-bar": [
+      34,
+      37
+    ],
+    "couli-g1/self-drawn-control": [
+      12,
+      17
+    ]
+  },
+  "path": "features/home/src/main/ets/cases/PageHits.ets"
+}
