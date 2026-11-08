@@ -86,8 +86,8 @@ export class BuildVariant {
   }
 
   /**
-   * 实名提交与劳务协议（APP-09 G01、G02）：契约还没有这三个接口，Release 一律不可用（null）——【提交认证】【同意并签署】置灰、显示草稿说明，
-   * 不发任何请求。TODO(N-32)：契约补上后改为真实接口。
+   * Debug 假服务（实名提交 + 劳务协议，APP-09 G01、G02）：Release 恒为 null。实名提交走真实接口（AppWallet.deps 的 d.realname）；
+   * 劳务协议的接口契约还没有，【同意并签署】置灰、显示草稿说明，不发任何请求。TODO(N-32)：契约补上后劳务改为真实接口。
    */
   static walletContract(): WalletContractPort | null {
     return null;

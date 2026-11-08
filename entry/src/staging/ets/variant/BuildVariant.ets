@@ -184,6 +184,7 @@ export class BuildVariant {
   /**
    * 实名提交与劳务协议的待定接口（APP-09 G01、G02，契约没有）：本机假服务打开时用假实现（截图与冒烟）；没打开时与 Release 一样为 null
    * （页面置灰、不发请求）。
+   * FU-HM-REALNAME-API：实名提交已有真实接口——假服务打开时假实现优先，没打开时走 d.realname（AppWallet.deps）；上一句的「置灰、不发请求」现在只说劳务页。
    */
   static walletContract(): WalletContractPort | null {
     return DebugSubstitutes.choose<WalletContractPort | null>(DebugFakeServer.mockGate, BuildVariant.fakeWallet, null);

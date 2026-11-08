@@ -6,7 +6,7 @@ import {
   FundPageFactory, ApiClient, ApiClientWalletPort, ApiOutcome, ApiRequest, ApiResult, AppConfig, SessionIdentity, WalletSessionReconciler, ClientEvents,
   ClipboardController,
   ConfigStore, CouliPreferences, FileSlot, OrderCacheStore,
-  OrderPendingMark, PendingKeyRecord, RouteDestination,
+  OrderPendingMark, PendingKeyRecord, RealNameRemote, RouteDestination,
   RouteTable, TransportFailure, WalletApiPort, WalletCacheCleaner, WalletConfigPort, WalletController, WalletDeps,
   WalletHelpLink, WalletJson, WalletRecord, WalletSession, WalletStaleCache,
   WithdrawInputBackend, WithdrawInputDraft
@@ -17,7 +17,9 @@ import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
 import { AppClipboard } from '../clipboard/AppClipboard';
 import { AppLogin } from '../login/AppLogin';
+import { AppMe } from '../me/AppMe';
 import { AppNetwork } from '../network/AppNetwork';
+import { BundledLegal } from '../privacy/AppPrivacy';
 import { AppRouting } from '../routing/AppRouting';
 import { AppUpdate } from '../update/AppUpdate';
 
@@ -344,6 +346,11 @@ export class AppWallet {
     d.account = (): string | null => AppWallet.account();
     d.config = this.config;
     d.contract = BuildVariant.walletContract();
+    // 实名提交的真实接口（Debug 假服务打开时 contract 优先）。同意 version：legal.privacy.version，取不到回落包内版本（与个性化同意同一对，D10-1033 ②）。
+    d.realname = new RealNameRemote(this.api, (): number | null => AppMe.legalPrivacyVersion(), (): number | null => {
+      const bundled: number = Number.parseInt(BundledLegal.PRIVACY_POLICY_VERSION, 10);
+      return Number.isNaN(bundled) ? 1 : bundled;
+    }, d.clock);
     d.cache = this.cacheInstance;
     d.open = (route: string, params: Record<string, Object>): void => {
       AppRouting.shared.openInApp(route, params);

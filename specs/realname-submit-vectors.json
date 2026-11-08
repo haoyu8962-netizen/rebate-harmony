@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "source": "D10-856 ②（FU-IOS-REALNAME-API）；rebate-platform a89c1ec3a contracts/openapi.json submitRealname（POST /v1/me/realname，x-auth phone、x-signed、x-idempotent）、SubmitRealnameRequest / SubmitRealnameResult、recordConsent（RecordConsentRequest）、error-codes.json 各码 action；couli 规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-25（先弹实名单独同意 type=id_verification，默认不勾选）、BR-ID-12（consent_records）、BR-ID-10 细则「敏感操作的幂等键」；编排裁定 F-AND-48（2026-10-18：40901 不是终态，实名在列，保持在途、原键查结果 / 重放、不换新键）。三端照抄，逐字节一致。",
+  "contractCommit": "a89c1ec3a7f4de0b069742af909eba6545358ea3",
+  "request": {
+    "submit": {"method": "POST", "path": "/v1/me/realname", "bodyKeys": ["id_no", "name"], "headers": ["Authorization", "Idempotency-Key", "X-Sign", "X-Timestamp", "X-Nonce"], "idempotencyKeyPattern": "^[A-Za-z0-9_-]{8,64}$"},
+    "consent": {"method": "POST", "path": "/v1/consents", "bodyKeys": ["accepted", "channel", "client_at", "type", "version"], "fixed": {"type": "id_verification", "accepted": true, "channel": "realname_sheet"}, "version": "正整数（取值来源契约未写，见 handback §7-1）", "order": "同意记录成功（code 0）之后才发实名提交；同意记录失败不发实名提交"},
+    "normalize": [
+      {"typedName": "  测试实名甲 ", "typedId": "11010519491231002x", "name": "测试实名甲", "id_no": "11010519491231002X"}
+    ]
+  },
+  "harnessUnknown": "带 sequence 的 case（编排 D10-1018：结果未知之后，10405 / 5xxxx / 42901 照错误码表不结束键）：第 1 次实名提交回 sequence[0]（断连，结果未知），等按钮恢复后表单不变再提交，第 2 次回 sequence[1]（沿用原键，已由 transport_lost 钉住）；等按钮恢复（42901 等 Retry-After 1 秒禁用期过去）后表单不变第 3 次提交，回 code 0。nextSubmit：第 3 次与第 1 次的幂等键 same_key / new_key（30406 写入幂等结果，键结束，作对照）；请求体三次一致。",
+  "harness": "每条 case：GET /v1/me 先回 realname_status=none；钱包 → 提现被守卫送进 RealName；填 request.normalize[0]，【提交认证】→ 勾选 → 【同意并继续】；POST /v1/consents 回 code 0；POST /v1/me/realname 第 1 次回 reply，之后都回 code 0 + {realname_status: verified, masked_name: **甲}。第 1 次提交后等 1 秒观察窗再判 expect。expect 里没写的项不判。done：true = 本会话按已实名放行并出栈、false = 不按已实名；textKey：页内错误条的文案键，null = 没有错误条；textKeyNot：错误条存在且键不在列表里；trace6：错误条带 trace 后 6 位；messageClean：错误条整句不含 { } 占位、不以「维护中」开头；fieldErrors：字段错误（字段旁提示，不另出错误条）；lockedToday：本页按钮置灰到退出；gateActive：实名禁用期在走；consentReopen：单独同意半屏重新打开；autoResend：false = 观察窗内没有第 2 次实名提交；refreshMe：成功后又取了 GET /v1/me；nextSubmit：再次提交（表单不变；consentReopen 时直接在半屏里勾选同意）的幂等键与第 1 次 same_key / new_key，blocked = 不能再次提交（点了也不开半屏、不发请求）。",
+  "cases": [
+    {"name": "ok_verified", "reply": {"code": 0, "data": {"realname_status": "verified", "masked_name": "**甲"}}, "expect": {"done": true, "refreshMe": true, "autoResend": false}},
+    {"name": "e20001_field_id_no", "reply": {"code": 20001, "data": {"fields": ["id_no"]}}, "expect": {"done": false, "textKey": null, "fieldErrors": ["id_no"], "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e20001_field_name", "reply": {"code": 20001, "data": {"fields": ["name"]}}, "expect": {"done": false, "textKey": null, "fieldErrors": ["name"], "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e20001_no_fields", "reply": {"code": 20001, "data": null}, "expect": {"done": false, "textKey": "error.20001", "fieldErrors": [], "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e30405_taken", "reply": {"code": 30405, "data": null}, "expect": {"done": false, "textKey": "error.30405", "fieldErrors": [], "lockedToday": false, "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e30406_mismatch", "reply": {"code": 30406, "data": null}, "expect": {"done": false, "textKey": "error.30406", "fieldErrors": [], "lockedToday": false, "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e30407_age", "reply": {"code": 30407, "data": null}, "expect": {"done": false, "textKey": "error.30407", "fieldErrors": [], "lockedToday": false, "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e30410_daily_limit", "reply": {"code": 30410, "data": null}, "expect": {"done": false, "textKey": "error.30410", "lockedToday": true, "autoResend": false, "nextSubmit": "blocked"}},
+    {"name": "e42901_rate_limited", "reply": {"code": 42901, "data": null, "headers": {"Retry-After": "30"}}, "expect": {"done": false, "textKey": "error.42901", "gateActive": true, "autoResend": false, "nextSubmit": "blocked"}},
+    {"name": "e50401_vendor_timeout", "reply": {"code": 50401, "data": null}, "expect": {"done": false, "textKey": "error.50401", "trace6": true, "messageClean": true, "autoResend": false}},
+    {"name": "e50301_service_unavailable", "reply": {"code": 50301, "data": null}, "expect": {"done": false, "textKeyNot": ["error.50301"], "messageClean": true, "autoResend": false}},
+    {"name": "e50001_server", "reply": {"code": 50001, "data": null}, "expect": {"done": false, "textKey": "error.50001", "trace6": true, "messageClean": true, "autoResend": false}},
+    {"name": "e10004_id_verification", "reply": {"code": 10004, "data": {"consent_type": "id_verification"}}, "expect": {"done": false, "consentReopen": true, "autoResend": false, "nextSubmit": "same_key"}},
+    {"name": "e10005_bind_phone", "reply": {"code": 10005, "data": null}, "expect": {"done": false, "autoResend": false}},
+    {"name": "e10010_reverify", "reply": {"code": 10010, "data": {"method": "id_number", "fail_limit": 3}}, "expect": {"done": false, "textKey": "error.10010", "autoResend": false, "nextSubmit": "new_key"}},
+    {"name": "e10001_login", "reply": {"code": 10001, "data": null}, "expect": {"done": false, "autoResend": false}},
+    {"name": "e10405_force_update", "reply": {"code": 10405, "data": {"min_supported_version": "99.0.0"}}, "expect": {"done": false, "autoResend": false}},
+    {"name": "transport_lost", "reply": {"transport": "disconnect"}, "expect": {"done": false, "autoResend": false, "nextSubmit": "same_key"}},
+    {"name": "unknown_then_e10405", "dedicated": "RealnameFundsUnknownKeyTests", "sequence": [{"transport": "disconnect"}, {"code": 10405, "data": {"min_supported_version": "0.0.1"}}], "expect": {"done": false, "nextSubmit": "same_key"}},
+    {"name": "unknown_then_e50001", "dedicated": "RealnameFundsUnknownKeyTests", "sequence": [{"transport": "disconnect"}, {"code": 50001, "data": null}], "expect": {"done": false, "nextSubmit": "same_key"}},
+    {"name": "unknown_then_e50401", "dedicated": "RealnameFundsUnknownKeyTests", "sequence": [{"transport": "disconnect"}, {"code": 50401, "data": null}], "expect": {"done": false, "nextSubmit": "same_key"}},
+    {"name": "unknown_then_e50301", "dedicated": "RealnameFundsUnknownKeyTests", "sequence": [{"transport": "disconnect"}, {"code": 50301, "data": null}], "expect": {"done": false, "nextSubmit": "same_key"}},
+    {"name": "unknown_then_e42901", "dedicated": "RealnameFundsUnknownKeyTests", "sequence": [{"transport": "disconnect"}, {"code": 42901, "data": null, "headers": {"Retry-After": "1"}}], "expect": {"done": false, "nextSubmit": "same_key"}},
+    {"name": "unknown_then_e30406", "dedicated": "RealnameFundsUnknownKeyTests", "sequence": [{"transport": "disconnect"}, {"code": 30406, "data": null}], "expect": {"done": false, "nextSubmit": "new_key"}},
+    {"name": "e40901_busy", "reply": {"code": 40901, "data": null}, "dedicated": "RealnameFundsKeyTests.test40901KeepsLoadingAndResendsSameKey", "expect": {"done": false, "keepLoading": true, "resend": "same_key_same_body_auto", "maxPostsIn6s": 4}}
+  ]
+}

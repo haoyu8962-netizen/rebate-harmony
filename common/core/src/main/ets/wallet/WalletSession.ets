@@ -69,9 +69,9 @@ export class ApiClientWalletPort implements WalletApiPort {
 }
 
 /**
- * 契约里还没有的实名提交与劳务协议接口（G01、G02，标「需契约」）：手写的待定 operation，不进生成的 ApiOperations，只由 Debug 假服务实现；
- * Release 构建为 null（页面置灰、不发任何请求）。结果用 ApiResult 表达（成功 / 业务错误 / 网络错误），与真实接口同一种分流。
- * TODO(N-32)：契约补上 POST /v1/me/realname、GET /v1/me/labor-agreement、POST /v1/me/labor-agreement/sign 后改为真实接口。
+ * Debug 假服务实现的实名提交，与契约里还没有的劳务协议接口（G02，标「需契约」）：手写的待定 operation，不进生成的 ApiOperations；
+ * Release 构建为 null（劳务页置灰、不发任何请求；实名走 RealNamePort）。结果用 ApiResult 表达（成功 / 业务错误 / 网络错误），与真实接口同一种分流。
+ * TODO(N-32)：契约补上 GET /v1/me/labor-agreement、POST /v1/me/labor-agreement/sign 后劳务改为真实接口。
  */
 export interface WalletContractPort {
   /** submitRealname：姓名、身份证号；签名，带 Idempotency-Key（04 §6.1、BR-ID-25）。同意记录在假服务里与提交一起发生。 */
@@ -82,6 +82,16 @@ export interface WalletContractPort {
 
   /** signLaborAgreement：{version, text_sha256, agreed: true}；sha256 原样回传服务端给的值。 */
   signLaborAgreement(version: string, textSha256: string): Promise<ApiResult>;
+}
+
+/** 实名提交的真实接口（生产：RealNameRemote；测试：同一个实现或脚本端口）。 */
+export interface RealNamePort {
+  /** POST /v1/consents（id_verification，realname_sheet）；取不到 version 时不发，回非 ok 结果。 */
+  recordConsent(owner: () => boolean, sendAllowed: () => boolean): Promise<ApiResult>;
+
+  /** POST /v1/me/realname：体恰好 {name, id_no}；idempotencyKey 为 null 时网络层新生成，用过的键由 ApiResult.idempotencyKey 带回。 */
+  submitRealname(name: string, idNo: string, idempotencyKey: string | null, owner: () => boolean,
+    sendAllowed: () => boolean): Promise<ApiResult>;
 }
 
 /** 钱包页面用到的配置（生产：ConfigStore；测试：固定值）。 */

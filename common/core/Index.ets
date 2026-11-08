@@ -281,6 +281,8 @@ export {
 export {
   RealNameSnapshot, RealNameController, LaborSnapshot, LaborAgreementController
 } from './src/main/ets/wallet/RealNameController';
+export { RealNamePort } from './src/main/ets/wallet/WalletSession';
+export { RealNameRemote } from './src/main/ets/wallet/RealNameRemote';
 export {
   RecordsPhase, RecordsSnapshot, RecordsDetail, WithdrawRecordsGrouping, WithdrawRecordsController
 } from './src/main/ets/wallet/WithdrawRecordsController';

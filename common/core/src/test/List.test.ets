@@ -139,6 +139,14 @@ import pendingInviteHM13dTest from './PendingInviteHM13d.test';
 import loginHM13aTest from './LoginHM13a.test';
 import quickLoginHM14aTest from './QuickLoginHM14a.test';
 import ctaKeyDetailTest from './CtaKeyDetail.test';
+import realnameVectorTest from './RealnameVector.test';
+import realnameRequestTest from './RealnameRequest.test';
+import realnameBusyTest from './RealnameBusy.test';
+import realnameMatrixTest from './RealnameMatrix.test';
+import realnameFlowTest from './RealnameFlow.test';
+import realnameWiringTest from './RealnameWiring.test';
+import realnameFundsNoFundWriteTest from './RealnameFundsNoFundWrite.test';
+import realnamePrivacyTest from './RealnamePrivacy.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 
@@ -296,4 +304,13 @@ export default function testsuite() {
   homePageApiTest();
   // FU-X-CTA-KEY-DRIFT：详情可买判定 / 购买前核对 / AI 卡解码不看 cta 键在不在锁内（守卫）。
   ctaKeyDetailTest();
+  // FU-HM-REALNAME-API：实名提交接 POST /v1/me/realname（向量、键规则、40901、D10-1002 安全性、哨兵）。
+  realnameVectorTest();
+  realnameRequestTest();
+  realnameBusyTest();
+  realnameMatrixTest();
+  realnameFlowTest();
+  realnameWiringTest();
+  realnameFundsNoFundWriteTest();
+  realnamePrivacyTest();
 }

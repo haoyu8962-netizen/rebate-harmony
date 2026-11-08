@@ -7,7 +7,7 @@ import { WalletCacheEntry, WalletStaleCache } from './WalletStaleCache';
 import { CacheOwner } from '../orders/OrderStaleCache';
 import { WalletJson, WalletRecord } from './WalletJson';
 import {
-  WalletApiPort, WalletConfigPort, WalletContractPort, WalletLoadFailure, WalletMessage, WalletMessages,
+  RealNamePort, WalletApiPort, WalletConfigPort, WalletContractPort, WalletLoadFailure, WalletMessage, WalletMessages,
   WalletSession, WalletSessionAware, EmptyWalletConfig
 } from './WalletSession';
 import { EarningsEntry } from './WalletPresentation';
@@ -23,8 +23,10 @@ export class WalletDeps implements StepUpDeps {
   /** 当前会话账号（游客、读不出为 null）。 */
   account: () => string | null = () => null;
   config: WalletConfigPort = new EmptyWalletConfig();
-  /** G01、G02 的待定接口（Release 为 null：页面置灰、不发请求）。 */
+  /** Debug 假服务（实名提交 + 劳务协议）；Release 为 null（劳务页置灰、不发请求）。 */
   contract: WalletContractPort | null = null;
+  /** 实名提交的真实接口（RealNameRemote）；contract 不为 null 时假服务优先。 */
+  realname: RealNamePort | null = null;
   cache: WalletStaleCache | null = null;
   /** 经 Router 以路由名打开（App 内用户操作）。 */
   open: (route: string, params: Record<string, Object>) => void = (_r: string, _p: Record<string, Object>) => {

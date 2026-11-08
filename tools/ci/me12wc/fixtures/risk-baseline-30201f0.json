@@ -126,15 +126,19 @@
    "common/core/src/main/ets/wallet/PayoutAccountController.ets"
   ],
   [
-   "76bcf4ebd0e2b3e5b88a42132fd30f7ae412ed6b4234e99f0da3749bfc325c91",
+   "3b40f05b63950e9e2950360777284ded94dd96d3c79fe396caad60e4c2b5964f",
    "common/core/src/main/ets/wallet/RealNameController.ets"
+  ],
+  [
+   "e431841dc73b5ce5913806d765ddb217b13c3dd0d03b9021fd9fa7cc7a518d3e",
+   "common/core/src/main/ets/wallet/RealNameRemote.ets"
   ],
   [
    "8cc8c1c9a085e43ef371c0e49a24dcb7f0451b44ff5c738cf990f6ff715432c1",
    "common/core/src/main/ets/wallet/SensitiveFlow.ets"
   ],
   [
-   "c9c5967da5180360e328b298d0a047e0e99bd379c4af554c11ccad5d203f2068",
+   "7c980fad76c5b21a9eb269d3d1765e92f31c1fc12a69a24ae36f0d4b5c942aa8",
    "common/core/src/main/ets/wallet/WalletController.ets"
   ],
   [
@@ -150,7 +154,7 @@
    "common/core/src/main/ets/wallet/WalletPresentation.ets"
   ],
   [
-   "7f77b3a8c8bdc3c379d102f6dfdcb7d2cbb6da4c356635a386524c58fb3d4449",
+   "e040613405d90dac95983bd7052fcd607d9c07b01ce87abe2b377314bee3a16f",
    "common/core/src/main/ets/wallet/WalletSession.ets"
   ],
   [
@@ -170,7 +174,7 @@
    "common/core/src/main/ets/wallet/WithdrawRecordsController.ets"
   ],
   [
-   "b7b0c801b1b4d3856a9284db5372e706e426931b75223ce647119a07e6d286f3",
+   "4edd3a61cac99b2c07d86c9563fca7c989a4e1ec1a53bd21f70a7b89338459c0",
    "entry/src/main/ets/wallet/AppWallet.ets"
   ],
   [

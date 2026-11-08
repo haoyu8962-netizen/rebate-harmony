@@ -386,6 +386,14 @@ python3 "$ROOT/tools/ci/ctakey/check_cta_key.py" || fail_fast "ctakey-host" "见
 node "$ROOT/tools/ci/ctakey/check-arkts.cjs" --real || fail_fast "ctakey-arkts" "FU-X-CTA-KEY-DRIFT 测试文件 ArkTS 严格检查失败"
 record "FU-X-CTA-KEY-DRIFT 宿主检查" PASS "锁 / 同名快照 / 向量 / 调用点文案函数 / 默认诊断 / 登记（自测 29 个错误实现）/ ArkTS"
 
+# FU-HM-REALNAME-API（D10-887 / D10-1002 / D10-1033）：向量与 iOS 逐字节、contract 指针、AppWallet 接真实实名、Release walletContract 仍 null、
+# RealNameRemote 请求形状、不打印、视图层不直连、新套件已登记（tools/ci/realname/check_realname.py，先自测）；新套件与产品文件 ArkTS 严格检查。
+step "FU-HM-REALNAME-API 实名提交宿主检查"
+python3 "$ROOT/tools/ci/realname/check_realname.py" --self-test || fail_fast "realname-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/realname/check_realname.py" || fail_fast "realname-host" "见上方违反项"
+node "$ROOT/tools/ci/realname/check-arkts.cjs" --real || fail_fast "realname-arkts" "FU-HM-REALNAME-API 测试文件 ArkTS 严格检查失败"
+record "FU-HM-REALNAME-API 宿主检查" PASS "向量 / 锁 / 接线 / 不打印 / 视图层 / 登记（自测 16 个错误实现）/ ArkTS"
+
 step "FU-HM-DEVICE-FLAKE 设备测试设施自测"
 node "$ROOT/tools/ci/flake/run-logic.cjs" || fail_fast "flake-logic" "见上方 FlakeKit 断言"
 python3 "$ROOT/tools/ci/flake/test_device_steps.py" || fail_fast "flake-device-steps" "见上方设备步汇总 / 复跑脚本断言"

@@ -17,6 +17,8 @@
     common/designsystem/src/test/FormatVectorsData.ets        specs/format-vectors.json 全文（DS-01，格式向量单测用）
     common/designsystem/src/test/CtaKeyVectorsData.ets        specs/cta-key-vectors.json 全文（FU-X-CTA-KEY-DRIFT，三端共用购买按钮
                                                               cta 文案键向量；--check 守与 iOS 原件逐字节相同）
+    common/core/src/test/RealnameVectorsData.ets              specs/realname-submit-vectors.json 全文（FU-HM-REALNAME-API，三端共用实名提交向量；
+                                                              --check 守与 iOS 原件逐字节相同）
     common/core/src/test/RouterVectorsData.ets                specs/router-vectors.json 全文（APP-02a，Router 向量单测用）
     common/core/src/test/TestDebugRoutes.ets                  debug_only 路由表的测试副本（APP-02a，core 单测注册调试路由用）
     common/core/src/test/PrivacyGateVectorsData.ets           specs/privacy-gate-vectors.json 全文（APP-02b，隐私闸门向量单测用）
@@ -957,6 +959,34 @@ def gen_cta_key_vectors_data():
     return gen_vectors_data(CTA_KEY_VECTORS, "CTA_KEY_VECTORS_JSON",
                             "购买按钮 cta 文案键向量（FU-X-CTA-KEY-DRIFT）：specs/cta-key-vectors.json 全文，供 "
                             "CtaKeyVector.test.ets 解析。只在 src/test，不进产物。")
+
+
+REALNAME_VECTORS = os.path.join("specs", "realname-submit-vectors.json")
+# FU-HM-REALNAME-API-harmony（D10-887 ⑥）：specs/realname-submit-vectors.json 整份照 rebate-ios 75eb599 逐字节拷贝（41 行，sha256 下列；安卓副本同值）。
+# 鸿蒙差异在测试映射，不改本文件（任务书 §4）。常量名不带 KEY / TOKEN（gitleaks generic-api-key，见 CTA 交回 §5-2）。
+REALNAME_VECTORS_IOS_SHA256 = "2b3f872080677d36e3965bf57a5af30c9e7e39c5c1212ff34e6b30ce22b85cf9"
+REALNAME_VECTORS_IOS_LINES = 41
+
+
+def gen_realname_vectors_data():
+    """specs/realname-submit-vectors.json（三端同一份）：全文与 iOS 基准逐字节一致才生成 core 本机单测的字符串常量。"""
+    import hashlib
+    path = os.path.join(ROOT, REALNAME_VECTORS)
+    if not os.path.isfile(path):
+        raise GenError("缺 " + REALNAME_VECTORS)
+    with open(path, "rb") as f:
+        data = f.read()
+    lines = data.decode("utf-8").count("\n")
+    if lines != REALNAME_VECTORS_IOS_LINES:
+        raise GenError("%s 行数 %d ≠ iOS 基准 %d（D10-887 ⑥：三端逐字节照抄）" % (REALNAME_VECTORS, lines,
+                                                                     REALNAME_VECTORS_IOS_LINES))
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != REALNAME_VECTORS_IOS_SHA256:
+        raise GenError("%s 与 iOS 基准不一致（sha256 %s ≠ %s；鸿蒙差异在测试里映射，不改文件）"
+                       % (REALNAME_VECTORS, digest, REALNAME_VECTORS_IOS_SHA256))
+    return gen_vectors_data(REALNAME_VECTORS, "REALNAME_VECTORS_JSON",
+                            "实名提交向量（FU-X-REALNAME-API）：specs/realname-submit-vectors.json 全文，供 RealnameVector.test.ets 解析。"
+                            "只在 src/test，不进产物。")
 
 
 RISK_APPEAL_VISUAL_VECTORS = os.path.join("specs", "risk-appeal-visual-vectors.json")
@@ -2041,6 +2071,7 @@ def build_outputs():
         os.path.join(MODULE, "src", "test", "ContractSnapshotData.ets"): gen_snapshot_data(),
         os.path.join(DS_MODULE, "src", "test", "FormatVectorsData.ets"): gen_format_vectors_data(),
         os.path.join(DS_MODULE, "src", "test", "CtaKeyVectorsData.ets"): gen_cta_key_vectors_data(),
+        os.path.join(CORE_MODULE, "src", "test", "RealnameVectorsData.ets"): gen_realname_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "RouterVectorsData.ets"): gen_router_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "PrivacyGateVectorsData.ets"): gen_privacy_gate_vectors_data(),
         os.path.join(CORE_MODULE, "src", "test", "UpdateGateVectorsData.ets"): gen_update_gate_vectors_data(),
