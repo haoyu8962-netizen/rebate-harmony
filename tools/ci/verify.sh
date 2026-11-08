@@ -260,6 +260,14 @@ step "DS-02 组件资源 / 守卫 / 目录隔离宿主测试"
 python3 "$ROOT/tools/ci/ds02/test_host.py" || fail_fast "ds02-host" "见上方用例断言"
 record "ds02-host" PASS
 
+# LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
+# 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
+# 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
+step "LINT-STYLE 写死样式基线"
+python3 "$ROOT/tools/ci/check_hardcoded_style.py" --self-test || fail_fast "lint-style 自测" "见上方输出"
+python3 "$ROOT/tools/ci/check_hardcoded_style.py" || fail_fast "lint-style" "见上方违反项（超出基线、少于基线须降基线、基线里的文件不存在）"
+record "lint-style" PASS "写死样式基线"
+
 # F-X-05a：平台内置图标（资源逐字节 = couli 原图、清单 / README、读屏隐藏与不着色守卫、接线、F-DS-01 挂起、设备用例名单）。
 # 先自测（合规参照件全过、13 种错误实现逐个打红），再查本仓库；纯逻辑断言另用 node 跑真实源码。
 step "F-X-05a 平台图标宿主检查"

@@ -1,0 +1,33 @@
+{
+  "couli-style/no-hex-color": {
+    "features/web/src/main/ets/ExternalWebView.ets": 1,
+    "features/web/src/main/ets/TrustedWebView.ets": 3
+  },
+  "couli-style/no-numeric-style": {
+    "entry/src/main/ets/orders/PendingTrackViews.ets": 2,
+    "entry/src/main/ets/trade/TradeOverlay.ets": 2,
+    "features/agent/src/main/ets/AgentCards.ets": 2,
+    "features/agent/src/main/ets/AgentTabRoot.ets": 2,
+    "features/auth/src/main/ets/LoginView.ets": 1,
+    "features/home/src/main/ets/HomeCards.ets": 2,
+    "features/me/src/main/ets/AppealView.ets": 5,
+    "features/me/src/main/ets/DeleteAccountView.ets": 4,
+    "features/me/src/main/ets/MeKit.ets": 1,
+    "features/me/src/main/ets/MeTabView.ets": 12,
+    "features/me/src/main/ets/PhoneChangeView.ets": 4,
+    "features/me/src/main/ets/RiskAppealParts.ets": 2,
+    "features/me/src/main/ets/SettingsParts.ets": 1,
+    "features/orders/src/main/ets/OrderDetailView.ets": 3,
+    "features/orders/src/main/ets/OrderListView.ets": 1,
+    "features/product/src/main/ets/ProductDetailView.ets": 1,
+    "features/search/src/main/ets/SearchView.ets": 2,
+    "features/wallet/src/main/ets/PayoutAccountView.ets": 3,
+    "features/wallet/src/main/ets/RealNameView.ets": 2,
+    "features/wallet/src/main/ets/WalletView.ets": 4,
+    "features/wallet/src/main/ets/WalletViewKit.ets": 1,
+    "features/wallet/src/main/ets/WithdrawRecordsView.ets": 2,
+    "features/wallet/src/main/ets/WithdrawView.ets": 4,
+    "features/web/src/main/ets/ExternalWebView.ets": 1,
+    "features/web/src/main/ets/TrustedWebView.ets": 1
+  }
+}

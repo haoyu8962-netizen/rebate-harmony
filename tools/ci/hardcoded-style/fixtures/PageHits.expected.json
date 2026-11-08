@@ -1,0 +1,13 @@
+{
+  "path": "features/home/src/main/ets/PageHits.ets",
+  "counts": {
+    "couli-style/no-hex-color": 4,
+    "couli-style/no-numeric-style": 6,
+    "couli-style/exemption-reason": 1
+  },
+  "lines": {
+    "couli-style/no-hex-color": [10, 13, 21, 24],
+    "couli-style/no-numeric-style": [8, 11, 14, 16, 19, 22],
+    "couli-style/exemption-reason": [23]
+  }
+}
