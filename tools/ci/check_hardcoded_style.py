@@ -152,6 +152,30 @@ def tokenize(code):
     i = 0
     n = len(code)
 
+    def postfix_bang():
+        """toks 末尾的 ! 是后缀非空断言：同一行紧跟在操作数后面（标识符、字面量、] 或调用的 )；关键字和 if (…) 的 ) 不是操作数）。"""
+        j = len(toks) - 1
+        while j > 0 and toks[j - 1][:2] == ("p", "!"):
+            j -= 1
+        if j == 0 or "\n" in code[toks[j - 1][2]:toks[j][2]]:
+            return False
+        k, t, _ = toks[j - 1]
+        if k in ("num", "str"):
+            return True
+        if k == "id":
+            return t not in KEYWORDS_BEFORE_REGEX or (j > 1 and toks[j - 2][:2] == ("p", "."))
+        if k != "p" or t not in ")]":
+            return False
+        if t == "]":
+            return True
+        depth = 0
+        for m in range(j - 1, -1, -1):
+            if toks[m][0] == "p" and toks[m][1] in "()":
+                depth += 1 if toks[m][1] == ")" else -1
+                if depth == 0:
+                    return not (m > 0 and toks[m - 1][0] == "id" and toks[m - 1][1] in ("if", "while", "for", "with"))
+        return False
+
     def prev_allows_regex():
         if not toks:
             return True
@@ -159,6 +183,9 @@ def tokenize(code):
         if k == "p":
             # 后缀 ++ / -- 之后只能是除号（a++ / b）
             if t in "+-" and len(toks) > 1 and toks[-2][:2] == ("p", t) and toks[-2][2] == pos - 1:
+                return False
+            # 后缀非空断言 x! / n 之后是除号；前缀取反 !/re/ 之后仍可以是正则（评审 r1 S2-1，与 lint.py 同口径）
+            if t == "!" and postfix_bang():
                 return False
             return t in PUNCT_BEFORE_REGEX
         return k == "id" and t in KEYWORDS_BEFORE_REGEX

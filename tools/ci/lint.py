@@ -39,8 +39,13 @@
     HM-LINT-11 theme-drift         DS-02：designsystem 的 resources/base|dark 颜色资源、entry 启动窗底色与 theme/CouliThemeTokens.ets
                                    与锁定快照 contracts/snapshot/design/design-tokens.json 不一致（tools/codegen/gen_theme.py --check；
                                    只在检查仓库本身时）
-    [design-system-required]       DS-02 G1 警告（不计入违反、不改退出码）：features / entry 直接用 Checkbox / Toggle / Radio /
-                                   TextInput / TextArea / Search / .bindSheet / openCustomDialog / showToast，应改用组件库
+    [couli-g1/*]                   G1 改义（D10-827 ③ / D10-901 ② / D10-951，只警告：不计入违反、不改退出码；豁免与基线判定在
+                                   tools/ci/check_system_controls.py）：系统控件是首选（白名单 SYSTEM_CONTROLS），禁止自绘系统已有控件。
+                                   couli-g1/self-drawn-control      .accessibilityRole 是 SWITCH / CHECKBOX / RADIO / TAB_BAR，组件本身或子树里却没有对应系统件
+                                   couli-g1/click-without-feedback  Row / Column / Stack / Flex / Text / Image / RelativeContainer 上的 .onClick 没有 stateStyles / clickEffect
+                                   couli-g1/edge-effect-none        代码里出现 EdgeEffect.None（范围另含 common/designsystem/src/main）
+                                   couli-g1/hide-title-bar          NavDestination 的 .hideTitleBar 第一个参数不是字面量 false（根 Navigation 不算）
+                                   范围：features/*/src/main、entry/src/main、entry/src/release 的 .ets；entry/src/staging、src/test、ohosTest、tools/ 不计
     HM-LINT-10 debug-mock-gate     F-X-02：entry/src/staging 里只有 DebugFakeServer.ets 能读 DebugFakeServer.enabled。其余调试替身
                                    一律经 DebugFakeServer.mockGate（假服务打开 且 当前环境允许 MOCK_DATA，每次使用时重新判断），
                                    切到 prod 后不给假数据。FU-HM-0711b R1-06、R2-03：检查真实的属性访问，认导入别名
@@ -54,6 +59,7 @@
                                    `--self-test-hm10` 跑正反例，`--hm10-toolchain` 打印所用的 node 与 typescript
 """
 
+import bisect
 import json
 import os
 import re
@@ -90,21 +96,39 @@ FAKE_FLAG_OWNER = "entry/src/staging/ets/variant/DebugFakeServer.ets"
 # HM-LINT-10 的范围（FU-HM-0718 第 3 项）：这个目录下每个文件都要有归属——源码交给 TypeScript 解析器（.ets 按 ArkTS、.ts 按 TS，
 # hm10-scan.js 按扩展名选 ScriptKind），资源数据文件不含可执行代码、不扫描，其余一律「不支持」→ exit 4。
 HM10_SCOPE = "entry/src/staging"
-# DS-02 G1（组件清单 §6，先警告后失败）：features / entry 的页面直接用这些系统控件时报警告 [design-system-required]，不计入违反、
-# 不改退出码；组件库（common/designsystem）可以用。按解析器给出的「去掉注释与字符串」的代码匹配，前面是标识符字符的
-# （如 MyCheckbox(）不算。bindSheet 只认成员调用 .bindSheet(；openCustomDialog / showToast 认成员或直接调用。
-DESIGN_SYSTEM_REQUIRED = [
-    ("Checkbox", re.compile(r"(?<![A-Za-z0-9_$.])Checkbox\s*\(")),
-    ("Toggle", re.compile(r"(?<![A-Za-z0-9_$.])Toggle\s*\(")),
-    ("Radio", re.compile(r"(?<![A-Za-z0-9_$.])Radio\s*\(")),
-    ("TextInput", re.compile(r"(?<![A-Za-z0-9_$.])TextInput\s*\(")),
-    ("TextArea", re.compile(r"(?<![A-Za-z0-9_$.])TextArea\s*\(")),
-    ("Search", re.compile(r"(?<![A-Za-z0-9_$.])Search\s*\(")),
-    ("bindSheet", re.compile(r"\.\s*bindSheet\s*\(")),
-    ("openCustomDialog", re.compile(r"(?<![A-Za-z0-9_$])openCustomDialog\s*\(")),
-    ("showToast", re.compile(r"(?<![A-Za-z0-9_$])showToast\s*\(")),
-]
-DESIGN_SYSTEM_REQUIRED_SCOPES = ("features/", "entry/")
+# G1 改义（D10-827 ③ / D10-901 ② / D10-951）：系统控件是首选，白名单里的控件在任何范围都不报；只起「判 S1 是否合法」与说明的作用。
+SYSTEM_CONTROLS = (
+    "Tabs", "TabContent", "BottomTabBarStyle", "SubTabBarStyle", "Navigation", "NavDestination",  # 容器与导航
+    "bindSheet", "showAlertDialog", "AlertDialog", "openCustomDialog", "ActionSheet", "bindMenu", "bindContextMenu", "showToast",  # 弹层
+    "List", "ListItem", "ListItemGroup", "Refresh",  # 列表
+    "Toggle", "Checkbox", "CheckboxGroup", "Radio",  # 选择
+    "SegmentButton", "TabSegmentButtonV2", "CapsuleSegmentButtonV2", "MultiCapsuleSegmentButtonV2",
+    "Search", "TextInput", "TextArea", "DatePicker", "TextPicker",  # 输入
+    "Button", "Divider", "LoadingProgress", "SymbolGlyph", "Image", "Badge", "PasteButton", "ExceptionPrompt",  # 其他
+)
+G1_SELF_DRAWN = "couli-g1/self-drawn-control"
+G1_CLICK = "couli-g1/click-without-feedback"
+G1_EDGE = "couli-g1/edge-effect-none"
+G1_TITLE = "couli-g1/hide-title-bar"
+G1_DETECTORS = (G1_SELF_DRAWN, G1_CLICK, G1_EDGE, G1_TITLE)
+G1_PAGE_SCOPE_RE = re.compile(r"(?:features/[^/]+/src/main/|entry/src/main/|entry/src/release/)")
+G1_LIBRARY_SCOPE = "common/designsystem/src/main/"  # 薄封装同样不得关系统回弹：只查 S3
+# S1：读屏角色 → 合法的系统件（含组件库以系统件为底的薄封装）；TAB_BAR 另认名字里带 SegmentButton 的（含 V2 各型）
+G1_ROLE_CONTROLS = {
+    "SWITCH": {"Toggle", "CouliSwitch"},
+    "CHECKBOX": {"Checkbox", "CheckboxGroup", "CouliCheckbox", "CouliCheckboxRow", "AgreementCheckRow"},
+    "RADIO": {"Radio", "CouliRadio"},
+    "TAB_BAR": {"Tabs", "TabContent", "Segmented", "TopTabs"},
+}
+G1_ROLE_HEADS = None  # None = 任何组件头（S1 不限组件种类）
+G1_CLICK_HEADS = {"Row", "Column", "Stack", "Flex", "Text", "Image", "RelativeContainer"}
+G1_CLICK_FEEDBACK = {"stateStyles", "clickEffect"}
+G1_TITLE_HEADS = {"NavDestination"}
+G1_NOT_HEAD = {"if", "for", "while", "switch", "catch", "function", "return", "typeof", "await", "yield", "void", "delete", "new", "in",
+               "of", "case", "super"}
+G1_BUILDER_MODIFIERS = {"export", "default", "function", "public", "private", "protected", "static"}
+G1_SKIP_STRINGS = True
+G1_BRACE_CROSSCHECK = True
 HM10_SOURCE_SUFFIXES = (".ets", ".ts")
 HM10_DATA_SUFFIXES = (".json", ".json5", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
 # Finder 元数据（不含代码；镜像同步也排除它），不算不支持的文件。
@@ -816,32 +840,299 @@ def line_of(code, pos):
     return code.count("\n", 0, pos) + 1
 
 
-def blank_strings(code):
-    """把字符串与模板字面量的内容换成空格（换行保留，行号不变）。code 已由解析器去掉注释；G1 警告只看真正的调用。"""
-    out = []
+class G1ScanError(Exception):
+    """G1 检测器无法可靠切分某个文件（括号无法配对、与解析器给出的花括号不一致）：按 exit 4 处理，不猜。"""
+
+
+_G1_REGEX_PREV = set("(,=:[!&|?{};+-*%<>~^")
+_G1_REGEX_KEYWORDS = {"return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "yield", "await"}
+_G1_NUMBER_RE = re.compile(r"0[xX][0-9A-Fa-f_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?n?")
+
+
+def _g1_tokens(code):
+    """把解析器给出的代码（注释已换成空格，字符串 / 模板 / 正则原样）切成 (kind, text, pos)；kind：id / num / p / str / re（后两者 text 为空）。"""
+    toks = []
+    stack = []  # "{" 或 "${"
     i = 0
     n = len(code)
+
+    def postfix_bang():
+        """toks 末尾的 ! 是后缀非空断言：同一行紧跟在操作数后面（标识符、字面量、] 或调用的 )；关键字和 if (…) 的 ) 不是操作数）。"""
+        j = len(toks) - 1
+        while j > 0 and toks[j - 1][:2] == ("p", "!"):
+            j -= 1
+        if j == 0 or "\n" in code[toks[j - 1][2]:toks[j][2]]:
+            return False
+        k, t, _ = toks[j - 1]
+        if k in ("num", "str"):
+            return True
+        if k == "id":
+            return t not in _G1_REGEX_KEYWORDS or (j > 1 and toks[j - 2][:2] == ("p", "."))
+        if k != "p" or t not in ")]":
+            return False
+        if t == "]":
+            return True
+        depth = 0
+        for m in range(j - 1, -1, -1):
+            if toks[m][0] == "p" and toks[m][1] in "()":
+                depth += 1 if toks[m][1] == ")" else -1
+                if depth == 0:
+                    return not (m > 0 and toks[m - 1][0] == "id" and toks[m - 1][1] in ("if", "while", "for", "with"))
+        return False
+
+    def regex_allowed():
+        if not toks:
+            return True
+        k, t, pos = toks[-1]
+        before = toks[-2] if len(toks) > 1 else None
+        if k == "p":
+            # 后缀 ++ / -- 之后只能是除号（i++ / n）
+            if t in "+-" and before is not None and before[:2] == ("p", t) and before[2] == pos - 1:
+                return False
+            # 后缀非空断言 x! / n 之后是除号；前缀取反 !/re/ 之后仍可以是正则（评审 r1 S2-1）
+            if t == "!" and postfix_bang():
+                return False
+            return t in _G1_REGEX_PREV
+        # a.of / 2：属性名不是关键字
+        return k == "id" and t in _G1_REGEX_KEYWORDS and not (before is not None and before[:2] == ("p", "."))
+
+    def read_template(i):
+        while i < n:
+            c = code[i]
+            if c == "\\":
+                i += 2
+            elif c == "`":
+                return i + 1, False
+            elif c == "$" and i + 1 < n and code[i + 1] == "{":
+                return i + 2, True
+            else:
+                i += 1
+        raise G1ScanError("模板字面量未闭合")
+
     while i < n:
-        ch = code[i]
-        if ch in "'\"`":
-            quote = ch
-            out.append(ch)
+        c = code[i]
+        if c.isspace() or c == "\ufeff":
             i += 1
-            while i < n and code[i] != quote:
-                if code[i] == "\\" and i + 1 < n:
-                    out.append(" " if code[i + 1] != "\n" else "\n")
-                    out.append(" ")
-                    i += 2
-                    continue
-                out.append("\n" if code[i] == "\n" else " ")
-                i += 1
-            if i < n:
-                out.append(quote)
-                i += 1
+        elif c in "'\"`" and not G1_SKIP_STRINGS:
+            i += 1
+        elif c in "'\"":
+            j = i + 1
+            while j < n and code[j] != c:
+                if code[j] == "\n":
+                    raise G1ScanError("字符串字面量未闭合")
+                j += 2 if code[j] == "\\" else 1
+            if j >= n:
+                raise G1ScanError("字符串字面量未闭合")
+            toks.append(("str", "", i))
+            i = j + 1
+        elif c == "`" or (c == "}" and stack and stack[-1] == "${"):
+            if c == "}":
+                stack.pop()
+            toks.append(("str", "", i))
+            i, opened = read_template(i + 1)
+            if opened:
+                stack.append("${")
+        elif c.isdigit() or (c == "." and i + 1 < n and code[i + 1].isdigit()):
+            m = _G1_NUMBER_RE.match(code, i)
+            toks.append(("num", m.group(0), i))
+            i = m.end()
+        elif c.isalpha() or c in "_$" or ord(c) > 127:
+            j = i + 1
+            while j < n and (code[j].isalnum() or code[j] in "_$" or (ord(code[j]) > 127 and not code[j].isspace())):
+                j += 1
+            toks.append(("id", code[i:j], i))
+            i = j
+        elif c == "/" and regex_allowed():
+            j = i + 1
+            in_class = False
+            while j < n and (code[j] != "/" or in_class):
+                if code[j] == "\n":
+                    raise G1ScanError("正则字面量未闭合")
+                if code[j] == "\\":
+                    j += 1
+                elif code[j] == "[":
+                    in_class = True
+                elif code[j] == "]":
+                    in_class = False
+                j += 1
+            j += 1
+            while j < n and (code[j].isalnum() or code[j] == "_"):
+                j += 1
+            toks.append(("re", "", i))
+            i = j
         else:
-            out.append(ch)
+            if c == "{":
+                stack.append("{")
+            elif c == "}" and stack:
+                stack.pop()
+            toks.append(("p", c, i))
             i += 1
-    return "".join(out)
+    if stack:
+        raise G1ScanError("括号或模板插值无法配对")
+    return toks
+
+
+def _g1_check_braces(code, toks, braces):
+    """与解析器给出的代码花括号逐个核对（解析器的位置是 UTF-16 下标）：记号切分错了（如把正则当除号）就不猜，以 4 失败。"""
+    astral = [i for i, c in enumerate(code) if ord(c) > 0xFFFF]
+    mine = [[pos + bisect.bisect_left(astral, pos), t] for k, t, pos in toks if k == "p" and t in "{}"]
+    if mine != [list(b) for b in braces]:
+        raise G1ScanError("记号切分与解析器给出的花括号不一致")
+
+
+def _g1_match(toks):
+    pairs = {")": "(", "]": "[", "}": "{"}
+    match = {}
+    stack = []
+    for i, (k, t, _) in enumerate(toks):
+        if k != "p":
+            continue
+        if t in "([{":
+            stack.append(i)
+        elif t in ")]}":
+            if not stack or toks[stack[-1]][1] != pairs[t]:
+                raise G1ScanError("括号无法配对")
+            j = stack.pop()
+            match[i] = j
+            match[j] = i
+    if stack:
+        raise G1ScanError("括号无法配对")
+    return match
+
+
+def _g1_is(toks, i, kind, text):
+    return 0 <= i < len(toks) and toks[i][0] == kind and toks[i][1] == text
+
+
+def _g1_is_call(toks, i):
+    """toks[i] 是直接调用的名字：后面跟 ( 、前面不是 . 或 new（成员调用与 new 不是组件头）。"""
+    return (toks[i][0] == "id" and _g1_is(toks, i + 1, "p", "(") and not _g1_is(toks, i - 1, "p", ".")
+            and not _g1_is(toks, i - 1, "id", "new"))
+
+
+def _g1_chains(toks, match):
+    """每个组件头一条记录：(头下标, 尾随闭包 (开, 闭) 或 None, 属性链 [(属性名, 名字下标, 开括号, 闭括号)])。"""
+    chains = []
+    for i, (_, t, _pos) in enumerate(toks):
+        if t in G1_NOT_HEAD or not _g1_is_call(toks, i):
+            continue
+        j = match[i + 1] + 1
+        body = None
+        if _g1_is(toks, j, "p", "{"):
+            body = (j, match[j])
+            j = match[j] + 1
+        attrs = []
+        while _g1_is(toks, j, "p", ".") and j + 2 < len(toks) and toks[j + 1][0] == "id" and _g1_is(toks, j + 2, "p", "("):
+            attrs.append((toks[j + 1][1], j + 1, j + 2, match[j + 2]))
+            j = match[j + 2] + 1
+        chains.append((i, body, attrs))
+    return chains
+
+
+def _g1_builders(toks, match):
+    """同文件的 @Builder：{名字: [(函数体开, 闭)]}（方法与全局函数都算）。"""
+    out = {}
+    for i in range(len(toks) - 1):
+        if not (_g1_is(toks, i, "p", "@") and _g1_is(toks, i + 1, "id", "Builder")):
+            continue
+        j = i + 2
+        while j < len(toks) and toks[j][0] == "id" and toks[j][1] in G1_BUILDER_MODIFIERS:
+            j += 1
+        if j >= len(toks) or toks[j][0] != "id" or not _g1_is(toks, j + 1, "p", "("):
+            continue
+        k = match[j + 1] + 1
+        while k < len(toks) and not (toks[k][0] == "p" and toks[k][1] in "{;("):
+            k += 1
+        if _g1_is(toks, k, "p", "{"):
+            out.setdefault(toks[j][1], []).append((k, match[k]))
+    return out
+
+
+def _g1_is_role_control(name, role):
+    return name in G1_ROLE_CONTROLS[role] or (role == "TAB_BAR" and "SegmentButton" in name)
+
+
+def _g1_has_control(toks, lo, hi, role):
+    return any(_g1_is_call(toks, i) and _g1_is_role_control(toks[i][1], role) for i in range(lo, hi))
+
+
+def _g1_role_legal(toks, chain, role, builders):
+    """组件本身是对应系统件，或子树 {…} 里有；子树里调了同文件 @Builder 就展开一层再判（只一层）。"""
+    head, body, _ = chain
+    if _g1_is_role_control(toks[head][1], role):
+        return True
+    if body is None:
+        return False
+    if _g1_has_control(toks, body[0], body[1], role):
+        return True
+    for i in range(body[0], body[1]):
+        if toks[i][0] != "id" or toks[i][1] not in builders or not _g1_is(toks, i + 1, "p", "("):
+            continue
+        if _g1_is(toks, i - 1, "p", ".") and not _g1_is(toks, i - 2, "id", "this"):
+            continue
+        if any(_g1_has_control(toks, lo, hi, role) for lo, hi in builders[toks[i][1]]):
+            return True
+    return False
+
+
+def _g1_roles(toks, op, cl):
+    """.accessibilityRole(…) 参数里出现的受管角色（条件表达式的任一分支都算）。"""
+    roles = []
+    for i in range(op + 1, cl - 2):
+        if (_g1_is(toks, i, "id", "AccessibilityRoleType") and not _g1_is(toks, i - 1, "p", ".") and _g1_is(toks, i + 1, "p", ".")
+                and toks[i + 2][0] == "id" and toks[i + 2][1] in G1_ROLE_CONTROLS and toks[i + 2][1] not in roles):
+            roles.append(toks[i + 2][1])
+    return roles
+
+
+def _g1_hides_title_bar(toks, match, op, cl):
+    """第一个参数不是字面量 false 就算隐藏（变量、表达式也算，防止绕开）。"""
+    j = op + 1
+    while j < cl and not _g1_is(toks, j, "p", ","):
+        j = match[j] + 1 if toks[j][0] == "p" and toks[j][1] in "([{" else j + 1
+    return not (j == op + 2 and _g1_is(toks, op + 1, "id", "false"))
+
+
+def g1_rules_for(rel):
+    """这个相对路径要查哪些 G1 规则（空 = 不在范围内）。只看 .ets，与 LINT-STYLE 同口径。"""
+    if not rel.endswith(".ets"):
+        return ()
+    if G1_PAGE_SCOPE_RE.match(rel):
+        return G1_DETECTORS
+    if G1_LIBRARY_SCOPE and rel.startswith(G1_LIBRARY_SCOPE):
+        return (G1_EDGE,)
+    return ()
+
+
+def g1_scan(code, braces, rules):
+    """四个 G1 检测器：code 是解析器去掉注释后的代码，braces 是解析器给出的代码花括号；返回按行排序的 [(规则, 行, 说明)]，
+    每条规则的行号：S1 = .accessibilityRole(、S2 = .onClick(、S3 = EdgeEffect.None、S4 = .hideTitleBar( 所在行。切分不可靠抛 G1ScanError。"""
+    toks = _g1_tokens(code)
+    if G1_BRACE_CROSSCHECK and braces is not None:
+        _g1_check_braces(code, toks, braces)
+    match = _g1_match(toks)
+    builders = _g1_builders(toks, match)
+    hits = []
+    for chain in _g1_chains(toks, match):
+        head = toks[chain[0]][1]
+        for attr, name_at, op, cl in chain[2]:
+            line = line_of(code, toks[name_at][2])
+            if attr == "accessibilityRole" and G1_SELF_DRAWN in rules and (G1_ROLE_HEADS is None or head in G1_ROLE_HEADS):
+                bad = [r for r in _g1_roles(toks, op, cl) if not _g1_role_legal(toks, chain, r, builders)]
+                if bad:
+                    hits.append((G1_SELF_DRAWN, line, "%s 上的读屏角色 %s 没有对应的系统件；改用系统控件或组件库的薄封装（D10-827 ③）"
+                                 % (head, " / ".join(bad))))
+            elif (attr == "onClick" and G1_CLICK in rules and head in G1_CLICK_HEADS
+                  and not any(a[0] in G1_CLICK_FEEDBACK for a in chain[2])):
+                hits.append((G1_CLICK, line, "%s 上的 onClick 没有按压反馈；加 stateStyles / clickEffect 或改用 Button / ListItem（D10-827 ③）" % head))
+            elif attr == "hideTitleBar" and G1_TITLE in rules and head in G1_TITLE_HEADS and _g1_hides_title_bar(toks, match, op, cl):
+                hits.append((G1_TITLE, line, "NavDestination 隐藏了系统标题栏；用系统标题栏（D10-901 ②）"))
+    if G1_EDGE in rules:
+        for i in range(len(toks) - 2):
+            if (_g1_is(toks, i, "id", "EdgeEffect") and not _g1_is(toks, i - 1, "p", ".") and _g1_is(toks, i + 1, "p", ".")
+                    and _g1_is(toks, i + 2, "id", "None")):
+                hits.append((G1_EDGE, line_of(code, toks[i][2]), "EdgeEffect.None 关掉了系统回弹；用默认 Spring，确需关闭写豁免注释并给理由（D10-901 ②）"))
+    return sorted(hits, key=lambda h: (h[1], h[0]))
 
 
 def lint(root, warnings=None):
@@ -972,12 +1263,13 @@ def lint(root, warnings=None):
                        "承载 WebView 容器的页面要用 NavDestination.onBackPressed 把系统返回交给容器（%d 个容器、%d 处 onBackPressed，R1-11）"
                        % (uses, backs))
 
-        if warnings is not None and rel.startswith(DESIGN_SYSTEM_REQUIRED_SCOPES):
-            bare = blank_strings(code)
-            for control, pattern in DESIGN_SYSTEM_REQUIRED:
-                for m in pattern.finditer(bare):
-                    warnings.append("%s:%d: [design-system-required] 页面直接使用系统控件 %s；改用组件库（common/designsystem）的对应组件"
-                                    "（组件清单 §6 G1，本阶段只警告）" % (rel, line_of(bare, m.start()), control))
+        g1_rules = g1_rules_for(rel) if warnings is not None else ()
+        if g1_rules:
+            try:
+                for rule, line, msg in g1_scan(code, res.get("braces"), g1_rules):
+                    warnings.append("%s:%d: [%s] %s" % (rel, line, rule, msg))
+            except G1ScanError as e:
+                hm10_incomplete.append("%s: G1 检测：%s，无法保证扫完" % (rel, e))
 
         if in_feature:
             own = rel.split("/")[1]
@@ -1044,7 +1336,7 @@ def main(argv):
     for w in warnings:
         print(w)
     if warnings:
-        print("lint.py：%d 处 [design-system-required] 警告（不影响退出码）" % len(warnings), file=sys.stderr)
+        print("lint.py：%d 处 [couli-g1/*] 警告（不影响退出码；基线判定见 check_system_controls.py）" % len(warnings), file=sys.stderr)
     if own_root:
         problems.extend(theme_drift())
     for p in problems:
