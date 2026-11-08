@@ -1,1 +1,1 @@
-G1 九类原始系统控件违反样例。test_host.py 分别复制到 features 与 entry 的临时源码树，真实 lint.py 必须输出 [design-system-required]、路径/行号和控件名，exit=0。旧 HM-LINT-* 样例仍要求 exit=1。本目录不作为应用源编译。
+原九类系统控件样例，D37（D10-827 ③ / D10-901 ②：G1 改义为禁止自绘系统已有控件）下作合法样例：原 9 个 .ets 逐字节不动。test_host.py 分别复制到 features 与 entry 的临时源码树，真实 lint.py 必须 exit=0 且不输出任何 G1 警告（[couli-g1/*]）。G1 反例在 ../g1-self-drawn/。旧 HM-LINT-* 样例仍要求 exit=1。本目录不作为应用源编译。

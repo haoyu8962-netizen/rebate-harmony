@@ -214,43 +214,84 @@ class Ds02Host(unittest.TestCase):
                 self.assertEqual(result.returncode, 0 if include_catalog else 1, result.stdout + result.stderr)
                 self.assertIn(catalog, result.stdout + result.stderr)
 
-    def test_g1_fixtures_warn_without_failing_and_hard_rules_still_fail(self):
-        fixture = ROOT / 'tools/ci/lint-fixtures/ds02-warning'
-        marker = '[design-system-required]'
+    def test_g1_samples_legal_self_drawn_warn_and_hard_rules_still_fail(self):
+        # FU-HM-G1-SYSTEM-CONTROLS（D10-827 ③ / D10-901 ② / D10-951 ③ #24）：G1 改义为「禁止自绘系统已有控件」。
+        # 原 9 个样例逐字节不动，改作合法样例：不再报 G1；g1-self-drawn/ 的四个反例各报恰好一条 [couli-g1/<规则>]，只警告（exit 0）。
+        legal = ROOT / 'tools/ci/lint-fixtures/ds02-warning'
+        self_drawn = ROOT / 'tools/ci/lint-fixtures/g1-self-drawn'
+        old_marker = '[design-system-required]'
+        new_marker = '[couli-g1/'
         controls = ['Checkbox', 'Toggle', 'Radio', 'TextInput', 'TextArea', 'Search',
                     'bindSheet', 'openCustomDialog', 'showToast']
+        samples = {'S1-self-drawn-control.ets': 'couli-g1/self-drawn-control',
+                   'S2-click-without-feedback.ets': 'couli-g1/click-without-feedback',
+                   'S3-edge-effect-none.ets': 'couli-g1/edge-effect-none',
+                   'S4-hide-title-bar.ets': 'couli-g1/hide-title-bar'}
+
+        def lint(tmp):
+            result = subprocess.run([sys.executable, str(ROOT / 'tools/ci/lint.py'), '--root', tmp],
+                                    capture_output=True, text=True)
+            return result, result.stdout + result.stderr
+
         with tempfile.TemporaryDirectory(prefix='ds02-guard-') as tmp:
             target = Path(tmp)
             for scope in ['features/auth/src/main/ets', 'entry/src/main/ets']:
                 for control in controls:
-                    with self.subTest(scope=scope, control=control):
+                    with self.subTest(scope=scope, legal=control):
                         shutil.rmtree(target / 'features', ignore_errors=True)
                         shutil.rmtree(target / 'entry', ignore_errors=True)
                         dest = target / scope / 'Violation.ets'
                         dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_text((fixture / (control + '.ets')).read_text())
-                        result = subprocess.run([sys.executable, str(ROOT / 'tools/ci/lint.py'), '--root', tmp],
-                                                capture_output=True, text=True)
-                        output = result.stdout + result.stderr
+                        dest.write_text((legal / (control + '.ets')).read_text())
+                        result, output = lint(tmp)
                         self.assertEqual(result.returncode, 0, output)
-                        warning = [line for line in output.splitlines() if marker in line and control in line]
-                        self.assertTrue(warning, '未报警告：' + scope + '/' + control + '\n' + output)
-                        self.assertTrue(any('Violation.ets:' in line for line in warning), output)
-            # 合法对照：组件库能用系统控件；字符串/注释与前缀同名函数不误报。
+                        self.assertNotIn(old_marker, output)
+                        self.assertNotIn(new_marker, output, '系统控件不应报 G1：' + control + '\n' + output)
+                for sample, rule in samples.items():
+                    with self.subTest(scope=scope, sample=sample):
+                        shutil.rmtree(target / 'features', ignore_errors=True)
+                        shutil.rmtree(target / 'entry', ignore_errors=True)
+                        dest = target / scope / 'Violation.ets'
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_text((self_drawn / sample).read_text())
+                        result, output = lint(tmp)
+                        self.assertEqual(result.returncode, 0, output)
+                        warning = [line for line in output.splitlines() if new_marker in line and not line.startswith('lint.py：')]
+                        self.assertEqual(len(warning), 1, output)
+                        self.assertIn('[' + rule + ']', warning[0])
+                        self.assertIn('Violation.ets:', warning[0])
+            # 组件库：系统控件不报（S3 除外：薄封装同样不得关系统回弹）。
+            shutil.rmtree(target / 'features', ignore_errors=True)
             shutil.rmtree(target / 'entry', ignore_errors=True)
-            dest = target / 'common/designsystem/src/main/ets/Legal.ets'
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text((fixture / 'Checkbox.ets').read_text())
+            library = target / 'common/designsystem/src/main/ets/Legal.ets'
+            library.parent.mkdir(parents=True, exist_ok=True)
+            for control in controls:
+                with self.subTest(library_legal=control):
+                    library.write_text((legal / (control + '.ets')).read_text())
+                    result, output = lint(tmp)
+                    self.assertEqual(result.returncode, 0, output)
+                    self.assertNotIn(new_marker, output)
+            for sample, rule in samples.items():
+                with self.subTest(library_sample=sample):
+                    library.write_text((self_drawn / sample).read_text())
+                    result, output = lint(tmp)
+                    self.assertEqual(result.returncode, 0, output)
+                    warning = [line for line in output.splitlines() if new_marker in line and not line.startswith('lint.py：')]
+                    self.assertEqual(len(warning), 1 if rule == 'couli-g1/edge-effect-none' else 0, output)
+            # 合法对照：字符串、注释与前缀同名函数不误报。
+            library.unlink()
             page = target / 'entry/src/main/ets/Legal.ets'
             page.parent.mkdir(parents=True, exist_ok=True)
-            page.write_text("// Checkbox({})\nconst hint: string = 'Toggle({})';\nfunction MyCheckbox(): void {}\nMyCheckbox();\n")
-            result = subprocess.run([sys.executable, str(ROOT / 'tools/ci/lint.py'), '--root', tmp], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertNotIn(marker, result.stdout + result.stderr)
+            page.write_text("// Checkbox({}) EdgeEffect.None\nconst hint: string = '.hideTitleBar(true) .onClick(';\n"
+                            "function MyCheckbox(): void {}\nMyCheckbox();\n")
+            result, output = lint(tmp)
+            self.assertEqual(result.returncode, 0, output)
+            self.assertNotIn(old_marker, output)
+            self.assertNotIn(new_marker, output)
             page.write_text("import router from '@ohos.router';\n")
-            result = subprocess.run([sys.executable, str(ROOT / 'tools/ci/lint.py'), '--root', tmp], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn('HM-LINT-3', result.stdout + result.stderr)
+            result, output = lint(tmp)
+            self.assertEqual(result.returncode, 1, output)
+            self.assertIn('HM-LINT-3', output)
 
 
 if __name__ == '__main__':

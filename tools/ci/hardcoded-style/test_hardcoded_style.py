@@ -48,7 +48,7 @@ ORIGINAL_CONTROLS = ['Checkbox', 'Toggle', 'Radio', 'TextInput', 'TextArea', 'Se
 WITHDRAWN_CONTROLS = ['Button', 'Divider', 'LoadingProgress']  # D10-734 补进 G1，D10-901 撤回
 ALL_CONTROLS = ORIGINAL_CONTROLS + WITHDRAWN_CONTROLS
 DS02_WARNING = ROOT / 'tools/ci/lint-fixtures/ds02-warning'
-DS02_README_SHA256 = '1249ae7f2dc8579a067449263dcaefd0a6192ca16a18be3c0d25af7fae8c8188'  # a819d7a 原文 = DS-02 指纹原值
+DS02_README_SHA256 = 'e8cbef0641fa89f571716a0547c472e4c6366a9902dbbfdb3e231a6939dddcc4'  # FU-HM-G1-SYSTEM-CONTROLS #24，换值见交回 §6-3
 CASE_DIR = 'features/home/src/main/ets/cases'
 
 
@@ -603,6 +603,33 @@ class ExitCodes(Base):
         if code == 1:
             self.assertRegex(out, re.escape('features/home/src/main/ets/A.ets:2:') + r'.*' + re.escape(HEX), out)
 
+    def test_non_null_then_division_not_exit_4(self):
+        """FU-HM-G1-SYSTEM-CONTROLS 测试 v3（同 lint.py 评审 r1 S2-1）：后缀非空断言 `x!` 后接除号是合法语法，不是正则开头；不得 exit 4，
+        写死样式正常判定。两个除号之间是代码，里面的色值照报。前缀取反 `!/re/` 仍是正则（防矫枉过正：正则里的单引号不得被当成字符串开头）。"""
+        rel = 'features/home/src/main/ets/A.ets'
+        for name, expr in [('member', 'this.x! / 2'), ('element', 'this.a[0]! / 2'), ('call', 'this.f()! / 2')]:
+            with self.subTest(form=name):
+                root = self.tmp()
+                write(root / rel, page("Text(String(%s)).fontColor('#FF0000')\nText('b').fontSize(14)" % expr))
+                code, out = self.check(root, {HEX: {rel: 1}, NUM: {rel: 1}})
+                self.assertEqual(code, 0, out)
+                code, out = self.check(root, {})
+                self.assertEqual(code, 1, out)
+                self.assertRegex(out, re.escape(rel + ':6:') + r'.*' + re.escape(HEX), out)
+                self.assertRegex(out, re.escape(rel + ':7:') + r'.*' + re.escape(NUM), out)
+        with self.subTest(form='two-divisions'):
+            root = self.tmp()
+            write(root / rel, page("Text('a')", top="const B: number = 4;\nconst V: number = B! / Number('#FF0000')! / 2;\n"))
+            code, out = self.check(root, {})
+            self.assertEqual(code, 1, out)
+            self.assertRegex(out, re.escape(rel + ':2:') + r'.*' + re.escape(HEX), out)
+        with self.subTest(form='prefix-negation-regex'):
+            root = self.tmp()
+            write(root / rel, page("Text('a')", top="const S: string = 'x';\nconst OK: boolean = !/a'b/.test(S);\n"
+                                                    "function g(s: string): boolean {\n  return !/c'd/.test(s);\n}\n"))
+            code, out = self.check(root, {})
+            self.assertEqual(code, 0, out)
+
     def test_toolchain_missing_exit_3(self):
         root = self.tmp()
         write(root / 'features/home/src/main/ets/A.ets', page("Text('a').fontColor('#FF0000')"))
@@ -695,23 +722,15 @@ class LintWarnings(Base):
         r = subprocess.run([sys.executable, str(LINT), '--root', str(root)], capture_output=True, text=True, timeout=900)
         return r.returncode, r.stdout + r.stderr
 
-    def test_g1_list_is_base_nine(self):
-        """DESIGN_SYSTEM_REQUIRED 与 a819d7a 逐项相同（名字、正则、flags），名单源码块也回到原文。"""
-        base_src = git_show('tools/ci/lint.py')
-        base_path = self.tmp() / 'lint_base.py'
-        base_path.write_bytes(base_src)
-        base = load_module(base_path, 'couli_lint_style_base')
+    def test_g1_list_replaced_by_whitelist(self):
+        """FU-HM-G1-SYSTEM-CONTROLS（D10-951 ③ #24）：G1 不再是 9 类判定名单，改成 lint.SYSTEM_CONTROLS 白名单（新判据由
+        tools/ci/system-controls/test_system_controls.py 接管），原 9 项都在白名单里。"""
         cur = load_module(LINT, 'couli_lint_style_probe')
+        self.assertFalse(hasattr(cur, 'DESIGN_SYSTEM_REQUIRED'), 'DESIGN_SYSTEM_REQUIRED 应已由 SYSTEM_CONTROLS 取代')
+        self.assertEqual(sorted(set(ORIGINAL_CONTROLS) - set(cur.SYSTEM_CONTROLS)), [])
 
-        def items(module):
-            return [(name, pattern.pattern, pattern.flags) for name, pattern in module.DESIGN_SYSTEM_REQUIRED]
-        self.assertEqual([name for name, _ in base.DESIGN_SYSTEM_REQUIRED], ORIGINAL_CONTROLS, '底版名单自检')
-        self.assertEqual(items(cur), items(base), 'G1 名单应与 a819d7a 逐项相同（D10-901：撤 Button / Divider / LoadingProgress）')
-        self.assertEqual(g1_list_block(LINT.read_text(encoding='utf-8')), g1_list_block(base_src.decode('utf-8')),
-                         'DESIGN_SYSTEM_REQUIRED 源码块（含块内注释）应回到 a819d7a 原文')
-
-    def test_original_nine_still_warn_only(self):
-        """原 9 个样例放进 features / entry：lint.py exit 0，每个样例恰报一条 [design-system-required]，且点名该控件。"""
+    def test_original_nine_no_longer_warn(self):
+        """FU-HM-G1-SYSTEM-CONTROLS（#24）：原 9 个样例放进 features / entry：lint.py exit 0，不再报任何 G1 警告（系统控件是 D37 首选）。"""
         root = self.tmp()
         scopes = ['features/auth/src/main/ets', 'entry/src/main/ets']
         for scope in scopes:
@@ -719,14 +738,8 @@ class LintWarnings(Base):
                 write(root / scope / control / 'Violation.ets', (DS02_WARNING / (control + '.ets')).read_text(encoding='utf-8'))
         code, out = self.run_lint(root)
         self.assertEqual(code, 0, out)
-        warned = [l for l in out.splitlines() if re.match(r'\S+:\d+: \[design-system-required\] ', l)]  # 逐文件警告行（不含汇总行）
-        for scope in scopes:
-            for control in ORIGINAL_CONTROLS:
-                with self.subTest(scope=scope, control=control):
-                    mine = [l for l in warned if l.startswith('%s/%s/Violation.ets:' % (scope, control))]
-                    self.assertEqual(len(mine), 1, out)
-                    self.assertIn(control, mine[0].split('[design-system-required]', 1)[1], out)
-        self.assertEqual(len(warned), len(scopes) * len(ORIGINAL_CONTROLS), out)
+        self.assertNotIn('[design-system-required]', out)
+        self.assertNotIn('[couli-g1/', out)
 
     def test_withdrawn_controls_do_not_warn(self):
         """D10-901 ①：Button / Divider / LoadingProgress 不在 G1 名单——页面直接用不警告、exit 0。
@@ -756,13 +769,16 @@ class LintWarnings(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn('[design-system-required]', r.stdout + r.stderr)
 
-    def test_lint_header_g1_section_restored(self):
-        """lint.py 文件头 [design-system-required] 一段回到 a819d7a 原文（取代 v1 的 test_lint_header_mentions_new_controls）。"""
-        self.assertEqual(g1_section(LINT.read_text(encoding='utf-8')), g1_section(git_show('tools/ci/lint.py').decode('utf-8')),
-                         'lint.py 文件头 [design-system-required] 文案应回到 a819d7a 原文（不再提 Button / Divider / LoadingProgress）')
+    def test_lint_header_g1_section_new_wording(self):
+        """FU-HM-G1-SYSTEM-CONTROLS（#24）：文件头不再有 [design-system-required] 段，改写四条新规则口径；HM-LINT-11 文案不动。"""
+        head = LINT.read_text(encoding='utf-8').split('"""', 2)[1]
+        self.assertNotIn('[design-system-required]', head)
+        for rule in ('couli-g1/self-drawn-control', 'couli-g1/click-without-feedback', 'couli-g1/edge-effect-none', 'couli-g1/hide-title-bar'):
+            self.assertIn(rule, head)
+        self.assertIn('HM-LINT-11 theme-drift', head)
 
     def test_frozen_files_unchanged(self):
-        frozen = ['tools/ci/ds02/test_host.py'] + ['tools/ci/lint-fixtures/ds02-warning/%s.ets' % c for c in ORIGINAL_CONTROLS]
+        frozen = ['tools/ci/lint-fixtures/ds02-warning/%s.ets' % c for c in ORIGINAL_CONTROLS]  # D10-951 ③：test_host.py 按 #24 反向，不再冻结
         for rel in frozen:
             with self.subTest(frozen=rel):
                 old = subprocess.run(['git', '-C', str(ROOT), 'show', '%s:%s' % (BASE_COMMIT, rel)], capture_output=True)
@@ -781,12 +797,12 @@ class LintWarnings(Base):
         self.assertEqual(base, sorted(c + '.ets' for c in ORIGINAL_CONTROLS), '底版样例自检')
         self.assertEqual(sorted(p.name for p in DS02_WARNING.iterdir() if p.name.endswith('.ets')), base)
 
-    def test_ds02_readme_restored(self):
-        """D10-901 ③：ds02-warning/README.md 与 a819d7a 逐字节相同（提交 7895ac6「九类 → 十二类」的反向，DS-02 指纹回原值）。"""
+    def test_ds02_readme_rewritten(self):
+        """FU-HM-G1-SYSTEM-CONTROLS（#24）：README 改写成「原九类，D37 下作合法样例」，sha 改钉新值（落地时按新 README 算）。"""
         rel = 'tools/ci/lint-fixtures/ds02-warning/README.md'
         raw = (ROOT / rel).read_bytes()
-        self.assertEqual(raw, git_show(rel), rel + ' 应与 a819d7a 逐字节相同')
-        self.assertEqual(hashlib.sha256(raw).hexdigest(), DS02_README_SHA256)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), DS02_README_SHA256, rel + ' 与钉住的新 sha 不一致')
+        self.assertIn('D37', raw.decode('utf-8'))
 
 
 class VerifyStep(Base):
@@ -818,13 +834,20 @@ class VerifyStep(Base):
         self.assertGreater(self_test[0], ds02)
         self.assertGreater(check[0], self_test[0])
         self.assertTrue(any(l.startswith('step ') for l in added), '新增内容应是独立的一步（step）')
+        # FU-HM-G1-SYSTEM-CONTROLS（#24）：verify.sh 之后又加了 G1 一步，白名单只查 LINT-STYLE 这一步的行块，不再要求全局新增行都满足。
+        start = new.index('step "LINT-STYLE 写死样式基线"')
+        end = new.index('record "lint-style" PASS "写死样式基线"')
+        block = new[start:end + 1]
         self.assertTrue(all('hardcoded' in l or 'LINT-STYLE' in l or 'lint-style' in l or l.startswith('#') or not l.strip()
-                            for l in added), '新增行超出本单一步：%r' % added)
+                            for l in block), 'LINT-STYLE 一步里混进了其他内容：%r' % block)
 
     def test_new_step_wording_has_no_system_controls(self):
         """v8（D10-901）：本步只查写死样式——新增的注释、step 名与 record 说明不再提系统控件（「控件」/ design-system）。"""
-        old, new = self.lines()
-        added = [l for l in new if l not in set(old)]
+        _, new = self.lines()
+        # FU-HM-G1-SYSTEM-CONTROLS（#24，书 §3.2 未列）：G1 一步名字里就有「控件」；本条只管 LINT-STYLE 那一步的行块。
+        start = new.index('step "LINT-STYLE 写死样式基线"')
+        end = new.index('record "lint-style" PASS "写死样式基线"')
+        added = new[start:end + 1]
         self.assertTrue(added, 'verify.sh 缺本单新增的一步')
         self.assertEqual([l for l in added if '控件' in l or 'design-system' in l], [],
                          'verify.sh 本步的说明文字仍提系统控件（D10-901 已撤回控件计数）')
