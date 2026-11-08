@@ -3,6 +3,9 @@
 //   - waitUntil：有上限的轮询（超时返回 false，由调用方断言；不吞断言异常）；
 //   - captureChecked：UiTest 截屏 → 解码 → 校验「是一张真截图」（尺寸与请求一致、整幅不透明）；不是就有界重拍，仍不是则抛
 //     FLAKE_CAPTURE_INVALID（用例照样红，只是红因写明是截屏设施而不是颜色不对）。颜色 / 容差判定一个字不碰；
+//     FU-HM-CAPTURE-REGION-BLACK（D10-1021）：整图合格但所请求的取色框（= 本次截的 rect）里每个像素都是不透明纯黑 (0,0,0,255)
+//     也视为截图未就绪（转场 / 渲染时机），同一计数内有界重拍；框里颜色不对（非全黑）不重拍。重拍用尽仍全黑，把最后一张全黑图照常
+//     交给调用方断言（不抛、不吞：期望色不是纯黑的断言照红，与改前首张即返回同一结论）；
 //   - foreground / scene：失败现场诊断（前台窗口、最近的截屏重拍），只进失败信息，不参与判定。
 import { abilityDelegatorRegistry, Driver, Rect, UiWindow } from '@kit.TestKit';
 import { image } from '@kit.ImageKit';
@@ -63,6 +66,19 @@ export function shotProblem(s: Shot, r: Rect | null): string {
   return transparent === 0 ? '' : 'alpha<255 ' + transparent + '/' + n;
 }
 
+/**
+ * 取色框全黑：整张截图（调用方请求的框，已过 shotProblem：尺寸对、每个像素 alpha 255）每个像素 RGB 都是 0。
+ * 全 alpha 0 不在这里判——shotProblem 已按「alpha<255」判整图无效。框里只要有一个像素不是纯黑就不算（颜色交给断言）。
+ */
+export function regionBlack(s: Shot): boolean {
+  const n: number = s.width * s.height;
+  if (n <= 0) { return false; }
+  for (let i: number = 0; i < n; i++) {
+    if (s.bytes[i * 4] !== 0 || s.bytes[i * 4 + 1] !== 0 || s.bytes[i * 4 + 2] !== 0 || s.bytes[i * 4 + 3] !== 255) { return false; }
+  }
+  return true;
+}
+
 async function decode(path: string): Promise<Shot> {
   const source: image.ImageSource = image.createImageSource(path);
   try {
@@ -86,9 +102,12 @@ export const CAPTURE_RETAKES: string[] = [];
 /**
  * 截 rect（屏幕像素）一张并校验；不合格（screenCapture 返回 false、解码失败、尺寸不符、有透明像素）就等 idle 后重拍，最多 attempts 次。
  * 每次用新文件名（不复用上一张文件）。全部不合格抛 FLAKE_CAPTURE_INVALID，带每次的原因。
+ * 整图合格但取色框全黑（regionBlack，原因记 region-black）同样计入这 attempts 次重拍；用尽时只要有过一张全黑的合格图，就返回最近
+ * 的那张交给调用方断言（不抛 FLAKE_CAPTURE_INVALID），否则照旧抛。
  */
 export async function captureChecked(driver: Driver, rect: Rect, tag: string, attempts: number = 3): Promise<Shot> {
   const reasons: string[] = [];
+  let black: Shot | null = null;
   for (let i: number = 0; i < attempts; i++) {
     shotSerial++;
     const path: string = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().cacheDir + '/flk-' + tag + '-' + shotSerial + '.png';
@@ -97,7 +116,10 @@ export async function captureChecked(driver: Driver, rect: Rect, tag: string, at
       if (await driver.screenCapture(path, rect)) {
         const s: Shot = await decode(path);
         reason = shotProblem(s, rect);
-        if (reason.length === 0) {
+        if (reason.length === 0 && regionBlack(s)) {
+          black = s;
+          reason = 'region-black ' + s.width + 'x' + s.height;
+        } else if (reason.length === 0) {
           if (i > 0) {
             CAPTURE_RETAKES.push(tag + ' ok@' + (i + 1) + ' after ' + reasons.join('; '));
             if (CAPTURE_RETAKES.length > 20) { CAPTURE_RETAKES.shift(); }
@@ -114,6 +136,12 @@ export async function captureChecked(driver: Driver, rect: Rect, tag: string, at
     console.info('FLKRIG capture retake ' + tag + ' #' + (i + 1) + ' ' + reason);
     await driver.waitForIdle(200, 3000);
     await driver.delayMs(300);
+  }
+  if (black !== null) {
+    // 用尽仍全黑：最后一张全黑的合格图交给原断言（期望色不是纯黑就照红，红因仍是原断言的 got 0/0/0）；轨迹进 scene()。
+    CAPTURE_RETAKES.push(tag + ' region-black handed@' + attempts + ' after ' + reasons.join('; '));
+    if (CAPTURE_RETAKES.length > 20) { CAPTURE_RETAKES.shift(); }
+    return black;
   }
   throw new Error('FLAKE_CAPTURE_INVALID ' + tag + ' [' + rect.left + ',' + rect.top + ',' + rect.right + ',' + rect.bottom + '] ' +
     reasons.join('; '));

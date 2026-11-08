@@ -14,6 +14,7 @@ const testDir = path.join(root, 'entry/src/ohosTest/ets/test');
 // 替身：截图文件名 → 预设像素。
 const images = new Map();
 let decodeFails = 0;
+const decodedFrom = new WeakMap(); // 解码出的像素缓冲 → 来源文件（核「交的是哪一张」）
 const imageKit = {
   image: {
     PixelMapFormat: { RGBA_8888: 3 },
@@ -23,7 +24,7 @@ const imageKit = {
         const img = images.get(p);
         assert.ok(img, 'decode of unknown file ' + p);
         return { getImageInfo: async () => ({ size: { width: img.w, height: img.h } }),
-          readPixelsToBuffer: async buf => { new Uint8Array(buf).set(img.bytes); }, release: async () => {} };
+          readPixelsToBuffer: async buf => { new Uint8Array(buf).set(img.bytes); decodedFrom.set(buf, p); }, release: async () => {} };
       },
       release: async () => {}
     })
@@ -100,6 +101,109 @@ function img(w, h, rgba) {
   plan.length = 0;
   console.log('REFERENCE_ONLY captureChecked: valid first shot no retake; invalid/false/decode-error retaken with fresh file; bounded 3; wrong colour NOT retaken');
 
+  // FU-HM-CAPTURE-REGION-BLACK（D10-1021，me12wc_16 胶囊底色 got 0/0/0）：整图合格但取色框（= 截的 rect）整块不透明纯黑 → 同 3 次内重拍；
+  // 框里颜色不对（非全黑，含近黑 / 局部黑）不重拍；用尽仍黑把最后一张全黑图交给原断言（不抛、不吞）；整图无效照旧。
+  assert.equal(kit.regionBlack(new kit.Shot(9, 9, img(9, 9, [0, 0, 0, 255]).bytes)), true);
+  assert.equal(kit.regionBlack(new kit.Shot(9, 9, img(9, 9, [0, 0, 0, 0]).bytes)), false, '全 alpha 0 归 shotProblem 判整图无效');
+  const oneLit = img(9, 9, [0, 0, 0, 255]); oneLit.bytes[40 * 4 + 2] = 1;
+  assert.equal(kit.regionBlack(new kit.Shot(9, 9, oneLit.bytes)), false, '框里有一个像素不是纯黑就不算');
+  assert.equal(kit.regionBlack(new kit.Shot(0, 0, new Uint8Array(0))), false);
+  const hilog = [];
+  const info = console.info;
+  console.info = line => { hilog.push(String(line)); };
+  try {
+    const BLACK = [0, 0, 0, 255];
+    const CHIP = [234, 244, 238, 255]; // status.success.background 浅
+    // 框内全黑 → 重拍、第 2 次正常 → 用第 2 次。
+    calls.length = 0; hilog.length = 0;
+    plan.push(img(9, 9, BLACK), img(9, 9, CHIP), img(9, 9, [255, 255, 255, 255]));
+    s = await kit.captureChecked(driver, rect, 'rb');
+    assert.equal(calls.length, 2, '全黑重拍一次、第 2 张合格即停');
+    assert.equal(new Set(calls).size, 2, '重拍换文件名');
+    assert.deepEqual([...s.bytes.slice(0, 4)], CHIP, '用第 2 张');
+    assert.deepEqual(hilog, ['FLKRIG capture retake rb #1 region-black 9x9'], 'hilog 现有 capture retake 轨迹、区分 region-black');
+    assert.match(kit.CAPTURE_RETAKES[kit.CAPTURE_RETAKES.length - 1], /^rb ok@2 after region-black 9x9$/);
+    plan.length = 0;
+    // 框内全黑 3 次 → 有上限 3 次，最后一张全黑图交给原断言（不抛 FLAKE_CAPTURE_INVALID；断言照判 got 0/0/0 照红）。
+    calls.length = 0; hilog.length = 0;
+    const last = img(9, 9, BLACK);
+    plan.push(img(9, 9, BLACK), img(9, 9, BLACK), last, img(9, 9, CHIP));
+    s = await kit.captureChecked(driver, rect, 'rb');
+    assert.equal(calls.length, 3, '全黑也有上限：最多 3 次');
+    assert.equal(images.get(calls[2]), last);
+    assert.equal(decodedFrom.get(s.bytes.buffer), calls[2], '交的是最后一张');
+    assert.deepEqual([...s.bytes.slice(0, 4)], BLACK);
+    assert.equal(hilog.filter(l => /^FLKRIG capture retake rb #[123] region-black 9x9$/.test(l)).length, 3);
+    assert.match(kit.CAPTURE_RETAKES[kit.CAPTURE_RETAKES.length - 1], /^rb region-black handed@3 after region-black 9x9; region-black 9x9; region-black 9x9$/);
+    plan.length = 0;
+    // 混合：整图无效与全黑共用同一计数；用尽时有过全黑合格图 → 交最近那张；没有 → 照旧抛（下面「整图无效不回退」）。
+    calls.length = 0;
+    const mid = img(9, 9, BLACK);
+    plan.push(img(9, 9, [0, 0, 0, 0]), mid, false, img(9, 9, CHIP));
+    s = await kit.captureChecked(driver, rect, 'rb');
+    assert.equal(calls.length, 3, '整图无效 + 全黑共 3 次');
+    assert.equal(images.get(calls[1]), mid);
+    assert.equal(decodedFrom.get(s.bytes.buffer), calls[1], '交最近一张全黑的合格图');
+    plan.length = 0;
+    calls.length = 0;
+    plan.push(img(9, 9, [0, 0, 0, 0]), img(9, 9, BLACK), img(9, 9, CHIP));
+    s = await kit.captureChecked(driver, rect, 'rb');
+    assert.equal(calls.length, 3);
+    assert.deepEqual([...s.bytes.slice(0, 4)], CHIP, '整图无效 → 全黑 → 正常：用第 3 张');
+    plan.length = 0;
+    // 框内是错色（非黑）→ 不重拍：错色、近黑 (1,1,1)、局部黑（一半纯黑一半错色）都交给断言。
+    for (const wrong of [img(9, 9, [255, 0, 0, 255]), img(9, 9, [1, 1, 1, 255]), img(9, 9, [0, 0, 1, 255]), (() => {
+      const half = img(9, 9, [200, 0, 0, 255]); half.bytes.fill(0, 0, 40 * 4); for (let i = 0; i < 40; i++) half.bytes[i * 4 + 3] = 255; return half;
+    })()]) {
+      calls.length = 0; hilog.length = 0;
+      plan.push(wrong, img(9, 9, CHIP));
+      s = await kit.captureChecked(driver, rect, 'rb');
+      assert.equal(calls.length, 1, '框里颜色不对（非全黑）不重拍');
+      assert.deepEqual([...s.bytes], [...wrong.bytes]);
+      assert.deepEqual(hilog, []);
+      plan.length = 0;
+    }
+    // 框外黑、框内正常 → 不重拍：替身屏幕整屏纯黑、只有请求的框里是胶囊底色，screenCapture 按 rect 裁。
+    const W = 40, H = 40;
+    const screen = img(W, H, BLACK);
+    for (let y = rect.top; y < rect.bottom; y++) for (let x = rect.left; x < rect.right; x++) screen.bytes.set(CHIP, (y * W + x) * 4);
+    const crops = [];
+    const screenDriver = {
+      screenCapture: async (p, r) => {
+        crops.push(r);
+        const w = r.right - r.left, h = r.bottom - r.top, out = new Uint8Array(w * h * 4);
+        for (let y = 0; y < h; y++) out.set(screen.bytes.subarray(((r.top + y) * W + r.left) * 4, ((r.top + y) * W + r.right) * 4), y * w * 4);
+        images.set(p, { w, h, bytes: out });
+        return true;
+      },
+      waitForIdle: async () => true, delayMs: async () => {}
+    };
+    hilog.length = 0;
+    s = await kit.captureChecked(screenDriver, rect, 'rb');
+    assert.equal(crops.length, 1, '框外黑、框内正常不重拍');
+    assert.deepEqual(hilog, []);
+    assert.equal(s.width, 9);
+    assert.deepEqual([...s.bytes.slice(0, 4)], CHIP);
+    // 同一张屏、框挪到全黑处 → 框内全黑 → 有界 3 次后交给断言。
+    crops.length = 0;
+    s = await kit.captureChecked(screenDriver, { left: 25, top: 25, right: 34, bottom: 34 }, 'rb');
+    assert.equal(crops.length, 3);
+    assert.deepEqual([...s.bytes.slice(0, 4)], BLACK);
+    // 整图无效不回退：全零 ×3 仍抛 FLAKE_CAPTURE_INVALID（不因新判据改交断言）；返回 false ×3 亦然。
+    calls.length = 0;
+    plan.push(img(9, 9, [0, 0, 0, 0]), img(9, 9, [0, 0, 0, 0]), img(9, 9, [0, 0, 0, 0]));
+    await assert.rejects(kit.captureChecked(driver, rect, 'rb'), /FLAKE_CAPTURE_INVALID rb \[10,10,19,19\] alpha<255 81\/81; alpha<255/);
+    assert.equal(calls.length, 3);
+    plan.length = 0;
+    calls.length = 0;
+    plan.push(false, false, false);
+    await assert.rejects(kit.captureChecked(driver, rect, 'rb'), /FLAKE_CAPTURE_INVALID rb .*screenCapture=false; screenCapture=false; screenCapture=false$/);
+    plan.length = 0;
+  } finally {
+    console.info = info;
+  }
+  console.log('REFERENCE_ONLY region-black: all-black box retaken within same 3 (2nd ok used; 3x black handed to assertion, not thrown); wrong / near-black / partial-black colour NOT retaken; black outside box NOT retaken; whole-shot invalid still throws');
+
   // waitUntil：有上限；条件抛的异常照抛。
   let n = 0;
   const clock = { delayMs: async () => {} };
@@ -145,6 +249,16 @@ function img(w, h, rgba) {
     const raw = src.split('\n').filter(l => l.includes('driver.screenCapture(') && !l.includes('screenCapture(evidence)'));
     assert.deepEqual(raw, [], f + ' 仍有直接取像素的 screenCapture');
   }
+  // FU-HM-CAPTURE-REGION-BLACK：全仓 ohosTest 里调 screenCapture 的只有 FlakeKit.captureChecked 与 Ds02Ui 的整屏证据图（不取像素）——
+  // 取色路径（meanRgb / colorIn / edgeRun / topLine / copyInk / inkLeft / patchShare / Fx05a / Ds02 / Ds02R1）都吃得到取色框全黑判据。
+  const rawCaptures = [];
+  for (const f of ohosTestFiles) {
+    fs.readFileSync(f, 'utf8').split('\n').forEach((l, i) => {
+      if (/screenCapture\s*\(/.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l)) rawCaptures.push(path.relative(root, f) + ':' + l.trim());
+    });
+  }
+  assert.deepEqual(rawCaptures.sort(), ['entry/src/ohosTest/ets/test/Ds02Ui.test.ets:expect(await driver.screenCapture(evidence)).assertTrue();',
+    'entry/src/ohosTest/ets/test/FlakeKit.ets:if (await driver.screenCapture(path, rect)) {'], '取像素的截屏只经 captureChecked');
   console.log('REFERENCE_ONLY wiring: pixel captures in Hm07vHomeRig / Ds02Ui / Ds02R1Ui / Fx05aUi go through captureChecked');
 
   // 接线（静态，只核「只改查找 / 等待、判据原样」）：

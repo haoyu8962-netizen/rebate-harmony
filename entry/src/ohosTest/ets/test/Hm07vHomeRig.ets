@@ -788,6 +788,7 @@ async function readPixelMap(pm: image.PixelMap): Promise<Pixels> {
  * FU-HM-DEVICE-FLAKE（#24 只改截屏这一步的取得方式）：经 FlakeKit.captureChecked 截屏——每次新文件名，截出来不是一张真截图（返回 false、
  * 解码失败、尺寸不符、有透明像素；verify-4 me12wb_02 的「0/0/0」、FU-HM-LOCK-PLACEHOLDERS r1 的「浅色价值卡覆盖 0」都是整块全零）就
  * 等 idle 重拍，最多 3 次，仍不行抛 FLAKE_CAPTURE_INVALID。返回的像素与取色、容差判定都不变。
+ * FU-HM-CAPTURE-REGION-BLACK（D10-1021）：本框整块不透明纯黑（me12wc_16 胶囊底色 got 0/0/0）也在同 3 次内重拍，用尽仍黑照常交给断言。
  */
 export async function capture(r: Rect): Promise<Pixels> {
   const s: Shot = await captureChecked(driver, r, 'hm07va');
