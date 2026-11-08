@@ -8,7 +8,8 @@
   G1 逻辑与边界文件 sha256 与 REV（8699e5a）一致（§3.1）：Core 执行器 / 纯规则 / 客服出口 / 会话 / JSON、entry 的 AppMe / MePages /
      AppCsSheet / AppMeTexts / AppClipboard、contract.lock、specs/me-vectors.json；整树：core me/**（含 account）、core privacy/**、
      core clipboard/**、entry me/** / privacy/** / clipboard/** / update/**（强更页）/ permission/**、features/me/**（只豁免三视图与新私有件
-     PrivacyAboutCsParts.ets；SettingsParts / SettingsView / MeKit 在内；不许新增别的文件）、common/designsystem/**
+     PrivacyAboutCsParts.ets；SettingsParts / SettingsView / MeKit 在内；不许新增别的文件）；common/designsystem 清单内 8 项（D10-951 ② 从整树收窄，
+     frozen_deps.py 实算；清单外增删改不报）
   G2 只许插入行（REV 的每一行按原顺序仍在）：MeDraftTexts.ets（H-P07 推荐零改动）、staging DebugFakeMe / BuildVariant（H-P15 场景、同意记录计数）
   G3 RootPage.ets：客服半屏 bindSheet(this.cs.shown, …) 的选项对象只多 `maskColor: CouliColors.overlayScrim,` 一行，其余逐字节同 REV（H-P06 / P27）
   G4 三视图守卫区（§3.2，按符号）与 REV 逐字节一致：类、方法（confirmWithdraw / aboutToDisappear / apply 等）、content 分支条件、
@@ -42,7 +43,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = '8699e5a'
 FIXTURE = 'tools/ci/me12wb/fixtures/privacy-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-b-harmony-v1-aux/make_baseline_b.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = '7a0f678f5efec2c9ed7ed81c96ace804c09016fa016ca6d965d174b2dd77e3ba'
+FIXTURE_SHA256 = 'cf0fd2d83ff99c8947c8ba7ac00a06b181fbea1067cd4549dce792a489bd2b17'
 
 ME = 'features/me/src/main/ets/'
 V_PRIVACY = ME + 'PrivacyCenterView.ets'
@@ -309,9 +310,18 @@ def check_logic(root, base):
         for rel in sorted(set(want) | set(now)):
             if want.get(rel) != now.get(rel):
                 kind = '新增' if rel not in want else ('删除' if rel not in now else '改动')
-                hint = {'features/me': '（H-P01：私有件只放 PrivacyAboutCsParts.ets，MeKit / SettingsParts 等不动）',
-                        'common/designsystem': '（H-P04 / H-P09：DS 一字不动）'}.get(top, '（§3.1 逻辑零改动）')
+                hint = {'features/me': '（H-P01：私有件只放 PrivacyAboutCsParts.ets，MeKit / SettingsParts 等不动）'}.get(top, '（§3.1 逻辑零改动）')
                 v.append('G1 ' + top + ' 有' + kind + '：' + rel + hint)
+    # FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：designsystem（me12wa 另有 staging）不再整树冻结，只守 fixture tree 里不属于任何整树的清单文件（frozen_deps.py 实算）；清单外增删改不报。
+    covered = tuple(t + '/' for t in base['trees'])
+    for rel, want_sha in sorted(tree.items()):
+        if rel.startswith(covered):
+            continue
+        p = root / rel
+        if not p.is_file():
+            v.append('G1 清单内文件被删：' + rel)
+        elif sha(p.read_bytes()) != want_sha:
+            v.append('G1 清单内文件被改：' + rel)
     for rel, keys in sorted(base['append_only'].items()):
         now = [line_key(l) for l in read(root, rel).split('\n')]
         i = 0
@@ -1011,7 +1021,7 @@ MUTANTS = [
     ('MeKit 被改', ME + 'MeKit.ets', 'export const K: number = 1;', 'export const K: number = 2;'),
     ('SettingsParts 被改', ME + 'SettingsParts.ets', 'export const S: number = 1;', 'export const S: number = 2;'),
     ('features/me 新增文件', ME + 'MeKit.ets', 'export const K: number = 1;', 'export const K: number = 1;\n//'),
-    ('designsystem 被改', 'common/designsystem/src/main/ets/components/Overlays.ets', 'export const D: number = 1;', 'export const D: number = 2;'),
+    ('designsystem 被改', 'common/designsystem/src/main/ets/format/PriceTerms.ets', 'export const D: number = 1;', 'export const D: number = 2;'),
     ('AppPrivacy 被改', 'entry/src/main/ets/privacy/AppPrivacy.ets', 'export const Q: number = 1;', 'export const Q: number = 2;'),
     ('强更页被改', 'entry/src/main/ets/update/ForceUpdatePage.ets', 'export const U: number = 1;', 'export const U: number = 2;'),
     ('草稿表改了已有行', 'common/core/src/main/ets/me/MeDraftTexts.ets', "    m.set('cs.safety', '旧句');", "    m.set('cs.safety', '新句');"),
@@ -1036,10 +1046,12 @@ STUB_STRICT = ['common/core/src/main/ets/me/MeControllers.ets', 'common/core/src
                'entry/src/main/ets/me/AppCsSheet.ets', 'contract.lock']
 STUB_TREE = {ME + 'MeKit.ets': 'export const K: number = 1;\n',
              ME + 'SettingsParts.ets': 'export const S: number = 1;\n',
-             'common/designsystem/src/main/ets/components/Overlays.ets': 'export const D: number = 1;\n',
+             'common/designsystem/src/main/ets/format/PriceTerms.ets': 'export const D: number = 1;\n',
              'entry/src/main/ets/privacy/AppPrivacy.ets': 'export const Q: number = 1;\n',
              'entry/src/main/ets/update/ForceUpdatePage.ets': 'export const U: number = 1;\n'}
-STUB_TREES = ['features/me', 'common/designsystem', 'entry/src/main/ets/privacy', 'entry/src/main/ets/update']
+STUB_TREES = ['features/me', 'entry/src/main/ets/privacy', 'entry/src/main/ets/update']
+# 不进合成基线 tree：清单外的 designsystem 文件（FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24） 正对照）。
+STUB_OUTSIDE = {'common/designsystem/src/main/ets/components/Overlays.ets': 'export const D: number = 1;\n'}
 STUB_DRAFT = "export class MeDraftTexts {\n    m.set('cs.safety', '旧句');\n}\n"
 
 
@@ -1047,6 +1059,7 @@ def build_stub_tree(tmp):
     base = json.loads((ROOT / FIXTURE).read_text(encoding='utf-8'))
     files = {rel: '// 参考桩：' + rel + '\nexport const X: number = 1;\n' for rel in STUB_STRICT}
     files.update(STUB_TREE)
+    files.update(STUB_OUTSIDE)
     files.update(reference_views(base['views']))
     files[PARTS] = REF_PARTS
     files[ROOT_PAGE] = reference_root_page(base['root_page'])
@@ -1101,6 +1114,33 @@ def run_mutants(tmp, layer, base, mutants, loose):
     return failures
 
 
+def frozen_list_controls(tmp, check, outside_files, inside_listed):
+    """FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：清单外的文件增 / 删 / 改都不红；清单内文件被删要红（「designsystem 被改」变异已打清单内被改）。"""
+    failures = []
+    for rel in outside_files:
+        outside = tmp / rel
+        original = outside.read_bytes()
+        outside.write_bytes(original + b'// changed\n')
+        if check():
+            failures.append('[参考桩] 清单外文件被改被误报：' + rel)
+        outside.unlink()
+        if check():
+            failures.append('[参考桩] 清单外文件被删被误报：' + rel)
+        added = outside.with_name('AddedNotFrozen.ets')
+        added.write_bytes(original)
+        if check():
+            failures.append('[参考桩] 清单外新增文件被误报：' + added.name + '（' + rel + ' 同目录）')
+        added.unlink()
+        outside.write_bytes(original)
+    target = tmp / inside_listed
+    saved = target.read_bytes()
+    target.unlink()
+    if not check():
+        failures.append('[参考桩] 清单内文件被删未拦下：' + inside_listed)
+    target.write_bytes(saved)
+    return failures
+
+
 def self_test():
     failures = []
     with tempfile.TemporaryDirectory() as d:
@@ -1119,6 +1159,7 @@ def self_test():
             if check_source(tmp, base):
                 failures.append('[参考桩] 只许插入的 ' + rel + ' 插入一行被误报')
             p.write_text(original, encoding='utf-8')
+        failures += frozen_list_controls(tmp, lambda: check_source(tmp, base), sorted(STUB_OUTSIDE), 'common/designsystem/src/main/ets/format/PriceTerms.ets')
         failures += run_mutants(tmp, '参考桩', base, MUTANTS, False)
     # 层二：真实实现（本仓库检查通过时）。
     if check_source(ROOT):

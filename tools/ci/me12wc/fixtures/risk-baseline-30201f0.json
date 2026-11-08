@@ -70,7 +70,6 @@
   "entry/src/main/ets/wallet",
   "entry/src/main/ets/routing",
   "features/me",
-  "common/designsystem",
   "contracts"
  ],
  "tree": [
@@ -255,264 +254,28 @@
    "features/me/src/main/module.json5"
   ],
   [
-   "dfe603748709d9ce88fbc2c46428a858188d62ee463c321a7046c132fcaeadee",
-   "common/designsystem/Brand.ets"
-  ],
-  [
-   "aa612f7fef32b54b9aefcb973c86c2ef8ef6358b6ff1b23d32d628a9c3472e67",
-   "common/designsystem/Index.ets"
-  ],
-  [
-   "ed347146ecb67f5a64f6d32b0089c0d7de0bfe1f8bfbdfe3fc1e20bc2c374219",
-   "common/designsystem/Logic.ets"
-  ],
-  [
-   "31548d566a4690730653d746801bed5d87d2c806bd9896b5d9cdd4934fbcdffe",
-   "common/designsystem/build-profile.json5"
-  ],
-  [
-   "2b7169da68a55a23431956e15d9f4723a8e757060829d3ef683c978797bef887",
-   "common/designsystem/hvigorfile.ts"
-  ],
-  [
-   "93062a8ade6d5a1a192bec79b8dc9a6add427baa670493b49c30d0a238122a99",
-   "common/designsystem/oh-package-lock.json5"
-  ],
-  [
-   "f02a43dbf2e7f8c02f181b2b3c2d9acfb849f669b704cff7e516d0331f6ae40e",
-   "common/designsystem/oh-package.json5"
-  ],
-  [
-   "06603b43de9479601615cbf4ed06a05674ade641d8c6dc9467b390f5f596357a",
-   "common/designsystem/platform-icons/README.md"
-  ],
-  [
-   "8dab6062307ec89fa3d110ef747dc198dfbda67c40e2b109abbc34ae71a2a889",
-   "common/designsystem/platform-icons/manifest.json"
-  ],
-  [
-   "909ba74d658f99a0cb7ac8bea9f8103f0c4b2b3eabdf5b584a7bc1d19ddc9045",
-   "common/designsystem/src/main/ets/CouliColors.ets"
-  ],
-  [
-   "e86724c549fa8b4706db3e13fdcc2643392803cbd613c5b6e6ae41dc546e577a",
-   "common/designsystem/src/main/ets/CouliLayout.ets"
-  ],
-  [
-   "8ac0f5247ccbb34a9cfc3a83222e6a688b7bf315a31d99888a6406884c5484e1",
-   "common/designsystem/src/main/ets/CouliMetrics.ets"
-  ],
-  [
-   "035a9a86c78ede41b8fd8751cbfb2eee5e5cf42b0a8b7c582e8943cc92eb6ba6",
-   "common/designsystem/src/main/ets/CouliTypography.ets"
-  ],
-  [
-   "5495cd1f5270ed2a93cc7c6bdb231b7365613de8c08a5690714c8afae557cfb0",
-   "common/designsystem/src/main/ets/components/Basics.ets"
-  ],
-  [
-   "9cb48e65c425ae9ae26daf21a67c8b8bf6e56960f23af41c71b7ea22571e1e00",
-   "common/designsystem/src/main/ets/components/BrandMark.ets"
-  ],
-  [
-   "1b4b8706fb1f468c8be09cd5bb3c919419e3911770dc0bc467a44af004af958c",
-   "common/designsystem/src/main/ets/components/Business.ets"
-  ],
-  [
-   "7a87dcad0038ce20aff302e2ff22c90e4cf7c3d96f65894e88f5b2dff0fd5478",
-   "common/designsystem/src/main/ets/components/Clipboard.ets"
-  ],
-  [
    "f8d0854d64110812507e13024e0e8be3e48568f8cfc1077b473241ce57d60571",
    "common/designsystem/src/main/ets/components/CodeCells.ets"
-  ],
-  [
-   "253b66eeeaf391465b385f899e8ee7657de5ce0e674eca86d24980fa188fc48a",
-   "common/designsystem/src/main/ets/components/ColorMode.ets"
-  ],
-  [
-   "f3f7725bda340ad630546fd92dc14a0b00b30745c2e7d11f0bf5ce6cf288b837",
-   "common/designsystem/src/main/ets/components/ControlModels.ets"
-  ],
-  [
-   "371105e2e55c28e197568fa59d66410cc979ef85f2595f95ed22282a374fb8b5",
-   "common/designsystem/src/main/ets/components/Controls.ets"
-  ],
-  [
-   "7e25f99c125517529dea6d6d2b7a12108bf2d67da31e5aba5cb4857ee6aa7f3c",
-   "common/designsystem/src/main/ets/components/CouliIcon.ets"
-  ],
-  [
-   "0d7e5a4996b9929604dabf79fcca1e15ad17df47672e43ed86218596060e0e5c",
-   "common/designsystem/src/main/ets/components/CouliLogo.ets"
-  ],
-  [
-   "b8f2fa150a27818145a1b420361caff07960f3d9e7d4f54fd77a402f75ade79d",
-   "common/designsystem/src/main/ets/components/CouliText.ets"
-  ],
-  [
-   "e60c02fdb311db43e26ef82f3452ce49234eee46f75b4cd6826c022f8d14e84e",
-   "common/designsystem/src/main/ets/components/DisclaimerNote.ets"
-  ],
-  [
-   "da299aedc844bb4a529b4d68f043862c23a965101030e029706011b8c843a2a3",
-   "common/designsystem/src/main/ets/components/Display.ets"
-  ],
-  [
-   "bcaa0d9d37902d73b599f9a0bff24f8ddc53b161331df2bdd0123f0366afa86f",
-   "common/designsystem/src/main/ets/components/FontScale.ets"
-  ],
-  [
-   "f64392f4ba45e35f38d7944ecaecaf656d86e86f55640fe97bd9655735672569",
-   "common/designsystem/src/main/ets/components/Inputs.ets"
-  ],
-  [
-   "b290e09ab9e09f09a91e49acf8aa8f92d631f28fb1ebf2ce7c0da861cc0b6f69",
-   "common/designsystem/src/main/ets/components/Login.ets"
-  ],
-  [
-   "3dd7e6977e13f9f07c59b83157b83aa4ed73f315c2b3126542ca6b4e78c8b8ac",
-   "common/designsystem/src/main/ets/components/ModalInstance.ets"
-  ],
-  [
-   "f5e17f545cb1210b1f212fb2ef54311cfd8827d075a380c16e9afd62ff884c58",
-   "common/designsystem/src/main/ets/components/Navigation.ets"
-  ],
-  [
-   "4cadd5e7366a838a2f75487265c55170fca2a2aae40c36d47fc21595f4c8b501",
-   "common/designsystem/src/main/ets/components/Overlays.ets"
   ],
   [
    "ed989bca6b28432a3e548f73e21ac0085009bc048179173722d630982cd85c12",
    "common/designsystem/src/main/ets/components/PendingConfirm.ets"
   ],
   [
-   "74df97e6a8e7950669b415bc3106d1a9faeeb4d5449a3625fff48eec87e31356",
-   "common/designsystem/src/main/ets/components/PlatformIconSource.ets"
-  ],
-  [
-   "5a31d4d8fdee5941d4a23b5443da93fe37b8c8c6402f5a5d0cf4a69219e1767d",
-   "common/designsystem/src/main/ets/components/Price.ets"
-  ],
-  [
-   "dc3d3cc4f2cd93e2ef0d4f72da6a08cfdfc183da6ef4deba1f63cdbc8524dfe9",
-   "common/designsystem/src/main/ets/components/ProductCard.ets"
-  ],
-  [
-   "6e3d85cacaabe85f63148548c9f4553cae12e77eb1a3bcd7ac950264555cb3e3",
-   "common/designsystem/src/main/ets/components/ProductCardMeasure.ets"
-  ],
-  [
-   "ddbb75f5c2476d0d179efdfcae7d00a8731573d15853b1f525cb0d421fa387d6",
-   "common/designsystem/src/main/ets/components/States.ets"
-  ],
-  [
    "8b01f52fffe09649c83407aacea5f248d9675c6416ff387d5c8d286cda80799c",
    "common/designsystem/src/main/ets/components/StepUpPanel.ets"
-  ],
-  [
-   "4e4e51dc49797719f629908348b9e48e69b5b7940ac968bdfb1acb1a3bbbc1cf",
-   "common/designsystem/src/main/ets/components/SystemOverlays.ets"
-  ],
-  [
-   "fcb530d58cf336c6d8c9d19fcdd84893d7d6431cde13d19b86c22c927eddfdae",
-   "common/designsystem/src/main/ets/components/Wallet.ets"
   ],
   [
    "1d007a4717947dce6632f88e8f201560c5b0d302e86848dbc6f8c3ca92f39364",
    "common/designsystem/src/main/ets/format/CouliFormat.ets"
   ],
   [
-   "d3b2e0480c7c73ee8e7221cbb737589c441176e8e2929f9211a2b188222c4380",
-   "common/designsystem/src/main/ets/format/PriceConfirmLabel.ets"
-  ],
-  [
-   "57206a7b4232abe6f486e67747eaed4e21ec5e45a5b312109d27213f3fe0dad9",
-   "common/designsystem/src/main/ets/format/PriceModels.ets"
-  ],
-  [
    "13192a5e121d24766640e90a014ea2355861df067fad5314294e05681a2e6de7",
    "common/designsystem/src/main/ets/format/PriceTerms.ets"
   ],
   [
-   "455bd2cc4321ecb06226d0711b238b01a4c09e996c07475696eee40a7e55569b",
-   "common/designsystem/src/main/ets/format/ProductCardMapper.ets"
-  ],
-  [
-   "8f50f2002afb11e036d6b2e521ac753e37851ab0c2e61697803faa00be1fdf1d",
-   "common/designsystem/src/main/ets/format/SearchDisclaimers.ets"
-  ],
-  [
-   "29590e1234b9b2f26387a51be629683c06547406238974b781e9004f1756e158",
-   "common/designsystem/src/main/ets/logic/ClipboardPromptLayout.ets"
-  ],
-  [
-   "9b9020a2b8cef8fcb1f0090d1923a99566ef8a166e81baceef3d4182a997a635",
-   "common/designsystem/src/main/ets/logic/ContentColumn.ets"
-  ],
-  [
-   "10e652fa3686b9db9831f1ac6b27ac58dd3e24cae0aa6128dab6824ada59b061",
-   "common/designsystem/src/main/ets/logic/CouliFixedTap.ets"
-  ],
-  [
-   "50d8e2cd48ea6f582a63fd7f5e35a25b7b63607d492707769781df9ff11d2282",
-   "common/designsystem/src/main/ets/logic/ProductGridLayout.ets"
-  ],
-  [
    "cdfb15b41ab0057890b3b7003e42ae9b01b28996e5934ec442817e3f8e8ccd62",
    "common/designsystem/src/main/ets/logic/StepUpPanelFit.ets"
-  ],
-  [
-   "59478eb1d828278e6556ac487971cba38219bf332b385b8132de843762c869c8",
-   "common/designsystem/src/main/ets/logic/TextScale.ets"
-  ],
-  [
-   "812cf26d485ef0cd0daac19c356ca6e0b69dbe743eae671c3fc2f0c04888e9a8",
-   "common/designsystem/src/main/ets/theme/CouliThemeMapping.ets"
-  ],
-  [
-   "1895ee26db24f0cc2191a04349cab4afe1e7a76f5c866b04549a7b10c05263c4",
-   "common/designsystem/src/main/ets/theme/CouliThemeTokens.ets"
-  ],
-  [
-   "7388638982e94f2e04aa2a90d0eae0539eabf8a66b647787365fbc6dd795d1a6",
-   "common/designsystem/src/main/module.json5"
-  ],
-  [
-   "ff12c4f495a8173beacd34cce609de610807632a4ba59739b2a913ee0af56347",
-   "common/designsystem/src/main/resources/base/element/color.json"
-  ],
-  [
-   "9fb5c41f8647478299e4c97cbf3cb797d886dc4ff80eb30e90c1de0b230b3895",
-   "common/designsystem/src/main/resources/base/media/couli_logo_horizontal.svg"
-  ],
-  [
-   "f06526c9a6bd4c28a56c9e6ac8da74d0215bf5cd319b84b3ce60d456d037adf2",
-   "common/designsystem/src/main/resources/base/media/couli_logo_mark.svg"
-  ],
-  [
-   "574f09c6bdfc99fa91e814a07e5fd569618060065fa723165059586b0e79766c",
-   "common/designsystem/src/main/resources/base/media/jd.png"
-  ],
-  [
-   "6b9ff1c90ef7c168ecda69b56e5b33ab609a7883a910688aeeee8ca8ee07997d",
-   "common/designsystem/src/main/resources/base/media/pinduoduo.png"
-  ],
-  [
-   "d987c0084948eeeada4da71bce00653a9eb2e5743149adb4b25587adb573a4ea",
-   "common/designsystem/src/main/resources/base/media/taobao.png"
-  ],
-  [
-   "b2993599bf3e6e63fa5c0b2b0299d4d00e8577aabbd596e810941dbba75d17e6",
-   "common/designsystem/src/main/resources/dark/element/color.json"
-  ],
-  [
-   "4c94f966980f75af13c8d2832dac680ac99fa983fd02bd9b38490e2659bc7ea7",
-   "common/designsystem/src/main/resources/dark/media/couli_logo_horizontal.svg"
-  ],
-  [
-   "7d0ad1ece8ccc207512d45cb0a3820373af44a4751f4e7dc01f83cc6348b5e3d",
-   "common/designsystem/src/main/resources/dark/media/couli_logo_mark.svg"
   ],
   [
    "895bd7458fc9185e5b9022e316fc4313b90b84f91d75f72227bd3e907139fb9e",

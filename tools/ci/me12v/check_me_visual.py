@@ -6,7 +6,7 @@ H-M08 / H-M09 按推荐）。只用 Python 3 标准库；不调 git（基线是�
   G1 逻辑文件 sha256 与 REV（c782ca8） 一致（§3.1：MeControllers / MePresentation / MeSession / MeJson / CustomerService、AppMe / MePages /
      AppCsSheet / AppMeTexts、AppClipboard、MeKit）
   G2 只许新增行：MeDraftTexts.ets、core Index.ets（c782ca8 的每一行按原顺序仍在）
-  G3 common/designsystem 产品源码零改动（H-M07；src/test、src/ohosTest 不算）
+  G3 common/designsystem 清单内文件零改动（H-M07；D10-951 ② 从整树收窄为 fixture tree 里的 2 项，frozen_deps.py 按 import 图实算）
   G4 MeTabView 守卫区（§3.2）与 REV（c782ca8） 逐字节一致：MeTabConfig / MeTabModel / GridCell 三个类；aboutToAppear / apply / refreshGuideBar /
      member / cells / tapCell / inviteCode / fen / amountText / amountSpoken / copyCode；build 的两个分支条件、Refresh 的 refreshing /
      pullToRefresh / onRefreshing；各可点控件回调体（只认 MeTabView 里，子组件不得读 config / controller）
@@ -41,7 +41,7 @@ LOGIC_FIXTURE = 'tools/ci/me12v/fixtures/logic-baseline-' + REV + '.json'
 GUARD_FIXTURE = 'tools/ci/me12v/fixtures/me-tab-guard-' + REV + '.json'
 # fixture 指纹（make_baseline.py 由 git show REV（c782ca8） 生成；改 fixture 来迁就实现即红）。
 FIXTURE_SHA256 = {
-    LOGIC_FIXTURE: '458eb428685b1497dc1f28908b7c8c9cd35a30d3bd374fc6d6a878d85b349fd4',
+    LOGIC_FIXTURE: '2ed75f6b59b450e4c1cb6ff8afa4d89200deef1d8bdffce3b33172be882b2f2e',
     GUARD_FIXTURE: '5ec789384a0b6075b9e8ce15aa71a9075947a59d23f54f50da6631781b8ab42b',
 }
 
@@ -58,7 +58,8 @@ STRICT_FILES = [
     'entry/src/main/ets/clipboard/AppClipboard.ets', 'features/me/src/main/ets/MeKit.ets',
 ]
 APPEND_ONLY = [DRAFTS, CORE_INDEX]
-TREE_DIRS = ['common/designsystem']
+# FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：designsystem 不再整树冻结，只守 fixture tree 里的清单文件（tools/ci/system-controls/frozen_deps.py 实算）。
+TREE_DIRS = []
 SKIP_PARTS = {'src/test', 'src/ohosTest', 'build', '.test', 'oh_modules', '.hvigor', '.preview', 'node_modules'}
 GUARD_CLASSES = ['MeTabConfig', 'MeTabModel', 'GridCell']
 GUARD_METHODS = ['aboutToAppear', 'apply', 'refreshGuideBar', 'member', 'cells', 'tapCell', 'inviteCode', 'fen', 'amountText',
@@ -245,6 +246,16 @@ def check_logic(root, logic):
         for rel in sorted(set(want) | set(now)):
             if want.get(rel) != now.get(rel):
                 v.append('G3 ' + top + ' 产品源码有改动（H-M07 推荐零改动）：' + rel)
+    # FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：designsystem（me12wa 另有 staging）不再整树冻结，只守 fixture tree 里不属于任何整树的清单文件（frozen_deps.py 实算）；清单外增删改不报。
+    covered = tuple(t + '/' for t in TREE_DIRS)
+    for rel, want_sha in sorted(tree.items()):
+        if rel.startswith(covered):
+            continue
+        p = root / rel
+        if not p.is_file():
+            v.append('G3 清单内文件被删：' + rel)
+        elif sha(p.read_bytes()) != want_sha:
+            v.append('G3 清单内文件被改：' + rel)
     return v
 
 
@@ -584,6 +595,7 @@ REF_FILES = {
                 "export { " + ', '.join(NEW_EXPORTS) + " } from './src/main/ets/me/MeTabVisual';\n",
     'common/designsystem/src/main/ets/Colors.ets': 'export const C: number = 1;\n',
     'common/designsystem/Index.ets': "export { C } from './src/main/ets/Colors';\n",
+    'common/designsystem/src/main/ets/components/NotFrozen.ets': 'export const N: number = 1;\n',  # 不进合成基线 tree：清单外正对照
     'entry/src/staging/ets/variant/DebugFakeMe.ets':
         "const COUNTER: string = 'me.get_count';\nconst SCENES: string[] = [" +
         ', '.join("'" + s + "'" for s in STAGING_SCENES) + '];\n',
@@ -705,6 +717,33 @@ def run_mutants(tmp, layer, logic, mutants, loose):
     return failures
 
 
+def frozen_list_controls(tmp, check, outside_files, inside_listed):
+    """FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：清单外的文件增 / 删 / 改都不红；清单内文件被删要红（「designsystem 被改」变异已打清单内被改）。"""
+    failures = []
+    for rel in outside_files:
+        outside = tmp / rel
+        original = outside.read_bytes()
+        outside.write_bytes(original + b'// changed\n')
+        if check():
+            failures.append('[参考桩] 清单外文件被改被误报：' + rel)
+        outside.unlink()
+        if check():
+            failures.append('[参考桩] 清单外文件被删被误报：' + rel)
+        added = outside.with_name('AddedNotFrozen.ets')
+        added.write_bytes(original)
+        if check():
+            failures.append('[参考桩] 清单外新增文件被误报：' + added.name + '（' + rel + ' 同目录）')
+        added.unlink()
+        outside.write_bytes(original)
+    target = tmp / inside_listed
+    saved = target.read_bytes()
+    target.unlink()
+    if not check():
+        failures.append('[参考桩] 清单内文件被删未拦下：' + inside_listed)
+    target.write_bytes(saved)
+    return failures
+
+
 def self_test():
     failures = []
     with tempfile.TemporaryDirectory() as d:
@@ -714,6 +753,8 @@ def self_test():
         if base:
             print('ME12V_SELF_TEST_FAIL 参考桩树不该有违反项：', *base, sep='\n  ')
             return 1
+        failures += frozen_list_controls(tmp, lambda: check_source(tmp, logic=logic), ['common/designsystem/src/main/ets/components/NotFrozen.ets'],
+                                         'common/designsystem/src/main/ets/Colors.ets')
         failures += run_mutants(tmp, '参考桩', logic, MUTANTS, False)
     # 层二：真实实现（本仓库检查通过时）。
     if check_source(ROOT):

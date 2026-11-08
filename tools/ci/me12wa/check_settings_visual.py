@@ -6,7 +6,8 @@ D10-600 全部照推荐）。照 tools/ci/me12v/check_me_visual.py 的写法；�
 检查项：
   G1 逻辑与边界文件 sha256 与 REV（cc872c3）一致（§3.1）：me12v G1 的 11 个（含 MeKit，H-S01 一字不动）+ AccountPages / AppAccount /
      HarmonyPermissionSystem / contract.lock；整树：core me/account/**、contracts/**、features/me/**（除 SettingsView.ets 与新
-     SettingsParts.ets；不许新增别的文件）、common/designsystem/**（H-S02 / H-S05 / H-S07 不改 DS）、entry/src/staging/**
+     SettingsParts.ets；不许新增别的文件）；common/designsystem 清单内 6 项（H-S02 / H-S05 / H-S07 不改 DS；D10-951 ② 从整树收窄，frozen_deps.py 实算；
+     清单外增删改不报）；entry/src/staging 整树移出（只许追加的文件见 G2）
   G2 只许追加行：MeDraftTexts.ets（预计不加）、staging DebugFakeMe / DebugFakeAccount / BuildVariant（只许追加截图 / 设备场景）
   G4 SettingsView 守卫区（§3.2，按符号）与 REV 逐字节一致：5 个类、cacheSizeText、4 个 SUB_ 常量、35 个方法；build 的子页分支条件；
      回调体（去空白后必须出现在 SettingsView 里）；各 ForEach 键函数；昵称保存 disabled / loading、通知开关 disabled / on / 显示条件；
@@ -37,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = 'cc872c3'
 FIXTURE = 'tools/ci/me12wa/fixtures/settings-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-a-harmony-v1-aux/make_baseline.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = 'e0d3f0af2297b24d09ac5035a4bd81ddf90c018763fa19f8f36cee3987e29992'
+FIXTURE_SHA256 = '2d63b60f9510aba0dae1ff3b90d7227d583ef770e63ee4fe41ba20e6ed5dd782'
 
 VIEW = 'features/me/src/main/ets/SettingsView.ets'
 PARTS = 'features/me/src/main/ets/SettingsParts.ets'
@@ -250,7 +251,7 @@ def check_logic(root, base):
                      ('；H-S01 MeKit 一字不动' if rel.endswith('MeKit.ets') else '') + '）')
     tree = {rel: s for s, rel in base['tree']}
     exempt = set(base['tree_exempt']) | set(base['append_only'].keys()) | {rel for _, rel in base['strict']}
-    tops = ['common/core/src/main/ets/me/account', 'contracts', 'features/me', 'common/designsystem', 'entry/src/staging']
+    tops = ['common/core/src/main/ets/me/account', 'contracts', 'features/me']
     for top in tops:
         base_dir = root / top
         now = {}
@@ -263,9 +264,18 @@ def check_logic(root, base):
         for rel in sorted(set(want) | set(now)):
             if want.get(rel) != now.get(rel):
                 kind = '新增' if rel not in want else ('删除' if rel not in now else '改动')
-                hint = '（H-S02 / H-S05 / H-S07：不改 DS）' if top == 'common/designsystem' else \
-                    '（H-S01：设置私有件只放 SettingsParts.ets，MeKit 等不动）' if top == 'features/me' else ''
+                hint = '（H-S01：设置私有件只放 SettingsParts.ets，MeKit 等不动）' if top == 'features/me' else ''
                 v.append('G1 ' + top + ' 有' + kind + '：' + rel + hint)
+    # FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：designsystem（me12wa 另有 staging）不再整树冻结，只守 fixture tree 里不属于任何整树的清单文件（frozen_deps.py 实算）；清单外增删改不报。
+    covered = tuple(t + '/' for t in tops)
+    for rel, want_sha in sorted(tree.items()):
+        if rel.startswith(covered):
+            continue
+        p = root / rel
+        if not p.is_file():
+            v.append('G1 清单内文件被删：' + rel)
+        elif sha(p.read_bytes()) != want_sha:
+            v.append('G1 清单内文件被改：' + rel)
     for rel, keys in sorted(base['append_only'].items()):
         now = [line_key(l) for l in read(root, rel).split('\n')]
         i = 0
@@ -586,7 +596,6 @@ MUTANTS = [
     ('features/me 新增文件', 'features/me/src/main/ets/AboutView.ets', 'export const A: number = 1;', 'export const A: number = 1;\n//'),
     ('designsystem 被改', 'common/designsystem/src/main/ets/Colors.ets', 'export const C: number = 1;', 'export const C: number = 2;'),
     ('注销线 core 被改', 'common/core/src/main/ets/me/account/AccountDraftTexts.ets', 'export const D: number = 1;', 'export const D: number = 2;'),
-    ('staging 其他文件被改', 'entry/src/staging/ets/variant/DebugFakeHome.ets', 'export const H: number = 1;', 'export const H: number = 2;'),
     ('staging 场景改了已有行', 'entry/src/staging/ets/variant/DebugFakeMe.ets', "const SCENE: string = 'nickname_limit';",
      "const SCENE: string = 'limit';"),
     ('草稿表改了已有行', 'common/core/src/main/ets/me/MeDraftTexts.ets', "m.set('settings.go_login', '去登录');", "m.set('settings.go_login', '登录');"),
@@ -609,8 +618,10 @@ STUB_STRICT = ['common/core/src/main/ets/me/MeControllers.ets', 'features/me/src
 STUB_TREE = {'features/me/src/main/ets/AboutView.ets': 'export const A: number = 1;\n',
              'common/designsystem/src/main/ets/Colors.ets': 'export const C: number = 1;\n',
              'common/core/src/main/ets/me/account/AccountDraftTexts.ets': 'export const D: number = 1;\n',
-             'entry/src/staging/ets/variant/DebugFakeHome.ets': 'export const H: number = 1;\n',
              'contracts/snapshot/x.json': '{}\n'}
+# 不进合成基线 tree：清单外的 designsystem / staging 文件（FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24） 正对照）。
+STUB_OUTSIDE = {'common/designsystem/src/main/ets/components/NotFrozen.ets': 'export const N: number = 1;\n',
+                'entry/src/staging/ets/variant/DebugFakeHome.ets': 'export const H: number = 1;\n'}
 STUB_APPEND = {'common/core/src/main/ets/me/MeDraftTexts.ets': "export class MeDraftTexts {\n    m.set('settings.go_login', '去登录');\n}\n",
                'entry/src/staging/ets/variant/DebugFakeMe.ets': "const SCENE: string = 'nickname_limit';\n"}
 STUB_VECTORS_BASE = '{\n  "version": 1,\n  "visualMe": {\n    "a": 1\n  }\n}\n'
@@ -630,6 +641,7 @@ def build_stub_tree(tmp):
     base = json.loads((ROOT / FIXTURE).read_text(encoding='utf-8'))
     files = {rel: '// 参考桩：' + rel + '\nexport const X: number = 1;\n' for rel in STUB_STRICT}
     files.update(STUB_TREE)
+    files.update(STUB_OUTSIDE)
     files.update(STUB_APPEND)
     files[VIEW] = reference_view(base['view'])
     files[PARTS] = REF_PARTS
@@ -682,6 +694,33 @@ def run_mutants(tmp, layer, base, mutants, loose):
     return failures
 
 
+def frozen_list_controls(tmp, check, outside_files, inside_listed):
+    """FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：清单外的文件增 / 删 / 改都不红；清单内文件被删要红（「designsystem 被改」变异已打清单内被改）。"""
+    failures = []
+    for rel in outside_files:
+        outside = tmp / rel
+        original = outside.read_bytes()
+        outside.write_bytes(original + b'// changed\n')
+        if check():
+            failures.append('[参考桩] 清单外文件被改被误报：' + rel)
+        outside.unlink()
+        if check():
+            failures.append('[参考桩] 清单外文件被删被误报：' + rel)
+        added = outside.with_name('AddedNotFrozen.ets')
+        added.write_bytes(original)
+        if check():
+            failures.append('[参考桩] 清单外新增文件被误报：' + added.name + '（' + rel + ' 同目录）')
+        added.unlink()
+        outside.write_bytes(original)
+    target = tmp / inside_listed
+    saved = target.read_bytes()
+    target.unlink()
+    if not check():
+        failures.append('[参考桩] 清单内文件被删未拦下：' + inside_listed)
+    target.write_bytes(saved)
+    return failures
+
+
 def self_test():
     failures = []
     with tempfile.TemporaryDirectory() as d:
@@ -700,6 +739,7 @@ def self_test():
             if check_source(tmp, base):
                 failures.append('[参考桩] 只许追加的 ' + rel + ' 追加一行被误报')
             p.write_text(original, encoding='utf-8')
+        failures += frozen_list_controls(tmp, lambda: check_source(tmp, base), sorted(STUB_OUTSIDE), 'common/designsystem/src/main/ets/Colors.ets')
         failures += run_mutants(tmp, '参考桩', base, MUTANTS, False)
     # 层二：真实实现（本仓库检查通过时）。
     if check_source(ROOT):
