@@ -19,6 +19,7 @@ import hm07vHomeTileTest from './Hm07vHomeTile.test';
 import hm07vOverlayLayoutTest from './Hm07vOverlayLayout.test';
 import tokensPipeThemeTest from './TokensPipeTheme.test';
 import ctaKeyVectorTest from './CtaKeyVector.test';
+import themeBaseTest from './ThemeBase.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -43,4 +44,6 @@ export default function testsuite() {
   tokensPipeThemeTest();
   // FU-X-CTA-KEY-DRIFT：cta 文案键向量（specs/cta-key-vectors.json）与未知键兜底。
   ctaKeyVectorTest();
+  // FU-HM-THEME-BASE：51 个系统颜色角色分组与中性色方案。
+  themeBaseTest();
 }

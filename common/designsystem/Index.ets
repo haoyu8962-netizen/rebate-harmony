@@ -2,7 +2,7 @@
 export { CouliColors, CouliTheme, couliColorResource, couliColorResourceName } from './src/main/ets/CouliColors';
 // DS-02：浅 / 深两套主题的纯逻辑（无资源引用）与锁定快照生成数据。
 export {
-  resolveColorTokens, resolveShadowTokens, buildSystemColors, ThemeShadowLayer
+  resolveColorTokens, resolveShadowTokens, buildSystemColors, SystemNeutralPreset, ThemeShadowLayer
 } from './src/main/ets/theme/CouliThemeMapping';
 export { CouliThemeTokens, ThemeColorToken, ThemeShadowToken } from './src/main/ets/theme/CouliThemeTokens';
 export { CouliTextStyle, CouliTypography, CouliFontWeight } from './src/main/ets/CouliTypography';

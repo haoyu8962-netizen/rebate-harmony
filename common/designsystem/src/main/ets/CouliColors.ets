@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { ThemeControl } from '@kit.ArkUI';
 import { DesignTokens } from 'generated';
 import { CouliColorMode } from './components/ColorMode';
-import { buildSystemColors } from './theme/CouliThemeMapping';
+import { buildSystemColors, SystemNeutralPreset } from './theme/CouliThemeMapping';
 import { CouliThemeTokens, ThemeColorToken } from './theme/CouliThemeTokens';
 
 /**
@@ -118,14 +118,15 @@ export class CouliColors {
 }
 
 /**
- * 系统组件主题：ThemeControl.setDefaultTheme 用令牌资源显式填满 SDK Colors 的 51 个角色（映射见 CouliThemeMapping.buildSystemColors），
+ * 系统组件主题：ThemeControl.setDefaultTheme 默认用令牌资源显式填满 SDK Colors 的 51 个角色（映射见 CouliThemeMapping.buildSystemColors），
  * 没显式设色的系统组件（Toggle、Radio、SegmentButton、系统对话框、半屏把手等）也用狸橙与暖灰；资源随深色自动换值。
+ * preset 不传即 TOKEN；SYSTEM 时 29 个中性角色走系统默认（对比录屏用，FU-HM-THEME-BASE）。
  * 在 EntryAbility 加载首页前调用一次。传入应用上下文时同时接上运行中深浅跟踪（CouliColorMode：焦点框、分段文字等
  * 只收解析好颜色的地方据此重新取色，评审 r1 R1-03）。
  */
 export class CouliTheme {
-  static install(context?: common.Context): void {
-    ThemeControl.setDefaultTheme({ colors: buildSystemColors(CouliColors.tokenResources()) });
+  static install(context?: common.Context, preset?: SystemNeutralPreset): void {
+    ThemeControl.setDefaultTheme({ colors: buildSystemColors(CouliColors.tokenResources(), preset) });
     if (context !== undefined) {
       CouliColorMode.attach(context);
     }
