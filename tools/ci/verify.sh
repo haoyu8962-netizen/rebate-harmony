@@ -259,6 +259,12 @@ record "lint.py" PASS
 step "DS-02 组件资源 / 守卫 / 目录隔离宿主测试"
 python3 "$ROOT/tools/ci/ds02/test_host.py" || fail_fast "ds02-host" "见上方用例断言"
 record "ds02-host" PASS
+# FU-HM-TAB-BAR（书 §3.1）：底栏系统样式 / 符号表 / 选中色 / 外壳材质 / 无本地选中态 / 目录（SDK AST，先自测）；新增设备用例 ArkTS 严格检查。
+step "FU-HM-TAB-BAR 宿主检查"
+python3 "$ROOT/tools/ci/tabbar/check_tab_bar.py" --self-test || fail_fast "tabbar-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/tabbar/check_tab_bar.py" || fail_fast "tabbar-host" "见上方违反项"
+node "$ROOT/tools/ci/tabbar/check-arkts.cjs" --real || fail_fast "tabbar-arkts" "TabBarShellUi ArkTS 严格检查失败"
+record "tabbar-host" PASS "系统样式 / 符号表 / 选中色 / 材质 / 选中只跟宿主 / 目录 / ArkTS"
 
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
