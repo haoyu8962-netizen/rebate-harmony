@@ -266,6 +266,14 @@ python3 "$ROOT/tools/ci/tabbar/check_tab_bar.py" || fail_fast "tabbar-host" "见
 node "$ROOT/tools/ci/tabbar/check-arkts.cjs" --real || fail_fast "tabbar-arkts" "TabBarShellUi ArkTS 严格检查失败"
 record "tabbar-host" PASS "系统样式 / 符号表 / 选中色 / 材质 / 选中只跟宿主 / 目录 / ArkTS"
 
+# FU-HM-THEME-BASE：51 个系统颜色角色分组、中性色方案只在 staging、接线（先自测）；ThemeBase 套件 node 预检与 ArkTS 严格检查。
+step "FU-HM-THEME-BASE 宿主检查"
+python3 "$ROOT/tools/ci/themebase/check_theme_base.py" --self-test || fail_fast "themebase-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/themebase/check_theme_base.py" || fail_fast "themebase-host" "见上方违反项"
+node "$ROOT/tools/ci/themebase/run-logic.cjs" || fail_fast "themebase-logic" "见上方用例"
+node "$ROOT/tools/ci/themebase/check-arkts.cjs" --real || fail_fast "themebase-arkts" "ThemeBase 测试文件 ArkTS 严格检查失败"
+record "FU-HM-THEME-BASE 宿主检查" PASS "接线 / 角色分组 / Release 不含 / release-scan 标记 / 登记（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -804,6 +812,15 @@ for cfg in Staging Debug; do
         || fail_fast "hm07v-hap $cfg" "$cfg 制品缺 couli_debug_color_mode"
 done
 record "HM-07v-a 深色入口制品检查" PASS "Release 不含；Staging / Debug 含"
+
+step "FU-HM-THEME-BASE：中性色启动参数 Release 不含、Staging / Debug 含（§3.1-2）"
+python3 "$ROOT/tools/ci/themebase/check_theme_base.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "themebase-hap Release" "Release 制品含 couli_debug_theme_neutral，见上方输出"
+for cfg in Staging Debug; do
+    python3 "$ROOT/tools/ci/themebase/check_theme_base.py" --hap-staging "$OUT_DIR/$cfg.hap" \
+        || fail_fast "themebase-hap $cfg" "$cfg 制品缺 couli_debug_theme_neutral"
+done
+record "FU-HM-THEME-BASE 中性色入口制品检查" PASS "Release 不含；Staging / Debug 含"
 
 step "HM-05r：Release 制品不声明 READ_PASTEBOARD（D1：CAP-X-02 实测前不声明、探测恒 not_eligible）"
 python3 "$ROOT/tools/ci/hm05r/check_hm05r.py" --hap "$OUT_DIR/Release.hap" \
