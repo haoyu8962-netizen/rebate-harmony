@@ -602,10 +602,10 @@ MUTANTS = [
     ('me-vectors 已有组被改', VECTORS, '"version": 1', '"version": 2'),
     # ---- 名单与设施（APP-12w-b-harmony 测试 v1，#24 只换定位串：主步再排除 Me12wbUi、device-test 再认 me12wb）
     # APP-12w-c-harmony 测试 v1（#24 只换定位串，H-R16）：主步再排除 Me12wcUi、device-test 再认 me12wc。
-    ('主步不排除 Me12waUi', 'tools/ci/verify.sh', 'Me12vUi,Me12waUi,Me12wbUi,Me12wcUi main', 'Me12vUi,Me12wbUi,Me12wcUi main'),
+    ('主步不排除 Me12waUi', 'tools/ci/verify.sh', 'Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main', 'Me12vUi,Me12wbUi,Me12wcUi,TabBarShellUi main'),
     ('没有 me12wa 设备步', 'tools/ci/verify.sh', 'entry-me12wa class=Me12waUi me12wa', 'entry-me12wa class=Me12waUi all'),
     ('verify 没跑本宿主自测', 'tools/ci/verify.sh', 'me12wa/check_settings_visual.py" --self-test', 'me12wa/check_settings_visual.py" --help'),
-    ('device-test 不认 me12wa', 'tools/ci/device-test.sh', 'me12v|me12wa|me12wb|me12wc|all)', 'me12v|me12wb|me12wc|all)'),
+    ('device-test 不认 me12wa', 'tools/ci/device-test.sh', 'me12v|me12wa|me12wb|me12wc|tabbar|all)', 'me12v|me12wb|me12wc|tabbar|all)'),
     ('名单少一条', CASES, 'me12wa_15_', 'me12wa_99_'),
     ('core 套件未登记', 'common/core/src/test/List.test.ets', '  me12waSettingsTest();\n', ''),
     ('entry 套件未登记', 'entry/src/ohosTest/ets/test/List.test.ets', '  me12waUiTest();\n', ''),

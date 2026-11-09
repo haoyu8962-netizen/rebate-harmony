@@ -1608,10 +1608,10 @@ MUTANTS = [
     ('staging 改已有行', FAKE_ME, "  static scene: string = '';\n", "  static scene: string = 'x';\n"),
     ('夹具被改', VECTORS, '"clock": "2026-11-05T16:00:00+08:00"', '"clock": "2026-11-05T16:01:00+08:00"'),
     # ---- 名单与设施
-    ('主步不排除 Me12wcUi', 'tools/ci/verify.sh', 'Me12wbUi,Me12wcUi main', 'Me12wbUi main'),
+    ('主步不排除 Me12wcUi', 'tools/ci/verify.sh', 'Me12wbUi,Me12wcUi,TabBarShellUi main', 'Me12wbUi,TabBarShellUi main'),
     ('没有 me12wc 设备步', 'tools/ci/verify.sh', 'entry-me12wc class=Me12wcUi me12wc', 'entry-me12wc class=Me12wcUi all'),
     ('verify 没跑本宿主自测', 'tools/ci/verify.sh', 'me12wc/check_risk_visual.py" --self-test', 'me12wc/check_risk_visual.py" --help'),
-    ('device-test 不认 me12wc', 'tools/ci/device-test.sh', 'me12wb|me12wc|all)', 'me12wb|all)'),
+    ('device-test 不认 me12wc', 'tools/ci/device-test.sh', 'me12wb|me12wc|tabbar|all)', 'me12wb|tabbar|all)'),
     ('名单少一条', CASES, 'me12wc_21_', 'me12wc_99_'),
     ('core 套件未登记', 'common/core/src/test/List.test.ets', '  me12wcRiskTest();\n', ''),
     ('entry 套件未登记', 'entry/src/ohosTest/ets/test/List.test.ets', '  me12wcUiTest();\n', ''),

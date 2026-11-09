@@ -808,6 +808,15 @@ class LintWarnings(Base):
 class VerifyStep(Base):
     """§2.2：verify.sh 只新增一步；现有行全部原样保留、顺序不变。"""
 
+    # FU-HM-TAB-BAR-harmony（#24，编排 D10-1179）：本单改写的 2 行。BASE_COMMIT 不动，比较前按完整字符串把旧行换成新行，
+    # 新行必须与 verify.sh 逐字相等，其余行照旧。只在 test_existing_lines_kept_in_order 用，lines() 仍返回 BASE_COMMIT 原文。
+    REWRITTEN_LINES = {
+        '    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / all，见 ds02/check_device_result.py）':
+        '    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / tabbar / all，见 ds02/check_device_result.py）',
+        '    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi main':
+        '    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
+    }
+
     def lines(self):
         old = subprocess.run(['git', '-C', str(ROOT), 'show', BASE_COMMIT + ':tools/ci/verify.sh'], capture_output=True)
         self.assertEqual(old.returncode, 0, old.stderr.decode('utf-8', 'replace'))
@@ -815,6 +824,7 @@ class VerifyStep(Base):
 
     def test_existing_lines_kept_in_order(self):
         old, new = self.lines()
+        old = [self.REWRITTEN_LINES.get(line, line) for line in old]
         i = 0
         for line in new:
             if i < len(old) and line == old[i]:

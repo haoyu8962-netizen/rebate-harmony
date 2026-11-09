@@ -19,7 +19,7 @@ Segmented	§3.3	系统控件	two,three,four	selected,unselected,disabled
 FilterChip	§3.3	系统控件/自绘	filter,dropdown,sort	unselected,selected,disabled
 NavBar	§3.4	系统控件	secondary,primary,transparent	default,scrolled
 TopTabs	§3.4	系统控件/自绘	fixed,scrollable	selected,unselected
-TabBar	§3.4	系统控件	badge	selected,unselected
+TabBar	§3.4	系统控件	symbol	selected,unselected
 ListRow	§3.5	系统控件	arrow,value,switch-subtitle	default,pressed,disabled
 Divider	§3.5	系统控件	full,inset,text	default
 CouliTag	§3.5	自绘	pending,success,warning,error,benefit,emphasis	default

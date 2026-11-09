@@ -1030,10 +1030,10 @@ MUTANTS = [
     ('夹具被改', VECTORS, '"clock": "2026-10-12T10:30:00+08:00"', '"clock": "2026-10-12T10:31:00+08:00"'),
     # ---- 名单与设施
     # APP-12w-c-harmony 测试 v1（#24 只换定位串，H-R16）：主步再排除 Me12wcUi、device-test 再认 me12wc。
-    ('主步不排除 Me12wbUi', 'tools/ci/verify.sh', 'Me12waUi,Me12wbUi,Me12wcUi main', 'Me12waUi,Me12wcUi main'),
+    ('主步不排除 Me12wbUi', 'tools/ci/verify.sh', 'Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main', 'Me12waUi,Me12wcUi,TabBarShellUi main'),
     ('没有 me12wb 设备步', 'tools/ci/verify.sh', 'entry-me12wb class=Me12wbUi me12wb', 'entry-me12wb class=Me12wbUi all'),
     ('verify 没跑本宿主自测', 'tools/ci/verify.sh', 'me12wb/check_privacy_visual.py" --self-test', 'me12wb/check_privacy_visual.py" --help'),
-    ('device-test 不认 me12wb', 'tools/ci/device-test.sh', 'me12wa|me12wb|me12wc|all)', 'me12wa|me12wc|all)'),
+    ('device-test 不认 me12wb', 'tools/ci/device-test.sh', 'me12wa|me12wb|me12wc|tabbar|all)', 'me12wa|me12wc|tabbar|all)'),
     ('名单少一条', CASES, 'me12wb_17_', 'me12wb_99_'),
     ('core 套件未登记', 'common/core/src/test/List.test.ets', '  me12wbPrivacyTest();\n', ''),
     ('entry 套件未登记', 'entry/src/ohosTest/ets/test/List.test.ets', '  me12wbUiTest();\n', ''),
