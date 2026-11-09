@@ -18,7 +18,7 @@ export default function ds02CatalogTest() {
       }
       // 允许新增状态，但必须有真实标注，不能用重复行掩盖遗漏。
       for (const row of actual) {
-        expect(row.kind === '系统控件' || row.kind === '自绘').assertTrue();
+        expect(row.kind === 'L1 系统控件' || row.kind === 'L2 业务组件').assertTrue();
         expect(row.component.length > 0 && row.variant.length > 0 && row.state.length > 0).assertTrue();
       }
     });

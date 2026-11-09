@@ -349,8 +349,8 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
       checked += required.length;
     }
   }
-  assert.equal(checked, 800);
-  console.log('REFERENCE_ONLY traversal: 61 components x 2 modes, 800 cases, linear swipe bound, tall rows pass');
+  assert.equal(checked, 802);
+  console.log('REFERENCE_ONLY traversal: 62 components x 2 modes, 802 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');
   // S1：完整 36 行目录，测 search 六状态；不是裁小后的假列表。
   const searchRows = required.filter(row => row.variant === 'search');
@@ -443,7 +443,7 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
         if (selector.idValue.startsWith('catalog-theme-')) return { click: async () => {
           currentTheme = selector.idValue.slice('catalog-theme-'.length);
         } };
-        if (selector.idValue === 'catalog-kind/ProductCard') return { getText: async () => '自绘' };
+        if (selector.idValue === 'catalog-kind/ProductCard') return { getText: async () => 'L2 业务组件' };
         return wait(selector);
       };
       activeDriver = driver;

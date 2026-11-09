@@ -112,7 +112,7 @@ function reference(variant = 'system', mutation = '') {
   const rows = expected.EXPECTED_CASES.map(row => ({ component: row.component, variant: row.variant, state: row.state,
     kind: row.kinds[variant === 'custom' && row.kinds.length > 1 ? 1 : 0] }));
   if (mutation === 'missing-state') rows.splice(rows.findIndex(r => r.state === 'disabled-checked'), 1);
-  if (variant === 'custom') rows.push({ component: 'FilterChip', variant: 'extra', state: 'default', kind: '自绘' });
+  if (variant === 'custom') rows.push({ component: 'FilterChip', variant: 'extra', state: 'default', kind: 'L2 业务组件' });
   const roles = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/system-color-roles.json')));
   const semantic = { brand: 'brand.primary', fontPrimary: 'text.primary', fontSecondary: 'text.secondary',
     backgroundPrimary: 'background.canvas', compDivider: 'border.subtle', interactiveFocus: 'focus.ring' };

@@ -273,7 +273,8 @@ run_device_tests core common/core core_test
         # + APP-12w-b-harmony 17 条（tools/ci/me12wb/fixtures/device-cases.txt，隐私中心 / 关于 / 客服半屏视觉；只增不减，合集 241 → 258）
         # + APP-12w-c-harmony 21 条（tools/ci/me12wc/fixtures/device-cases.txt，账号状态 / 申诉视觉；测试 v5 加键盘避让 1 条，只增不减，合集 258 → 279）
         # + FU-HM-TAB-BAR 7 条（tools/ci/tabbar/device-cases.txt，系统底栏；只增不减，合集 279 → 286）。
-        self.assertEqual(len(names), 286)
+        # FU-HM-FEEL-KIT（#24）：目录加 FeelLab，按 inventory 派生 render_all_declared_states_FeelLab_light / _dark 2 条，DS-02 158 → 160；只增不减，合集 286 → 288、main 173 → 175。
+        self.assertEqual(len(names), 288)
         self.assertEqual(len([name for name in names if name.startswith('tabbar_')]), 7)
         self.assertEqual(len([name for name in names if name.startswith('me12wc_')]), 21)
         self.assertEqual(len([name for name in names if name.startswith('me12wb_')]), 17)
@@ -299,8 +300,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 286)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 286)
+        self.assertEqual(validate(report(names)), 288)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 288)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -342,7 +343,7 @@ run_device_tests core common/core core_test
         me12wb = expected_names('me12wb')
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
-        self.assertEqual(len(main), 173)
+        self.assertEqual(len(main), 175)
         self.assertEqual(len(me12wc), 21)
         self.assertEqual(len(tabbar), 7)
         self.assertEqual(len(me12wb), 17)
@@ -414,8 +415,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 173)
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 173)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 175)
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 175)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
