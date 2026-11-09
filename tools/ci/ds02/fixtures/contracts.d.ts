@@ -33,7 +33,8 @@ export declare class SheetDismissPolicy {
 }
 export declare class PlatformIconSource { static builtin(platform: string): string; }
 export declare function resolveColorTokens(dark?: boolean): Map<string, string>;
-export declare function buildSystemColors(tokens: Map<string, ResourceColor>): CustomColors;
+export declare enum SystemNeutralPreset { TOKEN = 'token', SYSTEM = 'system' }
+export declare function buildSystemColors(tokens: Map<string, ResourceColor>, preset?: SystemNeutralPreset): CustomColors;
 export declare class ThemeShadowLayer {
   x: number; y: number; blur: number; spread: number; color: string; opacity: number;
 }
