@@ -20,6 +20,7 @@ import hm07vOverlayLayoutTest from './Hm07vOverlayLayout.test';
 import tokensPipeThemeTest from './TokensPipeTheme.test';
 import ctaKeyVectorTest from './CtaKeyVector.test';
 import themeBaseTest from './ThemeBase.test';
+import feelKitTest from './FeelKit.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -46,4 +47,6 @@ export default function testsuite() {
   ctaKeyVectorTest();
   // FU-HM-THEME-BASE：51 个系统颜色角色分组与中性色方案。
   themeBaseTest();
+  // FU-HM-FEEL-KIT：触感时刻清单（书 §3.1）与 MotionPolicy。
+  feelKitTest();
 }

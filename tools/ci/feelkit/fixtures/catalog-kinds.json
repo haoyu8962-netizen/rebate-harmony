@@ -1,0 +1,11 @@
+{
+  "_source": "NATIVE/FU-HM-FEEL-KIT/brief-harmony.md §2.5 分类表（D10-1153：改判 11 项按表）；FeelLab 见 §2.6。独立判据，不读产品与 inventory。",
+  "L1": ["CouliTextField", "CouliTextArea", "PhoneField", "CodeInput", "SearchField", "PasteButton", "CouliCheckbox", "CouliRadio", "CouliSwitch",
+         "Segmented", "NavBar", "TopTabs", "TabBar", "ListRow", "Divider", "CouliBadge", "Loading", "PullToRefresh", "Toast", "AlertDialog",
+         "Dialog", "Sheet", "ActionMenu", "AgreementCheckRow", "OneTapLoginPanel"],
+  "L2": ["CouliButton", "CouliIconButton", "BuyButton", "FilterChip", "CouliTag", "Avatar", "ImagePlaceholder", "Timeline", "DisclosureRow",
+         "Skeleton", "ProductCardSkeleton", "EmptyState", "ErrorState", "NoticeBar", "OAuthButton", "ThirdPartyLoginRow", "LastLoginTag",
+         "BrandMark", "PriceTag", "RebateTag", "EstNetLine", "DisclaimerFooter", "PlatformBadge", "ProductCard", "AmountGrid", "WalletHeroCard",
+         "EntryGrid", "PriceTrendPanel", "ShareMaterialPicker", "ShareCopyEditor", "MatchBadge", "AiLabel", "AgentConsentSheet", "AuthSheet",
+         "JumpTip", "StepUpSheet", "FeelLab"]
+}
