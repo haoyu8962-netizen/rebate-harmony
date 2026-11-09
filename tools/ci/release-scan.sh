@@ -163,6 +163,8 @@ markers = [
     # （编排者补充 G01：DeleteAccount since=null 时只在 Debug / Staging 用于冒烟、截图，entry/src/staging/ets/variant/BuildVariant.ets）。
     "COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90", "couli_debug_account_scene",
     "COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e", "couli_debug_route_available",
+    # FU-HM-THEME-BASE：系统颜色中性角色方案的启动参数键（entry/src/staging/ets/variant/BuildVariant.ets），Release 必须不含。
+    "couli_debug_theme_neutral",
 ]
 # APP-10b R1-04：只许在测试源码集的标记（任何制品都不得命中；不参与 --self-test 的「必须命中」）。
 test_only_markers = [

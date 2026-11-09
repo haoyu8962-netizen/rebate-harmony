@@ -11,6 +11,7 @@ import {
   UnavailableWechatAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { RouteSpec } from 'generated';
+import { SystemNeutralPreset } from 'designsystem';
 
 export class BuildVariant {
   static readonly CONFIG_NAME: string = 'Release';
@@ -126,6 +127,11 @@ export class BuildVariant {
   /** Release 的通知引导条只按真实条件（G28）。 */
   static guideBarOverride(): boolean | null {
     return null;
+  }
+
+  /** 系统颜色中性角色：Release 恒用令牌，没有方案开关（FU-HM-THEME-BASE）。 */
+  static themeNeutralPreset(): SystemNeutralPreset {
+    return SystemNeutralPreset.TOKEN;
   }
 
   /** Release 没有截图用的子页直达参数。 */

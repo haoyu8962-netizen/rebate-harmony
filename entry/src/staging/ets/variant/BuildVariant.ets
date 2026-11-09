@@ -15,6 +15,7 @@ import {
   ThirdPartyAuthAdapter, UpdateChecker, WalletContractPort, WebCodeAuthorizer
 } from 'core';
 import { CouliColors, CouliInteraction, CouliRadius, CouliSpacing, CouliTypography } from 'designsystem';
+import { SystemNeutralPreset } from 'designsystem';
 // DS-02：调试导出直接从 generated 的 src/staging/ets/DebugOnly 取，不经 generated 总入口——entry 的 UiTest 包与本应用同 bundle、ArkTS 模块按名字共用，
 // 测试包先加载的 generated 总入口是 Release 版（依赖一律取 default target），经总入口取调试导出会在设备测试时找不到而崩溃。
 import { DesignTokens, RouteSpec } from 'generated';
@@ -49,6 +50,8 @@ import { CATALOG_LAUNCH_KEY, CatalogLaunch } from '../catalog/CatalogLaunch';
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
 /** HM-07v H-V06：深色截图启动参数键（只在 Debug / Staging）。 */
 const DEBUG_COLOR_MODE_KEY: string = 'couli_debug_color_mode';
+/** FU-HM-THEME-BASE：系统颜色中性角色方案的启动参数键（只在 Debug / Staging）。 */
+const DEBUG_THEME_NEUTRAL_KEY: string = 'couli_debug_theme_neutral';
 
 export class BuildVariant {
   /**
@@ -77,6 +80,13 @@ export class BuildVariant {
   /** APP-09 R1-11：`--pd couli_debug_viewport_height 560` 让二次验证半屏按该视口高（vp）布局，模拟短视口截图；0 = 窗口实际高度。 */
   static stepUpViewportOverride(): number {
     return BuildVariant.debugViewportHeight;
+  }
+
+  private static themeNeutral: SystemNeutralPreset = SystemNeutralPreset.TOKEN;
+
+  /** FU-HM-THEME-BASE：`--ps couli_debug_theme_neutral system` 时中性角色走系统默认；其他值或不带 = token。只在冷启动生效（EntryAbility.loadRoot 安装主题时读一次）。 */
+  static themeNeutralPreset(): SystemNeutralPreset {
+    return BuildVariant.themeNeutral;
   }
 
   /** buildMode=debug → Debug；buildMode=release → Staging（映射见工程根 build-profile.json5）。 */
@@ -345,6 +355,8 @@ export class BuildVariant {
    * fontSizeScale（DS-01 compare-harmony §0）。只读这一个调试键，不影响 AppRouting 只认 want.uri 的规则。
    */
   static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
+    // FU-HM-THEME-BASE：中性色对比录屏用，主题只在冷启动安装一次，热启动改这里不生效。
+    BuildVariant.themeNeutral = want.parameters?.[DEBUG_THEME_NEUTRAL_KEY] === 'system' ? SystemNeutralPreset.SYSTEM : SystemNeutralPreset.TOKEN;
     // APP-05a R1-07：`--pd couli_debug_layout_width 320` 把根布局限制为该宽度（vp，居中），模拟器没有 320vp 宽实例时
     // 用来截窄屏图（只影响页面布局宽度；系统弹窗仍按窗口宽度）。
     const width: Object | undefined = want.parameters?.['couli_debug_layout_width'];
