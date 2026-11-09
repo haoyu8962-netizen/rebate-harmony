@@ -274,6 +274,14 @@ node "$ROOT/tools/ci/themebase/run-logic.cjs" || fail_fast "themebase-logic" "�
 node "$ROOT/tools/ci/themebase/check-arkts.cjs" --real || fail_fast "themebase-arkts" "ThemeBase 测试文件 ArkTS 严格检查失败"
 record "FU-HM-THEME-BASE 宿主检查" PASS "接线 / 角色分组 / Release 不含 / release-scan 标记 / 登记（自测）/ 纯逻辑 / ArkTS"
 
+# FU-HM-FEEL-KIT：触感唯一入口与时刻映射、VIBRATE 一行、API 23 版本判断、按压反馈、动效常量、目录 L1 / L2 与 FeelLab、冷启动直达、登记（先自测）；纯逻辑 / 驱动 node 预检与 ArkTS 严格检查。
+step "FU-HM-FEEL-KIT 宿主检查"
+python3 "$ROOT/tools/ci/feelkit/check_feel_kit.py" --self-test || fail_fast "feelkit-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/feelkit/check_feel_kit.py" || fail_fast "feelkit-host" "见上方违反项"
+node "$ROOT/tools/ci/feelkit/run-logic.cjs" || fail_fast "feelkit-logic" "见上方用例"
+node "$ROOT/tools/ci/feelkit/check-arkts.cjs" --real || fail_fast "feelkit-arkts" "FeelKit 测试与新文件 ArkTS 严格检查失败"
+record "FU-HM-FEEL-KIT 宿主检查" PASS "唯一入口 / 权限 / 版本判断 / 按压 / 动效 / 目录 / 登记（自测）/ 纯逻辑与驱动 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -822,6 +830,15 @@ for cfg in Staging Debug; do
 done
 record "FU-HM-THEME-BASE 中性色入口制品检查" PASS "Release 不含；Staging / Debug 含"
 
+step "FU-HM-FEEL-KIT：制品权限集合恰 {INTERNET, VIBRATE}；FeelLab Release 不含、Staging / Debug 含（§3.1-2、§3.3）"
+python3 "$ROOT/tools/ci/feelkit/check_feel_kit.py" --hap "$OUT_DIR/Release.hap" \
+    || fail_fast "feelkit-hap Release" "Release 制品权限集合不对或含 FeelLab，见上方输出"
+for cfg in Staging Debug; do
+    python3 "$ROOT/tools/ci/feelkit/check_feel_kit.py" --hap-staging "$OUT_DIR/$cfg.hap" \
+        || fail_fast "feelkit-hap $cfg" "$cfg 制品权限集合不对或缺 FeelLab"
+done
+record "FU-HM-FEEL-KIT 制品检查" PASS "权限集合；FeelLab Release 不含、Staging / Debug 含"
+
 step "HM-05r：Release 制品不声明 READ_PASTEBOARD（D1：CAP-X-02 实测前不声明、探测恒 not_eligible）"
 python3 "$ROOT/tools/ci/hm05r/check_hm05r.py" --hap "$OUT_DIR/Release.hap" \
     || fail_fast "hm05r-hap Release" "Release 制品的 module.json 声明了 READ_PASTEBOARD，见上方输出"
@@ -946,6 +963,7 @@ device_step_failed() {
 run_device_tests core common/core core_test
 # HM-07v-a（编排 D10-405 D4、测试 v2 T0）：entry 拆成两个设备步，同锁、同一个测试包，各自计时、各自 1800 秒门槛、各自必跑名单：
 #   entry         DS-02 158 + F-X-05a 9 + F-X-25 6 = 173 条（排除 Hm07vHomeUi、Hm07vOverlayUi 两个套件）
+#                 FU-HM-FEEL-KIT 目录加 FeelLab（浅 / 深 2 条）后为 DS-02 160 + 9 + 6 = 175 条（ds02/check_device_result.py --set main）
 #   entry-hm07va  HM-07v-a 17 条（只跑 Hm07vHomeUi 套件）；device-test.sh 先卸载再装，从未同意隐私的冷启动开始（不受前一步状态影响）
 #   entry-hm07vb  HM-07v-b 11 条（只跑 Hm07vOverlayUi 套件：弹窗与剪贴板浮层）；同样先卸载再装、各自 1800 秒（D10-232 / D10-405 D4 同口径）
 #   entry-hm05r   HM-05r 11 条（只跑 Hm05rConsentUi 套件：剪贴板默认开启、关闭态、升级迁移、撤回与重新同意，测试 v3）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
