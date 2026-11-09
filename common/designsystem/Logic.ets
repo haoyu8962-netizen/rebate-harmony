@@ -22,3 +22,6 @@ export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
 export { ClipboardPromptLayout } from './src/main/ets/logic/ClipboardPromptLayout';
 export { ContentColumn } from './src/main/ets/logic/ContentColumn';
 export { CouliFixedTap } from './src/main/ets/logic/CouliFixedTap';
+// FU-HM-FEEL-KIT：触感时刻与动效策略纯逻辑（单测用假端口；真实驱动 CouliHaptics / CouliMotion 只从 Index.ets 导出）。
+export { HapticMoment, HAPTIC_EFFECT, HapticPlan, HapticPort } from './src/main/ets/logic/HapticMoments';
+export { MotionPolicy, MotionKind, MotionSpec, PressKind } from './src/main/ets/logic/MotionPolicy';

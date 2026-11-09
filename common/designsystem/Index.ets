@@ -90,3 +90,8 @@ export {
 export {
   PriceTrendPanel, TrendPoint, TrendState, ShareMaterialPicker, ShareMaterial, ShareCopyEditor, ShareCopyItem
 } from './src/main/ets/components/Business';
+// FU-HM-FEEL-KIT：触感入口、动效默认值与减弱动态、按压反馈包装件。
+export { CouliHaptics } from './src/main/ets/components/CouliHaptics';
+export { CouliMotion } from './src/main/ets/components/CouliMotion';
+export { CouliPressable } from './src/main/ets/components/CouliPressable';
+export { PressKind } from './src/main/ets/logic/MotionPolicy';
