@@ -24,6 +24,7 @@ import { AppAgent } from '../agent/AppAgent';
 import { AppAccount } from '../account/AppAccount';
 import { AgentVariant } from 'entry/ets/agent/AgentVariant';
 import { CouliTheme } from 'designsystem';
+import { CouliMotion } from 'designsystem';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Couli';
@@ -215,6 +216,7 @@ export default class EntryAbility extends UIAbility {
     }
     // DS-02：系统组件主题按令牌映射（51 个角色，资源随深色换值），在首页加载前设置。
     CouliTheme.install(this.context, BuildVariant.themeNeutralPreset());
+    CouliMotion.attach();
     // RootPage 按 AppConfig.gate() 决定显示正常首屏还是阻断页（BLOCKED 时不进入正常界面）。
     windowStage.loadContent('pages/RootPage', (err) => {
       if (err.code) {

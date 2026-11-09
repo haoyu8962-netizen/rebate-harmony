@@ -17,6 +17,7 @@ import {
 } from 'designsystem';
 import { BrandMark } from 'designsystem/Brand';
 import { CatalogSamples, CatalogText } from './CatalogSamples';
+import { FeelLabSample } from './FeelLab';
 
 /** 目录详情页共享的事件（样例回调的真实计数、链接键、协议确认同步）。 */
 @ObservedV2
@@ -124,6 +125,8 @@ export struct CatalogSampleView {
           component: this.component, variant: this.variant, state: this.state, controlId: this.controlId(),
           events: this.events
         })
+      } else if (this.component === 'FeelLab') {
+        FeelLabSample()
       } else {
         BusinessSample({ component: this.component, variant: this.variant, state: this.state })
       }

@@ -45,6 +45,7 @@ import {
 } from '../catalog/ComponentCatalog';
 import { CatalogDetail } from '../catalog/CatalogDetail';
 import { CATALOG_LAUNCH_KEY, CatalogLaunch } from '../catalog/CatalogLaunch';
+import { PrivacyState, RouteDestination } from 'core';
 
 // BuildProfile.BUILD_MODE_NAME 在生成文件里是字面量类型，先放宽为 string 再比较。
 const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
@@ -52,6 +53,9 @@ const BUILD_MODE: string = BuildProfile.BUILD_MODE_NAME;
 const DEBUG_COLOR_MODE_KEY: string = 'couli_debug_color_mode';
 /** FU-HM-THEME-BASE：系统颜色中性角色方案的启动参数键（只在 Debug / Staging）。 */
 const DEBUG_THEME_NEUTRAL_KEY: string = 'couli_debug_theme_neutral';
+/** 冷启动直达目录（FU-HM-FEEL-KIT §2.4）：环境就绪时界面还没出来，隔 200ms 重试，最多 75 次（15 秒）。 */
+const CATALOG_RETRY_MS: number = 200;
+const CATALOG_RETRY_LIMIT: number = 75;
 
 export class BuildVariant {
   /**
@@ -66,6 +70,39 @@ export class BuildVariant {
   /** 环境闸门有结论且为 SETTLED（冷启动对账通过、阻断页重试通过）时由 EntryAbility / RootPage 调用；Release 为空实现。 */
   static environmentSettled(): void {
     BuildVariant.launchDeferral.settle();
+    BuildVariant.catalogRetries = 0;
+    BuildVariant.openPendingCatalog();
+  }
+
+  private static catalogRetries: number = 0;
+
+  /**
+   * FU-HM-FEEL-KIT §2.4 / D10-1163 ②：`--ps couli.ds02.component <组件名>` 的冷启动直达。隐私已有结论（CONSENTED 或 BASIC_MODE）时
+   * 界面就绪后推目录，目录出现时 CatalogLaunch.attach 消费待打开的组件；NOT_DECIDED 走同意页、不打开（且不等待，同意后也不补开）。
+   */
+  private static openPendingCatalog(): void {
+    if (!CatalogLaunch.shared.hasPending() || AppRouting.shared.privacyState === PrivacyState.NOT_DECIDED) {
+      return;
+    }
+    if (!AppRouting.shared.presentationReady) {
+      BuildVariant.retryPendingCatalog();
+      return;
+    }
+    CatalogLaunch.shared.markOpening();
+    AppRouting.shared.navigator.push(BuildVariant.catalogDestination(CATALOG_ROUTE));
+  }
+
+  /** environmentSettled 在 RootPage 建好之前调用，界面就绪要稍后再查（Release 没有这条路径）。 */
+  private static retryPendingCatalog(): void {
+    if (BuildVariant.catalogRetries >= CATALOG_RETRY_LIMIT) {
+      return;
+    }
+    BuildVariant.catalogRetries++;
+    setTimeout((): void => BuildVariant.openPendingCatalog(), CATALOG_RETRY_MS);
+  }
+
+  private static catalogDestination(route: string): RouteDestination {
+    return new RouteDestination(route);
   }
 
   /** 调试用的根布局宽度（vp）；没给为 null（按窗口宽度）。 */

@@ -1,4 +1,4 @@
-// 组件目录页（DS-02）：一个组件一屏——标注「系统控件 / 自绘」、实现说明、浅 / 深与字号切换，下方按清单逐个变体 × 状态摆真实组件。
+// 组件目录页（DS-02）：一个组件一屏——标注 L1 系统控件 / L2 业务组件、实现说明、浅 / 深与字号切换，下方按清单逐个变体 × 状态摆真实组件。
 // 只在 Debug / Staging 编译。样例用离线展示数据，不连服务、不初始化第三方 SDK。
 import {
   CouliActionMenu, CouliAlertDialog, CouliAlertOptions, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors,
@@ -45,7 +45,7 @@ const WIDE_COMPONENTS: string[] = ['CouliTextField', 'CouliTextArea', 'PhoneFiel
   'CouliSwitch', 'Segmented', 'NavBar', 'TopTabs', 'TabBar', 'ListRow', 'Divider', 'Timeline', 'DisclosureRow',
   'PullToRefresh', 'Skeleton', 'ProductCardSkeleton', 'EmptyState', 'ErrorState', 'NoticeBar', 'Dialog', 'OneTapLoginPanel',
   'AgreementCheckRow', 'ThirdPartyLoginRow', 'DisclaimerFooter', 'ProductCard', 'AmountGrid', 'WalletHeroCard', 'EntryGrid',
-  'PriceTrendPanel', 'ShareMaterialPicker', 'ShareCopyEditor', 'AgentConsentSheet', 'AuthSheet', 'JumpTip', 'StepUpSheet'];
+  'PriceTrendPanel', 'ShareMaterialPicker', 'ShareCopyEditor', 'AgentConsentSheet', 'AuthSheet', 'JumpTip', 'StepUpSheet', 'FeelLab'];
 
 function isWideSample(one: CatalogCase): boolean {
   if (WIDE_COMPONENTS.indexOf(one.component) >= 0) {
