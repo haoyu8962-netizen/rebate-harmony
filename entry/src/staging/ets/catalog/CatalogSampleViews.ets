@@ -549,7 +549,7 @@ struct NavigationSample {
       })
     } else {
       TabBar({
-        items: this.tabs(), selectedIndex: this.tab, badgeIndex: 2,
+        items: this.tabs(), selectedIndex: this.tab,
         onSelect: (i: number) => {
           this.tab = i;
         }

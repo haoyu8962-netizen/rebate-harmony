@@ -30,9 +30,9 @@ export const SEARCH_TAB: ShellTab = new ShellTab('Search', ShellDraftTexts.TAB_S
 
 /** 底部 Tab 项（agentVisible=false 时第 2 个换成「搜索」）。 */
 export function shellTabItems(agentVisible: boolean = true): TabBarItem[] {
-  return SHELL_TABS.map((tab: ShellTab, index: number) => {
+  return SHELL_TABS.map((tab: ShellTab) => {
     const shown: ShellTab = !agentVisible && tab.route === 'AgentChat' ? SEARCH_TAB : tab;
-    return new TabBarItem(shown.label, shown.icon, ShellDraftTexts.tabPosition(index, SHELL_TABS.length));
+    return new TabBarItem(shown.label, shown.icon);
   });
 }
 

@@ -54,11 +54,6 @@ export class ShellDraftTexts {
    */
   static readonly TAB_SEARCH: string = '搜索';
 
-  /** TODO(N-16) 待法务定稿，不得提审。Tab 的读屏位置说明（adaptation-a11y-spec §9「名称，角色，状态」）。 */
-  static tabPosition(index: number, count: number): string {
-    return '标签，第 ' + (index + 1) + ' 个，共 ' + count + ' 个';
-  }
-
   // ---------------------------------------------------------------- 基本模式页（BasicMode.dc.html）
 
   /** TODO(N-16) 待法务定稿，不得提审。只有图标的【设置】按钮的读屏名称。 */

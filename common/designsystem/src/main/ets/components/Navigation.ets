@@ -1,9 +1,6 @@
 import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { CouliColors } from '../CouliColors';
-import { CouliComponentMetrics, CouliInteraction, CouliSpacing } from '../CouliMetrics';
-import { CouliFontWeight, CouliTypography } from '../CouliTypography';
-import { CouliIcon } from './CouliIcon';
-import { CouliTextModifier } from './CouliText';
+import { CouliComponentMetrics, CouliInteraction } from '../CouliMetrics';
 
 /** 系统标题栏高（NavDestination 标题栏的标准高度，Mini 样式）。 */
 const NAV_BAR_HEIGHT: number = 56;
@@ -83,27 +80,49 @@ export struct NavBar {
   }
 }
 
-/** Tab 栏的一项（文字由调用方给：首页 / AI 助手 / 订单 / 我的）。 */
+/** Tab 栏的一项（文字由调用方给：首页 / AI 助手 / 订单 / 我的；icon 是语义名，见 tabSymbols）。 */
 export class TabBarItem {
   readonly label: string;
   readonly icon: string;
-  /** 读屏的角色与位置说明（如「标签，第 1 个，共 4 个」，由调用方给；空串不设）。选中状态由 accessibilitySelected 读出。 */
-  readonly accessibilityHint: string;
 
-  constructor(label: string, icon: string, accessibilityHint: string = '') {
+  constructor(label: string, icon: string) {
     this.label = label;
     this.icon = icon;
-    this.accessibilityHint = accessibilityHint;
   }
 }
 
-/** 底栏高：命中区 48 + 上下留白（选中项图标狸橙、文字深橙 600）。 */
-const TAB_BAR_HEIGHT: number = CouliInteraction.minTouchTarget + CouliSpacing.space3;
+/** 一项的系统符号：未选、选中各一个。 */
+interface TabSymbols {
+  normal: Resource;
+  selected: Resource;
+}
+
+/** 语义名 → 系统符号（$r 实参必须是字面量，所以用 switch）。未知名回落问号，目录里一眼能发现。 */
+function tabSymbols(icon: string): TabSymbols {
+  switch (icon) {
+    case 'home':
+      return { normal: $r('sys.symbol.house'), selected: $r('sys.symbol.house_fill') };
+    case 'chat':
+      return { normal: $r('sys.symbol.ellipsis_message'), selected: $r('sys.symbol.ellipsis_message_fill') };
+    case 'orders':
+      return { normal: $r('sys.symbol.doc_plaintext'), selected: $r('sys.symbol.doc_plaintext_fill') };
+    case 'user':
+      return { normal: $r('sys.symbol.person'), selected: $r('sys.symbol.person_fill') };
+    case 'search':
+      return { normal: $r('sys.symbol.magnifyingglass'), selected: $r('sys.symbol.magnifyingglass') };
+    default:
+      return { normal: $r('sys.symbol.questionmark_circle'), selected: $r('sys.symbol.questionmark_circle') };
+  }
+}
+
+/** 底栏高：系统 BottomTabBarStyle 的默认高度 48（等于最小命中区）。Tabs 外高必须显式设，否则会撑满父容器。 */
+const TAB_BAR_HEIGHT: number = CouliInteraction.minTouchTarget;
 
 /**
- * 一级底部标签栏（清单 §3.4 TabBar，评审 r1 R1-01）：系统 Tabs(barPosition End)，每项的 tabBar 用凑狸自有矢量图标 + 文字
- * （BottomTabBarStyle 只接图片资源，凑狸图标是路径，所以用自定义 tabBar 构建；容器、切换、焦点与读屏仍是系统 Tabs）；
- * 带角标的项挂系统 Badge（T4）。栏的上沿是系统 Tabs 的分隔线（border.subtle），底 background.surface。
+ * 一级底部标签栏（harmony.md §1 底栏，D10-909 做法 A）：系统 Tabs(barPosition End) + BottomTabBarStyle + TabBarSymbol。
+ * 图标、文字排布、字号（系统默认）、切换、焦点与读屏都由系统页签负责；这里只定选中 / 未选的颜色和点击的受控逻辑。
+ * 栏本身不设底色（系统默认透明），系统模糊材质由宿主挂在栏外层（应用外壳见 AppShell），这样栏和底部导航条是同一块材质。
+ * 三端生产都没有未读角标，以后要加须三端一起加。
  * - 受控：选中项只由 selectedIndex 决定。用户点另一项时经 onContentWillChange 拦下系统切换、只回调 onSelect（应用外壳
  *   经 Router / EntryGuard 判定后再改 selectedIndex），selectedIndex 变化引起的切换放行、不回调。
  * - 用户点击（含点已选中的项）每次都回调 onSelect（评审 r2 R2-01）：系统 Tabs 点当前项不触发 onContentWillChange，
@@ -116,8 +135,6 @@ const TAB_BAR_HEIGHT: number = CouliInteraction.minTouchTarget + CouliSpacing.sp
 export struct TabBar {
   @Param items: TabBarItem[] = [];
   @Param selectedIndex: number = 0;
-  /** 挂红点的项（-1 不挂）。 */
-  @Param badgeIndex: number = -1;
   @Event onSelect: (index: number) => void = (_index: number) => {
   };
   /**
@@ -130,36 +147,13 @@ export struct TabBar {
     return index >= 0 && index < this.items.length;
   }
 
-  @Builder
-  bar(item: TabBarItem, index: number) {
-    Column({ space: 2 }) {
-      if (index === this.badgeIndex) {
-        Badge({ value: '', position: BadgePosition.RightTop,
-          style: { badgeSize: 8, badgeColor: CouliColors.badgeBackground } }) {
-          CouliIcon({
-            name: item.icon, iconSize: 24,
-            color: index === this.selectedIndex ? CouliColors.brandPrimary : CouliColors.textSecondary
-          })
-        }
-      } else {
-        CouliIcon({
-          name: item.icon, iconSize: 24,
-          color: index === this.selectedIndex ? CouliColors.brandPrimary : CouliColors.textSecondary
-        })
-      }
-      Text(item.label)
-        .attributeModifier(new CouliTextModifier(CouliTypography.caption,
-          index === this.selectedIndex ? CouliColors.textLink : CouliColors.textSecondary,
-          index === this.selectedIndex ? CouliFontWeight.semibold : CouliFontWeight.regular))
-        .textAlign(TextAlign.Center)
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .accessibilityGroup(true)
-    .accessibilityText(item.label)
-    .accessibilityDescription(item.accessibilityHint)
-    .accessibilitySelected(index === this.selectedIndex)
+  private bar(item: TabBarItem): BottomTabBarStyle {
+    const symbols: TabSymbols = tabSymbols(item.icon);
+    const normal: SymbolGlyphModifier = new SymbolGlyphModifier(symbols.normal).fontColor([CouliColors.textSecondary]);
+    const selected: SymbolGlyphModifier = new SymbolGlyphModifier(symbols.selected).fontColor([CouliColors.brandPrimary]);
+    return new BottomTabBarStyle({ normal: normal, selected: selected }, item.label)
+      .labelStyle({ selectedColor: CouliColors.textLink, unselectedColor: CouliColors.textSecondary })
+      .id('couli-tab-' + item.icon);
   }
 
   build() {
@@ -167,15 +161,11 @@ export struct TabBar {
       ForEach(this.items, (item: TabBarItem, index: number) => {
         TabContent() {
         }
-        .tabBar(this.bar(item, index))
+        .tabBar(this.bar(item))
       }, (item: TabBarItem, index: number) => index + item.label)
     }
-    .barHeight(TAB_BAR_HEIGHT)
-    .barBackgroundColor(CouliColors.backgroundSurface)
-    .divider({ strokeWidth: CouliComponentMetrics.controlBorderWidth, color: CouliColors.borderSubtle })
     .scrollable(false)
-    .animationDuration(0)
-    .height(TAB_BAR_HEIGHT + CouliComponentMetrics.controlBorderWidth)
+    .height(TAB_BAR_HEIGHT)
     .width('100%')
     .onTabBarClick((index: number) => {
       // 用户点击：每次都转交，含已选中项（系统不为当前项触发 onContentWillChange）。

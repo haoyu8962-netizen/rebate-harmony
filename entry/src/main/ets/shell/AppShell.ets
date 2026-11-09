@@ -63,7 +63,7 @@ export class AppShellSlots {
  *   之后才恢复 pending_action、放行排队的启动意图。
  * - 基本模式：四个 Tab 照常显示（设计稿 BasicMode）；首页 Tab 换成基本模式页（顶部提示条 +【开启完整功能】+【设置】）。
  *   点 AI 助手 / 订单 / 我的：EntryGuard 判「需先同意」→ 弹首启弹窗，不切过去；同意后切过去（BR-ID-11、BR-ID-02）。
- * - TabBar 白底铺到底部导航条下（adaptation-a11y-spec §5）。
+ * - TabBar 的系统模糊材质挂在栏外层、铺到底部导航条下（adaptation-a11y-spec §5），栏和导航条是同一块材质（D10-909 ③，不叠加内容）。
  */
 @ComponentV2
 export struct AppShell {
@@ -202,7 +202,7 @@ export struct AppShell {
         })
       }
       .width('100%')
-      .backgroundColor(CouliColors.backgroundSurface)
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     }
     .width('100%')
