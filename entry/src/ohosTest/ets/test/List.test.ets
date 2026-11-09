@@ -11,6 +11,7 @@ import me12vUiTest from './Me12vUi.test';
 import me12waUiTest from './Me12waUi.test';
 import me12wbUiTest from './Me12wbUi.test';
 import me12wcUiTest from './Me12wcUi.test';
+import tabBarShellUiTest from './TabBarShellUi.test';
 
 export default function testsuite() {
   ds02CatalogTest();
@@ -37,6 +38,9 @@ export default function testsuite() {
   // APP-12w-c-harmony：账号状态 / 申诉视觉与处罚申诉红线；verify 里单独一个设备步（class=Me12wcUi，先卸载重装、从未同意隐私开始：
   // 会员 → 冻结组（直达）→ 封禁组（10006 落页）→ 真退出），其他步都不跑它。排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
   me12wcUiTest();
+  // FU-HM-TAB-BAR：系统底栏；verify 里单独一个设备步（class=TabBarShellUi，先卸载重装、从未同意隐私开始），其他步都不跑它。
+  // 排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
+  tabBarShellUiTest();
   // HM-07v-a：驱动真实应用，隐私状态单向（基本模式 → 完整功能 → 会员），必须排在最后。
   hm07vHomeUiTest();
 }

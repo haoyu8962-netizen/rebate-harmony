@@ -10,7 +10,8 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wa  设置一族视觉单独步（APP-12w-a-harmony 测试 v1：15 条），且只能是这 15 条
   --set me12wb  隐私中心 / 关于 / 客服半屏视觉单独步（APP-12w-b-harmony 测试 v1：17 条），且只能是这 17 条
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
-  --set all     不分步时的合集（279 条，允许以后增补用例）；缺省
+  --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
+  --set all     不分步时的合集（286 条，允许以后增补用例）；缺省
 """
 import collections
 import csv
@@ -28,7 +29,7 @@ FX25_DEVICE_CASES = [
     'E06_covered_host_tears_down_while_covered_and_shows_clean_new_document_after_pop',
     'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
 ]
-SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'all')
+SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'all')
 
 
 def hm07va_names():
@@ -73,6 +74,12 @@ def me12wc_names():
             if line.strip() and not line.startswith('#')}
 
 
+def tabbar_names():
+    """FU-HM-TAB-BAR：系统底栏的设备用例（名单与 TabBarShellUi.test.ets 的 TABBAR_DEVICE_CASES 一致）。"""
+    return {line.strip() for line in (Path(__file__).parents[1] / 'tabbar/device-cases.txt').read_text().splitlines()
+            if line.strip() and not line.startswith('#')}
+
+
 def expected_names(set_name='all'):
     if set_name not in SETS:
         raise ValueError('未知必跑名单 ' + str(set_name))
@@ -90,6 +97,8 @@ def expected_names(set_name='all'):
         return me12wb_names()
     if set_name == 'me12wc':
         return me12wc_names()
+    if set_name == 'tabbar':
+        return tabbar_names()
     inventory = Path(__file__).parent / 'fixtures/inventory.tsv'
     rows = csv.DictReader((line for line in inventory.read_text().splitlines()
                            if not line.startswith('#')), delimiter='\t')
@@ -129,6 +138,7 @@ def expected_names(set_name='all'):
         names.update(me12wa_names())
         names.update(me12wb_names())
         names.update(me12wc_names())
+        names.update(tabbar_names())
     return names
 
 
@@ -161,10 +171,10 @@ def validate(text, set_name='all'):
     ran = set(passed.keys()) | set(failed)
     if set_name == 'main':
         leaked = sorted(name for name in ran if name in hm07va_names() | hm07vb_names() | hm05r_names() | me12v_names()
-                        | me12wa_names() | me12wb_names() | me12wc_names())
+                        | me12wa_names() | me12wb_names() | me12wc_names() | tabbar_names())
         if leaked:
             raise ValueError(f'entry_test(main) 混进了 HM-07v-a / HM-07v-b / HM-05r / APP-12v / APP-12w-a / APP-12w-b / APP-12w-c 单独步的用例（套件过滤失效）: {leaked}')
-    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc'):
+    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar'):
         extra = sorted(ran - expected)
         if extra:
             raise ValueError(f'entry_test({set_name}) 跑了本步名单以外的用例（套件过滤失效）: {extra}')
@@ -182,7 +192,7 @@ if __name__ == '__main__':
         del args[at:at + 2]
     try:
         if len(args) != 1:
-            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|all]')
+            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|all]')
         count = validate(Path(args[0]).read_text(), chosen)
         print(f'DS02_DEVICE_COMPLETE set={chosen} required={count} all_passed')
     except (ValueError, OSError) as error:

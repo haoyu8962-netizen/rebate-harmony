@@ -141,6 +141,8 @@ if [ "$PROBE" = me12wa-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12wa ]; 
 if [ "$PROBE" = me12wb-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12wb ]; then exit 1; fi
 # APP-12w-c-harmony 第八步（账号状态 / 申诉视觉）失败同样必须让 verify 失败。
 if [ "$PROBE" = me12wc-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12wc ]; then exit 1; fi
+# FU-HM-TAB-BAR 第九步（系统底栏）失败同样必须让 verify 失败。
+if [ "$PROBE" = tabbar-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = tabbar ]; then exit 1; fi
 echo 'DEVICE_TEST_PASS simulated_only'
 ''')
             device.chmod(0o755)
@@ -190,7 +192,7 @@ run_device_tests() {''' + function + '''
 run_device_tests core common/core core_test
 ''' + entry_dispatch + '\n')
             for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails', 'hm07va-step-fails', 'hm07vb-step-fails',
-                          'hm05r-step-fails', 'me12v-step-fails', 'me12wa-step-fails', 'me12wb-step-fails', 'me12wc-step-fails']:
+                          'hm05r-step-fails', 'me12v-step-fails', 'me12wa-step-fails', 'me12wb-step-fails', 'me12wc-step-fails', 'tabbar-step-fails']:
                 for receipt in ['build-receipts', 'device-receipts']:
                     (folder / receipt).unlink(missing_ok=True)
                 result = subprocess.run(['bash', str(script), tmp, probe], capture_output=True, text=True,
@@ -204,11 +206,11 @@ run_device_tests core common/core core_test
                     # 各自工作目录（HM-07v-a，编排 D10-405 D4；HM-07v-b 测试 v1 加第三步 hm07vb，主步同时排除两个视觉套件；
                     # HM-05r 测试 v1 加第四步 hm05r，主步再排除 Hm05rConsentUi；APP-12v-harmony 测试 v1 加第五步 me12v，主步再排除 Me12vUi；
                     # APP-12w-a-harmony 测试 v1 加第六步 me12wa，主步再排除 Me12waUi；APP-12w-b-harmony 测试 v1 加第七步 me12wb，主步再排除 Me12wbUi；
-                    # APP-12w-c-harmony 测试 v1 加第八步 me12wc，主步再排除 Me12wcUi）。
+                    # APP-12w-c-harmony 测试 v1 加第八步 me12wc，主步再排除 Me12wcUi；FU-HM-TAB-BAR 测试 v1 加第九步 tabbar，主步再排除 TabBarShellUi）。
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||||all|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|'
-                                      'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi|main|device-test',
+                                      'notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
                                       'device-test-entry-hm07va',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vOverlayUi|hm07vb|'
@@ -222,7 +224,9 @@ run_device_tests core common/core core_test
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Me12wbUi|me12wb|'
                                       'device-test-entry-me12wb',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Me12wcUi|me12wc|'
-                                      'device-test-entry-me12wc'])
+                                      'device-test-entry-me12wc',
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|class=TabBarShellUi|tabbar|'
+                                      'device-test-entry-tabbar'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 if probe == 'hm07vb-step-fails':
@@ -237,6 +241,8 @@ run_device_tests core common/core core_test
                     self.assertIn('EXPECTED_FAILURE device-test entry-me12wb', result.stdout)
                 if probe == 'me12wc-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-me12wc', result.stdout)
+                if probe == 'tabbar-step-fails':
+                    self.assertIn('EXPECTED_FAILURE device-test entry-tabbar', result.stdout)
                 print('REFERENCE_ONLY verify dispatch: ' + probe)
 
     def test_device_timeout_defaults_and_explicit_override(self):
@@ -265,8 +271,10 @@ run_device_tests core common/core core_test
         # + APP-12v-harmony 14 条（tools/ci/me12v/fixtures/device-cases.txt，「我的」Tab 视觉；只增不减，合集 212 → 226）
         # + APP-12w-a-harmony 15 条（tools/ci/me12wa/fixtures/device-cases.txt，设置一族视觉；只增不减，合集 226 → 241）
         # + APP-12w-b-harmony 17 条（tools/ci/me12wb/fixtures/device-cases.txt，隐私中心 / 关于 / 客服半屏视觉；只增不减，合集 241 → 258）
-        # + APP-12w-c-harmony 21 条（tools/ci/me12wc/fixtures/device-cases.txt，账号状态 / 申诉视觉；测试 v5 加键盘避让 1 条，只增不减，合集 258 → 279）。
-        self.assertEqual(len(names), 279)
+        # + APP-12w-c-harmony 21 条（tools/ci/me12wc/fixtures/device-cases.txt，账号状态 / 申诉视觉；测试 v5 加键盘避让 1 条，只增不减，合集 258 → 279）
+        # + FU-HM-TAB-BAR 7 条（tools/ci/tabbar/device-cases.txt，系统底栏；只增不减，合集 279 → 286）。
+        self.assertEqual(len(names), 286)
+        self.assertEqual(len([name for name in names if name.startswith('tabbar_')]), 7)
         self.assertEqual(len([name for name in names if name.startswith('me12wc_')]), 21)
         self.assertEqual(len([name for name in names if name.startswith('me12wb_')]), 17)
         self.assertEqual(len([name for name in names if name.startswith('me12wa_')]), 15)
@@ -291,11 +299,11 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 279)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 279)
+        self.assertEqual(validate(report(names)), 286)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 286)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
-                        or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_')
+                        or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
                         or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
@@ -333,15 +341,23 @@ run_device_tests core common/core core_test
         me12wa = expected_names('me12wa')
         me12wb = expected_names('me12wb')
         me12wc = expected_names('me12wc')
+        tabbar = expected_names('tabbar')
         self.assertEqual(len(main), 173)
         self.assertEqual(len(me12wc), 21)
+        self.assertEqual(len(tabbar), 7)
         self.assertEqual(len(me12wb), 17)
         self.assertEqual(len(me12v), 14)
         self.assertEqual(len(me12wa), 15)
         self.assertEqual(len(hm07va), 17)
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
-        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc, every)
+        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar, every)
+        # FU-HM-TAB-BAR 第九步：与其余各步两两不相交，名单与套件导出常量一致。
+        self.assertEqual((main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc) & tabbar, set())
+        self.assertTrue(all(name.startswith('tabbar_') for name in tabbar))
+        self.assertFalse(any(name.startswith('tabbar_') for name in main))
+        tabbar_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/TabBarShellUi.test.ets').read_text()
+        self.assertEqual(sorted(re.findall(r"'(tabbar_\d\d_[a-z0-9_]+)'", tabbar_suite.split('];')[0])), sorted(tabbar))
         # APP-12w-c-harmony 第八步：与其余各步两两不相交，名单与套件导出常量一致。
         self.assertEqual((main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb) & me12wc, set())
         self.assertTrue(all(name.startswith('me12wc_') for name in me12wc))
@@ -407,6 +423,7 @@ run_device_tests core common/core core_test
         self.assertEqual(validate(report(sorted(me12wa)), 'me12wa'), 15)
         self.assertEqual(validate(report(sorted(me12wb)), 'me12wb'), 17)
         self.assertEqual(validate(report(sorted(me12wc)), 'me12wc'), 21)
+        self.assertEqual(validate(report(sorted(tabbar)), 'tabbar'), 7)
         bad = {
             # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
             **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
@@ -486,6 +503,15 @@ run_device_tests core common/core core_test
             'me12wc-report-checked-as-main': (report(sorted(me12wc)), 'main'),
             'me12wc-report-checked-as-me12wb': (report(sorted(me12wc)), 'me12wb'),
             'me12wb-report-checked-as-me12wc': (report(sorted(me12wb)), 'me12wc'),
+            # FU-HM-TAB-BAR 第九步：7 条缺一条、多跑别的套件、有失败都红；主步混进 tabbar 用例也红。
+            'main-with-tabbar-case': (report(sorted(main) + sorted(tabbar)[:1]), 'main'),
+            **{'tabbar-missing-' + name: (report(sorted(tabbar - {name})), 'tabbar') for name in sorted(tabbar)},
+            'tabbar-with-ds02-case': (report(sorted(tabbar) + sorted(main)[:1]), 'tabbar'),
+            'tabbar-with-future-case': (report(sorted(tabbar) + ['future_extra_test']), 'tabbar'),
+            'tabbar-failed': (report(sorted(tabbar), failed=sorted(tabbar)[0]), 'tabbar'),
+            'tabbar-only-summary': ('Tests run: 7, Failure: 0, Error: 0, Pass: 7', 'tabbar'),
+            'tabbar-report-checked-as-main': (report(sorted(tabbar)), 'main'),
+            'me12wc-report-checked-as-tabbar': (report(sorted(me12wc)), 'tabbar'),
         }
         for reason, (text, chosen) in bad.items():
             with self.subTest(reason=reason), self.assertRaises(ValueError):

@@ -822,7 +822,7 @@ done
 run_device_tests() {
     # $1 模块名 $2 模块目录（相对仓库根）$3 ohosTest 的 module.name $4 product $5 被测应用包
     # $6 步骤名（同一测试包分多步跑时区分日志与工作目录；缺省 = 模块名）$7 Hypium 套件过滤（class=… / notClass=…；缺省全部）
-    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / all，见 ds02/check_device_result.py）
+    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / tabbar / all，见 ds02/check_device_result.py）
     # HM-07v-a（编排 D10-405 D4）：同一模块第二步复用第一步构建好的测试包（同包），只重新签名、卸载重装、执行。
     local module="$1" dir="$2" test_module="$3" log="$LOG_DIR/device-test-build-$1.log" code
     local test_product="${4:-default}" application_hap="${5:-}"
@@ -932,8 +932,9 @@ run_device_tests core common/core core_test
 #                 （基本模式 → 游客 → 会员 → 强更 → 真撤回）、各自 1800 秒
 #   entry-me12wc  APP-12w-c-harmony 21 条（只跑 Me12wcUi 套件：账号状态 / 申诉视觉与处罚申诉红线；H-R16）；同样先卸载再装、从未同意隐私开始
 #                 （会员 → 冻结组直达 → 封禁组 10006 落页 → 真退出）、各自 1800 秒（超了按 risk / appeal 拆两步，不放宽门槛）
+#   entry-tabbar  FU-HM-TAB-BAR 7 条（只跑 TabBarShellUi 套件：系统底栏节点、选中只跟 Router、首页常驻、材质、深浅色、G32、200%）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -948,6 +949,8 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wb class=Me12wbUi me12wb
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wc class=Me12wcUi me12wc
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-tabbar class=TabBarShellUi tabbar
 # 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
 if [ -n "${DEVICE_FAILED:-}" ]; then
     echo "DEVICE_STEPS_FAILED${DEVICE_FAILED}"
