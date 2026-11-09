@@ -17,6 +17,7 @@ export {
 } from './src/main/ets/components/ControlModels';
 export { PlatformIconSource, PlatformIconSize } from './src/main/ets/components/PlatformIconSource';
 export { LARGE_TEXT_SCALE } from './src/main/ets/logic/TextScale';
+export { SYMBOL_ICON_NAMES, PATH_ICON_NAMES } from './src/main/ets/logic/CouliIconNames';
 export { StepUpPanelFit } from './src/main/ets/logic/StepUpPanelFit';
 export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
 export { ClipboardPromptLayout } from './src/main/ets/logic/ClipboardPromptLayout';
