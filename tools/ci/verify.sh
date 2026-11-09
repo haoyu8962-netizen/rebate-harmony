@@ -282,6 +282,14 @@ node "$ROOT/tools/ci/feelkit/run-logic.cjs" || fail_fast "feelkit-logic" "见上
 node "$ROOT/tools/ci/feelkit/check-arkts.cjs" --real || fail_fast "feelkit-arkts" "FeelKit 测试与新文件 ArkTS 严格检查失败"
 record "FU-HM-FEEL-KIT 宿主检查" PASS "唯一入口 / 权限 / 版本判断 / 按压 / 动效 / 目录 / 登记（自测）/ 纯逻辑与驱动 / ArkTS"
 
+# FU-HM-ICON-SYMBOL：34 个通用名换系统符号（映射对 SDK 资源表）、10 个自有名留 Path、读屏隐藏 / 着色不回退（先自测；调用点计数 I5 只在本单 --ticket / --base 时判，D10-1168）；IconSymbol 套件 node 预检与 ArkTS 严格检查。
+step "FU-HM-ICON-SYMBOL 宿主检查"
+python3 "$ROOT/tools/ci/iconsymbol/check_icon_symbol.py" --self-test || fail_fast "iconsymbol-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/iconsymbol/check_icon_symbol.py" || fail_fast "iconsymbol-host" "见上方违反项"
+node "$ROOT/tools/ci/iconsymbol/run-logic.cjs" || fail_fast "iconsymbol-logic" "见上方用例"
+node "$ROOT/tools/ci/iconsymbol/check-arkts.cjs" --real || fail_fast "iconsymbol-arkts" "IconSymbol 测试文件 ArkTS 严格检查失败"
+record "FU-HM-ICON-SYMBOL 宿主检查" PASS "映射 / SDK 资源 / 路径表收窄 / 渲染写法 / 登记（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
