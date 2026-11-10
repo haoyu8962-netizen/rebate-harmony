@@ -34,9 +34,9 @@ export class CouliMotion {
     return spec.zeroTranslate ? fade : fade.combine(TransitionEffect.translate({ y: APPEAR_OFFSET_VP }));
   }
 
-  /** 数字过渡（供 L2-PRICE-TAG / AMOUNT-GRID；API 20）。 */
+  /** 数字过渡（供 L2-PRICE-TAG / AMOUNT-GRID；API 20）。API 20 上无参构造会抛 TypeError 闪退，一律传选项对象（FU-HM-NUMERIC-TRANSITION）。 */
   static numeric(): NumericTextTransition {
-    return new NumericTextTransition();
+    return new NumericTextTransition({ enableBlur: false });
   }
 
   /** 带动画改状态；减弱动态时直接改值（只取消位移 / 缩放，appear 的淡入照旧）。 */
