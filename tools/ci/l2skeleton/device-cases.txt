@@ -1,0 +1,7 @@
+# HM-L2-SKELETON：Ds02L2Ui 套件里 L2SKEL 段的设备用例（与 Ds02L2Ui.test.ets 的 L2SKEL_DEVICE_CASES 逐行一致，check_l2_skeleton.py K8-cases 守）。
+l2skel_01_catalog_shapes_render_kind_l2_and_reader_skips
+l2skel_02_blocks_background_muted_on_surface_light_and_dark
+l2skel_03_shimmer_moves_unless_reduced_motion
+l2skel_04_host_short_load_never_shows_skeleton
+l2skel_05_host_shows_after_300ms_and_stays_at_least_300ms
+l2skel_06_font200_skeleton_layout_unchanged

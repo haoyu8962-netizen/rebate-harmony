@@ -788,5 +788,437 @@ export default function ds02L2UiTest() {
       const inset: number = 4 * density();
       check(g.left >= list.left + inset && g.right <= list.right - inset, 'L2CARD_GROUP_NOT_CARD 分组贴满 List 宽度，不像 CARD 样式');
     });
+    // HM-L2-SKELETON（README ⑩：各单在 Ds02L2Ui 里各追加 it）：L2SKEL 段的用例在文件末尾 l2SkeletonDeviceCases() 里注册。
+    l2SkeletonDeviceCases();
+  });
+}
+
+// ================================================================ HM-L2-SKELETON 段（测试作者 v1，新鲜独立 Claude，先红）
+// 依据：NATIVE/HM-L2-BATCH1/brief-SKELETON.md §3「设备」（目录三形状 + ProductCardSkeleton 渲染、读屏跳过、SkeletonHost 300ms 内不见骨架、
+// 微光、200% 不错位、底色是 background.muted 令牌角色；不写页面取色）；README ⑧ ⑩；D10-1163 ①（减弱动态不播微光）。
+// 用例在 l2SkeletonDeviceCases() 里注册，由上方 describe('Ds02L2Ui') 末尾调用（同一套件，COULI_HM_TEST_FILTER=class=Ds02L2Ui）。
+// 截图只经 Hm07vHomeRig.capture（FlakeKit.captureChecked）；本段不长按、不用窗口快照。查找方式照 L2CARD 段（catalog-cases 内有界搜索）。
+//
+// 目录样例契约（实现照此；宿主 tools/ci/l2skeleton/check_l2_skeleton.py K7 钉一部分）：
+//   清单 Skeleton：product / order / wallet × loading（不变），另加 host × gated（SkeletonHost 防闪样例；inventory 只加一行，#24）；
+//   ProductCardSkeleton：list × loading（不变）。
+//   catalog-control/<组件>/<变体>/loading：包住骨架卡（SkeletonProductCard / SkeletonOrderCard / SkeletonWalletCard）、无内边距、无底色的容器
+//     （bounds = 卡片；白卡来自骨架件自己的静态 CouliCard）。
+//   host / gated：catalog-control/Skeleton/host/gated 包住 SkeletonHost；按钮 catalog-skeleton-host/short | mid | slow 各起一次加载
+//     150 / 350 / 1200 ms（点按时记 t0、置 loading=true，到时置 false）；骨架 builder 的根 id catalog-skeleton-host/skeleton，onAppear /
+//     onDisAppear 记「出现 / 消失」；内容 builder 的根 id catalog-skeleton-host/content，onAppear 记「回来」；
+//     catalog-events/Skeleton/host/gated 显示「本次名|出现|消失|回来」距 t0 的毫秒，没发生为 -1（初值 idle|-1|-1|-1）。
+// 判据（容差待设备实测，只放宽读法、不放宽 300 / 300）：
+//   - 短加载 150 ms：骨架从不出现（出现 / 消失都是 -1，屏上轮询也一次没见到）。
+//   - 350 ms：骨架在 [280, 900] ms 出现，至少留 280 ms，内容在骨架消失后回来、且不晚于出现 + 300 + 900 ms。
+//   - 1200 ms：骨架在 [280, 900] ms 出现，加载期间一直在（消失 ≥ 1180 ms），加载结束后不久消失（≤ 1200 + 900 ms），且屏上轮询至少见到一次。
+//   - 取色：骨架卡上 background.surface（±8）≥ 30%；background.muted（±8）≥ 5%；且某一帧里 muted 占非 surface 像素 ≥ 50%（块的底色是
+//     muted，微光是扫过的窄带）。浅 / 深都测，深色用深色令牌（写死浅色值在深色下读不到 muted）。
+//   - 微光：未减弱动态时商品卡骨架连拍 5 张，相邻两张有变化（通道差 > 6 的像素 ≥ 0.3%）；系统减弱动态（API ≥ 23）开着时 5 张都不变。
+//   - 读屏：四个骨架样例 catalog-control 子树读屏单元 0 个、可点节点 0 个。
+//   - 200%：骨架卡宽度不变（±2 px）、仍在样例框内、高度不缩，muted 块仍在；回 100% 后高度复原。
+// 先红：现树目录里 Skeleton 样例没有 catalog-control id、没有 host 样例，各条红在「找不到 id」（L2SKEL_NODE_MISSING / L2SKEL_SAMPLE_*），
+// 不是导入错误。设备上 Skeleton 详情页的微光是无限循环动画：本段等界面稳定只做尽力等待（skSettle 不断言）；若 UiTest 的 waitForIdle 因此
+// 永不空闲，会先在 Ds02UiSession / Ds02Traversal 的既有断言上暴露（交回 §7 风险）。
+export const L2SKEL_DEVICE_CASES: string[] = [
+  'l2skel_01_catalog_shapes_render_kind_l2_and_reader_skips',
+  'l2skel_02_blocks_background_muted_on_surface_light_and_dark',
+  'l2skel_03_shimmer_moves_unless_reduced_motion',
+  'l2skel_04_host_short_load_never_shows_skeleton',
+  'l2skel_05_host_shows_after_300ms_and_stays_at_least_300ms',
+  'l2skel_06_font200_skeleton_layout_unchanged'
+];
+
+/** [组件, 变体, 状态]：四个骨架卡样例。 */
+const SK_SHAPES: string[][] = [
+  ['Skeleton', 'product', 'loading'], ['Skeleton', 'order', 'loading'], ['Skeleton', 'wallet', 'loading'],
+  ['ProductCardSkeleton', 'list', 'loading']
+];
+const SK_HOST: string = 'catalog-control/Skeleton/host/gated';
+const SK_EVENTS: string = 'catalog-events/Skeleton/host/gated';
+const SK_MARK_SKELETON: string = 'catalog-skeleton-host/skeleton';
+const SK_MARK_CONTENT: string = 'catalog-skeleton-host/content';
+/** 取色容差（±8，同 L2CARD 段）。 */
+const SK_TOL: number = 8;
+
+function skCid(comp: string, variant: string, state: string): string {
+  return 'catalog-control/' + comp + '/' + variant + '/' + state;
+}
+
+function skSid(comp: string, variant: string, state: string): string {
+  return 'catalog-sample/' + comp + '/' + variant + '/' + state;
+}
+
+/** 尽力等界面稳定（骨架微光是无限循环动画，不把 waitForIdle 的结果当断言）。 */
+async function skSettle(): Promise<void> {
+  const settled: boolean = await driver.waitForIdle(200, 3000);
+  if (!settled) { console.info('L2SKEL_IDLE_TIMEOUT waitForIdle 3s 未空闲（微光动画中）'); }
+}
+
+async function skNode(id: string): Promise<Component> {
+  const found: Component = await driver.waitForComponent(ON.id(id), 8000);
+  check(found !== null && found !== undefined, 'L2SKEL_NODE_MISSING ' + id);
+  return found;
+}
+
+async function skClick(id: string): Promise<void> {
+  await (await skNode(id)).click();
+  await skSettle();
+}
+
+async function skFont(scale: string): Promise<void> {
+  await skClick('catalog-font-' + scale);
+  const label: string = scale === '200' ? '字号 ×2.00' : '字号 ×1.00';
+  const shown: Component = await driver.waitForComponent(ON.text(label), 5000);
+  check(shown !== null && shown !== undefined, 'L2SKEL_FONT_NOT_APPLIED ' + scale);
+  await skSettle();
+}
+
+async function skTheme(mode: string): Promise<void> {
+  await skClick('catalog-theme-' + mode);
+  await driver.delayMs(400);
+}
+
+/** 有界等 <组件> 详情出现；期间首启隐私弹窗点「不同意」。 */
+async function skDetail(comp: string, polls: number): Promise<boolean> {
+  for (let i: number = 0; i < polls; i++) {
+    const hit: Component = await driver.findComponent(ON.id('catalog-cases/' + comp));
+    if (hit !== null && hit !== undefined) { return true; }
+    for (const label of ['不同意', '仍不同意']) {
+      const privacy: Component = await driver.findComponent(ON.text(label));
+      if (privacy !== null && privacy !== undefined) { await privacy.click(); await skSettle(); }
+    }
+    await driver.delayMs(500);
+  }
+  return false;
+}
+
+/** 打开目录里某组件的详情：直达（couli.ds02.component）优先，不行再经首页 Debug 面板进目录（同 L2CARD 段的有界做法）。 */
+async function skOpen(comp: string): Promise<void> {
+  const trail: string[] = [];
+  for (let attempt: number = 0; attempt < 4; attempt++) {
+    await startWith(comp);
+    if (await skDetail(comp, 16)) { await skSettle(); return; }
+    trail.push(attempt + ':direct');
+    if (attempt >= 1) {
+      await viaDebugPanel(trail);
+      if (await skDetail(comp, 4)) { await skSettle(); return; }
+      let entry: Component = await driver.findComponent(ON.id('catalog-entry/' + comp));
+      if (entry === null || entry === undefined) {
+        try {
+          entry = await searchUiComponent(driver, ON.id('catalog-index'), ON.id('catalog-entry/' + comp));
+        } catch (e) {
+          trail.push(attempt + ':no-entry');
+        }
+      }
+      if (entry !== null && entry !== undefined) {
+        await entry.click();
+        if (await skDetail(comp, 16)) { await skSettle(); return; }
+      }
+    }
+  }
+  check(false, 'L2SKEL_CATALOG_NOT_OPEN 目录里打不开 ' + comp + ' ' + trail.join(' ') + ' ' + (await scene(driver)));
+}
+
+/** 样例整块在列表可视区内；否则小步滑到中部。 */
+async function skVisible(comp: string, id: string): Promise<Rect> {
+  for (let attempt: number = 0; attempt < 10; attempt++) {
+    const list: Component = await skNode('catalog-cases/' + comp);
+    const view: Rect = await list.getBounds();
+    let found: Component = await driver.findComponent(ON.id(id));
+    if (found === null || found === undefined) {
+      found = await searchUiComponent(driver, ON.id('catalog-cases/' + comp), ON.id(id));
+    }
+    const r: Rect = await found.getBounds();
+    if (r.top > view.top && r.bottom < view.bottom && r.bottom > r.top && r.right > r.left) { return r; }
+    const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
+    const from: number = Math.floor((view.top + view.bottom) / 2);
+    const limit: number = (view.bottom - view.top) * 0.35;
+    const shift: number = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+    await driver.swipe(x, from, x, Math.floor(from - shift), 600);
+    await skSettle();
+  }
+  check(false, 'L2SKEL_SAMPLE_NOT_FULLY_VISIBLE ' + id);
+  return { left: 0, top: 0, right: 0, bottom: 0 };
+}
+
+/** 像素是否接近 rgb（±SK_TOL；截图字节序按 RGB / BGR 两种都认）。 */
+function skNear(p: Pixels, x: number, y: number, rgb: number[]): boolean {
+  let direct: number = 0;
+  let swapped: number = 0;
+  for (let c: number = 0; c < 3; c++) {
+    direct = Math.max(direct, Math.abs(p.at(x, y, c) - rgb[c]));
+    swapped = Math.max(swapped, Math.abs(p.at(x, y, c) - rgb[2 - c]));
+  }
+  return direct <= SK_TOL || swapped <= SK_TOL;
+}
+
+/** 一张骨架卡截图的取色：surface / muted 各占多少（先认 surface，其次 muted）。 */
+class SkTones {
+  surface: number = 0;
+  muted: number = 0;
+  total: number = 0;
+
+  surfaceShare(): number {
+    return this.total === 0 ? 0 : this.surface / this.total;
+  }
+
+  mutedShare(): number {
+    return this.total === 0 ? 0 : this.muted / this.total;
+  }
+
+  /** muted 占非 surface 像素的比例（块的底色是 muted，微光只是扫过的窄带）。 */
+  mutedOfBlocks(): number {
+    const rest: number = this.total - this.surface;
+    return rest <= 0 ? 0 : this.muted / rest;
+  }
+
+  text(): string {
+    return 'surface=' + this.surfaceShare().toFixed(2) + ' muted=' + this.mutedShare().toFixed(2) + ' mutedOfBlocks=' +
+      this.mutedOfBlocks().toFixed(2);
+  }
+}
+
+function skTones(p: Pixels, surface: number[], muted: number[]): SkTones {
+  const t: SkTones = new SkTones();
+  for (let y: number = 0; y < p.height; y++) {
+    for (let x: number = 0; x < p.width; x++) {
+      t.total++;
+      if (skNear(p, x, y, surface)) {
+        t.surface++;
+      } else if (skNear(p, x, y, muted)) {
+        t.muted++;
+      }
+    }
+  }
+  return t;
+}
+
+/** 两张同尺寸截图里任一通道差 > 6 的像素数（微光高光与 muted 只差十几，阈值比 L2CARD 段的 24 低）；尺寸不同按全部不同计。 */
+function skMoved(a: Pixels, b: Pixels): number {
+  if (a.width !== b.width || a.height !== b.height) { return a.width * a.height; }
+  let n: number = 0;
+  for (let i: number = 0; i < a.width * a.height; i++) {
+    const o: number = i * 4;
+    if (Math.abs(a.bytes[o] - b.bytes[o]) > 6 || Math.abs(a.bytes[o + 1] - b.bytes[o + 1]) > 6 ||
+      Math.abs(a.bytes[o + 2] - b.bytes[o + 2]) > 6) {
+      n++;
+    }
+  }
+  return n;
+}
+
+/** 组件树里 id 子树的读屏单元（HM-07v / F-X-05a 同一规则：no-hide-descendants 整棵跳过）。 */
+async function skReaderUnits(id: string): Promise<string[]> {
+  const n: Record<string, Object> | null = findById(await appTree(), id);
+  check(n !== null, 'L2SKEL_INSPECTOR_MISSING ' + id);
+  const out: string[] = [];
+  announce(n as Record<string, Object>, out);
+  return out;
+}
+
+/** SkeletonHost 样例一次加载的记录：本次名 | 骨架出现 | 骨架消失 | 内容回来（距点按毫秒，-1 = 没发生）。 */
+class SkRun {
+  name: string = '';
+  shown: number = -1;
+  hidden: number = -1;
+  back: number = -1;
+  raw: string = '';
+}
+
+function skParse(raw: string): SkRun {
+  const r: SkRun = new SkRun();
+  r.raw = raw;
+  const parts: string[] = raw.split('|');
+  if (parts.length === 4) {
+    r.name = parts[0];
+    r.shown = Number(parts[1]);
+    r.hidden = Number(parts[2]);
+    r.back = Number(parts[3]);
+  }
+  return r;
+}
+
+async function skEvents(): Promise<SkRun> {
+  const found: Component = await driver.findComponent(ON.id(SK_EVENTS));
+  check(found !== null && found !== undefined, 'L2SKEL_NODE_MISSING ' + SK_EVENTS);
+  return skParse(await found.getText());
+}
+
+/**
+ * 点一个加载按钮（不等空闲，免得把时序拖后），在 untilMs 内每约 150 ms 看一次屏上有没有骨架标记，直到「本次」记录里内容回来且过了 settleMs。
+ * 返回记录；seen 里记屏上见到骨架的次数。
+ */
+async function skLoad(button: string, run: string, settleMs: number, seen: number[]): Promise<SkRun> {
+  await skVisible('Skeleton', SK_EVENTS);
+  await skVisible('Skeleton', 'catalog-skeleton-host/' + button);
+  const target: Component = await skNode('catalog-skeleton-host/' + button);
+  const start: number = Date.now();
+  await target.click();
+  let last: SkRun = new SkRun();
+  for (;;) {
+    const mark: Component = await driver.findComponent(ON.id(SK_MARK_SKELETON));
+    if (mark !== null && mark !== undefined) { seen[0]++; }
+    last = await skEvents();
+    const elapsed: number = Date.now() - start;
+    if ((last.name === run && last.back >= 0 && elapsed >= settleMs) || elapsed >= settleMs + 4000) { break; }
+    await driver.delayMs(150);
+  }
+  console.info('L2SKEL_HOST_RUN ' + run + ' ' + last.raw + ' seen=' + seen[0]);
+  check(last.name === run, 'L2SKEL_HOST_SAMPLE_DEAD 点了 ' + button + '，样例记录仍是 ' + last.raw + '（应以 ' + run + '| 开头）');
+  return last;
+}
+
+export function l2SkeletonDeviceCases(): void {
+  // 书 §3 设备「目录 Skeleton 三形状、ProductCardSkeleton 渲染；读屏跳过（无可聚焦节点）」；README ⑨ L2 标记。
+  it(L2SKEL_DEVICE_CASES[0], 0, async (): Promise<void> => {
+    for (const comp of ['Skeleton', 'ProductCardSkeleton']) {
+      await skOpen(comp);
+      await skTheme('light');
+      await skFont('100');
+      const kind: string = await (await skNode('catalog-kind/' + comp)).getText();
+      check(kind === 'L2 业务组件', 'L2SKEL_KIND ' + comp + ' 目录标记应为「L2 业务组件」，实际 ' + kind);
+      for (const s of SK_SHAPES) {
+        if (s[0] !== comp) { continue; }
+        const id: string = skCid(s[0], s[1], s[2]);
+        const r: Rect = await skVisible(comp, id);
+        check(r.right - r.left > 40 * density() && r.bottom - r.top > 40 * density(), 'L2SKEL_SAMPLE_TINY ' + id);
+        const units: string[] = await skReaderUnits(id);
+        check(units.length === 0, 'L2SKEL_READER_NOT_SKIPPED ' + id + ' 骨架应读屏跳过，实际读屏单元 ' + JSON.stringify(units));
+        const tappable: Component[] = await driver.findComponents(ON.clickable(true).within(ON.id(id)));
+        const n: number = tappable === null || tappable === undefined ? 0 : tappable.length;
+        check(n === 0, 'L2SKEL_CLICKABLE ' + id + ' 骨架里不应有可点节点，实际 ' + n);
+      }
+      if (comp === 'Skeleton') {
+        await skVisible(comp, SK_HOST);
+        for (const b of ['short', 'mid', 'slow']) { await skNode('catalog-skeleton-host/' + b); }
+        check((await skEvents()).raw.split('|').length === 4, 'L2SKEL_HOST_EVENTS_FORMAT ' + SK_EVENTS + ' 应为「本次|出现|消失|回来」');
+      }
+    }
+  });
+
+  // 书 §3 设备「深浅：底色是 background.muted 令牌角色」；外壳是静态 CouliCard（background.surface）。
+  it(L2SKEL_DEVICE_CASES[1], 0, async (): Promise<void> => {
+    for (const comp of ['Skeleton', 'ProductCardSkeleton']) {
+      await skOpen(comp);
+      await skFont('100');
+      for (const mode of ['light', 'dark']) {
+        await skTheme(mode);
+        const surface: number[] = token('background.surface', mode === 'dark');
+        const muted: number[] = token('background.muted', mode === 'dark');
+        for (const s of SK_SHAPES) {
+          if (s[0] !== comp) { continue; }
+          const id: string = skCid(s[0], s[1], s[2]);
+          const r: Rect = await skVisible(comp, id);
+          let best: SkTones = new SkTones();
+          for (let frame: number = 0; frame < 3; frame++) {
+            const t: SkTones = skTones(await capture(r), surface, muted);
+            console.info('L2SKEL_TONES ' + mode + ' ' + id + ' #' + frame + ' ' + t.text());
+            check(t.surfaceShare() >= 0.3, 'L2SKEL_SHELL_NOT_SURFACE ' + mode + ' ' + id + ' background.surface 占比 ' +
+              t.surfaceShare().toFixed(2) + ' < 0.30（外壳不是静态 CouliCard 白卡）');
+            if (t.mutedOfBlocks() > best.mutedOfBlocks()) { best = t; }
+            await driver.delayMs(250 + frame * 170);
+          }
+          check(best.mutedShare() >= 0.05, 'L2SKEL_BLOCK_NOT_MUTED ' + mode + ' ' + id + ' background.muted 占比 ' +
+            best.mutedShare().toFixed(2) + ' < 0.05（块不是 muted 令牌角色，或深色仍用浅色值）');
+          check(best.mutedOfBlocks() >= 0.5, 'L2SKEL_BLOCK_NOT_MUTED_BASE ' + mode + ' ' + id + ' 三帧里 muted 占非白像素最多 ' +
+            best.mutedOfBlocks().toFixed(2) + ' < 0.50（块的底色应是 muted，微光只是扫过的窄带）');
+        }
+      }
+      await skTheme('light');
+    }
+  });
+
+  // 书 §2.2「微光：linearGradient 位移 + 循环」、§3 逻辑 8 / D10-1163 ①「减弱动态不播微光」。系统减弱动态（API ≥ 23）开着时应完全静止。
+  it(L2SKEL_DEVICE_CASES[2], 0, async (): Promise<void> => {
+    await skOpen('Skeleton');
+    await skTheme('light');
+    await skFont('100');
+    const r: Rect = await skVisible('Skeleton', skCid('Skeleton', 'product', 'loading'));
+    const frames: Pixels[] = [];
+    for (const gap of [0, 230, 470, 160, 390]) {
+      await driver.delayMs(gap);
+      frames.push(await capture(r));
+    }
+    const moves: number[] = [];
+    for (let i: number = 1; i < frames.length; i++) { moves.push(skMoved(frames[i - 1], frames[i])); }
+    const area: number = frames[0].width * frames[0].height;
+    console.info('L2SKEL_SHIMMER reduced=' + reducedMotion() + ' moved=' + moves.join(',') + ' area=' + area);
+    if (reducedMotion()) {
+      const quiet: number = Math.max(10, Math.round(area * 0.0005));
+      check(moves.every((m: number): boolean => m <= quiet), 'L2SKEL_SHIMMER_WHEN_REDUCED 减弱动态开着，骨架连拍仍在变 ' + moves.join(',') +
+        ' 像素（> ' + quiet + '）');
+    } else {
+      const need: number = Math.max(40, Math.round(area * 0.003));
+      let most: number = 0;
+      for (const m of moves) { most = Math.max(most, m); }
+      check(most >= need, 'L2SKEL_NO_SHIMMER 骨架连拍 5 张相邻变化最多 ' + most +
+        ' 像素（< ' + need + '）：没有微光');
+    }
+  });
+
+  // README ⑧ / 书 §2.4、§3 设备「SkeletonHost：loading 切换时 300ms 内不见骨架」：150 ms 的加载骨架从不出现。
+  it(L2SKEL_DEVICE_CASES[3], 0, async (): Promise<void> => {
+    await skOpen('Skeleton');
+    await skTheme('light');
+    await skFont('100');
+    const seen: number[] = [0];
+    const run: SkRun = await skLoad('short', 'short', 1200, seen);
+    check(run.shown === -1 && run.hidden === -1, 'L2SKEL_GATE_FLASH 150 ms 的加载出现了骨架：' + run.raw + '（应超过 300 ms 才出现）');
+    check(seen[0] === 0, 'L2SKEL_GATE_FLASH_ON_SCREEN 150 ms 的加载屏上见到骨架 ' + seen[0] + ' 次');
+  });
+
+  // README ⑧ / 书 §2.4「超过约 300ms 才出现、出现后至少约 300ms」；加载期间骨架一直在、结束后不拖。
+  it(L2SKEL_DEVICE_CASES[4], 0, async (): Promise<void> => {
+    await skOpen('Skeleton');
+    await skTheme('light');
+    await skFont('100');
+    const midSeen: number[] = [0];
+    const mid: SkRun = await skLoad('mid', 'mid', 1600, midSeen);
+    check(mid.shown >= 280 && mid.shown <= 900, 'L2SKEL_GATE_DELAY 350 ms 加载：骨架应在约 300 ms 出现，实际 ' + mid.raw);
+    check(mid.hidden >= 0 && mid.hidden - mid.shown >= 280, 'L2SKEL_GATE_MIN_VISIBLE 350 ms 加载：骨架出现后应至少留约 300 ms，实际 ' + mid.raw);
+    check(mid.back >= mid.hidden - 50 && mid.back - mid.shown >= 280, 'L2SKEL_GATE_CONTENT_EARLY 内容应在骨架留满后回来，实际 ' + mid.raw);
+    check(mid.back <= mid.shown + 300 + 900, 'L2SKEL_GATE_CONTENT_LATE 内容迟迟不回来，实际 ' + mid.raw);
+    const slowSeen: number[] = [0];
+    const slow: SkRun = await skLoad('slow', 'slow', 2400, slowSeen);
+    check(slow.shown >= 280 && slow.shown <= 900, 'L2SKEL_GATE_DELAY 1200 ms 加载：骨架应在约 300 ms 出现，实际 ' + slow.raw);
+    check(slow.hidden >= 1180, 'L2SKEL_GATE_HIDDEN_WHILE_LOADING 加载还没结束骨架就消失了，实际 ' + slow.raw);
+    check(slow.hidden <= 1200 + 900, 'L2SKEL_GATE_LINGER 加载结束后骨架拖太久，实际 ' + slow.raw);
+    check(slow.back >= slow.hidden - 50, 'L2SKEL_GATE_OVERLAP 内容先于骨架消失回来，实际 ' + slow.raw);
+    check(slowSeen[0] > 0, 'L2SKEL_GATE_NOT_ON_SCREEN 1200 ms 加载期间屏上一次也没见到骨架（只有记录、没有渲染）');
+  });
+
+  // 书 §3 设备「200%：布局不错位」：骨架没有文字，卡宽不变、仍在样例框内、不被压扁，回 100% 复原。
+  it(L2SKEL_DEVICE_CASES[5], 0, async (): Promise<void> => {
+    for (const comp of ['Skeleton', 'ProductCardSkeleton']) {
+      await skOpen(comp);
+      await skTheme('light');
+      await skFont('100');
+      const before: Rect[] = [];
+      const shapes: string[][] = SK_SHAPES.filter((s: string[]): boolean => s[0] === comp);
+      for (const s of shapes) { before.push(await skVisible(comp, skCid(s[0], s[1], s[2]))); }
+      await skFont('200');
+      const surface: number[] = token('background.surface', false);
+      const muted: number[] = token('background.muted', false);
+      for (let i: number = 0; i < shapes.length; i++) {
+        const s: string[] = shapes[i];
+        const id: string = skCid(s[0], s[1], s[2]);
+        const r: Rect = await skVisible(comp, id);
+        const box: Rect = await (await skNode(skSid(s[0], s[1], s[2]))).getBounds();
+        const w0: number = before[i].right - before[i].left;
+        const h0: number = before[i].bottom - before[i].top;
+        check(Math.abs((r.right - r.left) - w0) <= 2, 'L2SKEL_FONT200_WIDTH ' + id + ' 200% 卡宽 ' + (r.right - r.left) + ' ≠ ' + w0);
+        check(r.left >= box.left - 1 && r.right <= box.right + 1, 'L2SKEL_FONT200_OUTSIDE ' + id + ' 200% 骨架卡超出样例框');
+        check(r.bottom - r.top >= h0 - 2, 'L2SKEL_FONT200_SQUASHED ' + id + ' 200% 卡高 ' + (r.bottom - r.top) + ' < ' + h0);
+        const t: SkTones = skTones(await capture(r), surface, muted);
+        check(t.mutedShare() >= 0.05, 'L2SKEL_FONT200_BLOCKS_GONE ' + id + ' 200% 下 muted 块 ' + t.text());
+      }
+      await skFont('100');
+      for (let i: number = 0; i < shapes.length; i++) {
+        const s: string[] = shapes[i];
+        const r: Rect = await skVisible(comp, skCid(s[0], s[1], s[2]));
+        check(Math.abs((r.bottom - r.top) - (before[i].bottom - before[i].top)) <= 2, 'L2SKEL_FONT_NOT_RESTORED ' + s.join('/'));
+      }
+    }
   });
 }

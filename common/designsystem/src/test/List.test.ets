@@ -23,6 +23,7 @@ import themeBaseTest from './ThemeBase.test';
 import feelKitTest from './FeelKit.test';
 import iconSymbolTest from './IconSymbol.test';
 import l2CardTest from './L2Card.test';
+import skeletonGateTest from './SkeletonGate.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -55,4 +56,6 @@ export default function testsuite() {
   iconSymbolTest();
   // HM-L2-CARD：CouliCardKind 默认 STATIC 的构造不变式。
   l2CardTest();
+  // HM-L2-SKELETON：SkeletonGate 300 / 300（时钟注入）与减弱动态微光策略。
+  skeletonGateTest();
 }

@@ -1,0 +1,5 @@
+component	section	kinds	variants	states
+Loading	§3.6	L1 系统控件	small,medium	loading
+Skeleton	§3.6	L2 业务组件	product,order,wallet	loading
+Skeleton	§3.6	L2 业务组件	host	gated
+ProductCardSkeleton	§3.6	L2 业务组件	list	loading
