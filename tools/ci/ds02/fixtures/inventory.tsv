@@ -54,6 +54,7 @@ DisclaimerFooter	§4	L2 业务组件	detail,list,card-info	default
 PlatformBadge	§4	L2 业务组件	list,order	loaded,fallback
 ProductCard	§4	L2 业务组件	search,ai,favorite,ranking,grid,large	single,range,no-rebate,long-price,amount-hidden,skeleton
 BuyButton	§4	L2 业务组件	single,range,no-rebate	default,loading,disabled,retry-later
+BuyButton	§4	L2 业务组件	single	off-shelf
 AmountGrid	§4	L2 业务组件	two-column,vertical200,help	normal,amount-hidden
 WalletHeroCard	§4	L2 业务组件	wallet,me	normal,amount-hidden,zero
 EntryGrid	§4	L2 业务组件	four-column	default,pressed,hidden-entry

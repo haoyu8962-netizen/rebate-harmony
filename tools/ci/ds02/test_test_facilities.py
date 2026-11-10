@@ -274,7 +274,9 @@ run_device_tests core common/core core_test
         # + APP-12w-c-harmony 21 条（tools/ci/me12wc/fixtures/device-cases.txt，账号状态 / 申诉视觉；测试 v5 加键盘避让 1 条，只增不减，合集 258 → 279）
         # + FU-HM-TAB-BAR 7 条（tools/ci/tabbar/device-cases.txt，系统底栏；只增不减，合集 279 → 286）。
         # FU-HM-FEEL-KIT（#24）：目录加 FeelLab，按 inventory 派生 render_all_declared_states_FeelLab_light / _dark 2 条，DS-02 158 → 160；只增不减，合集 286 → 288、main 173 → 175。
-        self.assertEqual(len(names), 288)
+        # HM-L2-BUTTON（#24，D10-1177 ⑩）：L2 共用套件 Ds02L2Ui 在 entry List 登记、随主步跑，+7 条 l2button_；只增不减，合集 288 → 295、main 175 → 182。
+        self.assertEqual(len(names), 295)
+        self.assertEqual(len([name for name in names if name.startswith('l2button_')]), 7)
         self.assertEqual(len([name for name in names if name.startswith('tabbar_')]), 7)
         self.assertEqual(len([name for name in names if name.startswith('me12wc_')]), 21)
         self.assertEqual(len([name for name in names if name.startswith('me12wb_')]), 17)
@@ -300,12 +302,12 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 288)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 288)
+        self.assertEqual(validate(report(names)), 295)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 295)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
-                        or name in FX25_DEVICE_CASES]:
+                        or name.startswith('l2button_') or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
         # 12 个变体/主题任意漏一个都必须报红，旧聚合名不能抵账。
@@ -343,7 +345,14 @@ run_device_tests core common/core core_test
         me12wb = expected_names('me12wb')
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
-        self.assertEqual(len(main), 175)
+        self.assertEqual(len(main), 182)
+        # HM-L2-BUTTON：Ds02L2Ui 随主步跑（不新增设备步），7 条 l2button_ 只在 main，名单与套件 it() 一致（带 + mode 的按 light / dark 展开）。
+        l2button = {name for name in main if name.startswith('l2button_')}
+        self.assertEqual(len(l2button), 7)
+        l2_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
+        l2_declared = re.findall(r"\bit\('(l2button_\d\d_[a-z0-9_]+)'", l2_suite)
+        self.assertEqual(sorted(n + m if n.endswith('_') else n for n in l2_declared
+                                for m in (['light', 'dark'] if n.endswith('_') else [''])), sorted(l2button))
         self.assertEqual(len(me12wc), 21)
         self.assertEqual(len(tabbar), 7)
         self.assertEqual(len(me12wb), 17)
@@ -415,8 +424,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 175)
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 175)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 182)
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 182)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)

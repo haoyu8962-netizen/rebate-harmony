@@ -442,6 +442,7 @@ export const EXPECTED_CASES: ExpectedCase[] = [
   new ExpectedCase("BuyButton", "no-rebate", "loading", ["L2 业务组件"]),
   new ExpectedCase("BuyButton", "no-rebate", "disabled", ["L2 业务组件"]),
   new ExpectedCase("BuyButton", "no-rebate", "retry-later", ["L2 业务组件"]),
+  new ExpectedCase("BuyButton", "single", "off-shelf", ["L2 业务组件"]),
   new ExpectedCase("AmountGrid", "two-column", "normal", ["L2 业务组件"]),
   new ExpectedCase("AmountGrid", "two-column", "amount-hidden", ["L2 业务组件"]),
   new ExpectedCase("AmountGrid", "vertical200", "normal", ["L2 业务组件"]),
