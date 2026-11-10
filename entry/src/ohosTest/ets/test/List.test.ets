@@ -12,6 +12,7 @@ import me12waUiTest from './Me12waUi.test';
 import me12wbUiTest from './Me12wbUi.test';
 import me12wcUiTest from './Me12wcUi.test';
 import tabBarShellUiTest from './TabBarShellUi.test';
+import ds02L2UiTest from './Ds02L2Ui.test';
 
 export default function testsuite() {
   ds02CatalogTest();
@@ -41,6 +42,9 @@ export default function testsuite() {
   // FU-HM-TAB-BAR：系统底栏；verify 里单独一个设备步（class=TabBarShellUi，先卸载重装、从未同意隐私开始），其他步都不跑它。
   // 排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
   tabBarShellUiTest();
+  // README ⑩（D10-1177）：L2 批 1 共用设备套件 Ds02L2Ui（CARD 单首次注册；与 CARD 合并时只留一处）。子集跑 class=Ds02L2UiState（空态 / 错误态）。
+  // 排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
+  ds02L2UiTest();
   // HM-07v-a：驱动真实应用，隐私状态单向（基本模式 → 完整功能 → 会员），必须排在最后。
   hm07vHomeUiTest();
 }

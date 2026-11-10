@@ -3,6 +3,7 @@
 
 HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步（verify.sh），各自核对各自的必跑名单：
   --set main    原 entry 步：DS-02 160 + F-X-05a 9 + F-X-25 6 = 175 条，且不得混进 hm07va_ 用例（拆步后不在这一步跑）
+                HM-L2-STATE（#24 只加，README ⑩ 不新增设备步）：主步另跑 Ds02L2UiState 7 条，main 175 → 182 条
   --set hm07va  首页视觉 a 段单独步：HM-07v-a 17 条（测试 v3 +2），且只能是这 17 条（套件过滤失效、混进别的套件都报红）
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
@@ -11,7 +12,8 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wb  隐私中心 / 关于 / 客服半屏视觉单独步（APP-12w-b-harmony 测试 v1：17 条），且只能是这 17 条
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
   --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
-  --set all     不分步时的合集（288 条，允许以后增补用例）；缺省
+  --set l2state 子集跑 COULI_HM_TEST_FILTER=class=Ds02L2UiState（HM-L2-STATE 空态 / 错误态 7 条），且只能是这 7 条；verify 不单列此步（⑩）
+  --set all     不分步时的合集（295 条，允许以后增补用例）；缺省
 """
 import collections
 import csv
@@ -29,7 +31,7 @@ FX25_DEVICE_CASES = [
     'E06_covered_host_tears_down_while_covered_and_shows_clean_new_document_after_pop',
     'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
 ]
-SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'all')
+SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'l2state', 'all')
 
 
 def hm07va_names():
@@ -80,6 +82,12 @@ def tabbar_names():
             if line.strip() and not line.startswith('#')}
 
 
+def l2state_names():
+    """HM-L2-STATE：L2 共用设备套件 Ds02L2Ui 的空态 / 错误态段 Ds02L2UiState（名单与 Ds02L2Ui.test.ets 的 L2STATE_DEVICE_CASES 一致）。"""
+    return {line.strip() for line in (Path(__file__).parents[1] / 'l2state/device-cases.txt').read_text().splitlines()
+            if line.strip() and not line.startswith('#')}
+
+
 def expected_names(set_name='all'):
     if set_name not in SETS:
         raise ValueError('未知必跑名单 ' + str(set_name))
@@ -99,6 +107,8 @@ def expected_names(set_name='all'):
         return me12wc_names()
     if set_name == 'tabbar':
         return tabbar_names()
+    if set_name == 'l2state':
+        return l2state_names()
     inventory = Path(__file__).parent / 'fixtures/inventory.tsv'
     rows = csv.DictReader((line for line in inventory.read_text().splitlines()
                            if not line.startswith('#')), delimiter='\t')
@@ -130,6 +140,8 @@ def expected_names(set_name='all'):
                  if line.strip() and not line.startswith('#'))
     # F-X-25：此前只按 check-ui-facilities.cjs 核对注册名，设备结果里未逐条要求；拆步后 main 名单把这 6 条也列为必跑（只加不减）。
     names.update(FX25_DEVICE_CASES)
+    # HM-L2-STATE（#24 只加；README ⑩：Ds02L2Ui 在主 entry 步跑，不新增设备步）：main / all 都列为必跑。
+    names.update(l2state_names())
     if set_name == 'all':
         names.update(hm07va_names())
         names.update(hm07vb_names())
@@ -174,7 +186,7 @@ def validate(text, set_name='all'):
                         | me12wa_names() | me12wb_names() | me12wc_names() | tabbar_names())
         if leaked:
             raise ValueError(f'entry_test(main) 混进了 HM-07v-a / HM-07v-b / HM-05r / APP-12v / APP-12w-a / APP-12w-b / APP-12w-c 单独步的用例（套件过滤失效）: {leaked}')
-    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar'):
+    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'l2state'):
         extra = sorted(ran - expected)
         if extra:
             raise ValueError(f'entry_test({set_name}) 跑了本步名单以外的用例（套件过滤失效）: {extra}')
@@ -192,7 +204,7 @@ if __name__ == '__main__':
         del args[at:at + 2]
     try:
         if len(args) != 1:
-            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|all]')
+            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|l2state|all]')
         count = validate(Path(args[0]).read_text(), chosen)
         print(f'DS02_DEVICE_COMPLETE set={chosen} required={count} all_passed')
     except (ValueError, OSError) as error:

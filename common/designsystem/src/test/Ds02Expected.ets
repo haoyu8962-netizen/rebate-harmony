@@ -288,6 +288,7 @@ export const EXPECTED_CASES: ExpectedCase[] = [
   new ExpectedCase("EmptyState", "empty", "default", ["L2 业务组件"]),
   new ExpectedCase("ErrorState", "trace6", "default", ["L2 业务组件"]),
   new ExpectedCase("ErrorState", "offline", "default", ["L2 业务组件"]),
+  new ExpectedCase("ErrorState", "trace6", "retrying", ["L2 业务组件"]),
   new ExpectedCase("NoticeBar", "info", "default", ["L2 业务组件"]),
   new ExpectedCase("NoticeBar", "info", "action", ["L2 业务组件"]),
   new ExpectedCase("NoticeBar", "warning", "default", ["L2 业务组件"]),

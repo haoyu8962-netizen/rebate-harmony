@@ -34,6 +34,7 @@ Skeleton	§3.6	L2 业务组件	product,order,wallet	loading
 ProductCardSkeleton	§3.6	L2 业务组件	list	loading
 EmptyState	§3.6	L2 业务组件	empty	default
 ErrorState	§3.6	L2 业务组件	trace6,offline	default
+ErrorState	§3.6	L2 业务组件	trace6	retrying
 NoticeBar	§3.6	L2 业务组件	info,warning,error,success	default,action
 Toast	§3.6	L1 系统控件	icon,text	default
 AlertDialog	§3.6	L1 系统控件	normal,destructive	default

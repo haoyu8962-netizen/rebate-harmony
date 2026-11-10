@@ -293,12 +293,14 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   console.log('REFERENCE_ONLY registration: other registered suites ' + [...FOREIGN_SUITES.values()]
     .map(suite => suite.task + '=' + suite.names.length).join(',') + ' match their fixed lists; not executed here');
   await registrationMutants(expected);
-  assert.equal(beforeEachHooks.length, 2);
-  assert.equal(afterEachHooks.length, 2);
+  // HM-L2-STATE（#24）：List.test 登记 Ds02L2Ui（严格加载器，DS-02 同族），其 beforeEach / afterEach / beforeAll 各 1 个排在 Ds02Ui、Ds02R1Ui 之后；
+  // 下方会话 / 启动设施仍只取 [0]（Ds02Ui）/ [1]（Ds02R1Ui），计数仍是精确等于。
+  assert.equal(beforeEachHooks.length, 3);
+  assert.equal(afterEachHooks.length, 3);
   await require('./check-ui-session.cjs')({ load, testRoot, beforeEachHooks, afterEachHooks,
     driver: value => { activeDriver = value; }, driverProxy, ON });
   activeDriver = startupDriver;
-  assert.equal(beforeHooks.length, 1);
+  assert.equal(beforeHooks.length, 2);
   await beforeHooks[0]();
   assert.equal(launchCount, 3);
   assert.ok(catalog && clicked.includes('不同意') && clicked.includes('仍不同意'));
@@ -349,8 +351,8 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
       checked += required.length;
     }
   }
-  assert.equal(checked, 802);
-  console.log('REFERENCE_ONLY traversal: 62 components x 2 modes, 802 cases, linear swipe bound, tall rows pass');
+  assert.equal(checked, 804);
+  console.log('REFERENCE_ONLY traversal: 62 components x 2 modes, 804 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');
   // S1：完整 36 行目录，测 search 六状态；不是裁小后的假列表。
   const searchRows = required.filter(row => row.variant === 'search');
