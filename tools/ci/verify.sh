@@ -290,6 +290,15 @@ node "$ROOT/tools/ci/iconsymbol/run-logic.cjs" || fail_fast "iconsymbol-logic" "
 node "$ROOT/tools/ci/iconsymbol/check-arkts.cjs" --real || fail_fast "iconsymbol-arkts" "IconSymbol 测试文件 ArkTS 严格检查失败"
 record "FU-HM-ICON-SYMBOL 宿主检查" PASS "映射 / SDK 资源 / 路径表收窄 / 渲染写法 / 登记（自测）/ 纯逻辑 / ArkTS"
 
+# HM-L2-STATE：空态 / 错误态淡入走 CouliMotion.appear、【重试】retrying 透传加载态（id couli-error-retry 与焦点回位不变）、颜色只来自 CouliColors、
+# 无触感、目录 retrying 态与 ExceptionPrompt 复核说明、套件登记（先自测）；L2State 套件 node 预检与 ArkTS 严格检查。
+step "HM-L2-STATE 宿主检查"
+python3 "$ROOT/tools/ci/l2state/check_l2_state.py" --self-test || fail_fast "l2state-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/l2state/check_l2_state.py" || fail_fast "l2state-host" "见上方违反项"
+node "$ROOT/tools/ci/l2state/run-logic.cjs" || fail_fast "l2state-logic" "见上方用例"
+node "$ROOT/tools/ci/l2state/check-arkts.cjs" --real || fail_fast "l2state-arkts" "L2State / Ds02L2Ui 测试文件 ArkTS 严格检查失败"
+record "HM-L2-STATE 宿主检查" PASS "淡入 / 参数与重试加载态 / 焦点回位 / 播报 / 颜色角色 / 图标 / 目录 / 登记（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -972,6 +981,7 @@ run_device_tests core common/core core_test
 # HM-07v-a（编排 D10-405 D4、测试 v2 T0）：entry 拆成两个设备步，同锁、同一个测试包，各自计时、各自 1800 秒门槛、各自必跑名单：
 #   entry         DS-02 158 + F-X-05a 9 + F-X-25 6 = 173 条（排除 Hm07vHomeUi、Hm07vOverlayUi 两个套件）
 #                 FU-HM-FEEL-KIT 目录加 FeelLab（浅 / 深 2 条）后为 DS-02 160 + 9 + 6 = 175 条（ds02/check_device_result.py --set main）
+#                 HM-L2-STATE（#24 只加，README ⑩ 不新增设备步）：主步另跑 Ds02L2UiState 7 条，为 160 + 9 + 6 + 7 = 182 条；子集跑用 class=Ds02L2UiState + --set l2state
 #   entry-hm07va  HM-07v-a 17 条（只跑 Hm07vHomeUi 套件）；device-test.sh 先卸载再装，从未同意隐私的冷启动开始（不受前一步状态影响）
 #   entry-hm07vb  HM-07v-b 11 条（只跑 Hm07vOverlayUi 套件：弹窗与剪贴板浮层）；同样先卸载再装、各自 1800 秒（D10-232 / D10-405 D4 同口径）
 #   entry-hm05r   HM-05r 11 条（只跑 Hm05rConsentUi 套件：剪贴板默认开启、关闭态、升级迁移、撤回与重新同意，测试 v3）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
