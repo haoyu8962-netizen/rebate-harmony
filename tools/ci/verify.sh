@@ -335,6 +335,15 @@ node "$ROOT/tools/ci/l2state/run-logic.cjs" || fail_fast "l2state-logic" "见上
 node "$ROOT/tools/ci/l2state/check-arkts.cjs" --real || fail_fast "l2state-arkts" "L2State / Ds02L2Ui 测试文件 ArkTS 严格检查失败"
 record "HM-L2-STATE 宿主检查" PASS "淡入 / 参数与重试加载态 / 焦点回位 / 播报 / 颜色角色 / 图标 / 目录 / 登记（自测）/ 纯逻辑 / ArkTS"
 
+# HM-L2-PRODUCT-CELL：商品卡整卡承载（openable / onOpen 经 CouliCard，openable=false 不吞页面外层点击）、去预估返后（DETAIL-V3 U1）、
+# 信息区读屏合一、购买按钮单独一项与隐私接线（BUTTON 评审 r1 S3-1）、无触感、图片段不动、目录与登记（先自测）；L2ProductCell 套件 node 预检与 ArkTS 严格检查。
+step "HM-L2-PRODUCT-CELL 宿主检查"
+python3 "$ROOT/tools/ci/l2cell/check_l2_cell.py" --self-test || fail_fast "l2cell-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/l2cell/check_l2_cell.py" || fail_fast "l2cell-host" "见上方违反项"
+node "$ROOT/tools/ci/l2cell/run-logic.cjs" || fail_fast "l2cell-logic" "见上方用例"
+node "$ROOT/tools/ci/l2cell/check-arkts.cjs" --real || fail_fast "l2cell-arkts" "L2ProductCell / Ds02L2Ui 测试文件 ArkTS 严格检查失败"
+record "HM-L2-PRODUCT-CELL 宿主检查" PASS "外壳 / 不吞点击 / 去预估返后 / 读屏合一 / 隐私接线 / 无触感 / 图片段 / 目录 / 登记（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
