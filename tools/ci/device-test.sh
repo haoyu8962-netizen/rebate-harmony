@@ -19,6 +19,7 @@
 #   COULI_HM_DEVICE_SET   entry_test 结果按哪份必跑名单核对（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / tabbar / l2 / all，缺省 all），见 ds02/check_device_result.py。
 #   HM-L2-CARD：l2 = 子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui 时用的名单（HM-L2 批 1 集成 2 后 33 条 = l2card 8 + l2skel 6 + l2button 7 + l2price 5 + l2state 7）；verify 不单列此步（README ⑩），主步照跑。
 #   HM-L2-STATE：原 l2state = 子集跑 COULI_HM_TEST_FILTER=class=Ds02L2UiState 的 7 条；集成 2 起 STATE 段并入 Ds02L2Ui 唯一 describe，class=Ds02L2UiState 不复存在，这 7 条并入 l2（verify 不单列此步，README ⑩，主步照跑）。
+#   HM-L2-PRODUCT-CELL（#24 只加）：cell 段 9 条（tools/ci/l2cell/device-cases.txt，l2cell_）同在 Ds02L2Ui 唯一 describe，并入 l2：33 → 42 条（+ l2cell 9）；不另设 set，verify 不单列此步（README ⑩），主步照跑。
 # 每一步都先卸载再装（应用数据清空、首启前状态），所以分出去的步从「未同意隐私、冷启动」开始，不受前一步留下的状态影响。
 set -euo pipefail
 

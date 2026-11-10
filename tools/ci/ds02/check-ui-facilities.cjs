@@ -304,6 +304,8 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   // 下方会话 / 启动设施仍只取 [0]（Ds02Ui）/ [1]（Ds02R1Ui），计数仍是精确等于。
   // HM-L2 批 1 集成 2（integ2-harmony.md）：STATE 段同 BUTTON / PRICE 并进唯一 describe，原 Ds02L2UiState 的 beforeEach / afterEach 并入那一对，
   // beforeAll / afterAll 挪成段边界的段前准备 / 段后复位（不是 Hypium 钩子）；计数仍是 3 / 3 / 2。
+  // HM-L2-PRODUCT-CELL（#24 只加）：cell 段同在唯一 describe，段前准备 / 段后复位（L2CellRig.enterCatalog / leaveCatalog）在段边界执行，不是 Hypium 钩子；
+  // 计数仍是 3 / 3 / 2。注册名多 9 条 l2cell_，经 check_device_result.l2cell_names() 进上方 expected（严格加载器，不进 FOREIGN_SUITES）。
   assert.equal(beforeEachHooks.length, 3);
   assert.equal(afterEachHooks.length, 3);
   await require('./check-ui-session.cjs')({ load, testRoot, beforeEachHooks, afterEachHooks,
@@ -366,6 +368,7 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   // HM-L2-SKELETON（#24 只加）：Skeleton 加 host × gated 一例（浅 / 深各 1），822 → 824；组件数 63 不变。
   // HM-L2-BUTTON（BuyButton single × off-shelf）、HM-L2-PRICE-TAG（RebateTag block × normal）各 +2（浅 / 深）；集成后 824 → 828，组件数 63 不变。
   // HM-L2-STATE（ErrorState trace6 × retrying）+2（浅 / 深）；集成 2 后 828 → 830，组件数 63 不变（ErrorState 本来就在）。
+  // HM-L2-PRODUCT-CELL：目录不增清单行（ProductCard 变体 × 状态不变），830 不变，组件数 63 不变。
   assert.equal(checked, 830);
   console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 830 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');

@@ -282,7 +282,9 @@ run_device_tests core common/core core_test
         # HM-L2-PRICE-TAG（#24，D10-1177 ⑩）：同一套件 Ds02L2Ui 的第二段随主步跑，+5 条 l2price_（inventory 新行 RebateTag block/normal 不新增名字）；只增不减，合集 311 → 316、main 198 → 203。
         # HM-L2 批 1 集成（FREEZE，D10-1177 ⑨）：四单按上面顺序叠加，合集 = 288 + CouliCard 渲染 2 + Ds02L2Ui 26 = 316。
         # HM-L2 批 1 集成 2（FREEZE，D10-1177 ⑨）：STATE 段（Ds02L2UiState 7 条）叠在上面五单之后，合集 = 288 + CouliCard 渲染 2 + Ds02L2Ui 33 = 323。
-        self.assertEqual(len(names), 323)
+        # HM-L2-PRODUCT-CELL（#24 只加）：cell 段 9 条（tools/ci/l2cell/device-cases.txt）叠在 STATE 段之后，目录不增行；合集 323 → 332。
+        self.assertEqual(len(names), 332)
+        self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
         self.assertIn('render_all_declared_states_CouliCard_light', names)
@@ -317,8 +319,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 323)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 323)
+        self.assertEqual(validate(report(names)), 332)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 332)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -326,6 +328,7 @@ run_device_tests core common/core core_test
                         or name.startswith('l2skel_')
                         or name.startswith('l2button_') or name.startswith('l2price_')
                         or name.startswith('l2state_')
+                        or name.startswith('l2cell_')
                         or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
@@ -365,8 +368,8 @@ run_device_tests core common/core core_test
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
         l2 = expected_names('l2')
-        self.assertEqual(len(main), 210)
-        self.assertEqual(len(l2), 33)
+        self.assertEqual(len(main), 219)
+        self.assertEqual(len(l2), 42)
         # HM-L2-STATE（集成 2 换定位）：class=Ds02L2UiState 不复存在，l2state 7 条从 l2 里按前缀取（原 expected_names('l2state')）。
         l2state = {name for name in l2 if name.startswith('l2state_')}
         self.assertEqual(len(l2state), 7)
@@ -400,7 +403,7 @@ run_device_tests core common/core core_test
         self.assertEqual(l2 - main, set())
         self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2, set())
         self.assertTrue(all(name.startswith('l2card_') or name.startswith('l2skel_') or name.startswith('l2button_') or name.startswith('l2price_')
-                            or name.startswith('l2state_') for name in l2))
+                            or name.startswith('l2state_') or name.startswith('l2cell_') for name in l2))
         l2_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
         l2_const = l2_suite.split('L2CARD_DEVICE_CASES')[1].split('];')[0]
         l2card = {name for name in l2 if name.startswith('l2card_')}
@@ -415,7 +418,15 @@ run_device_tests core common/core core_test
         self.assertEqual(sorted(int(i) for i in re.findall(r"\bit\(L2SKEL_DEVICE_CASES\[(\d+)\]", l2_suite)), list(range(len(l2skel))))
         # HM-L2 批 1 集成（FREEZE）：子集跑 class=Ds02L2Ui 跑唯一 describe 里的全部段，l2 = 四段按前缀分的并集（各段名单各自按本段前缀核对）。
         # HM-L2 批 1 集成 2：STATE 段同在唯一 describe 里，l2 = 五段按前缀分的并集。
-        self.assertEqual(l2, l2card | l2skel | l2button | l2price | l2state)
+        # HM-L2-PRODUCT-CELL（#24 只加）：cell 段同在唯一 describe 里，l2 = 六段按前缀分的并集；名单 = 套件导出常量，it 按常量下标 0..n-1 各一次。
+        l2cell = {name for name in l2 if name.startswith('l2cell_')}
+        self.assertEqual(len(l2cell), 9)
+        self.assertEqual(l2cell - main, set())
+        self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2cell, set())
+        cell_const = l2_suite.split('L2CELL_DEVICE_CASES: string[] = [')[1].split('];')[0]
+        self.assertEqual(sorted(re.findall(r"'(l2cell_\d\d_[a-z0-9_]+)'", cell_const)), sorted(l2cell))
+        self.assertEqual(sorted(int(i) for i in re.findall(r"\bit\(L2CELL_DEVICE_CASES\[(\d+)\]", l2_suite)), list(range(len(l2cell))))
+        self.assertEqual(l2, l2card | l2skel | l2button | l2price | l2state | l2cell)
         # FU-HM-TAB-BAR 第九步：与其余各步两两不相交，名单与套件导出常量一致。
         self.assertEqual((main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc) & tabbar, set())
         self.assertTrue(all(name.startswith('tabbar_') for name in tabbar))
@@ -485,8 +496,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 210)
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 210)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 219)
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 219)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
@@ -495,7 +506,7 @@ run_device_tests core common/core core_test
         self.assertEqual(validate(report(sorted(me12wb)), 'me12wb'), 17)
         self.assertEqual(validate(report(sorted(me12wc)), 'me12wc'), 21)
         self.assertEqual(validate(report(sorted(tabbar)), 'tabbar'), 7)
-        self.assertEqual(validate(report(sorted(l2)), 'l2'), 33)
+        self.assertEqual(validate(report(sorted(l2)), 'l2'), 42)
         bad = {
             # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
             **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
@@ -590,7 +601,7 @@ run_device_tests core common/core core_test
             'l2-with-tabbar-case': (report(sorted(l2) + sorted(tabbar)[:1]), 'l2'),
             'l2-with-future-case': (report(sorted(l2) + ['future_extra_test']), 'l2'),
             'l2-failed': (report(sorted(l2), failed=sorted(l2)[0]), 'l2'),
-            'l2-only-summary': ('Tests run: 33, Failure: 0, Error: 0, Pass: 33', 'l2'),
+            'l2-only-summary': ('Tests run: 42, Failure: 0, Error: 0, Pass: 42', 'l2'),
             'l2-report-checked-as-main': (report(sorted(l2)), 'main'),
             'tabbar-report-checked-as-l2': (report(sorted(tabbar)), 'l2'),
             # HM-L2-STATE 子集（原 class=Ds02L2UiState，--set l2state；集成 2 并入 l2，只换集合值）：l2 里缺任一条 l2state_、多跑别的套件、
@@ -600,10 +611,15 @@ run_device_tests core common/core core_test
             'l2state-with-tabbar-case': (report(sorted(l2) + sorted(tabbar)[:1]), 'l2'),
             'l2state-with-future-case': (report(sorted(l2) + ['future_extra_test']), 'l2'),
             'l2state-failed': (report(sorted(l2), failed=sorted(l2state)[0]), 'l2'),
-            'l2state-only-summary': ('Tests run: 33, Failure: 0, Error: 0, Pass: 33', 'l2'),
+            'l2state-only-summary': ('Tests run: 42, Failure: 0, Error: 0, Pass: 42', 'l2'),
             'l2state-report-checked-as-main': (report(sorted(l2state)), 'main'),
             'l2state-report-checked-as-l2': (report(sorted(l2state)), 'l2'),
             'tabbar-report-checked-as-l2-state': (report(sorted(tabbar)), 'l2'),
+            # HM-L2-PRODUCT-CELL（#24 只加）：l2 里缺任一条 l2cell_、某条 l2cell_ 失败、cell 9 条单独当 main / l2 核对都红。
+            **{'l2cell-missing-' + name: (report(sorted(l2 - {name})), 'l2') for name in sorted(l2cell)},
+            'l2cell-failed': (report(sorted(l2), failed=sorted(l2cell)[0]), 'l2'),
+            'l2cell-report-checked-as-main': (report(sorted(l2cell)), 'main'),
+            'l2cell-report-checked-as-l2': (report(sorted(l2cell)), 'l2'),
         }
         for reason, (text, chosen) in bad.items():
             with self.subTest(reason=reason), self.assertRaises(ValueError):
@@ -621,7 +637,9 @@ run_device_tests core common/core core_test
         ④ l2SegmentOf 的前缀与 L2BUTTON_DEVICE_CASES / L2PRICE_DEVICE_CASES 一致，CARD / SKELETON 名都落 card 段。
         集成 2（integ2-harmony.md，只加 STATE 分支）：原 Ds02L2UiState describe 的 beforeAll / afterAll 原文（cfa4de9）挪进
         L2StateSegment.l2StateSetup / l2StateLeave，段边界在 PRICE-TAG 之后的 state 段调用；L2STATE_DEVICE_CASES 全落 state 段；
-        STATE 段函数在 PRICE-TAG 段之后注册。"""
+        STATE 段函数在 PRICE-TAG 段之后注册。
+        HM-L2-PRODUCT-CELL（#24 只加 cell 分支）：段前准备 = L2CellRig.enterCatalog()、段后复位 = drain + L2CellRig.leaveCatalog()（同 BUTTON / PRICE-TAG
+        段后复位口径）；L2CELL_DEVICE_CASES 全落 cell 段；cell 段函数在 STATE 段之后注册、恰一次。"""
         suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
 
         def flat(text):
@@ -655,6 +673,9 @@ run_device_tests core common/core core_test
         state_after = ("await drainUiTasks(driver); await runUiTask(driver, async (): Promise<void> => { await open('ErrorState'); "
                        "await liveError(false); await setFont('100'); await theme('light'); });")
         state_setup_call, state_leave_call = 'await L2StateSegment.l2StateSetup();', 'await L2StateSegment.l2StateLeave();'
+        # HM-L2-PRODUCT-CELL：cell 段前准备 / 段后复位（本单新写，不是挪来的旧钩子）；进出口径同 BUTTON / PRICE-TAG。
+        cell_before = "await runUiTask(driver, async (): Promise<void> => { await L2CellRig.enterCatalog(); });"
+        cell_after = "await drainUiTasks(driver); await runUiTask(driver, async (): Promise<void> => { await L2CellRig.leaveCatalog(); });"
 
         # ① it 包装：先过段边界再跑用例体；hypium 的 it 只在包装里调用一次（没有绕过包装的注册）。
         self.assertIn('import { describe, it as hypiumIt,', suite)
@@ -669,10 +690,12 @@ run_device_tests core common/core core_test
         self.assertEqual(block('    afterAll(async (): Promise<void> =>'), 'await l2FinishSegments();')
         self.assertEqual(block('async function l2SetupSegment(segment: string): Promise<void>'),
                          "if (segment === 'button') { %s } else if (segment === 'price') { %s } else if (segment === 'state') { %s }"
-                         % (button_before, price_before, state_setup_call))
+                         " else if (segment === 'cell') { %s }"
+                         % (button_before, price_before, state_setup_call, cell_before))
         self.assertEqual(block('async function l2LeaveSegment(segment: string): Promise<void>'),
                          "if (segment === 'card') { %s } else if (segment === 'button') { %s } else if (segment === 'price') { %s }"
-                         " else if (segment === 'state') { %s }" % (card_after, button_after, price_after, state_leave_call))
+                         " else if (segment === 'state') { %s } else if (segment === 'cell') { %s }"
+                         % (card_after, button_after, price_after, state_leave_call, cell_after))
         self.assertEqual(block('export async function l2StateSetup(): Promise<void>'), state_before)
         self.assertEqual(block('export async function l2StateLeave(): Promise<void>'), state_after)
         # ③ 段切换：上一段复位 → 本段准备 → drain；准备失败的错误本段每条都抛；describe afterAll 复位最后一段。
@@ -689,8 +712,11 @@ run_device_tests core common/core core_test
         seg_of = block('function l2SegmentOf(name: string): string')
         rules = re.findall(r"if \(name\.startsWith\('([a-z0-9_]+)'\)\) \{ return '([a-z]+)'; \}", seg_of)
         self.assertEqual(seg_of, ' '.join("if (name.startsWith('%s')) { return '%s'; }" % rule for rule in rules) + " return 'card';")
-        self.assertEqual(rules, [('l2button_', 'button'), ('l2price_', 'price'), ('l2state_', 'state')])
-        self.assertIn("const L2_SEGMENTS: string[] = ['card', 'button', 'price', 'state'];", suite)
+        self.assertEqual(rules, [('l2button_', 'button'), ('l2price_', 'price'), ('l2state_', 'state'), ('l2cell_', 'cell')])
+        self.assertIn("const L2_SEGMENTS: string[] = ['card', 'button', 'price', 'state', 'cell'];", suite)
+        self.assertIn('class L2CellRig {', suite)
+        self.assertIn('  static async enterCatalog(): Promise<void> {', suite.split('class L2CellRig {')[1])
+        self.assertIn('  static async leaveCatalog(): Promise<void> {', suite.split('class L2CellRig {')[1])
 
         def segment_of(name):
             return next((segment for prefix, segment in rules if name.startswith(prefix)), 'card')
@@ -714,6 +740,13 @@ run_device_tests core common/core core_test
             self.assertEqual(segment_of(name), 'state', name)
         self.assertEqual(suite.count('L2StateSegment.ds02L2UiStateCases();'), 1)
         self.assertGreater(suite.index('\n    L2StateSegment.ds02L2UiStateCases();\n'), calls[-1])
+        # HM-L2-PRODUCT-CELL：cell 名单全落 cell 段；cell 段函数恰调用一次、排在 STATE 之后。
+        cell_declared = names('L2CELL_DEVICE_CASES')
+        self.assertEqual(len(cell_declared), 9)
+        for name in cell_declared:
+            self.assertEqual(segment_of(name), 'cell', name)
+        self.assertEqual(len(re.findall(r'\bds02L2UiCellCases\(\);', suite)), 1)
+        self.assertGreater(suite.index('\n    ds02L2UiCellCases();\n'), suite.index('\n    L2StateSegment.ds02L2UiStateCases();\n'))
 
     def test_generator_check_covers_both_test_data_outputs(self):
         outputs = gen.build_outputs()
