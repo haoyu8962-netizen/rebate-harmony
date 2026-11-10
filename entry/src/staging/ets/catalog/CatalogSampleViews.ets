@@ -23,6 +23,9 @@ import { FeelLabSample } from './FeelLab';
 @ObservedV2
 export class CatalogEvents {
   @Trace oauthCount: number = 0;
+  /** CouliButton / BuyButton 样例 onTap 的真实计数（HM-L2-BUTTON：加载中 / 禁用 / 下架连点不回调，设备用例 Ds02L2Ui 读）。 */
+  @Trace buttonCount: number = 0;
+  @Trace buyCount: number = 0;
   @Trace lastLink: string = '无';
   /** 协议确认框【同意并继续】后同步到 AgreementCheckRow/three/unchecked 这一个样例（同一实例）。 */
   @Trace agreementThreeChecked: boolean = false;
@@ -82,7 +85,7 @@ export struct CatalogSampleView {
   build() {
     Column() {
       if (this.component === 'CouliButton') {
-        ButtonSample({ variant: this.variant, state: this.state, controlId: this.controlId() })
+        ButtonSample({ variant: this.variant, state: this.state, controlId: this.controlId(), events: this.events })
       } else if (this.component === 'CouliIconButton') {
         IconButtonSample({ variant: this.variant, state: this.state, controlId: this.controlId() })
       } else if (this.component === 'CouliTextField' || this.component === 'CouliTextArea'
@@ -128,7 +131,7 @@ export struct CatalogSampleView {
       } else if (this.component === 'FeelLab') {
         FeelLabSample()
       } else {
-        BusinessSample({ component: this.component, variant: this.variant, state: this.state })
+        BusinessSample({ component: this.component, variant: this.variant, state: this.state, events: this.events })
       }
     }
     .width('100%')
@@ -143,6 +146,7 @@ struct ButtonSample {
   @Param variant: string = '';
   @Param state: string = '';
   @Param controlId: string = '';
+  @Param events: CatalogEvents = new CatalogEvents();
 
   private kind(): CouliButtonVariant {
     if (this.variant.startsWith('secondary')) {
@@ -178,7 +182,10 @@ struct ButtonSample {
       loading: this.state === 'loading',
       pressedPreview: this.state === 'pressed',
       buttonId: this.controlId,
-      textId: 'catalog-text/CouliButton/' + this.variant + '/' + this.state
+      textId: 'catalog-text/CouliButton/' + this.variant + '/' + this.state,
+      onTap: () => {
+        this.events.buttonCount++;
+      }
     })
   }
 
@@ -1136,6 +1143,7 @@ struct BusinessSample {
   @Param component: string = '';
   @Param variant: string = '';
   @Param state: string = '';
+  @Param events: CatalogEvents = new CatalogEvents();
   @Local trend: TrendState = TrendState.COLLAPSED;
   @Local materials: ShareMaterial[] = [];
   @Local copyItems: ShareCopyItem[] = [];
@@ -1230,6 +1238,9 @@ struct BusinessSample {
         return BuyButtonState.DISABLED;
       case 'retry-later':
         return BuyButtonState.RETRY_LATER;
+      case 'off-shelf':
+        // 下架 = 禁用 +「商品已下架」（D10-907，与 ProductCardMapper 下架分支同形）。
+        return BuyButtonState.DISABLED;
       default:
         return BuyButtonState.NORMAL;
     }
@@ -1315,7 +1326,11 @@ struct BusinessSample {
           rebate: this.variant === 'no-rebate' ? RebateTagModel.make('no_rebate', 0, 0, false)
             : RebateTagModel.make(this.variant === 'range' ? 'price_compare_risk' : 'normal',
               this.variant === 'range' ? 135 : 269, 269, false),
-          state: this.buyState()
+          state: this.buyState(),
+          retryText: this.state === 'off-shelf' ? CatalogText.offShelf : '',
+          onTap: () => {
+            this.events.buyCount++;
+          }
         })
       } else if (this.component === 'AmountGrid') {
         Column() {

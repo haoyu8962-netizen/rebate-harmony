@@ -64,6 +64,8 @@ export class CatalogText {
   static readonly emptyRecoNote: string = '淘宝推荐商品，不受当前关键词和价格区间限制';
   static readonly milkQuery: string = '纯牛奶';
   static readonly retry: string = DefaultTexts.text('external_page.retry') ?? '';
+  /** 下架按钮文案（契约字典 error.30141，同 ProductCardMapper 下架分支；D10-907 / FU-HM-OFFSHELF-STATE）。 */
+  static readonly offShelf: string = DefaultTexts.text('error.30141') ?? '';
   static readonly loadFailed: string = DefaultTexts.text('external_page.load_failed') ?? '';
   static readonly copied: string = '已复制';
   static readonly dialogTitle: string = '该商品当前暂无返利，继续购买？';

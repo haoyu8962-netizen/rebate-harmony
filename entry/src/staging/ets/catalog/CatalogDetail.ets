@@ -279,6 +279,20 @@ export struct CatalogDetail {
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary))
         .id('catalog-agreement-last-link')
     }
+    if (this.component === 'CouliButton') {
+      Text('点按次数：')
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      Text(String(this.events.buttonCount))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
+        .id('catalog-events/CouliButton')
+    }
+    if (this.component === 'BuyButton') {
+      Text('点按次数：')
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      Text(String(this.events.buyCount))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
+        .id('catalog-events/BuyButton')
+    }
     if (this.component === 'OAuthButton') {
       Text('点按次数：')
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
