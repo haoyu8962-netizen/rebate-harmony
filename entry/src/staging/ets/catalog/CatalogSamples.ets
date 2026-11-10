@@ -3,10 +3,20 @@
 // 金额一律用整数分经 DesignSystem 的格式化函数与模型出文字；价格 / 返利术语只从 PriceTerms 取；
 // 其余界面文案（钱包、我的、按钮名称等）是画板样例，正式页面上线时经文案字典取键（BR-TEXT-12），不从这里复用。
 import {
-  BuyButtonState, CouliChipTone, CouliFormat, EstNetModel, PriceTagModel, PriceTerms, ProductCardData, ProductTag,
-  RebateTagModel
+  BuyButtonState, CouliChipTone, CouliFormat, EstNetModel, PriceTagModel, PriceTerms, ProductCardData, ProductCardMapper,
+  ProductCardTexts, ProductTag, RebateTagModel
 } from 'designsystem';
 import { DefaultTexts } from 'generated';
+
+/** 契约字典（DefaultTexts）当 ProductCardTexts 用：目录样例的按钮文案按 ProductCardMapper 的同一填法出。 */
+class CatalogContractTexts implements ProductCardTexts {
+  text(key: string): string {
+    return DefaultTexts.text(key) ?? '';
+  }
+}
+
+/** 一行购买句式的文案键（契约 btn.buy.rebate「购买预估返 {amount}」，DETAIL-V3 U1）。 */
+const BUY_REBATE_KEY: string = 'btn.buy.rebate';
 
 /** 样例界面文案（画板原文）。 */
 export class CatalogText {
@@ -454,6 +464,13 @@ export class CatalogSamples {
 
   /** 金额 → 显示文字（目录页统一出口）。 */
   /** 同一样例打开金额隐藏开关（R1-02 核对用）。 */
+  /** U1 一行购买句式：按钮动词换成 btn.buy.rebate 填好本卡（未遮罩）返利金额，同 ProductCardMapper 的映射（HM-L2-PRODUCT-CELL）。 */
+  static oneLineBuy(d: ProductCardData): ProductCardData {
+    d.buyBase = ProductCardMapper.buyText(BUY_REBATE_KEY, new CatalogContractTexts(), d.rebate, (_key: string): void => {
+    });
+    return d;
+  }
+
   static hidden(d: ProductCardData): ProductCardData {
     d.amountHidden = true;
     return d;

@@ -10,7 +10,7 @@ import {
   EstNetLine, EstNetModel, FieldState, FilterChip, FilterChipStyle, NavBar, NavBarAction, ImagePlaceholder, ImagePlaceholderState, LastLoginTag,
   ListRow, ListRowAccessory, LoginProvider, MatchBadge, NoticeBar, NoticeTone, OAuthButton, OneTapLoginPanel,
   OneTapLoginTexts, PhoneField, PlatformBadge, PriceTag, PriceTagModel, PriceTagSize, PriceTerms, PriceTrendPanel,
-  ProductCard, ProductCardData, ProductCardGrid, ProductCardVariant, RebateTag, RebateTagModel, RebateTagSize,
+  ProductCard, ProductCardData, ProductCardVariant, RebateTag, RebateTagModel, RebateTagSize,
   CardAmountMask, SearchEntry, SearchField, Segmented, ShareCopyEditor, ShareCopyItem, ShareMaterial,
   ShareMaterialPicker, SkeletonHost, SkeletonOrderCard, SkeletonProductCard, SkeletonWalletCard, TabBar, TabBarItem, ThirdPartyLoginRow, ThirdPartyLoginTexts, Timeline,
   TimelineState, TimelineStep, TopTabs, TrendPoint, TrendState, WalletHeroCard, CouliFormat, PressKind
@@ -724,6 +724,76 @@ struct DisplaySample {
   }
 }
 
+// HM-L2-PRODUCT-CELL：商品卡样例（Ds02L2Ui cell 段的目录契约）：search / ai / grid openable，favorite / ranking 外层点击模拟，large 不可点；
+// catalog-events/ProductCard/<变体>/<状态> = 「open|buy|outer」。
+@ComponentV2
+struct ProductCardCellSample {
+  @Param variant: string = '';
+  @Param state: string = '';
+  @Param data: ProductCardData = new ProductCardData();
+  @Local opens: number = 0;
+  @Local buys: number = 0;
+  @Local outers: number = 0;
+
+  private controlId(): string {
+    return 'catalog-control/ProductCard/' + this.variant + '/' + this.state;
+  }
+
+  private cardVariant(): ProductCardVariant {
+    if (this.variant === 'ai') {
+      return ProductCardVariant.AI;
+    }
+    if (this.variant === 'grid') {
+      return ProductCardVariant.GRID;
+    }
+    return this.variant === 'large' ? ProductCardVariant.LARGE : ProductCardVariant.LIST;
+  }
+
+  private openable(): boolean {
+    return this.variant === 'search' || this.variant === 'ai' || this.variant === 'grid';
+  }
+
+  build() {
+    Column({ space: CouliSpacing.space1 }) {
+      if (this.variant === 'favorite' || this.variant === 'ranking') {
+        Column() {
+          ProductCard({
+            data: this.data, variant: this.cardVariant(), onBuy: () => {
+              this.buys++;
+            }
+          })
+        }
+        .width('100%')
+        .onClick(() => {
+          this.outers++;
+        })
+        .id(this.controlId())
+      } else {
+        Column() {
+          ProductCard({
+            data: this.data,
+            variant: this.cardVariant(),
+            openable: this.openable(),
+            onOpen: () => {
+              this.opens++;
+            },
+            onBuy: () => {
+              this.buys++;
+            }
+          })
+        }
+        .width(this.variant === 'grid' ? '50%' : '100%')
+        .id(this.controlId())
+      }
+      Text(this.opens + '|' + this.buys + '|' + this.outers)
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary, undefined, true))
+        .id('catalog-events/ProductCard/' + this.variant + '/' + this.state)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+}
+
 // HM-L2-CARD：卡片件样例。三种卡 × 默认 / 按下 / 禁用；按下态与默认态是同一张活卡（按住看按压）。下方数字是 onTap 的真实计数。
 // 设备用例契约见 entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets 文件头：catalog-control id 挂在包住卡片、无内边距、无底色的容器上，
 // catalog-events id 挂在计数 Text 上；list-group 的 catalog-control id 挂在 List 上。样例不自己刷底色（白底来自 CouliCard / 系统 CARD 样式）。
@@ -1266,6 +1336,11 @@ struct BusinessSample {
     if (this.variant === 'large') {
       d = this.state === 'single' || this.state === 'amount-hidden' ? CatalogSamples.productDetail() : d;
     }
+    // HM-L2-PRODUCT-CELL（U1）：列表 / AI 卡购买按钮一行「购买预估返 ¥x」（契约字典 btn.buy.rebate 经 ProductCardMapper.buyText 填本卡金额）。
+    // 在金额隐藏之前填：卡片给按钮的是未遮罩返利，按钮自己按 amountHidden 回落「购买」（D10-1177 ②，BUTTON 评审 r1 S3-1）。
+    if ((this.state === 'single' || this.state === 'amount-hidden') && this.variant !== 'grid' && this.variant !== 'large') {
+      d = CatalogSamples.oneLineBuy(d);
+    }
     if (this.state === 'amount-hidden') {
       d = CatalogSamples.hidden(d);
     }
@@ -1368,10 +1443,8 @@ struct BusinessSample {
       } else if (this.component === 'ProductCard') {
         if (this.state === 'skeleton') {
           SkeletonProductCard()
-        } else if (this.variant === 'grid') {
-          ProductCardGrid({ items: [this.card(), CatalogSamples.gridBookcase()] })
         } else {
-          ProductCard({ data: this.card(), variant: this.cardVariant() })
+          ProductCardCellSample({ variant: this.variant, state: this.state, data: this.card() })
         }
         if (this.variant === 'favorite' || this.variant === 'ranking') {
           Text(this.variant === 'favorite' ? '收藏夹：同列表卡' : '热销榜：同列表卡，前三名加名次')
