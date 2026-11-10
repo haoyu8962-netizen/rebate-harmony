@@ -5,7 +5,7 @@ import {
   BindPhoneTicker, SendCodeOutcome, SmsCountdown
 } from 'core';
 import {
-  CouliAnnounce, CouliButton, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon,
+  CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon,
   CouliInteraction, CouliLayout, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier, CouliToast, CouliTypography,
   TABULAR_FEATURE, CouliFormat, PendingConfirmCard, PendingSummaryRow, PriceTerms
 } from 'designsystem';
@@ -146,6 +146,8 @@ const ID_SUBMIT: string = 'bind_phone_submit';
 const ID_SEND: string = 'bind_phone_send';
 const ID_PHONE_ERROR: string = 'bind_phone_phone_error';
 const ID_CODE_ERROR: string = 'bind_phone_code_error';
+const ID_PHONE: string = 'bind_phone_phone';
+const ID_CODE: string = 'bind_phone_code';
 /** 错误提示出现后再移读屏焦点（等节点挂上）。 */
 const A11Y_ERROR_DELAY_MS: number = 300;
 /** 页面高度比最高时少这么多（vp）就按键盘弹起处理。 */
@@ -413,7 +415,7 @@ export struct BindPhoneView {
 
   /**
    * 失败的呈现（AuthFeedback；R1-05、R1-06）：风控拦截弹窗给申诉入口；字段错误显示在输入框下、即时播报一次并把读屏焦点
-   * 移到错误提示（输入框的读屏说明同时带上这句）；手机号与验证码一律保留。只处理本页当前有效请求的结果（stale 已在前面丢弃）。
+   * 移到出错的输入框（ID_PHONE / ID_CODE；输入框的读屏说明带上这句）；手机号与验证码一律保留。只处理本页当前有效请求的结果（stale 已在前面丢弃）。
    */
   private present(feedback: AuthFeedback, trace6: string): void {
     switch (feedback.kind) {
@@ -447,7 +449,8 @@ export struct BindPhoneView {
     }
     const ui: UIContext = this.getUIContext();
     CouliAnnounce.say(ui, text);
-    const id: string = phone ? ID_PHONE_ERROR : ID_CODE_ERROR;
+    // D10-1231 共性 ②：读屏焦点移到出错的输入框本身（输入框的读屏说明带这句错误），不移到错误提示。
+    const id: string = phone ? ID_PHONE : ID_CODE;
     // 键盘弹起、可视区变小时，把出错的字段连同错误提示滚进可见区。
     setTimeout(() => {
       this.scroller.scrollEdge(phone ? Edge.Top : Edge.Bottom);
@@ -934,7 +937,7 @@ export struct BindPhoneView {
           .accessibilityText(this.t(BindPhoneKeys.PHONE_LABEL) + ' ' + this.t(BindPhoneKeys.PHONE_PREFIX))
           // R1-06：错误说明关联到输入框（读屏聚焦输入框时一并读出）。
           .accessibilityDescription(this.model.phoneError)
-          .id('bind_phone_phone')
+          .id(ID_PHONE)
           .enabled(this.model.pending === null)
           .onFocus(() => this.fieldFocused('phone'))
           .onChange((value: string) => {
@@ -998,7 +1001,7 @@ export struct BindPhoneView {
           .constraintSize({ minWidth: 120, minHeight: INPUT_HEIGHT })
           .accessibilityText(this.t(BindPhoneKeys.CODE_LABEL))
           .accessibilityDescription(this.model.codeError)
-          .id('bind_phone_code')
+          .id(ID_CODE)
           .enabled(this.model.pending === null)
           .onFocus(() => this.fieldFocused('code'))
           .onChange((value: string) => {
@@ -1006,22 +1009,18 @@ export struct BindPhoneView {
               this.form.setCode(b, value);
             }
           })
-        Text(this.countdown() > 0 ? this.countdownText() : this.t(BindPhoneKeys.GET_CODE))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
-            this.countdown() > 0 || this.sendRateLimited() ? CouliColors.textSecondary : CouliColors.brandEmphasis,
-            CouliFontWeight.medium, true))
-          .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
-          .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })
-          .border({ width: { left: 1 }, color: CouliColors.borderSubtle })
-          .textAlign(TextAlign.Center)
-          .accessibilityRole(AccessibilityRoleType.BUTTON)
-          .enabled(this.countdown() <= 0 && !this.sendRateLimited() && !this.model.sending && this.model.pending === null)
-          .focusable(true)
-          .focusBox(CouliFocus.box)
-          .id(ID_SEND)
-          .onClick(() => {
+        // FU-HM-LOGIN-PHONE-LAYOUT ①：发码是系统按钮（L2 CouliButton 次按钮），放不下时整项换到下一行，仍是按钮外观，不截断、不缩字。
+        CouliButton({
+          text: this.countdown() > 0 ? this.countdownText() : this.t(BindPhoneKeys.GET_CODE),
+          variant: CouliButtonVariant.SECONDARY,
+          buttonSize: CouliButtonSize.COMPACT,
+          loading: this.model.sending,
+          disabled: this.countdown() > 0 || this.sendRateLimited() || this.model.pending !== null,
+          buttonId: ID_SEND,
+          onTap: () => {
             this.sendCode(b);
-          })
+          }
+        })
       }
       .width('100%')
       .constraintSize({ minHeight: INPUT_HEIGHT })

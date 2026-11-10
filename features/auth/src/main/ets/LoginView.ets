@@ -5,7 +5,7 @@ import {
   OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, SendCodeOutcome
 } from 'core';
 import {
-  CodeCellLayout, CouliButton, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
+  CodeCellLayout, CouliAnnounce, CouliButton, CouliButtonSize, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
 } from 'designsystem';
@@ -189,6 +189,10 @@ export class LoginModel {
 const ROW_ID_CHECKBOX: string = 'login_agree_checkbox';
 const ID_GET_CODE: string = 'login_get_code';
 const ID_CODE: string = 'login_code';
+const ID_PHONE: string = 'login_phone';
+const ID_RESEND: string = 'login_resend';
+/** 错误提示出现后再移读屏焦点（等节点挂上；同绑手机页）。 */
+const A11Y_ERROR_DELAY_MS: number = 300;
 const ID_TITLE: string = 'login_title';
 const ID_LINK_AGREEMENT: string = 'login_link_agreement';
 const ID_LINK_PRIVACY: string = 'login_link_privacy';
@@ -390,8 +394,9 @@ export struct LoginView {
     this.showAgreementConfirm(focusId);
     const feedback: SendCodeOutcome | null = this.pageFlow.sendFeedback;
     if (feedback !== null && feedback !== this.shownFeedback) {
-      if (feedback.field === 'phone') {
-        this.model.phoneError = this.t(feedback.textKey ?? 'error.20001');
+      // 验证码步（点重新获取）遇手机号错误：login_phone 没挂载，移焦会落空，只走下面的 toast（不重复播报）。
+      if (feedback.field === 'phone' && this.model.step === LoginModel.STEP_PHONE) {
+        this.fieldError(true, this.t(feedback.textKey ?? 'error.20001'));
       }
       if (feedback.field !== 'phone' || this.model.step === LoginModel.STEP_CODE) {
         this.toast(feedback.textKey, feedback.trace6);
@@ -451,14 +456,14 @@ export struct LoginView {
           // 共性 29：提交期间改了验证码，旧码的错误不显示在新码上。
           return;
         }
-        this.model.codeError = this.t(outcome.textKey ?? 'error.20002');
+        this.fieldError(false, this.t(outcome.textKey ?? 'error.20002'));
         return;
       case 'code_expired':
         if (!result.current) {
           // 共性 29：旧码过期不清空用户新输入的码。
           return;
         }
-        this.model.codeError = this.t(outcome.textKey ?? 'error.20003');
+        this.fieldError(false, this.t(outcome.textKey ?? 'error.20003'));
         return;
       case 'rate_limited':
         this.rateLimitChanged();
@@ -473,12 +478,12 @@ export struct LoginView {
       case 'field_error':
         if (outcome.field === 'phone') {
           this.backToPhone();
-          this.model.phoneError = this.t(outcome.textKey ?? 'error.20001');
+          this.fieldError(true, this.t(outcome.textKey ?? 'error.20001'));
           return;
         }
         if (outcome.field === 'code') {
           if (result.current) {
-            this.model.codeError = this.t(outcome.textKey ?? 'error.20001');
+            this.fieldError(false, this.t(outcome.textKey ?? 'error.20001'));
           }
           return;
         }
@@ -494,6 +499,22 @@ export struct LoginView {
         // session_expired、service_error、network_error 等：提示。
         this.toast(outcome.textKey, outcome.trace6);
     }
+  }
+
+  /**
+   * FU-HM-A11Y-01 / 02（D10-1231 共性 ②）：字段错误显示在框下，即时播报一次，读屏焦点移到出错的输入框
+   * （输入框的读屏说明同时带上这句）。
+   */
+  private fieldError(phone: boolean, text: string): void {
+    if (phone) {
+      this.model.phoneError = text;
+    } else {
+      this.model.codeError = text;
+    }
+    const ui: UIContext = this.getUIContext();
+    CouliAnnounce.say(ui, text);
+    const id: string = phone ? ID_PHONE : ID_CODE;
+    setTimeout(() => CouliFocusReturn.accessibilityFocus(ui, id), A11Y_ERROR_DELAY_MS);
   }
 
   private toast(key: string | null, trace6: string): void {
@@ -752,9 +773,12 @@ export struct LoginView {
           .fontColor(CouliColors.textPrimary)
           .backgroundColor(Color.Transparent)
           .layoutWeight(1)
-          .height(INPUT_HEIGHT)
+          // FU-HM-LOGIN-PHONE-LAYOUT ②：高度随字号增长（200% 时固定 52vp 会把数字上下截掉），最小 52。
+          .constraintSize({ minHeight: INPUT_HEIGHT })
           .accessibilityText(this.t(LoginKeys.PHONE_LABEL) + ' ' + this.t(LoginKeys.PHONE_PREFIX))
-          .id('login_phone')
+          // FU-HM-A11Y-02：错误说明关联到输入框。
+          .accessibilityDescription(this.model.phoneError)
+          .id(ID_PHONE)
           .onChange((value: string) => {
             if (value !== this.model.phoneText) {
               this.model.phoneText = value;
@@ -977,6 +1001,8 @@ export struct LoginView {
         .width('100%')
         .height(this.codeLayout().cellHeight)
         .accessibilityText(this.t(LoginKeys.CODE_LABEL))
+        // FU-HM-A11Y-01：错误说明关联到输入框。
+        .accessibilityDescription(this.model.codeError)
         .id(ID_CODE)
         .defaultFocus(true)
         .enabled(!this.model.sending)
@@ -1011,7 +1037,10 @@ export struct LoginView {
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.statusErrorText))
           .width('100%')
       }
-      Row() {
+      // FU-HM-LOGIN-PHONE-LAYOUT ③：放不下时倒计时 / 重新获取整项换到下一行，始终是系统按钮外观，不截断、不缩字。
+      // 受限登录没有「收不到验证码？」时这一行只有按钮，用 End 保持旧版 Row + Blank 的靠右。
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: this.entries().help ? FlexAlign.SpaceBetween : FlexAlign.End,
+        alignItems: ItemAlign.Center }) {
         if (this.entries().help) {
           Text(this.t(LoginKeys.CODE_HELP))
             .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.brandEmphasis))
@@ -1022,22 +1051,18 @@ export struct LoginView {
             .id('login_code_help')
             .onClick(() => this.pageFlow.openCodeHelp())
         }
-        Blank()
-        if (this.model.countdown > 0) {
-          Text(this.fmt(LoginKeys.CODE_COUNTDOWN, 'n', String(this.model.countdown)))
-            .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary, undefined, true))
-        } else {
-          Text(this.t(LoginKeys.CODE_RESEND))
-            .attributeModifier(new CouliTextModifier(CouliTypography.body,
-              this.sendRateLimited() ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.medium))
-            .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-            .accessibilityRole(AccessibilityRoleType.BUTTON)
-            .enabled(!this.sendRateLimited() && !this.model.sending && !this.model.submitting)
-            .focusable(true)
-            .focusBox(CouliFocus.box)
-            .id('login_resend')
-            .onClick(() => this.pageAction(this.pageFlow.tapResend(), 'login_resend'))
-        }
+        CouliButton({
+          text: this.model.countdown > 0 ? this.fmt(LoginKeys.CODE_COUNTDOWN, 'n', String(this.model.countdown))
+            : this.t(LoginKeys.CODE_RESEND),
+          variant: CouliButtonVariant.SECONDARY,
+          buttonSize: CouliButtonSize.COMPACT,
+          loading: this.model.sending,
+          disabled: this.model.countdown > 0 || this.sendRateLimited() || this.model.submitting,
+          buttonId: ID_RESEND,
+          onTap: () => {
+            this.pageAction(this.pageFlow.tapResend(), ID_RESEND);
+          }
+        })
       }
       .width('100%')
       Blank().layoutWeight(1)
