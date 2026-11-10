@@ -2,7 +2,7 @@
 // 只在 Debug / Staging 编译。样例文字取自组件清单画板与登录 v2；离线展示数据，不连服务、不初始化第三方 SDK。
 import {
   AgreementCheckRow, AiLabel, AmountGrid, AmountGridItem, AmountTone, Avatar, BuyButton, BuyButtonState, CodeInput,
-  CouliBadge, CouliButton, CouliButtonSize, CouliButtonVariant, CouliCheckbox, CouliCheckboxRow, CouliColors,
+  CouliBadge, CouliButton, CouliButtonSize, CouliButtonVariant, CouliCard, CouliCardKind, CouliCheckbox, CouliCheckboxRow, CouliColors,
   CouliDialogLink, CouliDialogPanel, CouliDivider, CouliFontWeight, CouliIcon, CouliIconButton, CouliIconButtonKind,
   CouliLoading, CouliPasteButton, CouliRadio, CouliRadius, CouliSheet, CouliSheetHeight, CouliSheetPanel, CouliSpacing,
   CouliSwitch, CouliTag, CouliTagTone, CouliTextArea, CouliTextField, CouliTextModifier, CouliToast,
@@ -13,7 +13,7 @@ import {
   ProductCard, ProductCardData, ProductCardGrid, ProductCardVariant, RebateTag, RebateTagModel, RebateTagSize,
   CardAmountMask, SearchEntry, SearchField, Segmented, ShareCopyEditor, ShareCopyItem, ShareMaterial,
   ShareMaterialPicker, SkeletonBlock, SkeletonProductCard, TabBar, TabBarItem, ThirdPartyLoginRow, ThirdPartyLoginTexts, Timeline,
-  TimelineState, TimelineStep, TopTabs, TrendPoint, TrendState, WalletHeroCard, CouliFormat
+  TimelineState, TimelineStep, TopTabs, TrendPoint, TrendState, WalletHeroCard, CouliFormat, PressKind
 } from 'designsystem';
 import { BrandMark } from 'designsystem/Brand';
 import { CatalogSamples, CatalogText } from './CatalogSamples';
@@ -125,6 +125,8 @@ export struct CatalogSampleView {
           component: this.component, variant: this.variant, state: this.state, controlId: this.controlId(),
           events: this.events
         })
+      } else if (this.component === 'CouliCard') {
+        CardSample({ variant: this.variant, state: this.state, controlId: this.controlId() })
       } else if (this.component === 'FeelLab') {
         FeelLabSample()
       } else {
@@ -707,6 +709,61 @@ struct DisplaySample {
   disclosureBody() {
     Text('最低 ¥12.90（10 月 3 日），当前 ¥13.45')
       .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+  }
+}
+
+// HM-L2-CARD：卡片件样例。三种卡 × 默认 / 按下 / 禁用；按下态与默认态是同一张活卡（按住看按压）。下方数字是 onTap 的真实计数。
+// 设备用例契约见 entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets 文件头：catalog-control id 挂在包住卡片、无内边距、无底色的容器上，
+// catalog-events id 挂在计数 Text 上；list-group 的 catalog-control id 挂在 List 上。样例不自己刷底色（白底来自 CouliCard / 系统 CARD 样式）。
+@ComponentV2
+struct CardSample {
+  @Param variant: string = '';
+  @Param state: string = '';
+  @Param controlId: string = '';
+  @Local taps: number = 0;
+
+  build() {
+    if (this.variant === 'list-group') {
+      List() {
+        ListItemGroup({ style: ListItemGroupStyle.CARD }) {
+          ListItem({ style: ListItemStyle.CARD }) {
+            Text('订单状态通知')
+              .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+          }
+          ListItem({ style: ListItemStyle.CARD }) {
+            Text('清除缓存')
+              .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+          }
+        }
+      }
+      .width('100%')
+      .id(this.controlId)
+    } else {
+      Column({ space: CouliSpacing.space1 }) {
+        Column() {
+          CouliCard({
+            kind: this.variant === 'static' ? CouliCardKind.STATIC : CouliCardKind.TAPPABLE,
+            press: this.variant === 'tappable-highlight' ? PressKind.HIGHLIGHT : PressKind.BOUNCE,
+            disabled: this.state === 'disabled',
+            onTap: (): void => {
+              this.taps++;
+            }
+          }) {
+            Text('订单 2 笔待结算')
+              .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+            Text('预估返利以平台结算为准')
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+          }
+        }
+        .width('100%')
+        .id(this.controlId)
+        Text(String(this.taps))
+          .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+          .id('catalog-events/CouliCard/' + this.variant + '/' + this.state)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
   }
 }
 
