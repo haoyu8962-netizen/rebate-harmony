@@ -12,7 +12,7 @@ import {
   OneTapLoginTexts, PhoneField, PlatformBadge, PriceTag, PriceTagModel, PriceTagSize, PriceTerms, PriceTrendPanel,
   ProductCard, ProductCardData, ProductCardGrid, ProductCardVariant, RebateTag, RebateTagModel, RebateTagSize,
   CardAmountMask, SearchEntry, SearchField, Segmented, ShareCopyEditor, ShareCopyItem, ShareMaterial,
-  ShareMaterialPicker, SkeletonBlock, SkeletonProductCard, TabBar, TabBarItem, ThirdPartyLoginRow, ThirdPartyLoginTexts, Timeline,
+  ShareMaterialPicker, SkeletonHost, SkeletonOrderCard, SkeletonProductCard, SkeletonWalletCard, TabBar, TabBarItem, ThirdPartyLoginRow, ThirdPartyLoginTexts, Timeline,
   TimelineState, TimelineStep, TopTabs, TrendPoint, TrendState, WalletHeroCard, CouliFormat, PressKind
 } from 'designsystem';
 import { BrandMark } from 'designsystem/Brand';
@@ -111,9 +111,10 @@ export struct CatalogSampleView {
         || this.component === 'CouliBadge' || this.component === 'Avatar' || this.component === 'ImagePlaceholder'
         || this.component === 'Timeline' || this.component === 'DisclosureRow') {
         DisplaySample({ component: this.component, variant: this.variant, state: this.state })
-      } else if (this.component === 'Loading' || this.component === 'PullToRefresh' || this.component === 'Skeleton'
-        || this.component === 'ProductCardSkeleton' || this.component === 'EmptyState' || this.component === 'ErrorState'
-        || this.component === 'NoticeBar') {
+      } else if (this.component === 'Skeleton' || this.component === 'ProductCardSkeleton') {
+        SkeletonSample({ component: this.component, variant: this.variant, controlId: this.controlId() })
+      } else if (this.component === 'Loading' || this.component === 'PullToRefresh' || this.component === 'EmptyState'
+        || this.component === 'ErrorState' || this.component === 'NoticeBar') {
         FeedbackSample({ component: this.component, variant: this.variant, state: this.state })
       } else if (this.component === 'Toast' || this.component === 'AlertDialog' || this.component === 'Dialog'
         || this.component === 'Sheet' || this.component === 'ActionMenu') {
@@ -829,32 +830,6 @@ struct FeedbackSample {
       .width('100%')
       .height(96)
       .backgroundColor(CouliColors.backgroundSurface)
-    } else if (this.component === 'Skeleton') {
-      Column({ space: CouliSpacing.space2 }) {
-        if (this.variant === 'wallet') {
-          SkeletonBlock({ blockWidth: '40%', blockHeight: 14 })
-          SkeletonBlock({ blockWidth: '60%', blockHeight: 32 })
-          SkeletonBlock({ blockWidth: '100%', blockHeight: 48 })
-        } else if (this.variant === 'order') {
-          SkeletonBlock({ blockWidth: '30%', blockHeight: 14 })
-          Row({ space: CouliSpacing.space3 }) {
-            SkeletonBlock({ blockWidth: 64, blockHeight: 64 })
-            Column({ space: CouliSpacing.space2 }) {
-              SkeletonBlock({ blockWidth: '90%', blockHeight: 16 })
-              SkeletonBlock({ blockWidth: '50%', blockHeight: 16 })
-            }
-            .layoutWeight(1)
-          }
-        } else {
-          SkeletonProductCard()
-        }
-      }
-      .width('100%')
-      .padding(CouliSpacing.space4)
-      .backgroundColor(CouliColors.backgroundSurface)
-      .borderRadius(CouliRadius.card)
-    } else if (this.component === 'ProductCardSkeleton') {
-      SkeletonProductCard()
     } else if (this.component === 'EmptyState') {
       EmptyState({ icon: 'search', title: CatalogText.emptyTitle, message: CatalogText.emptyMessage })
     } else if (this.component === 'ErrorState') {
@@ -1612,3 +1587,148 @@ struct BusinessSheetSample {
   }
 }
 
+// ---- L2SKEL_SAMPLES_BEGIN
+// HM-L2-SKELETON：骨架样例。product / order / wallet / ProductCardSkeleton 画真实骨架件（白卡来自骨架件自己的静态 CouliCard），
+// catalog-control id 挂在包住骨架卡、无内边距、无底色的容器上（bounds = 卡片）。host / gated 是 SkeletonHost 防闪样例：三个按钮各起一次
+// 加载（150 / 350 / 1200 ms），catalog-events/Skeleton/host/gated 显示「本次|骨架出现|骨架消失|内容回来」距点按的毫秒（没发生为 -1）。
+// 设备用例契约见 entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets 的 L2SKEL 段文件头。
+@ComponentV2
+struct SkeletonSample {
+  @Param component: string = '';
+  @Param variant: string = '';
+  @Param controlId: string = '';
+
+  build() {
+    if (this.variant === 'host') {
+      SkeletonHostSample({ controlId: this.controlId })
+    } else {
+      Column() {
+        if (this.component === 'ProductCardSkeleton' || this.variant === 'product') {
+          SkeletonProductCard()
+        } else if (this.variant === 'order') {
+          SkeletonOrderCard()
+        } else {
+          SkeletonWalletCard()
+        }
+      }
+      .width('100%')
+      .id(this.controlId)
+    }
+  }
+}
+
+@ComponentV2
+struct SkeletonHostSample {
+  @Param controlId: string = '';
+  @Local loading: boolean = false;
+  @Local run: string = 'idle';
+  @Local shown: number = -1;
+  @Local hidden: number = -1;
+  @Local back: number = -1;
+  private t0: number = 0;
+  private loadTimer: number = -1;
+
+  aboutToDisappear(): void {
+    this.stopLoadTimer();
+  }
+
+  private stopLoadTimer(): void {
+    if (this.loadTimer >= 0) {
+      clearTimeout(this.loadTimer);
+      this.loadTimer = -1;
+    }
+  }
+
+  /** 起一次模拟加载：记 t0、置 loading=true，ms 后置 false。 */
+  private start(run: string, ms: number): void {
+    this.stopLoadTimer();
+    this.run = run;
+    this.shown = -1;
+    this.hidden = -1;
+    this.back = -1;
+    this.t0 = Date.now();
+    this.loading = true;
+    this.loadTimer = setTimeout(() => {
+      this.loadTimer = -1;
+      this.loading = false;
+    }, ms);
+  }
+
+  private since(): number {
+    return Date.now() - this.t0;
+  }
+
+  @Builder
+  skeletonPart() {
+    Column() {
+      SkeletonProductCard()
+    }
+    .width('100%')
+    .id('catalog-skeleton-host/skeleton')
+    .onAppear(() => {
+      if (this.run !== 'idle') {
+        this.shown = this.since();
+      }
+    })
+    .onDisAppear(() => {
+      if (this.run !== 'idle') {
+        this.hidden = this.since();
+      }
+    })
+  }
+
+  @Builder
+  contentPart() {
+    Text('内容已加载')
+      .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+      .id('catalog-skeleton-host/content')
+      .onAppear(() => {
+        if (this.run !== 'idle') {
+          this.back = this.since();
+        }
+      })
+  }
+
+  build() {
+    Column({ space: CouliSpacing.space2 }) {
+      Row({ space: CouliSpacing.space2 }) {
+        Button('150 ms')
+          .id('catalog-skeleton-host/short')
+          .onClick(() => {
+            this.start('short', 150);
+          })
+        Button('350 ms')
+          .id('catalog-skeleton-host/mid')
+          .onClick(() => {
+            this.start('mid', 350);
+          })
+        Button('1200 ms')
+          .id('catalog-skeleton-host/slow')
+          .onClick(() => {
+            this.start('slow', 1200);
+          })
+      }
+
+      Column() {
+        SkeletonHost({
+          loading: this.loading,
+          skeleton: (): void => {
+            this.skeletonPart();
+          },
+          content: (): void => {
+            this.contentPart();
+          }
+        })
+      }
+      .width('100%')
+      .id(this.controlId)
+
+      Text(this.run + '|' + this.shown + '|' + this.hidden + '|' + this.back)
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+        .id('catalog-events/Skeleton/host/gated')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+}
+// ---- L2SKEL_SAMPLES_END
