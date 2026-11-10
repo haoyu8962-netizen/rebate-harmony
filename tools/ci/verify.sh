@@ -300,6 +300,16 @@ node "$ROOT/tools/ci/l2button/run-logic.cjs" || fail_fast "l2button-logic" "见�
 node "$ROOT/tools/ci/l2button/check-arkts.cjs" --real || fail_fast "l2button-arkts" "L2Button / Ds02L2Ui 测试文件 ArkTS 严格检查失败"
 record "HM-L2-BUTTON 宿主检查" PASS "系统 Button / 防连点 / 令牌色 / 回落与隐私接线 / 下架 / 目录 / 登记（自测）/ 纯逻辑 / ArkTS"
 
+# HM-L2-PRICE-TAG-harmony（照 HM-L2-BUTTON 先例只新增本段）：README ⑤ 探针结论 replace（API 20 模拟器上 ¥ / 小数点金额不翻牌，
+# 直接替换，记 FU）——Price.ets 不挂 contentTransition、金额不截断不闪、无触感与自写过渡、不读 motion 令牌、不做金额隐藏变体、
+# RANGE 无新增入口、目录 block 行与「切换金额」、登记（先自测）；L2PriceTag 逻辑套件（含 MotionPolicy.numericTransition）node 预检与 ArkTS 严格检查。
+step "HM-L2-PRICE-TAG 宿主检查"
+python3 "$ROOT/tools/ci/l2price/check_l2_price.py" --self-test || fail_fast "l2price-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/l2price/check_l2_price.py" --numeric replace || fail_fast "l2price-host" "见上方违反项"
+node "$ROOT/tools/ci/l2price/run-logic.cjs" || fail_fast "l2price-logic" "见上方用例"
+node "$ROOT/tools/ci/l2price/check-arkts.cjs" --real || fail_fast "l2price-arkts" "L2PriceTag / Ds02L2Ui 测试文件 ArkTS 严格检查失败"
+record "HM-L2-PRICE-TAG 宿主检查" PASS "直接替换（⑤ replace）/ 不截断不闪 / 无触感 / 不读令牌 / 不做隐藏变体 / RANGE / 目录 / 登记（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -983,6 +993,7 @@ run_device_tests core common/core core_test
 #   entry         DS-02 158 + F-X-05a 9 + F-X-25 6 = 173 条（排除 Hm07vHomeUi、Hm07vOverlayUi 两个套件）
 #                 FU-HM-FEEL-KIT 目录加 FeelLab（浅 / 深 2 条）后为 DS-02 160 + 9 + 6 = 175 条（ds02/check_device_result.py --set main）
 #                 HM-L2-BUTTON 起 L2 共用套件 Ds02L2Ui 随本步跑（D10-1177 ⑩，不新增设备步）：+7 条 l2button_ = 182 条
+#                 HM-L2-PRICE-TAG 同一套件 Ds02L2Ui 另一段随本步跑（D10-1177 ⑩，不新增设备步）：+5 条 l2price_ = 187 条
 #   entry-hm07va  HM-07v-a 17 条（只跑 Hm07vHomeUi 套件）；device-test.sh 先卸载再装，从未同意隐私的冷启动开始（不受前一步状态影响）
 #   entry-hm07vb  HM-07v-b 11 条（只跑 Hm07vOverlayUi 套件：弹窗与剪贴板浮层）；同样先卸载再装、各自 1800 秒（D10-232 / D10-405 D4 同口径）
 #   entry-hm05r   HM-05r 11 条（只跑 Hm05rConsentUi 套件：剪贴板默认开启、关闭态、升级迁移、撤回与重新同意，测试 v3）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
