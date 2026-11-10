@@ -12,12 +12,16 @@ import me12waUiTest from './Me12waUi.test';
 import me12wbUiTest from './Me12wbUi.test';
 import me12wcUiTest from './Me12wcUi.test';
 import tabBarShellUiTest from './TabBarShellUi.test';
+import ds02L2UiTest from './Ds02L2Ui.test';
 
 export default function testsuite() {
   ds02CatalogTest();
   ds02UiTest();
   ds02ResourcesDeviceTest();
   ds02R1UiTest();
+  // HM-L2-CARD（#24 只加；README ⑩ / D10-1177）：L2 批 1 共用设备套件 Ds02L2Ui，随主 entry 步跑（不新增设备步）；子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui + COULI_HM_DEVICE_SET=l2。
+  // 排在 Ds02Ui、Ds02R1Ui 之后：check-ui-facilities 严格加载器的钩子 [0] / [1] 仍是这两个套件的。
+  ds02L2UiTest();
   authChangeDeviceTest();
   fx05aUiTest();
   // HM-07v-b：驱动真实应用、全程游客；verify 里单独一个设备步（class=Hm07vOverlayUi，先卸载重装），主步与 a 段步都不跑它。

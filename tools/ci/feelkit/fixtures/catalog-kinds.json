@@ -7,5 +7,5 @@
          "Skeleton", "ProductCardSkeleton", "EmptyState", "ErrorState", "NoticeBar", "OAuthButton", "ThirdPartyLoginRow", "LastLoginTag",
          "BrandMark", "PriceTag", "RebateTag", "EstNetLine", "DisclaimerFooter", "PlatformBadge", "ProductCard", "AmountGrid", "WalletHeroCard",
          "EntryGrid", "PriceTrendPanel", "ShareMaterialPicker", "ShareCopyEditor", "MatchBadge", "AiLabel", "AgentConsentSheet", "AuthSheet",
-         "JumpTip", "StepUpSheet", "FeelLab"]
+         "JumpTip", "StepUpSheet", "FeelLab", "CouliCard"]
 }

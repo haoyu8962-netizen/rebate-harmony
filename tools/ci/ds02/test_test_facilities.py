@@ -274,7 +274,12 @@ run_device_tests core common/core core_test
         # + APP-12w-c-harmony 21 条（tools/ci/me12wc/fixtures/device-cases.txt，账号状态 / 申诉视觉；测试 v5 加键盘避让 1 条，只增不减，合集 258 → 279）
         # + FU-HM-TAB-BAR 7 条（tools/ci/tabbar/device-cases.txt，系统底栏；只增不减，合集 279 → 286）。
         # FU-HM-FEEL-KIT（#24）：目录加 FeelLab，按 inventory 派生 render_all_declared_states_FeelLab_light / _dark 2 条，DS-02 158 → 160；只增不减，合集 286 → 288、main 173 → 175。
-        self.assertEqual(len(names), 288)
+        # HM-L2-CARD（#24 只加）：目录加 CouliCard，按 inventory 派生 render_all_declared_states_CouliCard_light / _dark 2 条（DS-02 160 → 162）
+        # + Ds02L2Ui 8 条（tools/ci/l2card/device-cases.txt，主 entry 步里跑）；只增不减，合集 288 → 298、main 175 → 185。
+        self.assertEqual(len(names), 298)
+        self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
+        self.assertIn('render_all_declared_states_CouliCard_light', names)
+        self.assertIn('render_all_declared_states_CouliCard_dark', names)
         self.assertEqual(len([name for name in names if name.startswith('tabbar_')]), 7)
         self.assertEqual(len([name for name in names if name.startswith('me12wc_')]), 21)
         self.assertEqual(len([name for name in names if name.startswith('me12wb_')]), 17)
@@ -300,11 +305,12 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 288)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 288)
+        self.assertEqual(validate(report(names)), 298)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 298)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
+                        or name.startswith('l2card_') or name.startswith('render_all_declared_states_CouliCard_')
                         or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
@@ -343,7 +349,9 @@ run_device_tests core common/core core_test
         me12wb = expected_names('me12wb')
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
-        self.assertEqual(len(main), 175)
+        l2 = expected_names('l2')
+        self.assertEqual(len(main), 185)
+        self.assertEqual(len(l2), 8)
         self.assertEqual(len(me12wc), 21)
         self.assertEqual(len(tabbar), 7)
         self.assertEqual(len(me12wb), 17)
@@ -353,6 +361,14 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
         self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar, every)
+        # HM-L2-CARD（#24 只加）：l2 是主步的子集（README ⑩ 不新增设备步），与 8 个单独步不相交，名单与套件导出常量一致。
+        self.assertEqual(l2 - main, set())
+        self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2, set())
+        self.assertTrue(all(name.startswith('l2card_') for name in l2))
+        l2_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
+        l2_const = l2_suite.split('L2CARD_DEVICE_CASES')[1].split('];')[0]
+        self.assertEqual(sorted(re.findall(r"'(l2card_\d\d_[a-z0-9_]+)'", l2_const)), sorted(l2))
+        self.assertEqual(sorted(re.findall(r"\bit\('(l2card_\d\d_[a-z0-9_]+)'", l2_suite)), sorted(l2))
         # FU-HM-TAB-BAR 第九步：与其余各步两两不相交，名单与套件导出常量一致。
         self.assertEqual((main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc) & tabbar, set())
         self.assertTrue(all(name.startswith('tabbar_') for name in tabbar))
@@ -415,8 +431,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 175)
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 175)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 185)
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 185)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
@@ -425,6 +441,7 @@ run_device_tests core common/core core_test
         self.assertEqual(validate(report(sorted(me12wb)), 'me12wb'), 17)
         self.assertEqual(validate(report(sorted(me12wc)), 'me12wc'), 21)
         self.assertEqual(validate(report(sorted(tabbar)), 'tabbar'), 7)
+        self.assertEqual(validate(report(sorted(l2)), 'l2'), 8)
         bad = {
             # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
             **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
@@ -513,6 +530,15 @@ run_device_tests core common/core core_test
             'tabbar-only-summary': ('Tests run: 7, Failure: 0, Error: 0, Pass: 7', 'tabbar'),
             'tabbar-report-checked-as-main': (report(sorted(tabbar)), 'main'),
             'me12wc-report-checked-as-tabbar': (report(sorted(me12wc)), 'tabbar'),
+            # HM-L2-CARD（#24 只加）：l2 子集跑 8 条缺一条、混进别的套件、有失败、只有汇总都红；主步缺任一条 l2card_ 已由上方 main-missing-* 覆盖。
+            **{'l2-missing-' + name: (report(sorted(l2 - {name})), 'l2') for name in sorted(l2)},
+            'l2-with-ds02-case': (report(sorted(l2) + sorted(main - l2)[:1]), 'l2'),
+            'l2-with-tabbar-case': (report(sorted(l2) + sorted(tabbar)[:1]), 'l2'),
+            'l2-with-future-case': (report(sorted(l2) + ['future_extra_test']), 'l2'),
+            'l2-failed': (report(sorted(l2), failed=sorted(l2)[0]), 'l2'),
+            'l2-only-summary': ('Tests run: 8, Failure: 0, Error: 0, Pass: 8', 'l2'),
+            'l2-report-checked-as-main': (report(sorted(l2)), 'main'),
+            'tabbar-report-checked-as-l2': (report(sorted(tabbar)), 'l2'),
         }
         for reason, (text, chosen) in bad.items():
             with self.subTest(reason=reason), self.assertRaises(ValueError):
