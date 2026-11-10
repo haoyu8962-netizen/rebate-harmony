@@ -178,7 +178,7 @@ export const CATALOG_COMPONENTS: CatalogComponent[] = [
       'pdd-detail', 'presale-list', 'presale-ai', 'presale-detail'], ['normal', 'long-price'])]),
   c('RebateTag', GROUP_BUSINESS, KIND_L2, '返利标签：单值 / 区间 / 大号 / 金额待定 / 登录后可见；区间只在破折号处折行。',
     [m(['single', 'range', 'large', 'amount_unknown', 'login_required'], ['normal', 'amount-hidden']),
-      m(['range'], ['wrap-at-dash'])]),
+      m(['range'], ['wrap-at-dash']), m(['block'], ['normal'])]),
   c('EstNetLine', GROUP_BUSINESS, KIND_L2, '「预估返后」一行。', [m(['default'], ['normal', 'amount-hidden'])]),
   c('DisclaimerFooter', GROUP_BUSINESS, KIND_L2, '口径说明：详情全文、列表每屏一次、单卡按钮。', [m(['detail', 'list', 'card-info'], ['default'])]),
   c('PlatformBadge', GROUP_BUSINESS, KIND_L2, '平台来源标签：淘宝 / 京东 / 拼多多用内置官方图（design/icons/platform），其他平台文字占位。',

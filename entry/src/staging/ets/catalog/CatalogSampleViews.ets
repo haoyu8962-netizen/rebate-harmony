@@ -29,6 +29,8 @@ export class CatalogEvents {
   @Trace lastLink: string = '无';
   /** 协议确认框【同意并继续】后同步到 AgreementCheckRow/three/unchecked 这一个样例（同一实例）。 */
   @Trace agreementThreeChecked: boolean = false;
+  /** HM-L2-PRICE-TAG「切换金额」：为真时 PriceTag / RebateTag 的 normal 样例换一组金额（看数字过渡；其余样例不变）。 */
+  @Trace amountAlt: boolean = false;
 }
 
 /** 样例文字（组件清单画板与登录 v2 的原文；正式页面经文案字典取键，不从这里复用）。 */
@@ -1163,16 +1165,24 @@ struct BusinessSample {
 
   private price(): PriceTagModelValue {
     const long: boolean = this.state === 'long-price';
+    // 「切换金额」（HM-L2-PRICE-TAG）：只换 normal 样例，券后价 −100 分（有券的券额 +100，无券的券前价同减）。
+    const alt: number = this.events.amountAlt && this.state === 'normal' ? 100 : 0;
     if (this.variant.startsWith('no-coupon')) {
-      return new PriceTagModelValue('taobao', long ? 10099999 : 3990, 0, long ? 10099999 : 3990, false);
+      return new PriceTagModelValue('taobao', long ? 10099999 : 3990 - alt, 0, long ? 10099999 : 3990 - alt, false);
     }
     if (this.variant.startsWith('pdd')) {
-      return new PriceTagModelValue('pdd', long ? 10099999 : 1990, 300, long ? 10099699 : 1690, false);
+      return new PriceTagModelValue('pdd', long ? 10099999 : 1990, 300 + alt, long ? 10099699 : 1690 - alt, false);
     }
     if (this.variant.startsWith('presale')) {
-      return new PriceTagModelValue('taobao', long ? 10099999 : 5678, 1000, long ? 9999999 : 4678, true);
+      return new PriceTagModelValue('taobao', long ? 10099999 : 5678, 1000 + alt, long ? 9999999 : 4678 - alt, true);
     }
-    return new PriceTagModelValue('taobao', long ? 10099999 : 2345, 1000, long ? 9999999 : 1345, false);
+    return new PriceTagModelValue('taobao', long ? 10099999 : 2345, 1000 + alt, long ? 9999999 : 1345 - alt, false);
+  }
+
+  /** RebateTag 单值样例（single / large / block）的金额（分）；「切换金额」时 normal 样例 269 → 369。 */
+  private rebateSingle(): number {
+    const single: boolean = this.variant === 'single' || this.variant === 'large' || this.variant === 'block';
+    return this.events.amountAlt && this.state === 'normal' && single ? 369 : 269;
   }
 
   private priceSize(): PriceTagSize {
@@ -1273,10 +1283,18 @@ struct BusinessSample {
             RebateTag({ content: RebateTagModel.make('price_compare_risk', 8888888, 9999999, false) })
           }
           .width(150)
+        } else if (this.variant === 'block') {
+          // 窄卡（首页网格，宽 < 180，GUIDE §6）两行：「钟表 + 预估返」一行、完整金额一行。
+          Column() {
+            RebateTag({ content: RebateTagModel.make('normal', this.rebateSingle(), this.rebateSingle(), false),
+              tagSize: RebateTagSize.BLOCK })
+          }
+          .width(160)
+          .alignItems(HorizontalAlign.Start)
         } else {
           RebateTag({
-            content: CardAmountMask.rebate(RebateTagModel.make(this.rebateBasis(), this.variant === 'range' ? 56 : 269,
-              this.variant === 'range' ? 112 : 269, this.variant === 'login_required'), this.state === 'amount-hidden'),
+            content: CardAmountMask.rebate(RebateTagModel.make(this.rebateBasis(), this.variant === 'range' ? 56 : this.rebateSingle(),
+              this.variant === 'range' ? 112 : this.rebateSingle(), this.variant === 'login_required'), this.state === 'amount-hidden'),
             tagSize: this.variant === 'large' ? RebateTagSize.LARGE : RebateTagSize.SMALL
           })
         }
