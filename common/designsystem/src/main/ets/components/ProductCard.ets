@@ -686,53 +686,6 @@ export struct GridRebateBlock {
   }
 }
 
-/** 骨架：搜索结果加载时的列表卡（GUIDE §3「搜索结果加载骨架」：白卡 + 96 图块 + 三条横块 + 底行 88×36 按钮块）。 */
-@ComponentV2
-export struct SkeletonProductCard {
-  build() {
-    Column({ space: CouliSpacing.space2 }) {
-      Row({ space: CouliSpacing.space3 }) {
-        SkeletonBlock({ blockWidth: 96, blockHeight: 96 })
-        Column({ space: CouliSpacing.space2 }) {
-          SkeletonBlock({ blockWidth: '100%', blockHeight: CouliSpacing.space4 })
-          SkeletonBlock({ blockWidth: '70%', blockHeight: CouliSpacing.space4 })
-          SkeletonBlock({ blockWidth: '40%', blockHeight: CouliSpacing.space6 })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-      }
-      .alignItems(VerticalAlign.Top)
-
-      Row() {
-        SkeletonBlock({ blockWidth: 88, blockHeight: 36 })
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.End)
-    }
-    .padding(CouliSpacing.space3)
-    .backgroundColor(CouliColors.backgroundSurface)
-    .borderRadius(CouliRadius.card)
-    .shadow(CouliShadow.card)
-    .width('100%')
-    .accessibilityLevel('no-hide-descendants')
-  }
-}
-
-/** 骨架色块：#EFEAE2 圆角 8（GUIDE §3「骨架屏」）。 */
-@ComponentV2
-export struct SkeletonBlock {
-  @Param blockWidth: Length = '100%';
-  @Param blockHeight: Length = 16;
-
-  build() {
-    Row()
-      .width(this.blockWidth)
-      .height(this.blockHeight)
-      .backgroundColor(CouliColors.backgroundMuted)
-      .borderRadius(CouliRadius.small)
-  }
-}
-
 /**
  * 首页网格（两列网格卡）：字号放大超过阈值或容器太窄时改单列（Android 第 2 轮评审，三端统一）。
  */

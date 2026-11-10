@@ -26,3 +26,5 @@ export { CouliFixedTap } from './src/main/ets/logic/CouliFixedTap';
 // FU-HM-FEEL-KIT：触感时刻与动效策略纯逻辑（单测用假端口；真实驱动 CouliHaptics / CouliMotion 只从 Index.ets 导出）。
 export { HapticMoment, HAPTIC_EFFECT, HapticPlan, HapticPort } from './src/main/ets/logic/HapticMoments';
 export { MotionPolicy, MotionKind, MotionSpec, PressKind } from './src/main/ets/logic/MotionPolicy';
+// HM-L2-SKELETON：骨架防闪门控（300 / 300，时钟注入）与减弱动态微光策略。
+export { SkeletonClock, SkeletonGate, SkeletonPhase, shimmerEnabled } from './src/main/ets/logic/SkeletonGate';

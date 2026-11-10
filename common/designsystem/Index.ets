@@ -27,9 +27,14 @@ export {
   BuyButtonState
 } from './src/main/ets/components/Price';
 export {
-  ProductCard, ProductCardData, ProductCardTags, ProductCardVariant, ProductTag, SkeletonProductCard, SkeletonBlock,
-  ProductCardGrid, ProductCardA11y, GridRebateBlock
+  ProductCard, ProductCardData, ProductCardTags, ProductCardVariant, ProductTag, ProductCardGrid, ProductCardA11y,
+  GridRebateBlock
 } from './src/main/ets/components/ProductCard';
+// HM-L2-SKELETON：骨架件挪出 ProductCard.ets（导出名不变）+ 订单 / 钱包形状 + 防闪包装件；门控纯逻辑在 logic/SkeletonGate。
+export {
+  SkeletonBlock, SkeletonProductCard, SkeletonOrderCard, SkeletonWalletCard, SkeletonHost
+} from './src/main/ets/components/Skeleton';
+export { SkeletonGate, SkeletonPhase, SkeletonClock, shimmerEnabled } from './src/main/ets/logic/SkeletonGate';
 export { ProductCardMeasure, SCROLL_TILE_MIN_WIDTH } from './src/main/ets/components/ProductCardMeasure';
 export { ProductGridLayout } from './src/main/ets/logic/ProductGridLayout';
 export { ClipboardPromptLayout } from './src/main/ets/logic/ClipboardPromptLayout';
