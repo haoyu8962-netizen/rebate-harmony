@@ -300,6 +300,10 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   // HM-L2 批 1 集成（FREEZE，integ1-harmony.md §收尾）：Ds02L2Ui 只有一个 describe（CARD / SKELETON 守卫「恰一个」），BUTTON / PRICE 段在其中注册，
   // 两段原 describe 的 beforeEach / afterEach（drainUiTasks）并入它那一对，beforeAll / afterAll 挪成段边界的段前准备 / 段后复位：
   // beforeEach / afterEach = Ds02Ui 1 + Ds02R1Ui 1 + Ds02L2Ui 1 = 3。
+  // HM-L2-STATE（#24）：List.test 登记 Ds02L2Ui（严格加载器，DS-02 同族），其 beforeEach / afterEach / beforeAll 各 1 个排在 Ds02Ui、Ds02R1Ui 之后；
+  // 下方会话 / 启动设施仍只取 [0]（Ds02Ui）/ [1]（Ds02R1Ui），计数仍是精确等于。
+  // HM-L2 批 1 集成 2（integ2-harmony.md）：STATE 段同 BUTTON / PRICE 并进唯一 describe，原 Ds02L2UiState 的 beforeEach / afterEach 并入那一对，
+  // beforeAll / afterAll 挪成段边界的段前准备 / 段后复位（不是 Hypium 钩子）；计数仍是 3 / 3 / 2。
   assert.equal(beforeEachHooks.length, 3);
   assert.equal(afterEachHooks.length, 3);
   await require('./check-ui-session.cjs')({ load, testRoot, beforeEachHooks, afterEachHooks,
@@ -361,8 +365,9 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   }
   // HM-L2-SKELETON（#24 只加）：Skeleton 加 host × gated 一例（浅 / 深各 1），822 → 824；组件数 63 不变。
   // HM-L2-BUTTON（BuyButton single × off-shelf）、HM-L2-PRICE-TAG（RebateTag block × normal）各 +2（浅 / 深）；集成后 824 → 828，组件数 63 不变。
-  assert.equal(checked, 828);
-  console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 828 cases, linear swipe bound, tall rows pass');
+  // HM-L2-STATE（ErrorState trace6 × retrying）+2（浅 / 深）；集成 2 后 828 → 830，组件数 63 不变（ErrorState 本来就在）。
+  assert.equal(checked, 830);
+  console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 830 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');
   // S1：完整 36 行目录，测 search 六状态；不是裁小后的假列表。
   const searchRows = required.filter(row => row.variant === 'search');

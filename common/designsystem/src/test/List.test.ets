@@ -26,6 +26,7 @@ import l2CardTest from './L2Card.test';
 import skeletonGateTest from './SkeletonGate.test';
 import l2ButtonTest from './L2Button.test';
 import l2PriceTagTest from './L2PriceTag.test';
+import l2StateTest from './L2State.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -64,4 +65,6 @@ export default function testsuite() {
   l2ButtonTest();
   // HM-L2-PRICE-TAG：价格 / 返利格式化钉子（BR-TEXT-10、D10-638）、金额隐藏防御（D10-1177 ④）、减弱动态的数字过渡策略（D10-1163 ①）。
   l2PriceTagTest();
+  // HM-L2-STATE：错误态播报串纯函数（CouliAnnounce.errorText）。
+  l2StateTest();
 }

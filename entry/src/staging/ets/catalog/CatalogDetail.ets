@@ -3,13 +3,18 @@
 import {
   CouliActionMenu, CouliAlertDialog, CouliAlertOptions, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors,
   CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSheet,
-  CouliSheetHeight, CouliSpacing, CouliTextModifier, CouliToast, CouliTypography
+  CouliSheetHeight, CouliSpacing, CouliTextModifier, CouliToast, CouliTypography, EmptyState, ErrorState
 } from 'designsystem';
 import { LengthMetrics } from '@kit.ArkUI';
 import { CATALOG_NAV_DEMO_ROUTE } from './CatalogRoutes';
 import { CatalogToolbar } from './CatalogToolbar';
 import { CatalogCase, CatalogComponent, catalogComponent } from './CatalogManifest';
 import { CatalogEvents, CatalogSampleView, CatalogWords } from './CatalogSampleViews';
+import { CatalogText } from './CatalogSamples';
+
+/** 头部活 ErrorState 的文案（HM-L2-STATE 设备用例按此找字）。 */
+const LIVE_ERROR_TITLE: string = '网络不可用';
+const LIVE_ERROR_MESSAGE: string = '请检查网络后重试';
 
 /** 系统确认框样例（标题按画板「清除缓存」）。 */
 export function openCatalogAlert(ui: UIContext, destructive: boolean): void {
@@ -128,6 +133,11 @@ export struct CatalogDetail {
   @Local sheetNormal: boolean = false;
   @Local sheetProtected: boolean = false;
   @Local sheetFont: boolean = false;
+  /** 头部「活」空态 / 错误态：按钮挂载 / 卸载，看出现 / 消失淡入与出现时焦点（HM-L2-STATE）。初始不挂。 */
+  @Local liveEmpty: boolean = false;
+  @Local liveError: boolean = false;
+  /** 活错误态的 retrying：点【重试】后置 true（转圈、不可点），「结束重试」置回 false（模拟请求结束）。 */
+  @Local liveErrorRetrying: boolean = false;
   private pathStack: NavPathStack | undefined = undefined;
   private lazySource: CatalogCaseSource = new CatalogCaseSource();
 
@@ -299,12 +309,66 @@ export struct CatalogDetail {
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
         .id('catalog-events/BuyButton')
     }
+    if (this.component === 'EmptyState') {
+      this.action('catalog-state-toggle/EmptyState', '挂载 / 卸载空态', () => {
+        this.liveEmpty = !this.liveEmpty;
+      })
+    }
+    if (this.component === 'ErrorState') {
+      this.action('catalog-state-toggle/ErrorState', '挂载 / 卸载错误态', () => {
+        this.liveErrorRetrying = false;
+        this.liveError = !this.liveError;
+      })
+      this.action('catalog-state-settle/ErrorState', '结束重试', () => {
+        this.liveErrorRetrying = false;
+      })
+      Text('重试次数：')
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      Text(String(this.events.errorRetryCount))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
+        .id('catalog-events/ErrorState')
+    }
     if (this.component === 'OAuthButton') {
       Text('点按次数：')
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
       Text(String(this.events.oauthCount))
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
         .id('catalog-events/OAuthButton')
+    }
+  }
+
+  /**
+   * 活样例的外层容器常驻、id 只在挂载时给：if 直接控制组件本身，组件根节点的 transition（CouliMotion.appear）进出都生效；
+   * 卸载后容器 id 置空，设备用例按 id 判「真消失」。
+   */
+  @Builder
+  liveStates() {
+    if (this.component === 'EmptyState') {
+      Column() {
+        if (this.liveEmpty) {
+          EmptyState({ icon: 'search', title: CatalogText.emptyTitle, message: CatalogText.emptyMessage })
+        }
+      }
+      .width('100%')
+      .id(this.liveEmpty ? 'catalog-live/EmptyState' : '')
+    }
+    if (this.component === 'ErrorState') {
+      Column() {
+        if (this.liveError) {
+          ErrorState({
+            title: LIVE_ERROR_TITLE,
+            message: LIVE_ERROR_MESSAGE,
+            retryText: CatalogText.retry,
+            retrying: this.liveErrorRetrying,
+            onRetry: () => {
+              this.events.errorRetryCount++;
+              this.liveErrorRetrying = true;
+            }
+          })
+        }
+      }
+      .width('100%')
+      .id(this.liveError ? 'catalog-live/ErrorState' : '')
     }
   }
 
@@ -356,6 +420,7 @@ export struct CatalogDetail {
         Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
           this.actions()
         }
+        this.liveStates()
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)

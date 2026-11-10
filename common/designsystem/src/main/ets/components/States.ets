@@ -7,10 +7,11 @@ import { CouliFocusReturn } from './Overlays';
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
+import { CouliMotion } from './CouliMotion';
 
 /**
  * 空态（GUIDE §3「空态 / 错误态」）：居中纵向，96×96 圆角 16 的浅底块（32 图标）→ 说明 17/600 → 辅助 14 灰棕 → 一个按钮（可无）。
- * 文字全部由调用方从字典给。
+ * 文字全部由调用方从字典给。出现 / 消失走 CouliMotion.appear()（减弱动态时只去掉位移，淡入保留，D10-1163 ①）。
  */
 @ComponentV2
 export struct EmptyState {
@@ -54,12 +55,14 @@ export struct EmptyState {
     .width('100%')
     .padding({ top: CouliSpacing.space8, bottom: CouliSpacing.space8, left: CouliSpacing.space4,
       right: CouliSpacing.space4 })
+    .transition(CouliMotion.appear())
   }
 }
 
 /**
  * 错误态：同空态结构，警告图标（状态不只靠颜色）+ 原因 + 【重试】主按钮。
  * 出现时立即播报（adaptation-a11y-spec §10「加载失败」assertive）：说明句设为实时区域。
+ * 出现 / 消失淡入同 EmptyState；retrying 时【重试】转圈且不可点（防连点），由调用方在请求结束后置回。
  */
 @ComponentV2
 export struct ErrorState {
@@ -70,10 +73,11 @@ export struct ErrorState {
   @Param retryId: string = 'couli-error-retry';
   /** 【重试】暂不可用（如 42901 按 Retry-After 限时禁用）：按钮置灰，到期由调用方恢复。 */
   @Param retryDisabled: boolean = false;
+  /** 重试请求进行中：【重试】转圈且不可点（CouliButton loading，防连点）；调用方不传时不加载。 */
+  @Param retrying: boolean = false;
 
   aboutToAppear(): void {
-    CouliAnnounce.say(this.getUIContext(), this.message.length > 0 ? this.title + PriceTerms.comma + this.message
-      : this.title);
+    CouliAnnounce.say(this.getUIContext(), CouliAnnounce.errorText(this.title, this.message));
   }
   @Event onRetry: () => void = () => {
   };
@@ -102,6 +106,7 @@ export struct ErrorState {
           text: this.retryText,
           buttonId: this.retryId,
           disabled: this.retryDisabled,
+          loading: this.retrying,
           onTap: () => {
             this.onRetry();
           }
@@ -115,11 +120,26 @@ export struct ErrorState {
     .width('100%')
     .padding({ top: CouliSpacing.space8, bottom: CouliSpacing.space8, left: CouliSpacing.space4,
       right: CouliSpacing.space4 })
+    .transition(CouliMotion.appear())
   }
 }
 
 /** 读屏播报（adaptation-a11y-spec §10）：主动播报一句话；同文再次调用也会再播。 */
 export class CouliAnnounce {
+  /**
+   * 错误态播报串（纯函数）：标题、说明都有时「标题，说明」；只有一个时只读那一个，不带前导 / 末尾标点；都空时为空串（say 不播）。
+   * 文案原样（由调用方从字典给），不裁空白、不补标点、不截断。
+   */
+  static errorText(title: string, message: string): string {
+    if (message.length === 0) {
+      return title;
+    }
+    if (title.length === 0) {
+      return message;
+    }
+    return title + PriceTerms.comma + message;
+  }
+
   static say(ui: UIContext, text: string): void {
     if (text.length === 0) {
       return;

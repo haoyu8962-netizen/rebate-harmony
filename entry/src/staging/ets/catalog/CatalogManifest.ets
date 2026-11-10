@@ -150,8 +150,11 @@ export const CATALOG_COMPONENTS: CatalogComponent[] = [
     '组件库自绘骨架（商品卡、订单卡、钱包卡，外壳静态 CouliCard），块底色 background.muted + 窄带微光扫过（减弱动态不播），读屏跳过；host 为防闪包装件 SkeletonHost（加载超过 300ms 才出现骨架、出现后至少留 300ms），三个按钮各起一次 150 / 350 / 1200 ms 加载，下方记录骨架出现 / 消失 / 内容回来距点按的毫秒。',
     [m(['product', 'order', 'wallet'], ['loading']), m(['host'], ['gated'])]),
   c('ProductCardSkeleton', GROUP_FEEDBACK, KIND_L2, '列表商品卡骨架（与 ProductCard 同尺寸）。', [m(['list'], ['loading'])]),
-  c('EmptyState', GROUP_FEEDBACK, KIND_L2, '组件库自绘空态（系统 ExceptionPrompt 是页顶提示条，整页空态无系统等价件，保留 L2）。', [m(['empty'], ['default'])]),
-  c('ErrorState', GROUP_FEEDBACK, KIND_L2, '组件库自绘错态：带 trace6 / 无网络。', [m(['trace6', 'offline'], ['default'])]),
+  c('EmptyState', GROUP_FEEDBACK, KIND_L2, '组件库自绘空态（系统 ExceptionPrompt 是页顶提示条，整页空态无系统等价件，保留 L2）；'
+    + '出现 / 消失淡入；文案来自调用方。', [m(['empty'], ['default'])]),
+  c('ErrorState', GROUP_FEEDBACK, KIND_L2, '组件库自绘错态：带 trace6 / 无网络 / 重试中（【重试】转圈、不可点，防连点）；'
+    + '系统 ExceptionPrompt 是页顶提示条，整页错误态无系统等价件，保留 L2；出现 / 消失淡入，出现时焦点到【重试】并播报；文案来自调用方。',
+    [m(['trace6', 'offline'], ['default']), m(['trace6'], ['retrying'])]),
   c('NoticeBar', GROUP_FEEDBACK, KIND_L2, '组件库自绘提示条：信息 / 警告 / 错误 / 成功，右侧可带文字按钮；图标 20（T11）。',
     [m(['info', 'warning', 'error', 'success'], ['default', 'action'])]),
   c('Toast', GROUP_FEEDBACK, KIND_L1, '系统 getPromptAction().showToast（清单 §8 第 4 条：鸿蒙用系统样式）；样例按钮弹真实轻提示。',
