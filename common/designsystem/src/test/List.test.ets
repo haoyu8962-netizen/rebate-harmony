@@ -27,6 +27,7 @@ import skeletonGateTest from './SkeletonGate.test';
 import l2ButtonTest from './L2Button.test';
 import l2PriceTagTest from './L2PriceTag.test';
 import l2StateTest from './L2State.test';
+import l2ProductCellTest from './L2ProductCell.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -67,4 +68,6 @@ export default function testsuite() {
   l2PriceTagTest();
   // HM-L2-STATE：错误态播报串纯函数（CouliAnnounce.errorText）。
   l2StateTest();
+  // HM-L2-PRODUCT-CELL：信息区整块读屏名（ProductCardA11y.cellLabel）与 U1 一行购买句式。
+  l2ProductCellTest();
 }

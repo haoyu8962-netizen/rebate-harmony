@@ -817,6 +817,8 @@ export default function ds02L2UiTest() {
     ds02L2UiPriceTagCases();
     // HM-L2 批 1 集成 2：STATE 段同法在同一 describe 里注册，排在 PRICE-TAG 之后。
     L2StateSegment.ds02L2UiStateCases();
+    // HM-L2-PRODUCT-CELL：本段同法在同一 describe 里注册，排在 STATE 之后（段函数 ds02L2UiCellCases，常量下标注册，见文件末 cell 段）。
+    ds02L2UiCellCases();
   });
 }
 
@@ -2724,6 +2726,417 @@ export function ds02L2UiStateCases(): void {
 
 }
 
+// ================================================================ HM-L2-PRODUCT-CELL 段（测试作者 v1，新鲜独立 Claude，先红）
+// 依据：NATIVE/HM-L2-BATCH1/brief-PRODUCT-CELL.md §3「设备」、README 末节编排裁定 D10-1177 ⑥（@Param openable=false + @Event onOpen，页面零改动）、
+// FREEZE 集成备忘（各单在唯一 describe('Ds02L2Ui') 里追加段函数，常量下标注册，段边界只加本段分支）；DETAIL-V3 U1 列表卡部分（一行购买句式、
+// 列表 / AI / 网格卡不显示预估返后）；BUTTON 评审 r1 S3-1（金额隐藏时按钮不得露本卡金额：卡片给按钮的是未遮罩返利）。
+// 只在组件目录里断言，不写页面取色；页面外层点击回归用目录里的「页面外层点击模拟」样例（favorite / ranking）+ 走查（书 §7）。
+// 实现方不改本段；有问题走「需要编排裁定」。
+//
+// 目录样例契约（实现照此；宿主 tools/ci/l2cell P8 钉一部分）：
+//   清单 ProductCard 不增行（书 §6 / README ⑨「优先在现有 variant 里换 openable 样例」）：search / ai / favorite / ranking / grid / large
+//   × single / range / no-rebate / long-price / amount-hidden / skeleton。skeleton 态不归本段。
+//   catalog-control/ProductCard/<变体>/<状态>：包住卡片、无内边距、无底色的容器（bounds = 卡片）；grid 只包一张 ProductCard（GRID 变体）。
+//   catalog-events/ProductCard/<变体>/<状态>：Text「open|buy|outer」三个真实计数（onOpen / onBuy / 外层 onClick），初值「0|0|0」。
+//   openable：search / ai / grid 传 openable: true（onOpen 计数）；favorite / ranking 不传（默认 false），由包住卡片的外层容器 .onClick
+//     计 outer（模拟 SearchView / HomeCards / ClipboardViews 的页面外层点击）；large 不传、无外层点击（详情头）。
+//   一行购买句式（U1）：search / ai / favorite / ranking 的 single 与 amount-hidden 样例，buyBase 用 btn.buy.rebate 填好本卡金额的
+//     「购买预估返 ¥123.45」（样例返利 ¥123.45，同 ProductCardMapper 的填法）；其余状态的动词不变。
+// 读屏单元照 Hm07vHomeRig.announce（与 l2card_06 同一读法）。按住读数照 CARD 段（whilePressed + windowShots，长按未返回时不调 Driver）。
+// 先红：现树 ProductCard 无 openable / onOpen，目录无 catalog-control/ProductCard 与 catalog-events/ProductCard，各例红在找不到节点或计数断言。
+const PRODUCT_CARD: string = 'ProductCard';
+/** 目录里本段覆盖的变体（skeleton 态不归本段）。 */
+const CELL_VARIANTS: string[] = ['search', 'ai', 'favorite', 'ranking', 'grid', 'large'];
+const CELL_STATES: string[] = ['single', 'range', 'no-rebate', 'long-price', 'amount-hidden'];
+const CELL_OPENABLE: string[] = ['search', 'ai', 'grid'];
+const CELL_OUTER: string[] = ['favorite', 'ranking'];
+/** 带购买按钮的变体（grid 首页网格默认不画按钮，large 详情头没有按钮）。 */
+const CELL_WITH_BUY: string[] = ['search', 'ai', 'favorite', 'ranking'];
+/** 目录样例的文字（CatalogSamples：stressCoffeeSingle / stressCoffeeRange / gridCoffee / productDetail）。 */
+const CELL_PLATFORM: string = '淘宝';
+const CELL_PLATFORM_NO_REBATE: string = '京东';
+const CELL_TITLE_NO_REBATE: string = '抽纸 3 层 120 抽 × 24 包 家用整箱装';
+const CELL_TITLE_SHORT: string = '进口全自动意式咖啡机 家用商用两用 一体式研磨 双锅炉 豪华礼盒装';
+const CELL_TITLE_LONG: string = '进口全自动意式咖啡机 家用商用两用 一体式研磨 双锅炉 恒温萃取 蒸汽打奶泡 触屏操作 自动清洗 1.8L 大容量水箱 豪华礼盒装（含磨豆机与奶缸套装）';
+/** 单值返利 12345 分（可见 ¥123.45，读屏「预估返 123.45 元」）；网格样例区间 12345–24690 分；详情大卡区间 123–234 分、预估返后 4555 分。 */
+const CELL_REBATE_AMOUNT: string = '123.45';
+const CELL_REBATE_SPOKEN: string = '预估返 123.45 元';
+const CELL_GRID_AMOUNTS: string[] = ['123.45', '246.9'];
+const CELL_LARGE_AMOUNTS: string[] = ['1.23', '2.34', '45.55'];
+/** U1 一行句式与 D10-871 回落（D10-1177 ②：动词含本卡金额、金额隐藏 → 契约字典 btn.buy「购买」）。 */
+const CELL_ONE_LINE: string = '购买预估返 ¥123.45';
+const CELL_BUY_FALLBACK: string = '购买';
+const CELL_EST_NET: string = '预估返后';
+const CELL_HIDDEN_SPOKEN: string = '金额已隐藏';
+/** 口径说明（DisclaimerFooter CARD：i 按钮读屏名 + 可选前置短句「以结算为准」），照旧单独读，不并入信息区。 */
+const CELL_DISCLAIMER_UNITS: string[] = ['口径说明', '以结算为准'];
+
+class CellCounts {
+  open: number;
+  buy: number;
+  outer: number;
+
+  constructor(open: number, buy: number, outer: number) {
+    this.open = open;
+    this.buy = buy;
+    this.outer = outer;
+  }
+
+  text(): string {
+    return this.open + '|' + this.buy + '|' + this.outer;
+  }
+}
+
+/** 本段的设备助手（目录进出、找样例沿用 L2ButtonRig 的通用目录助手；不新增模块级同名函数）。 */
+class L2CellRig {
+  static controlId(variant: string, state: string): string {
+    return 'catalog-control/' + PRODUCT_CARD + '/' + variant + '/' + state;
+  }
+
+  static eventsId(variant: string, state: string): string {
+    return 'catalog-events/' + PRODUCT_CARD + '/' + variant + '/' + state;
+  }
+
+  /** 段前准备：直达 ProductCard 详情，浅色、字号 100%。 */
+  static async enterCatalog(): Promise<void> {
+    await L2ButtonRig.open(PRODUCT_CARD);
+    await L2ButtonRig.click('catalog-theme-light');
+    await L2ButtonRig.setFont('100');
+  }
+
+  /** 段后复位：回索引，浅色、字号 100%（同 BUTTON / PRICE-TAG 段后复位）。 */
+  static async leaveCatalog(): Promise<void> {
+    await L2ButtonRig.index();
+    await L2ButtonRig.click('catalog-theme-light');
+    await L2ButtonRig.setFont('100');
+  }
+
+  /** 样例卡整块在列表可视区内，返回卡片屏幕框。 */
+  static async card(variant: string, state: string): Promise<Rect> {
+    await L2ButtonRig.open(PRODUCT_CARD);
+    const c: Component = await L2ButtonRig.fullyVisible(PRODUCT_CARD, L2CellRig.controlId(variant, state));
+    const r: Rect = await c.getBounds();
+    check(r.right - r.left > 40 * density() && r.bottom - r.top > 40 * density(),
+      'L2CELL_SAMPLE_TINY ' + variant + '/' + state + ' ' + (r.right - r.left) + 'x' + (r.bottom - r.top));
+    return r;
+  }
+
+  static async counts(variant: string, state: string): Promise<CellCounts> {
+    const raw: string = await (await L2ButtonRig.node(L2CellRig.eventsId(variant, state))).getText();
+    const m: RegExpMatchArray | null = raw.match(new RegExp('^(\\d+)\\|(\\d+)\\|(\\d+)$'));
+    check(m !== null, 'L2CELL_EVENTS_FORMAT ' + variant + '/' + state + ' 计数应为「open|buy|outer」，实际 ' + raw);
+    const g: RegExpMatchArray = m as RegExpMatchArray;
+    return new CellCounts(Number(g[1]), Number(g[2]), Number(g[3]));
+  }
+
+  /** 计数轮询到 want 或超时（3 s），返回最后读到的值。 */
+  static async countsSoon(variant: string, state: string, want: CellCounts): Promise<CellCounts> {
+    const end: number = Date.now() + 3000;
+    for (;;) {
+      const got: CellCounts = await L2CellRig.counts(variant, state);
+      if (got.text() === want.text() || Date.now() >= end) { return got; }
+      await driver.delayMs(100);
+    }
+  }
+
+  /** 信息区里的一点（商品图 / 标题所在的左上区域，避开购买按钮与口径 i）。 */
+  static infoPoint(r: Rect): Point {
+    const d: number = density();
+    return {
+      x: Math.round(r.left + Math.min(40 * d, (r.right - r.left) * 0.25)),
+      y: Math.round(r.top + Math.min(40 * d, (r.bottom - r.top) * 0.25))
+    };
+  }
+
+  /** 卡里文字恰为 text 的节点（购买按钮的文字）。 */
+  static async textIn(variant: string, state: string, text: string): Promise<Component> {
+    const found: Component = await driver.findComponent(ON.text(text).within(ON.id(L2CellRig.controlId(variant, state))));
+    check(found !== null && found !== undefined, 'L2CELL_TEXT_MISSING ' + variant + '/' + state + ' 卡里找不到「' + text + '」');
+    return found;
+  }
+
+  /** 卡里全部 Text 节点的文字。 */
+  static async texts(variant: string, state: string): Promise<string[]> {
+    const nodes: Component[] = await driver.findComponents(ON.type('Text').within(ON.id(L2CellRig.controlId(variant, state))));
+    const out: string[] = [];
+    for (const n of (nodes ?? [])) { out.push(await n.getText()); }
+    return out;
+  }
+
+  /** 卡片子树的读屏单元（「类型=文字」，Hm07vHomeRig.announce）。 */
+  static async units(variant: string, state: string): Promise<string[]> {
+    const n: Record<string, Object> | null = findById(await appTree(), L2CellRig.controlId(variant, state));
+    check(n !== null, 'L2CELL_INSPECTOR_MISSING ' + variant + '/' + state);
+    const out: string[] = [];
+    announce(n as Record<string, Object>, out);
+    return out.map((u: string): string => u.substring(u.indexOf('=') + 1));
+  }
+
+  /** 样例标题：single / amount-hidden 短标题（stressCoffeeSingle / gridCoffee），range / long-price 长标题，no-rebate 抽纸（京东）。 */
+  static title(variant: string, state: string): string {
+    if (state === 'no-rebate') {
+      return CELL_TITLE_NO_REBATE;
+    }
+    return state === 'range' || state === 'long-price' ? CELL_TITLE_LONG : CELL_TITLE_SHORT;
+  }
+
+  static platform(state: string): string {
+    return state === 'no-rebate' ? CELL_PLATFORM_NO_REBATE : CELL_PLATFORM;
+  }
+
+  /** 读屏：信息区恰一项（「平台，标题，价格，返利」），购买按钮单独一项，其余只许口径 i；返回信息区那一项。 */
+  static assertReader(variant: string, state: string, units: string[]): string {
+    const tag: string = variant + '/' + state;
+    const title: string = L2CellRig.title(variant, state);
+    const info: string[] = units.filter((u: string): boolean => u.indexOf(title) >= 0);
+    check(info.length === 1, 'L2CELL_READER_INFO ' + tag + ' 含标题的读屏项应恰 1 个（信息区合一），实际 ' + JSON.stringify(units));
+    const label: string = info.length > 0 ? info[0] : '';
+    check(label.indexOf(L2CellRig.platform(state) + '，' + title) === 0, 'L2CELL_READER_ORDER ' + tag + ' 信息项应以「平台，标题」开头：' + label);
+    if (state !== 'no-rebate') {
+      check(label.indexOf('券后') > label.indexOf(title), 'L2CELL_READER_PRICE ' + tag + ' 信息项应在标题后读价格：' + label);
+    }
+    check(label.indexOf(CELL_EST_NET) < 0, 'L2CELL_READER_EST_NET ' + tag + ' 信息项读了预估返后：' + label);
+    // 购买按钮：Button 节点的读屏名与其内 Text 在组件树里可能各记一条（同一句），按去重后的文字数算「一项」。
+    const buys: string[] = [];
+    for (const u of units) {
+      if (u.indexOf(title) < 0 && u.indexOf('购买') >= 0 && buys.indexOf(u) < 0) { buys.push(u); }
+    }
+    const wantBuy: number = CELL_WITH_BUY.indexOf(variant) >= 0 ? 1 : 0;
+    check(buys.length === wantBuy, 'L2CELL_READER_BUY ' + tag + ' 购买按钮应单独 ' + wantBuy + ' 项，实际 ' + JSON.stringify(units));
+    for (const u of units) {
+      // 'IMAGE'：按钮里的图标（口径 i、购买按钮）在组件树里记作 Image；商品图在信息区组内，不会单独出现。
+      if (u === label || buys.indexOf(u) >= 0 || CELL_DISCLAIMER_UNITS.indexOf(u) >= 0 || u === 'IMAGE') { continue; }
+      check(false, 'L2CELL_READER_EXTRA ' + tag + ' 多出读屏项「' + u + '」（价格 / 返利 / 标签 / 图片应并进信息区一项）全部 ' + JSON.stringify(units));
+    }
+    return label;
+  }
+
+  /** 按住信息区约 2.5 s，返回按下前 / 按住中 / 松开后的卡片屏上像素（CARD 段同一读法）。 */
+  static async hold(variant: string, state: string): Promise<Pixels[]> {
+    const r: Rect = await L2CellRig.card(variant, state);
+    await driver.delayMs(400);
+    const before: Pixels[] = await windowShots([r]);
+    const mid: Pixels[] = await whilePressed(L2CellRig.infoPoint(r), 2500, 800, async (): Promise<Pixels[]> => windowShots([r]));
+    await L2ButtonRig.idle();
+    await driver.delayMs(600);
+    const after: Pixels[] = await windowShots([r]);
+    return [before[0], mid[0], after[0]];
+  }
+}
+
+/** HM-L2-PRODUCT-CELL 段设备用例名（与 tools/ci/l2cell/device-cases.txt 一致，check_l2_cell.py P9-cases 守）。 */
+export const L2CELL_DEVICE_CASES: string[] = [
+  'l2cell_01_catalog_six_variants_states_render_with_counters',
+  'l2cell_02_openable_card_tap_fires_on_open_and_buy_fires_on_buy_only',
+  'l2cell_03_openable_false_keeps_outer_click_and_buy_does_not_bubble',
+  'l2cell_04_openable_hold_shows_press_feedback_static_shows_none',
+  'l2cell_05_reader_info_is_one_unit_and_buy_is_separate',
+  'l2cell_06_amount_hidden_shows_and_speaks_no_amount_buy_falls_back',
+  'l2cell_07_no_est_net_on_list_ai_grid_large_keeps_and_one_line_buy',
+  'l2cell_08_font200_info_still_one_unit_and_content_inside_card',
+  'l2cell_09_surface_is_token_light_and_dark'
+];
+
+/** HM-L2-PRODUCT-CELL 的段（由 ds02L2UiTest() 里唯一的 Ds02L2Ui describe 末尾调用；段前准备 / 段后复位见文件末「段边界」cell 分支）。 */
+export function ds02L2UiCellCases(): void {
+    // 书 §3 设备「目录 ProductCard 六变体 × 现有状态」：逐态渲染、计数节点在、初始格式「open|buy|outer」。
+    it(L2CELL_DEVICE_CASES[0], 0, async (): Promise<void> => {
+      await L2ButtonRig.open(PRODUCT_CARD);
+      const kind: string = await (await L2ButtonRig.node('catalog-kind/' + PRODUCT_CARD)).getText();
+      check(kind === 'L2 业务组件', 'L2CELL_KIND 目录标记应为「L2 业务组件」，实际 ' + kind);
+      for (const v of CELL_VARIANTS) {
+        for (const s of CELL_STATES) {
+          await L2CellRig.card(v, s);
+          await L2CellRig.counts(v, s);
+        }
+      }
+    });
+
+    // README ⑥：openable=true 时整卡点击回调 onOpen 一次；点购买只回调 onBuy、不触发 onOpen（书 §3「Buy 点击不触发 onOpen」）。
+    it(L2CELL_DEVICE_CASES[1], 0, async (): Promise<void> => {
+      for (const v of CELL_OPENABLE) {
+        const r: Rect = await L2CellRig.card(v, 'single');
+        const base: CellCounts = await L2CellRig.counts(v, 'single');
+        const p: Point = L2CellRig.infoPoint(r);
+        await driver.click(p.x, p.y);
+        await L2ButtonRig.idle();
+        const want: CellCounts = new CellCounts(base.open + 1, base.buy, base.outer);
+        const got: CellCounts = await L2CellRig.countsSoon(v, 'single', want);
+        check(got.text() === want.text(), 'L2CELL_OPEN_TAP ' + v + ' 点信息区应 open +1，计数 ' + base.text() + ' → ' + got.text());
+        if (CELL_WITH_BUY.indexOf(v) >= 0) {
+          await (await L2CellRig.textIn(v, 'single', CELL_ONE_LINE)).click();
+          await L2ButtonRig.idle();
+          await driver.delayMs(500);
+          const wantBuy: CellCounts = new CellCounts(got.open, got.buy + 1, got.outer);
+          const after: CellCounts = await L2CellRig.countsSoon(v, 'single', wantBuy);
+          check(after.text() === wantBuy.text(), 'L2CELL_BUY_TAP ' + v + ' 点购买应只 buy +1、不触发 onOpen，计数 ' + got.text() + ' → ' + after.text());
+        }
+      }
+    });
+
+    // 书 §7「吞点击」：openable=false（页面现状）时组件内不接按压，页面外层 .onClick 照常触发；点购买由按钮自己接、不冒到外层。
+    it(L2CELL_DEVICE_CASES[2], 0, async (): Promise<void> => {
+      for (const v of CELL_OUTER) {
+        const r: Rect = await L2CellRig.card(v, 'single');
+        const base: CellCounts = await L2CellRig.counts(v, 'single');
+        const p: Point = L2CellRig.infoPoint(r);
+        await driver.click(p.x, p.y);
+        await L2ButtonRig.idle();
+        const want: CellCounts = new CellCounts(base.open, base.buy, base.outer + 1);
+        const got: CellCounts = await L2CellRig.countsSoon(v, 'single', want);
+        check(got.text() === want.text(), 'L2CELL_OUTER_SWALLOWED ' + v + ' openable=false 时点卡片应触发外层点击（outer +1、open 不变），计数 '
+          + base.text() + ' → ' + got.text());
+        await (await L2CellRig.textIn(v, 'single', CELL_ONE_LINE)).click();
+        await L2ButtonRig.idle();
+        await driver.delayMs(500);
+        const wantBuy: CellCounts = new CellCounts(got.open, got.buy + 1, got.outer);
+        const after: CellCounts = await L2CellRig.countsSoon(v, 'single', wantBuy);
+        check(after.text() === wantBuy.text(), 'L2CELL_OUTER_BUY ' + v + ' 点购买应只 buy +1（不冒到外层），计数 ' + got.text() + ' → ' + after.text());
+      }
+      // 详情大卡：不可点、无外层点击，点了计数不动。
+      const r: Rect = await L2CellRig.card('large', 'single');
+      const base: CellCounts = await L2CellRig.counts('large', 'single');
+      const p: Point = L2CellRig.infoPoint(r);
+      await driver.click(p.x, p.y);
+      await L2ButtonRig.idle();
+      await driver.delayMs(500);
+      const after: CellCounts = await L2CellRig.counts('large', 'single');
+      check(after.text() === base.text(), 'L2CELL_LARGE_TAPPED large 不可点，计数 ' + base.text() + ' → ' + after.text());
+    });
+
+    // 书 §3「openable=true 样例整卡按压可见」（CouliCard BOUNCE；减弱动态退化为 background.muted 高亮，D10-1163 ①）；openable=false 按住无变化。
+    it(L2CELL_DEVICE_CASES[3], 0, async (): Promise<void> => {
+      await L2ButtonRig.click('catalog-theme-light');
+      for (const v of ['search', 'ai']) {
+        const shots: Pixels[] = await L2CellRig.hold(v, 'single');
+        if (reducedMotion()) {
+          const muted: number = topBand(shots[1], shots[1].width, token('background.muted', false));
+          check(muted >= 0.6, 'L2CELL_PRESS_REDUCED_NO_HIGHLIGHT ' + v + ' 减弱动态下按住应显示 background.muted，占比 ' + muted.toFixed(2));
+        } else {
+          const moved: number = changed(shots[0], shots[1]);
+          check(moved >= threshold(shots[0]), 'L2CELL_PRESS_NO_FEEDBACK ' + v + ' 按住时卡片只变了 ' + moved + ' 像素（< ' + threshold(shots[0]) + '）');
+        }
+        const back: number = changed(shots[0], shots[2]);
+        check(back < threshold(shots[0]) / 4, 'L2CELL_PRESS_NOT_RESTORED ' + v + ' 松开后与按下前差 ' + back + ' 像素');
+        // 长按不算点击：onOpen 不因按住而回调多次（最多 1 次，系统可能把长按松开记为点击）。
+      }
+      for (const v of CELL_OUTER) {
+        const shots: Pixels[] = await L2CellRig.hold(v, 'single');
+        const moved: number = changed(shots[0], shots[1]);
+        check(moved < threshold(shots[0]) / 4, 'L2CELL_STATIC_PRESSED ' + v + ' openable=false 按住卡片有变化 ' + moved + ' 像素（组件内接了按压）');
+      }
+    });
+
+    // 书 §2.3：读屏信息区一项「平台，标题，价格，返利」、购买按钮单独一项（2 项；口径 i 照旧单独）。
+    it(L2CELL_DEVICE_CASES[4], 0, async (): Promise<void> => {
+      await L2ButtonRig.setFont('100');
+      for (const v of ['search', 'ai', 'favorite']) {
+        for (const s of ['single', 'range', 'no-rebate']) {
+          await L2CellRig.card(v, s);
+          const label: string = L2CellRig.assertReader(v, s, await L2CellRig.units(v, s));
+          if (s === 'single') {
+            check(label.indexOf(CELL_REBATE_SPOKEN) > label.indexOf('券后'), 'L2CELL_READER_REBATE ' + v + ' 信息项应在价格后读返利：' + label);
+          }
+        }
+      }
+      await L2CellRig.card('grid', 'single');
+      L2CellRig.assertReader('grid', 'single', await L2CellRig.units('grid', 'single'));
+    });
+
+    // D10-871（按 D10-1177 ② 读）+ BUTTON 评审 r1 S3-1：金额隐藏样例里可见文字、读屏、购买按钮都不出现本卡金额；按钮回落「购买」。
+    it(L2CELL_DEVICE_CASES[5], 0, async (): Promise<void> => {
+      for (const v of CELL_VARIANTS) {
+        await L2CellRig.card(v, 'amount-hidden');
+        const amounts: string[] = v === 'grid' ? CELL_GRID_AMOUNTS : (v === 'large' ? CELL_LARGE_AMOUNTS : [CELL_REBATE_AMOUNT]);
+        const shown: string[] = await L2CellRig.texts(v, 'amount-hidden');
+        const spoken: string[] = await L2CellRig.units(v, 'amount-hidden');
+        for (const a of amounts) {
+          for (const t of shown) { check(t.indexOf(a) < 0, 'L2CELL_HIDDEN_SHOWN ' + v + ' 金额隐藏仍显示「' + t + '」'); }
+          for (const u of spoken) { check(u.indexOf(a) < 0, 'L2CELL_HIDDEN_SPOKEN ' + v + ' 金额隐藏仍读出「' + u + '」'); }
+        }
+        if (CELL_WITH_BUY.indexOf(v) >= 0) {
+          check(shown.indexOf(CELL_BUY_FALLBACK) >= 0, 'L2CELL_HIDDEN_BUY ' + v + ' 金额隐藏时按钮应回落「' + CELL_BUY_FALLBACK + '」，卡内文字 '
+            + JSON.stringify(shown));
+          check(shown.indexOf(CELL_ONE_LINE) < 0, 'L2CELL_HIDDEN_BUY_LEAK ' + v + ' 金额隐藏时按钮仍是「' + CELL_ONE_LINE + '」（遮罩返利误传给按钮？S3-1）');
+        }
+        if (v !== 'large') {
+          const label: string = L2CellRig.assertReader(v, 'amount-hidden', spoken);
+          check(label.indexOf(CELL_HIDDEN_SPOKEN) >= 0, 'L2CELL_HIDDEN_LABEL ' + v + ' 信息项应读「金额已隐藏」：' + label);
+        }
+      }
+    });
+
+    // U1：列表 / AI / 网格卡不显示「预估返后」（详情大卡照旧）；列表 / AI 购买按钮一行「购买预估返 ¥x」。
+    it(L2CELL_DEVICE_CASES[6], 0, async (): Promise<void> => {
+      for (const v of CELL_VARIANTS) {
+        await L2CellRig.card(v, 'single');
+        const shown: string[] = await L2CellRig.texts(v, 'single');
+        const est: string[] = shown.filter((t: string): boolean => t.indexOf(CELL_EST_NET) >= 0);
+        if (v === 'large') {
+          check(est.length >= 1, 'L2CELL_LARGE_EST_NET_GONE large 详情大卡应保留预估返后（归 HM-FLOW-DETAIL），卡内文字 ' + JSON.stringify(shown));
+        } else {
+          check(est.length === 0, 'L2CELL_EST_NET_SHOWN ' + v + ' 仍显示 ' + JSON.stringify(est) + '（U1：列表卡、AI 卡、网格卡不展示预估返后）');
+        }
+        if (CELL_WITH_BUY.indexOf(v) >= 0) {
+          const buy: Component = await L2CellRig.textIn(v, 'single', CELL_ONE_LINE);
+          const r: Rect = await buy.getBounds();
+          const lineMax: number = 28 * density();
+          check(r.bottom - r.top <= lineMax, 'L2CELL_BUY_NOT_ONE_LINE ' + v + ' 按钮文字高 ' + (r.bottom - r.top) + 'px > 一行 ' + lineMax + 'px');
+          check(shown.filter((t: string): boolean => t.indexOf('·') >= 0 && t.indexOf('预估返') >= 0).length === 0,
+            'L2CELL_BUY_OLD_SUFFIX ' + v + ' 仍有旧后缀「· 预估返」写法：' + JSON.stringify(shown));
+        }
+      }
+    });
+
+    // 书 §3「200%：不截断；去 EstNet 后高度变化不破布局」：widePrice 分支下信息区仍是一项，文字与按钮都在卡内。
+    it(L2CELL_DEVICE_CASES[7], 0, async (): Promise<void> => {
+      await L2ButtonRig.setFont('200');
+      try {
+        for (const v of ['search', 'ai']) {
+          for (const s of ['single', 'long-price']) {
+            const r: Rect = await L2CellRig.card(v, s);
+            const nodes: Component[] = await driver.findComponents(ON.type('Text').within(ON.id(L2CellRig.controlId(v, s))));
+            for (const n of (nodes ?? [])) {
+              const b: Rect = await n.getBounds();
+              const t: string = await n.getText();
+              check(b.left >= r.left - 1 && b.right <= r.right + 1, 'L2CELL_200_OUTSIDE ' + v + '/' + s + ' 「' + t + '」越出卡片 ['
+                + b.left + ',' + b.right + '] / [' + r.left + ',' + r.right + ']');
+            }
+            const units: string[] = await L2CellRig.units(v, s);
+            L2CellRig.assertReader(v, s, units);
+            if (s === 'single') {
+              const buy: Rect = await (await L2CellRig.textIn(v, s, CELL_ONE_LINE)).getBounds();
+              check(buy.top >= r.top && buy.bottom <= r.bottom + 1, 'L2CELL_200_BUY_OUTSIDE ' + v + ' 购买按钮越出卡片');
+            }
+          }
+        }
+      } finally {
+        await L2ButtonRig.setFont('100');
+      }
+    });
+
+    // 书 §3「浅深取色是令牌角色」：卡面白底是 background.surface（CouliCard 外壳），浅 / 深都看；openable 两种都看。
+    it(L2CELL_DEVICE_CASES[8], 0, async (): Promise<void> => {
+      await L2ButtonRig.setFont('100');
+      try {
+        for (const mode of ['light', 'dark']) {
+          await L2ButtonRig.click('catalog-theme-' + mode);
+          await driver.delayMs(400);
+          const dark: boolean = mode === 'dark';
+          const surface: number[] = token('background.surface', dark);
+          for (const v of ['search', 'ai', 'favorite', 'grid', 'large']) {
+            const r: Rect = await L2CellRig.card(v, 'single');
+            const shot: Pixels = await capture(r);
+            const got: number = topBand(shot, r.right - r.left, surface);
+            check(got >= 0.9, 'L2CELL_SURFACE ' + mode + ' ' + v + ' 卡片上沿 background.surface 占比 ' + got.toFixed(2) + ' < 0.90');
+          }
+        }
+      } finally {
+        await L2ButtonRig.click('catalog-theme-light');
+      }
+    });
+}
+
 // ================================================================ HM-L2 批 1 集成（FREEZE，integ1-harmony.md §收尾）：段边界
 // 唯一的 Ds02L2Ui describe 里依次是 CARD 段（含 SKELETON 段，用 CARD 的钩子）、BUTTON 段、PRICE-TAG 段。原来 BUTTON / PRICE-TAG 各有
 // describe 与 beforeAll / afterAll，三个 describe 依次跑：CARD afterAll → BUTTON beforeAll → BUTTON 用例 … → BUTTON afterAll → PRICE beforeAll …
@@ -2734,7 +3147,9 @@ export function ds02L2UiStateCases(): void {
 // L2_SEGMENT_LEAVE_FAILED，留到 describe afterAll 再抛（原 afterAll 的错报在 afterAll，不记到下一段的用例上）。
 // 用例按注册顺序跑（CARD → BUTTON → PRICE-TAG），段只会往后切；切回前面的段说明执行顺序被打乱，直接红 L2_SEGMENT_ORDER。
 // 集成 2：STATE 段排在 PRICE-TAG 之后（state），段前准备 / 段后复位 = 原 Ds02L2UiState beforeAll / afterAll 原文（L2StateSegment.l2StateSetup / l2StateLeave）。
-const L2_SEGMENTS: string[] = ['card', 'button', 'price', 'state'];
+// HM-L2-PRODUCT-CELL（只加本段分支）：cell 段排在 STATE 之后，段前准备 = L2CellRig.enterCatalog（直达 ProductCard 详情、浅色、100%），
+// 段后复位 = L2CellRig.leaveCatalog（回索引、浅色、100%，同 BUTTON / PRICE-TAG 段后复位）。
+const L2_SEGMENTS: string[] = ['card', 'button', 'price', 'state', 'cell'];
 let l2Segment: string = 'card';
 let l2SegmentSetupError: Error | null = null;
 let l2SegmentLeaveError: Error | null = null;
@@ -2743,6 +3158,7 @@ function l2SegmentOf(name: string): string {
   if (name.startsWith('l2button_')) { return 'button'; }
   if (name.startsWith('l2price_')) { return 'price'; }
   if (name.startsWith('l2state_')) { return 'state'; }
+  if (name.startsWith('l2cell_')) { return 'cell'; }
   return 'card';
 }
 
@@ -2754,6 +3170,8 @@ async function l2SetupSegment(segment: string): Promise<void> {
     await runUiTask(driver, async (): Promise<void> => { await L2PriceRig.enterCatalog(); });
   } else if (segment === 'state') {
     await L2StateSegment.l2StateSetup();
+  } else if (segment === 'cell') {
+    await runUiTask(driver, async (): Promise<void> => { await L2CellRig.enterCatalog(); });
   }
 }
 
@@ -2784,6 +3202,9 @@ async function l2LeaveSegment(segment: string): Promise<void> {
     });
   } else if (segment === 'state') {
     await L2StateSegment.l2StateLeave();
+  } else if (segment === 'cell') {
+    await drainUiTasks(driver);
+    await runUiTask(driver, async (): Promise<void> => { await L2CellRig.leaveCatalog(); });
   }
 }
 
