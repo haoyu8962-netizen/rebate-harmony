@@ -12,6 +12,8 @@
 //   ② CatalogDetail：CouliButton / BuyButton 详情页各有点按计数 Text，id 'catalog-events/CouliButton' / 'catalog-events/BuyButton'
 //      （同 'catalog-events/OAuthButton' 写法），样例 onTap 里 +1。
 // 现树上的红因：①② 都没有（off-shelf 样例与计数节点找不到）；CouliButton 尚无 buttonStyle 不影响本套件的几何 / 取色判据。
+// 测试 v4（D10-1238）：l2button_04 禁用底改为「0.4 × 令牌 + 0.6 × 所在底色令牌」（接受鸿蒙系统禁用透明度）；
+// node / find / open / buyButton 的断言与等待失败信息带上节点 id（只改诊断，判据不变）。
 import { describe, it as hypiumIt, expect, beforeAll, afterAll, beforeEach, afterEach } from '@ohos/hypium';
 import { abilityDelegatorRegistry, Driver, ON, On, Component, Rect } from '@kit.TestKit';
 import { display } from '@kit.ArkUI';
@@ -37,6 +39,11 @@ const OFF_SHELF_TEXT: string = '商品已下架';
 const SINGLE_TITLE: string = '领券购买 · 预估返 ¥2.69';
 /** 取色容差（书 §3：±8）。 */
 const COLOR_TOLERANCE: number = 8;
+/** 鸿蒙系统 Button 不可用时整体乘的透明度（ArkUI ButtonPattern::HandleEnabled → ButtonTheme::GetBgDisabledAlpha，
+ *  impl-device-r2 实测 0.4）。D10-1238：禁用观感跟系统走，不再要求禁用底逐值等于令牌。 */
+const DISABLED_ALPHA: number = 0.4;
+/** 目录样例所在底色的令牌：CouliButton 样例直接画在目录页画布上（impl-device-r2 深色读数 35/32/29 = 0.4 × 禁用令牌 + 0.6 × 画布）。 */
+const CATALOG_BASE_KEY: string = 'background.canvas';
 const MIN_TARGET_VP: number = 48;
 
 const driver: Driver = Driver.create();
@@ -64,9 +71,15 @@ class L2ButtonRig {
   }
 
   static async node(id: string): Promise<Component> {
-    const found: Component = await driver.waitForComponent(ON.id(id), 8000);
-    expect(found !== null && found !== undefined).assertTrue();
-    return found;
+    let found: Component | null = null;
+    try {
+      found = await driver.waitForComponent(ON.id(id), 8000);
+    } catch (e) {
+      throw new Error('L2BUTTON_NODE_WAIT_FAILED id=' + id + ' ' + String(e));
+    }
+    const ok: boolean = found !== null && found !== undefined;
+    expect('node id=' + id + ' found in 8000ms ' + ok).assertEqual('node id=' + id + ' found in 8000ms true');
+    return found as Component;
   }
 
   static async click(id: string): Promise<void> {
@@ -109,7 +122,9 @@ class L2ButtonRig {
     if (entry === null || entry === undefined) {
       entry = await searchUiComponent(driver, ON.id('catalog-index'), ON.id('catalog-entry/' + component));
     }
-    expect(entry !== null && entry !== undefined).assertTrue();
+    const entryOk: boolean = entry !== null && entry !== undefined;
+    expect('open entry id=catalog-entry/' + component + ' found ' + entryOk)
+      .assertEqual('open entry id=catalog-entry/' + component + ' found true');
     await entry.click();
     await L2ButtonRig.node('catalog-cases/' + component);
   }
@@ -128,7 +143,9 @@ class L2ButtonRig {
       }
     }
     const found: Component = await searchUiComponent(driver, ON.id('catalog-cases/' + component), ON.id(id));
-    expect(found !== null && found !== undefined).assertTrue();
+    const ok: boolean = found !== null && found !== undefined;
+    expect('find id=' + id + ' in catalog-cases/' + component + ' found ' + ok)
+      .assertEqual('find id=' + id + ' in catalog-cases/' + component + ' found true');
     return found;
   }
 
@@ -166,7 +183,8 @@ class L2ButtonRig {
     const sampleId: string = L2ButtonRig.buySampleId(variant, state);
     await L2ButtonRig.fullyVisible(BUY_BUTTON, sampleId);
     const buttons: Component[] = await driver.findComponents(ON.type('Button').within(ON.id(sampleId)));
-    expect(buttons !== null && buttons !== undefined && buttons.length === 1).assertTrue();
+    const n: number = buttons === null || buttons === undefined ? 0 : buttons.length;
+    expect('buyButton id=' + sampleId + ' Button ' + n).assertEqual('buyButton id=' + sampleId + ' Button 1');
     return buttons[0];
   }
 
@@ -233,14 +251,30 @@ class L2ButtonRig {
     return c.r + '/' + c.g + '/' + c.b;
   }
 
-  /** 按钮底色：取 (20%, 20%)（避开居中文字与圆角，同 Ds02Ui.assertButtonSurface 取点）。 */
+  /** top 以不透明度 alpha 叠在 base 上的合成色（逐通道 alpha × top + (1 − alpha) × base，四舍五入到整数）。 */
+  static over(top: Rgb, base: Rgb, alpha: number): Rgb {
+    return new Rgb(Math.round(alpha * top.r + (1 - alpha) * base.r), Math.round(alpha * top.g + (1 - alpha) * base.g),
+      Math.round(alpha * top.b + (1 - alpha) * base.b));
+  }
+
+  /** 按钮底色等于令牌 key（±8）。 */
   static async assertFill(target: Component, key: string, dark: boolean, tag: string): Promise<void> {
+    await L2ButtonRig.assertFillRgb(target, key, L2ButtonRig.token(key, dark), tag);
+  }
+
+  /** 禁用底（D10-1238）：系统把不可用 Button 整体乘 DISABLED_ALPHA，期望 = 0.4 × key 令牌 + 0.6 × 所在底色令牌 baseKey（±8，同现行）。 */
+  static async assertDisabledFill(target: Component, key: string, baseKey: string, dark: boolean, tag: string): Promise<void> {
+    const want: Rgb = L2ButtonRig.over(L2ButtonRig.token(key, dark), L2ButtonRig.token(baseKey, dark), DISABLED_ALPHA);
+    await L2ButtonRig.assertFillRgb(target, DISABLED_ALPHA + '×' + key + '+' + (1 - DISABLED_ALPHA) + '×' + baseKey, want, tag);
+  }
+
+  /** 按钮底色：取 (20%, 20%)（避开居中文字与圆角，同 Ds02Ui.assertButtonSurface 取点），与 want 逐通道比 ±8。 */
+  static async assertFillRgb(target: Component, label: string, want: Rgb, tag: string): Promise<void> {
     expect(await target.getType()).assertEqual('Button');
     const shot: Shot = await captureChecked(driver, await target.getBounds(), 'l2button-' + tag);
     const got: Rgb = L2ButtonRig.pixel(shot, Math.floor(shot.width * 0.2), Math.floor(shot.height * 0.2));
-    const want: Rgb = L2ButtonRig.token(key, dark);
-    expect(tag + ' ' + key + ' got ' + L2ButtonRig.rgbText(got) + ' want ' + L2ButtonRig.rgbText(want) + ' ±' + COLOR_TOLERANCE + ' '
-      + L2ButtonRig.near(got, want)).assertEqual(tag + ' ' + key + ' got ' + L2ButtonRig.rgbText(got) + ' want '
+    expect(tag + ' ' + label + ' got ' + L2ButtonRig.rgbText(got) + ' want ' + L2ButtonRig.rgbText(want) + ' ±' + COLOR_TOLERANCE + ' '
+      + L2ButtonRig.near(got, want)).assertEqual(tag + ' ' + label + ' got ' + L2ButtonRig.rgbText(got) + ' want '
       + L2ButtonRig.rgbText(want) + ' ±' + COLOR_TOLERANCE + ' true');
   }
 
@@ -439,6 +473,7 @@ export function ds02L2UiButtonCases(): void {
     });
 
     // 书 §3 设备 ③：深浅取色是令牌角色（主按钮底、次按钮底与描边、禁用底，±8；FlakeKit.captureChecked 重拍口径）。
+    // 禁用底（D10-1238）：= 0.4 × button.primary.disabled.background + 0.6 × background.canvas（系统禁用透明度，仍由令牌推出）。
     for (const mode of ['light', 'dark']) {
       it('l2button_04_token_roles_primary_secondary_disabled_' + mode, 0, async (): Promise<void> => {
         const dark: boolean = mode === 'dark';
@@ -450,8 +485,9 @@ export function ds02L2UiButtonCases(): void {
         const secondary: Component = await L2ButtonRig.fullyVisible(COULI_BUTTON, L2ButtonRig.controlId('secondary-standard', 'default'));
         await L2ButtonRig.assertFill(secondary, 'background.surface', dark, 'secondary-' + mode);
         await L2ButtonRig.assertBorder(secondary, dark, 'secondary-border-' + mode);
-        await L2ButtonRig.assertFill(await L2ButtonRig.fullyVisible(COULI_BUTTON, L2ButtonRig.controlId('primary-standard', 'disabled')),
-          'button.primary.disabled.background', dark, 'disabled-' + mode);
+        await L2ButtonRig.assertDisabledFill(await L2ButtonRig.fullyVisible(COULI_BUTTON,
+          L2ButtonRig.controlId('primary-standard', 'disabled')), 'button.primary.disabled.background', CATALOG_BASE_KEY, dark,
+          'disabled-' + mode);
       });
     }
 
