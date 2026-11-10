@@ -95,3 +95,5 @@ export { CouliHaptics } from './src/main/ets/components/CouliHaptics';
 export { CouliMotion } from './src/main/ets/components/CouliMotion';
 export { CouliPressable } from './src/main/ets/components/CouliPressable';
 export { PressKind } from './src/main/ets/logic/MotionPolicy';
+// HM-L2-CARD：卡片件（静态 / 可点，令牌白底、圆角、阴影；可点卡经 CouliPressable，读屏合为一项）。
+export { CouliCard, CouliCardKind } from './src/main/ets/components/CouliCard';
