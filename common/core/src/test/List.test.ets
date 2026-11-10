@@ -149,6 +149,7 @@ import realnameFundsNoFundWriteTest from './RealnameFundsNoFundWrite.test';
 import realnamePrivacyTest from './RealnamePrivacy.test';
 import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
+import loginPhoneLayoutTest from './LoginPhoneLayout.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -313,4 +314,6 @@ export default function testsuite() {
   realnameWiringTest();
   realnameFundsNoFundWriteTest();
   realnamePrivacyTest();
+  // FU-HM-LOGIN-PHONE-LAYOUT（#24 只加；D10-1230 判据 1）：脱敏号码只含数字与 *，不含断行机会字符。
+  loginPhoneLayoutTest();
 }
