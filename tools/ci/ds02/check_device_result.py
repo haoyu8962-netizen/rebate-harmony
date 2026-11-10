@@ -4,6 +4,7 @@
 HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步（verify.sh），各自核对各自的必跑名单：
   --set main    原 entry 步：DS-02 160 + F-X-05a 9 + F-X-25 6 = 175 条，且不得混进 hm07va_ 用例（拆步后不在这一步跑）
                 HM-L2-CARD（#24 只加，README ⑩ 不新增设备步）：目录加 CouliCard 浅 / 深 2 条 + 主步另跑 Ds02L2Ui 8 条，main 175 → 185 条
+                HM-L2-SKELETON（#24 只加）：Ds02L2Ui 另加 L2SKEL 段 6 条（Skeleton 加 host × gated 一例，render_all 条数不变），main 185 → 191 条
   --set hm07va  首页视觉 a 段单独步：HM-07v-a 17 条（测试 v3 +2），且只能是这 17 条（套件过滤失效、混进别的套件都报红）
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
@@ -12,8 +13,9 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wb  隐私中心 / 关于 / 客服半屏视觉单独步（APP-12w-b-harmony 测试 v1：17 条），且只能是这 17 条
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
   --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
-  --set l2      子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui（HM-L2-CARD 8 条，tools/ci/l2card/device-cases.txt），且只能是这 8 条；verify 不单列此步（⑩）
-  --set all     不分步时的合集（298 条，允许以后增补用例）；缺省
+  --set l2      子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui（HM-L2-CARD 8 条 tools/ci/l2card/device-cases.txt + HM-L2-SKELETON 6 条
+                tools/ci/l2skeleton/device-cases.txt），且只能是这 14 条；verify 不单列此步（⑩）
+  --set all     不分步时的合集（304 条，允许以后增补用例）；缺省
 """
 import collections
 import csv
@@ -88,6 +90,12 @@ def l2_names():
             if line.strip() and not line.startswith('#')}
 
 
+def l2skel_names():
+    """HM-L2-SKELETON（#24 只加）：同一套件 Ds02L2Ui 的 L2SKEL 段设备用例（名单与 Ds02L2Ui.test.ets 的 L2SKEL_DEVICE_CASES 一致，check_l2_skeleton.py K8-cases 守）。主 entry 步里跑，子集跑并入 l2。"""
+    return {line.strip() for line in (Path(__file__).parents[1] / 'l2skeleton/device-cases.txt').read_text().splitlines()
+            if line.strip() and not line.startswith('#')}
+
+
 def expected_names(set_name='all'):
     if set_name not in SETS:
         raise ValueError('未知必跑名单 ' + str(set_name))
@@ -108,7 +116,7 @@ def expected_names(set_name='all'):
     if set_name == 'tabbar':
         return tabbar_names()
     if set_name == 'l2':
-        return l2_names()
+        return l2_names() | l2skel_names()
     inventory = Path(__file__).parent / 'fixtures/inventory.tsv'
     rows = csv.DictReader((line for line in inventory.read_text().splitlines()
                            if not line.startswith('#')), delimiter='\t')
@@ -142,6 +150,8 @@ def expected_names(set_name='all'):
     names.update(FX25_DEVICE_CASES)
     # HM-L2-CARD（#24 只加；README ⑩：Ds02L2Ui 在主 entry 步跑，不新增设备步）：main / all 都列为必跑。
     names.update(l2_names())
+    # HM-L2-SKELETON（#24 只加）：同一套件的 L2SKEL 段 6 条，main / all 同样列为必跑。
+    names.update(l2skel_names())
     if set_name == 'all':
         names.update(hm07va_names())
         names.update(hm07vb_names())

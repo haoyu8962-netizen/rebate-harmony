@@ -294,6 +294,7 @@ export const EXPECTED_CASES: ExpectedCase[] = [
   new ExpectedCase("Skeleton", "product", "loading", ["L2 业务组件"]),
   new ExpectedCase("Skeleton", "order", "loading", ["L2 业务组件"]),
   new ExpectedCase("Skeleton", "wallet", "loading", ["L2 业务组件"]),
+  new ExpectedCase("Skeleton", "host", "gated", ["L2 业务组件"]),
   new ExpectedCase("ProductCardSkeleton", "list", "loading", ["L2 业务组件"]),
   new ExpectedCase("EmptyState", "empty", "default", ["L2 业务组件"]),
   new ExpectedCase("ErrorState", "trace6", "default", ["L2 业务组件"]),

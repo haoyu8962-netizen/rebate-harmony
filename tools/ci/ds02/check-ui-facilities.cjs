@@ -351,8 +351,9 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
       checked += required.length;
     }
   }
-  assert.equal(checked, 822);
-  console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 822 cases, linear swipe bound, tall rows pass');
+  // HM-L2-SKELETON（#24 只加）：Skeleton 加 host × gated 一例（浅 / 深各 1），822 → 824；组件数 63 不变。
+  assert.equal(checked, 824);
+  console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 824 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');
   // S1：完整 36 行目录，测 search 六状态；不是裁小后的假列表。
   const searchRows = required.filter(row => row.variant === 'search');
