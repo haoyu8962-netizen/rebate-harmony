@@ -4,6 +4,7 @@
 HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步（verify.sh），各自核对各自的必跑名单：
   --set main    原 entry 步：DS-02 160 + F-X-05a 9 + F-X-25 6 = 175 条，且不得混进 hm07va_ 用例（拆步后不在这一步跑）
                 HM-L2-BUTTON 起 L2 共用套件 Ds02L2Ui 随主步跑（D10-1177 ⑩，不新增设备步）：+7 条 l2button_ = 182 条
+                HM-L2-PRICE-TAG 同一套件 Ds02L2Ui 另一段随主步跑（D10-1177 ⑩，不新增设备步）：+5 条 l2price_ = 187 条
   --set hm07va  首页视觉 a 段单独步：HM-07v-a 17 条（测试 v3 +2），且只能是这 17 条（套件过滤失效、混进别的套件都报红）
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
@@ -12,7 +13,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wb  隐私中心 / 关于 / 客服半屏视觉单独步（APP-12w-b-harmony 测试 v1：17 条），且只能是这 17 条
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
   --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
-  --set all     不分步时的合集（295 条 = 288 + Ds02L2Ui 7，允许以后增补用例）；缺省
+  --set all     不分步时的合集（300 条 = 288 + Ds02L2Ui 7 + 5，允许以后增补用例）；缺省
 """
 import collections
 import csv
@@ -136,6 +137,10 @@ def expected_names(set_name='all'):
     names.update({'l2button_02_buy_button_states_text_and_enabled', 'l2button_03_font_200_no_truncation_and_hit_target_48',
                   'l2button_05_rapid_taps_on_inactive_buttons_fire_zero_callbacks'})
     names.update('l2button_04_token_roles_primary_secondary_disabled_' + mode for mode in ['light', 'dark'])
+    # HM-L2-PRICE-TAG（D10-1177 ⑩）：同一套件 Ds02L2Ui 的第二段随主步跑（名单与 Ds02L2Ui.test.ets 的 ds02L2UiPriceTagCases 一致；只加不减）。
+    names.update({'l2price_01_price_tag_variants_amount_whole_at_100_and_200', 'l2price_02_rebate_tag_states_whole_at_100_and_200',
+                  'l2price_04_amount_toggle_replaces_value_in_place_without_flash'})
+    names.update('l2price_03_token_roles_price_text_rebate_text_background_' + mode for mode in ['light', 'dark'])
     if set_name == 'all':
         names.update(hm07va_names())
         names.update(hm07vb_names())

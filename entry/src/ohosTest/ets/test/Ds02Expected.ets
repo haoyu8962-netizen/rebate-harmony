@@ -385,6 +385,7 @@ export const EXPECTED_CASES: ExpectedCase[] = [
   new ExpectedCase("RebateTag", "login_required", "normal", ["L2 业务组件"]),
   new ExpectedCase("RebateTag", "login_required", "amount-hidden", ["L2 业务组件"]),
   new ExpectedCase("RebateTag", "range", "wrap-at-dash", ["L2 业务组件"]),
+  new ExpectedCase("RebateTag", "block", "normal", ["L2 业务组件"]),
   new ExpectedCase("EstNetLine", "default", "normal", ["L2 业务组件"]),
   new ExpectedCase("EstNetLine", "default", "amount-hidden", ["L2 业务组件"]),
   new ExpectedCase("DisclaimerFooter", "detail", "default", ["L2 业务组件"]),

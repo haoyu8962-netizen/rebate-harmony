@@ -49,6 +49,7 @@ BrandMark	§3.7	L2 业务组件	size56	default
 PriceTag	§4	L2 业务组件	coupon-list,coupon-ai,coupon-detail,no-coupon-list,no-coupon-ai,no-coupon-detail,pdd-list,pdd-ai,pdd-detail,presale-list,presale-ai,presale-detail	normal,long-price
 RebateTag	§4	L2 业务组件	single,range,large,amount_unknown,login_required	normal,amount-hidden
 RebateTag	§4	L2 业务组件	range	wrap-at-dash
+RebateTag	§4	L2 业务组件	block	normal
 EstNetLine	§4	L2 业务组件	default	normal,amount-hidden
 DisclaimerFooter	§4	L2 业务组件	detail,list,card-info	default
 PlatformBadge	§4	L2 业务组件	list,order	loaded,fallback

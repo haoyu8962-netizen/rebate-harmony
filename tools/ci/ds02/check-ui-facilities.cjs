@@ -294,13 +294,15 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
     .map(suite => suite.task + '=' + suite.names.length).join(',') + ' match their fixed lists; not executed here');
   await registrationMutants(expected);
   // HM-L2-BUTTON：Ds02L2Ui（D10-1177 ⑩）与 Ds02Ui / Ds02R1Ui 同款各挂一对 drainUiTasks 钩子，2 → 3。
-  assert.equal(beforeEachHooks.length, 3);
-  assert.equal(afterEachHooks.length, 3);
+  // HM-L2-PRICE-TAG：Ds02L2Ui 的第二段（ds02L2UiPriceTagCases）同款再挂一对，3 → 4；check-ui-session 仍只驱动 [0] / [1]。
+  assert.equal(beforeEachHooks.length, 4);
+  assert.equal(afterEachHooks.length, 4);
   await require('./check-ui-session.cjs')({ load, testRoot, beforeEachHooks, afterEachHooks,
     driver: value => { activeDriver = value; }, driverProxy, ON });
   activeDriver = startupDriver;
   // HM-L2-BUTTON：Ds02L2Ui 的 beforeAll（进目录）排在 Ds02Ui 之后，1 → 2；下面仍只驱动 [0]（Ds02Ui 的启动）。
-  assert.equal(beforeHooks.length, 2);
+  // HM-L2-PRICE-TAG：Ds02L2Ui 第二段的 beforeAll 排在 Ds02Ui、BUTTON 段之后，2 → 3；下面仍只驱动 [0]。
+  assert.equal(beforeHooks.length, 3);
   await beforeHooks[0]();
   assert.equal(launchCount, 3);
   assert.ok(catalog && clicked.includes('不同意') && clicked.includes('仍不同意'));
@@ -351,8 +353,8 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
       checked += required.length;
     }
   }
-  assert.equal(checked, 804);
-  console.log('REFERENCE_ONLY traversal: 62 components x 2 modes, 804 cases, linear swipe bound, tall rows pass');
+  assert.equal(checked, 806);
+  console.log('REFERENCE_ONLY traversal: 62 components x 2 modes, 806 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');
   // S1：完整 36 行目录，测 search 六状态；不是裁小后的假列表。
   const searchRows = required.filter(row => row.variant === 'search');
