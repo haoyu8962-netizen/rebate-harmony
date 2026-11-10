@@ -22,6 +22,7 @@ import ctaKeyVectorTest from './CtaKeyVector.test';
 import themeBaseTest from './ThemeBase.test';
 import feelKitTest from './FeelKit.test';
 import iconSymbolTest from './IconSymbol.test';
+import l2ButtonTest from './L2Button.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -52,4 +53,6 @@ export default function testsuite() {
   feelKitTest();
   // FU-HM-ICON-SYMBOL：CouliIcon 名字分组（34 系统符号 / 10 自有 Path）与路径表收窄。
   iconSymbolTest();
+  // HM-L2-BUTTON：BuyButtonModel 的 D10-871 回落、下架禁用态、F-HM-94。
+  l2ButtonTest();
 }
