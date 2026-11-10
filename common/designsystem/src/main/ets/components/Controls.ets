@@ -405,6 +405,7 @@ export struct CouliIconButton {
   @Param selected: boolean = false;
   @Param disabled: boolean = false;
   @Param badge: boolean = false;
+  /** 目录专用，业务不得传：目录页静态展示「按下」底色（系统按压是瞬时变暗）。 */
   @Param pressedPreview: boolean = false;
   @Param controlId: string = '';
   @Event onTap: () => void = () => {

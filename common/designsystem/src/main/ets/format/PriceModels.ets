@@ -5,6 +5,10 @@ import { PriceTerms } from './PriceTerms';
 /** 已有契约键的返利文案（BR-PRICE-07/08）；DefaultTexts 取不到时用空串（不在客户端另写一份）。 */
 const KEY_AMOUNT_UNKNOWN: string = 'rebate_amount_unknown';
 const KEY_LOGIN_TO_VIEW: string = 'rebate_login_to_view';
+/** D10-871 金额隐藏下的购买按钮回落键（与 FU-X-CTA-KEY-DRIFT R2 缺键回落同一键，契约字典「购买」；不用 PriceTerms.buy「去购买」）。 */
+const KEY_BUY_FALLBACK: string = 'btn.buy';
+/** cta 文案里的金额占位（btn.buy.rebate 等）；映射一般已填好，字面仍在说明来源没走映射。 */
+const AMOUNT_PLACEHOLDER: string = '{amount}';
 
 function contractText(key: string): string {
   return DefaultTexts.text(key) ?? '';
@@ -226,6 +230,16 @@ export class EstNetModel {
   }
 }
 
+/** 购买按钮状态（组件 BuyButton 与 Index 从 components/Price 照旧导出；定义放在纯逻辑这边，供 BuyButtonModel.stateLabel 用）。 */
+export enum BuyButtonState {
+  NORMAL = 'normal',
+  LOADING = 'loading',
+  /** 禁用：调用方给了 retryText（下架「商品已下架」，D10-907）显示它，否则显示动词；不拼返利后缀。 */
+  DISABLED = 'disabled',
+  /** 「稍后再试」：显示调用方给的 retryText（空串时 PriceTerms.retryLater），禁用；不拼返利后缀。 */
+  RETRY_LATER = 'retry_later'
+}
+
 /** 购买按钮所在页面。只有 list / detail / agent 显示返利金额（link_landing、share 不显示，BR-TEXT-14 表 C）。 */
 export class BuyContext {
   static readonly LIST: string = 'list';
@@ -239,11 +253,16 @@ export class BuyButtonModel {
   /**
    * BR-TEXT-14 表 C btn.buy.rebate_suffix：只有单一金额（kind=amount）、金额隐藏开关未打开、页面显示返利金额时，
    * 在调用方给的动词后拼「 · 预估返 ¥x」；金额与同卡 RebateTag 是同一个格式化结果。
-   * loading、禁用、「稍后再试」不拼后缀由组件 BuyButton 处理（本函数没有状态入参）。
+   * loading、禁用、「稍后再试」不拼后缀由 stateLabel 处理（本函数没有状态入参）。
+   * 金额隐藏下动词带金额（字面 {amount} 或本卡金额）回落 btn.buy「购买」（D10-871，见 hiddenFallback）。
    * 动词里已经有这笔金额（btn.buy.rebate「购买预估返 ¥x」，FU-X-CTA-KEY-DRIFT R1）时不再拼后缀。
    * TODO(N-13)：未知 context 不拼后缀（编排者裁定）。
    */
   static text(base: string, rebate: RebateTagContent, amountHidden: boolean, context: string): string {
+    const hidden: string | null = BuyButtonModel.hiddenFallback(base, rebate, amountHidden);
+    if (hidden !== null) {
+      return hidden;
+    }
     if (!BuyButtonModel.appendsSuffix(rebate, amountHidden, context) || rebate.amountText === null
       || BuyButtonModel.namesAmount(base, rebate)) {
       return base;
@@ -257,10 +276,18 @@ export class BuyButtonModel {
    * 动词里没有整段标签文字时原样返回。
    */
   static spoken(base: string, rebate: RebateTagContent, amountHidden: boolean, context: string): string {
+    const hidden: string | null = BuyButtonModel.hiddenFallback(base, rebate, amountHidden);
+    if (hidden !== null) {
+      return hidden;
+    }
     const showsAmount: boolean = !amountHidden && BuyButtonModel.pageShowsAmount(context);
     if (showsAmount && rebate.hasAmount) {
       if (BuyButtonModel.namesAmount(base, rebate)) {
-        return base.indexOf(rebate.text) >= 0 ? base.split(rebate.text).join(rebate.spokenText) : base;
+        if (base.indexOf(rebate.text) >= 0) {
+          return base.split(rebate.text).join(rebate.spokenText);
+        }
+        // F-HM-94：动词里只有金额、没有整段标签文字（将来别的 {amount} 键，如「立省 ¥x」）：金额换读屏写法，不读「¥」。
+        return base.split(rebate.amountText ?? '').join(BuyButtonModel.amountSpoken(rebate));
       }
       return base + PriceTerms.comma + rebate.spokenText;
     }
@@ -272,12 +299,58 @@ export class BuyButtonModel {
     return given.length > 0 ? given : PriceTerms.retryLater;
   }
 
+  /**
+   * BuyButton 的按钮文字（BuyButton.label() 的纯逻辑，可单测）：
+   * NORMAL 走 text；DISABLED 有调用方文案（下架「商品已下架」，FU-HM-OFFSHELF-STATE）用它，否则动词；
+   * RETRY_LATER 走 retryText（空串「稍后再试」）；LOADING 显示动词。
+   * 动词在金额隐藏下同样按 D10-871 回落（加载中 / 禁用也不露金额，D10-1177 ②）。
+   */
+  static stateLabel(state: BuyButtonState, base: string, retryText: string, rebate: RebateTagContent, amountHidden: boolean,
+    context: string): string {
+    switch (state) {
+      case BuyButtonState.NORMAL:
+        return BuyButtonModel.text(base, rebate, amountHidden, context);
+      case BuyButtonState.RETRY_LATER:
+        return BuyButtonModel.retryText(retryText);
+      case BuyButtonState.DISABLED:
+        return retryText.length > 0 ? retryText : BuyButtonModel.verb(base, rebate, amountHidden);
+      default:
+        return BuyButtonModel.verb(base, rebate, amountHidden);
+    }
+  }
+
   static pageShowsAmount(context: string): boolean {
     return context === BuyContext.LIST || context === BuyContext.DETAIL || context === BuyContext.AGENT;
   }
 
   private static appendsSuffix(rebate: RebateTagContent, amountHidden: boolean, context: string): boolean {
     return rebate.kind === RebateKind.AMOUNT && !amountHidden && BuyButtonModel.pageShowsAmount(context);
+  }
+
+  /** 不拼后缀的动词（加载中 / 禁用）：金额隐藏且动词带金额时回落 btn.buy，否则原样。 */
+  private static verb(base: string, rebate: RebateTagContent, amountHidden: boolean): string {
+    return BuyButtonModel.hiddenFallback(base, rebate, amountHidden) ?? base;
+  }
+
+  /**
+   * D10-871（按 D10-1177 ② 读）：金额隐藏下，动词带金额——字面 {amount}，或已被映射填好的本卡金额——回落契约字典 btn.buy「购买」，
+   * 按钮照常可点；不带金额的动词返回 null（走原逻辑，FormatVector buyButton[6]）。字典取不到时退回 base（不抛错）。
+   */
+  private static hiddenFallback(base: string, rebate: RebateTagContent, amountHidden: boolean): string | null {
+    if (!amountHidden) {
+      return null;
+    }
+    if (base.indexOf(AMOUNT_PLACEHOLDER) < 0 && !BuyButtonModel.namesAmount(base, rebate)) {
+      return null;
+    }
+    const fallback: string = contractText(KEY_BUY_FALLBACK);
+    return fallback.length > 0 ? fallback : base;
+  }
+
+  /** 金额本身的读屏写法：「预估返 2.69 元」去掉开头的「预估返 」。 */
+  private static amountSpoken(rebate: RebateTagContent): string {
+    const prefix: string = PriceTerms.rebate + ' ';
+    return rebate.spokenText.indexOf(prefix) === 0 ? rebate.spokenText.substring(prefix.length) : rebate.spokenText;
   }
 
   /** 动词里已经含这笔返利金额（与同卡返利标签同一个格式化结果，如 btn.buy.rebate 填好的「购买预估返 ¥2.69」）。 */

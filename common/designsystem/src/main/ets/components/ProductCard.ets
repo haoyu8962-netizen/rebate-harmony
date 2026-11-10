@@ -3,7 +3,7 @@ import { CouliColors } from '../CouliColors';
 import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTextStyle, CouliTypography } from '../CouliTypography';
 import {
-  BuyButtonModel, CardAmountMask, PresaleDisplay, PriceTagContent, PriceTagModel, RebateKind, RebateTagContent,
+  CardAmountMask, PresaleDisplay, PriceTagContent, PriceTagModel, RebateKind, RebateTagContent,
   RebateTagModel
 } from '../format/PriceModels';
 import { PriceTerms } from '../format/PriceTerms';
@@ -366,7 +366,7 @@ export struct ProductCard {
       amountHidden: this.data.amountHidden,
       context: this.context(),
       state: this.data.buyState,
-      retryText: BuyButtonModel.retryText(this.data.retryText),
+      retryText: this.data.retryText,
       compact: this.variant !== ProductCardVariant.LARGE,
       onTap: () => {
         this.onBuy();

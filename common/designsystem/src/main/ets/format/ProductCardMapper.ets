@@ -159,7 +159,7 @@ export class ProductCardMapper {
     if (!d.priceUnavailable && card['availability'] === ProductCardMapper.OFF_SHELF) {
       // 商品已下架（open 返回 30141 / availability=off_shelf，BR-PRICE-14）：只这张卡的按钮置灰、显示「商品已下架」并禁用
       // （搜索卡与详情一致，APP-06b 共性第 28 条）；同页其它商品不受影响。
-      d.buyState = BuyButtonState.RETRY_LATER;
+      d.buyState = BuyButtonState.DISABLED;
       d.retryText = texts.text(ProductCardKeys.OFF_SHELF);
     }
     const keys: string[] = ProductCardMapper.disclaimerKeys(card);
