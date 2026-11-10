@@ -26,6 +26,8 @@ export class CatalogEvents {
   @Trace lastLink: string = '无';
   /** 协议确认框【同意并继续】后同步到 AgreementCheckRow/three/unchecked 这一个样例（同一实例）。 */
   @Trace agreementThreeChecked: boolean = false;
+  /** 本详情页里所有 ErrorState（各样例 + 头部活样例）onRetry 的累计次数（catalog-events/ErrorState，HM-L2-STATE）。 */
+  @Trace errorRetryCount: number = 0;
 }
 
 /** 样例文字（组件清单画板与登录 v2 的原文；正式页面经文案字典取键，不从这里复用）。 */
@@ -114,7 +116,7 @@ export struct CatalogSampleView {
       } else if (this.component === 'Loading' || this.component === 'PullToRefresh' || this.component === 'Skeleton'
         || this.component === 'ProductCardSkeleton' || this.component === 'EmptyState' || this.component === 'ErrorState'
         || this.component === 'NoticeBar') {
-        FeedbackSample({ component: this.component, variant: this.variant, state: this.state })
+        FeedbackSample({ component: this.component, variant: this.variant, state: this.state, events: this.events })
       } else if (this.component === 'Toast' || this.component === 'AlertDialog' || this.component === 'Dialog'
         || this.component === 'Sheet' || this.component === 'ActionMenu') {
         OverlaySample({ component: this.component, variant: this.variant, state: this.state })
@@ -717,6 +719,7 @@ struct FeedbackSample {
   @Param component: string = '';
   @Param variant: string = '';
   @Param state: string = '';
+  @Param events: CatalogEvents = new CatalogEvents();
   @Local refreshing: boolean = false;
 
   aboutToAppear(): void {
@@ -804,7 +807,11 @@ struct FeedbackSample {
       ErrorState({
         title: this.variant === 'offline' ? '网络不可用' : CatalogText.loadFailed,
         message: this.variant === 'offline' ? '请检查网络后重试' : '错误编号 7F3A9C',
-        retryText: CatalogText.retry, retryId: 'catalog-error-retry-' + this.variant
+        retryText: CatalogText.retry, retryId: 'catalog-error-retry-' + this.variant + '-' + this.state,
+        retrying: this.state === 'retrying',
+        onRetry: () => {
+          this.events.errorRetryCount++;
+        }
       })
     } else {
       NoticeBar({ text: this.noticeText(), tone: this.noticeTone(), actionText: this.state === 'action' ? '去处理' : '' })
