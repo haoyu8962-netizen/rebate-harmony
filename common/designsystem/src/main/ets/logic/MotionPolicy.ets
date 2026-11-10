@@ -43,4 +43,10 @@ export class MotionPolicy {
   static press(reduced: boolean, kind: PressKind): PressKind {
     return reduced ? PressKind.HIGHLIGHT : kind;
   }
+
+  /** 金额 Text 要不要挂系统数字过渡（HM-L2-PRICE-TAG；批 2 AMOUNT-GRID 复用）。减弱动态时不挂、直接替换（D10-1163 ①）。 */
+  // 注意：返回 true 也不要直接接 CouliMotion.numeric()——API 20 上无参 NumericTextTransition 会闪退，先看 FU-HM-NUMERIC-TRANSITION。
+  static numericTransition(reduced: boolean): boolean {
+    return !reduced;
+  }
 }

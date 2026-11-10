@@ -295,11 +295,19 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   await registrationMutants(expected);
   // HM-L2-CARD（#24；FREEZE 集成备忘：Ds02L2Ui 走严格加载器，不进 FOREIGN_SUITES）：List.test 在 Ds02R1Ui 之后登记 Ds02L2Ui，
   // 其 beforeEach / afterEach / beforeAll 各 1 个排在 Ds02Ui、Ds02R1Ui 之后；下方会话 / 启动设施仍只取 [0] / [1]，计数仍是精确等于。
+  // HM-L2-BUTTON：Ds02L2Ui（D10-1177 ⑩）与 Ds02Ui / Ds02R1Ui 同款各挂一对 drainUiTasks 钩子。
+  // HM-L2-PRICE-TAG：Ds02L2Ui 的第二段（ds02L2UiPriceTagCases）同款再挂一对；check-ui-session 仍只驱动 [0] / [1]。
+  // HM-L2 批 1 集成（FREEZE，integ1-harmony.md §收尾）：Ds02L2Ui 只有一个 describe（CARD / SKELETON 守卫「恰一个」），BUTTON / PRICE 段在其中注册，
+  // 两段原 describe 的 beforeEach / afterEach（drainUiTasks）并入它那一对，beforeAll / afterAll 挪成段边界的段前准备 / 段后复位：
+  // beforeEach / afterEach = Ds02Ui 1 + Ds02R1Ui 1 + Ds02L2Ui 1 = 3。
   assert.equal(beforeEachHooks.length, 3);
   assert.equal(afterEachHooks.length, 3);
   await require('./check-ui-session.cjs')({ load, testRoot, beforeEachHooks, afterEachHooks,
     driver: value => { activeDriver = value; }, driverProxy, ON });
   activeDriver = startupDriver;
+  // HM-L2-BUTTON：Ds02L2Ui 的 beforeAll（进目录）排在 Ds02Ui 之后；下面仍只驱动 [0]（Ds02Ui 的启动）。
+  // HM-L2-PRICE-TAG：Ds02L2Ui 第二段的 beforeAll 排在 Ds02Ui、BUTTON 段之后；下面仍只驱动 [0]。
+  // HM-L2 批 1 集成（§收尾）：Ds02Ui 1 + Ds02L2Ui 1（CARD 原 beforeAll；BUTTON / PRICE 的进目录在段边界执行，不是 Hypium 钩子）= 2。
   assert.equal(beforeHooks.length, 2);
   await beforeHooks[0]();
   assert.equal(launchCount, 3);
@@ -352,8 +360,9 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
     }
   }
   // HM-L2-SKELETON（#24 只加）：Skeleton 加 host × gated 一例（浅 / 深各 1），822 → 824；组件数 63 不变。
-  assert.equal(checked, 824);
-  console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 824 cases, linear swipe bound, tall rows pass');
+  // HM-L2-BUTTON（BuyButton single × off-shelf）、HM-L2-PRICE-TAG（RebateTag block × normal）各 +2（浅 / 深）；集成后 824 → 828，组件数 63 不变。
+  assert.equal(checked, 828);
+  console.log('REFERENCE_ONLY traversal: 63 components x 2 modes, 828 cases, linear swipe bound, tall rows pass');
   const required = rows.filter(row => row.component === 'ProductCard');
   // S1：完整 36 行目录，测 search 六状态；不是裁小后的假列表。
   const searchRows = required.filter(row => row.variant === 'search');

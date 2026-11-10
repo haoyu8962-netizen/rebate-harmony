@@ -3,7 +3,7 @@ import { CouliColors } from '../CouliColors';
 import { CouliInteraction, CouliRadius, CouliSpacing, CouliFocus } from '../CouliMetrics';
 import { CouliFontWeight, CouliTextStyle, CouliTypography } from '../CouliTypography';
 import {
-  BuyButtonModel, PresaleDisplay, PriceTagContent, PriceTagModel, RebateKind, RebateTagContent, RebateTagModel
+  BuyButtonModel, BuyButtonState, PresaleDisplay, PriceTagContent, PriceTagModel, RebateKind, RebateTagContent, RebateTagModel
 } from '../format/PriceModels';
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip } from './Basics';
@@ -369,17 +369,12 @@ export struct DisclaimerFooter {
   }
 }
 
-export enum BuyButtonState {
-  NORMAL = 'normal',
-  LOADING = 'loading',
-  DISABLED = 'disabled',
-  /** 「稍后再试」：显示调用方给的 retryText（空串时 PriceTerms.retryLater），禁用；不拼返利后缀。 */
-  RETRY_LATER = 'retry_later'
-}
+// BuyButtonState 定义挪到纯逻辑 PriceModels（BuyButtonModel.stateLabel 要用，Logic 入口不得引入界面文件）；这里照旧导出，调用方不变。
+export { BuyButtonState } from '../format/PriceModels';
 
 /**
  * 购买按钮：动词由调用方给（cta.text_key：领券购买 / 去购买 / 去购买（无返利））；BuyButtonModel 决定是否拼「· 预估返 ¥x」。
- * loading、禁用、「稍后再试」不拼后缀（BR-TEXT-14 表 C）。读屏名称：可见文字开头 + 区间 / 单值朗读（adaptation-a11y-spec §9）。
+ * loading、禁用、「稍后再试」不拼后缀（BR-TEXT-14 表 C；各状态的文字见 BuyButtonModel.stateLabel）。读屏名称：可见文字开头 + 区间 / 单值朗读（adaptation-a11y-spec §9）。
  */
 @ComponentV2
 export struct BuyButton {
@@ -395,14 +390,7 @@ export struct BuyButton {
   };
 
   private label(): string {
-    switch (this.state) {
-      case BuyButtonState.NORMAL:
-        return BuyButtonModel.text(this.base, this.rebate, this.amountHidden, this.context);
-      case BuyButtonState.RETRY_LATER:
-        return BuyButtonModel.retryText(this.retryText);
-      default:
-        return this.base;
-    }
+    return BuyButtonModel.stateLabel(this.state, this.base, this.retryText, this.rebate, this.amountHidden, this.context);
   }
 
   private spoken(): string {

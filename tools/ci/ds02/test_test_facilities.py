@@ -278,11 +278,16 @@ run_device_tests core common/core core_test
         # + Ds02L2Ui 8 条（tools/ci/l2card/device-cases.txt，主 entry 步里跑）；只增不减，合集 288 → 298、main 175 → 185。
         # HM-L2-SKELETON（#24 只加）：Ds02L2Ui 另加 L2SKEL 段 6 条（tools/ci/l2skeleton/device-cases.txt）；Skeleton 加 host × gated 不加 render_all 条数；
         # 只增不减，合集 298 → 304、main 185 → 191、l2 8 → 14。
-        self.assertEqual(len(names), 304)
+        # HM-L2-BUTTON（#24，D10-1177 ⑩）：L2 共用套件 Ds02L2Ui 在 entry List 登记、随主步跑，+7 条 l2button_；只增不减，合集 304 → 311、main 191 → 198。
+        # HM-L2-PRICE-TAG（#24，D10-1177 ⑩）：同一套件 Ds02L2Ui 的第二段随主步跑，+5 条 l2price_（inventory 新行 RebateTag block/normal 不新增名字）；只增不减，合集 311 → 316、main 198 → 203。
+        # HM-L2 批 1 集成（FREEZE，D10-1177 ⑨）：四单按上面顺序叠加，合集 = 288 + CouliCard 渲染 2 + Ds02L2Ui 26 = 316。
+        self.assertEqual(len(names), 316)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
         self.assertIn('render_all_declared_states_CouliCard_light', names)
         self.assertIn('render_all_declared_states_CouliCard_dark', names)
+        self.assertEqual(len([name for name in names if name.startswith('l2button_')]), 7)
+        self.assertEqual(len([name for name in names if name.startswith('l2price_')]), 5)
         self.assertEqual(len([name for name in names if name.startswith('tabbar_')]), 7)
         self.assertEqual(len([name for name in names if name.startswith('me12wc_')]), 21)
         self.assertEqual(len([name for name in names if name.startswith('me12wb_')]), 17)
@@ -308,13 +313,14 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 304)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 304)
+        self.assertEqual(validate(report(names)), 316)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 316)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
                         or name.startswith('l2card_') or name.startswith('render_all_declared_states_CouliCard_')
                         or name.startswith('l2skel_')
+                        or name.startswith('l2button_') or name.startswith('l2price_')
                         or name in FX25_DEVICE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
@@ -354,8 +360,25 @@ run_device_tests core common/core core_test
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
         l2 = expected_names('l2')
-        self.assertEqual(len(main), 191)
-        self.assertEqual(len(l2), 14)
+        self.assertEqual(len(main), 203)
+        self.assertEqual(len(l2), 26)
+        # HM-L2-BUTTON：Ds02L2Ui 随主步跑（不新增设备步），7 条 l2button_ 只在 main，名单与套件 it() 一致（带 + mode 的按 light / dark 展开）。
+        # HM-L2 批 1 集成（§收尾，换定位）：用例名原样挪进 L2BUTTON_DEVICE_CASES，按常量下标注册（同 L2SKEL），下标 0..n-1 各恰好一次。
+        l2button = {name for name in main if name.startswith('l2button_')}
+        self.assertEqual(len(l2button), 7)
+        l2_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
+        l2_declared = re.findall(r"'(l2button_\d\d_[a-z0-9_]+)'", l2_suite.split('L2BUTTON_DEVICE_CASES: string[] = [')[1].split('];')[0])
+        self.assertEqual(sorted(int(i) for i in re.findall(r"\bit\(L2BUTTON_DEVICE_CASES\[(\d+)\]", l2_suite)), list(range(len(l2_declared))))
+        self.assertEqual(sorted(n + m if n.endswith('_') else n for n in l2_declared
+                                for m in (['light', 'dark'] if n.endswith('_') else [''])), sorted(l2button))
+        # HM-L2-PRICE-TAG：同一套件第二段，5 条 l2price_ 只在 main，名单与套件 it('l2price_…') 一致（带 + mode 的按 light / dark 展开）。
+        # HM-L2 批 1 集成（§收尾，换定位）：用例名原样挪进 L2PRICE_DEVICE_CASES，按常量下标注册，下标 0..n-1 各恰好一次。
+        l2price = {name for name in main if name.startswith('l2price_')}
+        self.assertEqual(len(l2price), 5)
+        l2price_declared = re.findall(r"'(l2price_\d\d_[a-z0-9_]+)'", l2_suite.split('L2PRICE_DEVICE_CASES: string[] = [')[1].split('];')[0])
+        self.assertEqual(sorted(int(i) for i in re.findall(r"\bit\(L2PRICE_DEVICE_CASES\[(\d+)\]", l2_suite)), list(range(len(l2price_declared))))
+        self.assertEqual(sorted(n + m if n.endswith('_') else n for n in l2price_declared
+                                for m in (['light', 'dark'] if n.endswith('_') else [''])), sorted(l2price))
         self.assertEqual(len(me12wc), 21)
         self.assertEqual(len(tabbar), 7)
         self.assertEqual(len(me12wb), 17)
@@ -368,7 +391,8 @@ run_device_tests core common/core core_test
         # HM-L2-CARD（#24 只加）：l2 是主步的子集（README ⑩ 不新增设备步），与 8 个单独步不相交，名单与套件导出常量一致。
         self.assertEqual(l2 - main, set())
         self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2, set())
-        self.assertTrue(all(name.startswith('l2card_') or name.startswith('l2skel_') for name in l2))
+        self.assertTrue(all(name.startswith('l2card_') or name.startswith('l2skel_') or name.startswith('l2button_') or name.startswith('l2price_')
+                            for name in l2))
         l2_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
         l2_const = l2_suite.split('L2CARD_DEVICE_CASES')[1].split('];')[0]
         l2card = {name for name in l2 if name.startswith('l2card_')}
@@ -376,11 +400,13 @@ run_device_tests core common/core core_test
         self.assertEqual(sorted(re.findall(r"'(l2card_\d\d_[a-z0-9_]+)'", l2_const)), sorted(l2card))
         self.assertEqual(sorted(re.findall(r"\bit\('(l2card_\d\d_[a-z0-9_]+)'", l2_suite)), sorted(l2card))
         # HM-L2-SKELETON（#24 只加）：L2SKEL 段名单 = 套件导出常量；it 按常量下标注册，下标 0..5 各恰好一次（另由 check_l2_skeleton.py K8-cases 守）。
-        l2skel = l2 - l2card
+        l2skel = {name for name in l2 if name.startswith('l2skel_')}
         self.assertEqual(len(l2skel), 6)
         skel_const = l2_suite.split('L2SKEL_DEVICE_CASES: string[] = [')[1].split('];')[0]
         self.assertEqual(sorted(re.findall(r"'(l2skel_\d\d_[a-z0-9_]+)'", skel_const)), sorted(l2skel))
         self.assertEqual(sorted(int(i) for i in re.findall(r"\bit\(L2SKEL_DEVICE_CASES\[(\d+)\]", l2_suite)), list(range(len(l2skel))))
+        # HM-L2 批 1 集成（FREEZE）：子集跑 class=Ds02L2Ui 跑唯一 describe 里的全部段，l2 = 四段按前缀分的并集（各段名单各自按本段前缀核对）。
+        self.assertEqual(l2, l2card | l2skel | l2button | l2price)
         # FU-HM-TAB-BAR 第九步：与其余各步两两不相交，名单与套件导出常量一致。
         self.assertEqual((main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc) & tabbar, set())
         self.assertTrue(all(name.startswith('tabbar_') for name in tabbar))
@@ -443,8 +469,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 191)
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 191)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 203)
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 203)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
@@ -453,7 +479,7 @@ run_device_tests core common/core core_test
         self.assertEqual(validate(report(sorted(me12wb)), 'me12wb'), 17)
         self.assertEqual(validate(report(sorted(me12wc)), 'me12wc'), 21)
         self.assertEqual(validate(report(sorted(tabbar)), 'tabbar'), 7)
-        self.assertEqual(validate(report(sorted(l2)), 'l2'), 14)
+        self.assertEqual(validate(report(sorted(l2)), 'l2'), 26)
         bad = {
             # 原 entry 步：任一条缺跑（含新列入的 F-X-25 6 条）都红；混进 hm07va 用例（过滤失效）也红。
             **{'main-missing-' + name: (report(sorted(main - {name})), 'main') for name in sorted(main)},
@@ -548,7 +574,7 @@ run_device_tests core common/core core_test
             'l2-with-tabbar-case': (report(sorted(l2) + sorted(tabbar)[:1]), 'l2'),
             'l2-with-future-case': (report(sorted(l2) + ['future_extra_test']), 'l2'),
             'l2-failed': (report(sorted(l2), failed=sorted(l2)[0]), 'l2'),
-            'l2-only-summary': ('Tests run: 14, Failure: 0, Error: 0, Pass: 14', 'l2'),
+            'l2-only-summary': ('Tests run: 26, Failure: 0, Error: 0, Pass: 26', 'l2'),
             'l2-report-checked-as-main': (report(sorted(l2)), 'main'),
             'tabbar-report-checked-as-l2': (report(sorted(tabbar)), 'l2'),
         }
@@ -558,6 +584,90 @@ run_device_tests core common/core core_test
         with self.assertRaises(ValueError):
             expected_names('unknown')
         print('REFERENCE_ONLY split device reports rejected: %d' % len(bad))
+
+    def test_l2_segment_boundary_keeps_original_segment_hooks(self):
+        """HM-L2 批 1 集成（#24 只加，integ1-recheck-harmony S2）：BUTTON / PRICE-TAG 原 describe 的 beforeAll / afterAll 挪进 Ds02L2Ui
+        文件末「段边界」后，原钩子计数（check-ui-facilities beforeAll == 4）看不到它们了；这里把段边界钉住：
+        ① 模块级 it 包装在用例体之前 await l2EnterSegment(name)，且是唯一向 hypium 注册的入口；
+        ② CARD / BUTTON / PRICE-TAG 三段的段前准备、段后复位 = 原 beforeAll / afterAll 原文（dfe55d2 / 562087f，空白归一后逐字比）；
+        ③ l2EnterSegment 依次复位上一段、准备本段、drain，准备失败本段每条都抛；l2FinishSegments 复位最后一段；
+        ④ l2SegmentOf 的前缀与 L2BUTTON_DEVICE_CASES / L2PRICE_DEVICE_CASES 一致，CARD / SKELETON 名都落 card 段。"""
+        suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
+
+        def flat(text):
+            return re.sub(r'\s+', ' ', re.sub(r'//[^\n]*', '', text)).strip()
+
+        def block(head):
+            # head 在全文件恰好一处；取其后第一个 { 起的配对块体（这几段里没有含括号的字符串）。
+            self.assertEqual(suite.count(head), 1, head)
+            start = suite.index('{', suite.index(head) + len(head))
+            depth = 0
+            for k in range(start, len(suite)):
+                depth += {'{': 1, '}': -1}.get(suite[k], 0)
+                if depth == 0:
+                    return flat(suite[start + 1:k])
+            self.fail('unbalanced block: ' + head)
+
+        # 原钩子原文：CARD 取 dfe55d2 的 Ds02L2Ui beforeAll / afterAll；BUTTON / PRICE-TAG 取 562087f 各自 describe 的 beforeAll / afterAll。
+        card_before = ("await runUiTask(driver, async (): Promise<void> => { await openCard(); await click('catalog-theme-light'); "
+                       "await setFont('100'); });")
+        card_after = ("await drainUiTasks(driver); await runUiTask(driver, async (): Promise<void> => { const theme: Component = "
+                      "await driver.findComponent(ON.id('catalog-theme-light')); if (theme !== null && theme !== undefined) { "
+                      "await click('catalog-theme-light'); await setFont('100'); } });")
+        rig_before = "await runUiTask(driver, async (): Promise<void> => { await %s.enterCatalog(); });"
+        rig_after = ("await drainUiTasks(driver); await runUiTask(driver, async (): Promise<void> => { await %s.index(); "
+                     "await %s.click('catalog-theme-light'); await %s.setFont('100'); });")
+        button_before, price_before = rig_before % 'L2ButtonRig', rig_before % 'L2PriceRig'
+        button_after, price_after = rig_after % (('L2ButtonRig',) * 3), rig_after % (('L2PriceRig',) * 3)
+
+        # ① it 包装：先过段边界再跑用例体；hypium 的 it 只在包装里调用一次（没有绕过包装的注册）。
+        self.assertIn('import { describe, it as hypiumIt,', suite)
+        self.assertEqual(len(re.findall(r'\bhypiumIt\(', suite)), 1)
+        self.assertEqual(len(re.findall(r'^function it\(', suite, re.M)), 1)
+        self.assertEqual(block('function it(name: string, flags: number, body: () => Promise<void>): void'),
+                         'hypiumIt(name, flags, async (): Promise<void> => { await l2EnterSegment(name); await runUiTask(driver, body); });')
+        # ② CARD 段前准备仍是唯一 describe 的 beforeAll；describe afterAll 只复位最后一段。
+        self.assertEqual(len(re.findall(r'\bbeforeAll\(', suite)), 1)
+        self.assertEqual(len(re.findall(r'\bafterAll\(', suite)), 1)
+        self.assertEqual(block('    beforeAll(async (): Promise<void> =>'), card_before)
+        self.assertEqual(block('    afterAll(async (): Promise<void> =>'), 'await l2FinishSegments();')
+        self.assertEqual(block('async function l2SetupSegment(segment: string): Promise<void>'),
+                         "if (segment === 'button') { %s } else if (segment === 'price') { %s }" % (button_before, price_before))
+        self.assertEqual(block('async function l2LeaveSegment(segment: string): Promise<void>'),
+                         "if (segment === 'card') { %s } else if (segment === 'button') { %s } else if (segment === 'price') { %s }"
+                         % (card_after, button_after, price_after))
+        # ③ 段切换：上一段复位 → 本段准备 → drain；准备失败的错误本段每条都抛；describe afterAll 复位最后一段。
+        enter = block('async function l2EnterSegment(name: string): Promise<void>')
+        steps = ['const next: string = l2SegmentOf(name);', 'if (next !== l2Segment) {', 'const previous: string = l2Segment;',
+                 'l2Segment = next;', 'l2SegmentSetupError = null;', 'await l2LeaveSegment(previous);', 'await l2SetupSegment(next);',
+                 'await drainUiTasks(driver);', 'l2SegmentSetupError = e as Error;',
+                 '} if (l2SegmentSetupError !== null) { throw l2SegmentSetupError; }']
+        at = [enter.find(step) for step in steps]
+        self.assertTrue(all(i >= 0 for i in at) and at == sorted(at), dict(zip(steps, at)))
+        self.assertTrue(enter.endswith('if (l2SegmentSetupError !== null) { throw l2SegmentSetupError; }'), enter[-120:])
+        self.assertIn('await l2LeaveSegment(l2Segment);', block('async function l2FinishSegments(): Promise<void>'))
+        # ④ 前缀：l2SegmentOf 只认 l2button_ / l2price_，其余归 card；与各段导出常量逐条一致，段次序 card → button → price。
+        seg_of = block('function l2SegmentOf(name: string): string')
+        rules = re.findall(r"if \(name\.startsWith\('([a-z0-9_]+)'\)\) \{ return '([a-z]+)'; \}", seg_of)
+        self.assertEqual(seg_of, ' '.join("if (name.startsWith('%s')) { return '%s'; }" % rule for rule in rules) + " return 'card';")
+        self.assertEqual(rules, [('l2button_', 'button'), ('l2price_', 'price')])
+        self.assertIn("const L2_SEGMENTS: string[] = ['card', 'button', 'price'];", suite)
+
+        def segment_of(name):
+            return next((segment for prefix, segment in rules if name.startswith(prefix)), 'card')
+
+        def names(const):
+            return re.findall(r"'(l2[a-z]+_\d\d_[a-z0-9_]+)'", suite.split(const + ': string[] = [')[1].split('];')[0])
+
+        for const, segment in (('L2CARD_DEVICE_CASES', 'card'), ('L2SKEL_DEVICE_CASES', 'card'),
+                               ('L2BUTTON_DEVICE_CASES', 'button'), ('L2PRICE_DEVICE_CASES', 'price')):
+            declared = names(const)
+            self.assertTrue(declared, const)
+            for name in declared:
+                for mode in (['light', 'dark'] if name.endswith('_') else ['']):
+                    self.assertEqual(segment_of(name + mode), segment, (const, name + mode))
+        calls = [suite.index('\n    %s();\n' % fn) for fn in ('l2SkeletonDeviceCases', 'ds02L2UiButtonCases', 'ds02L2UiPriceTagCases')]
+        self.assertEqual(calls, sorted(calls))
 
     def test_generator_check_covers_both_test_data_outputs(self):
         outputs = gen.build_outputs()

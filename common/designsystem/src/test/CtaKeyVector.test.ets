@@ -9,7 +9,8 @@
 // - ProductCardKeys.BUY_FALLBACK：兜底文案键 'btn.buy'。
 // - 按钮整行文字 / 读屏仍由 BuyButtonModel.text / spoken(base, rebate, amountHidden, context) 组成（BuyButton.label() / spoken() 同一调用）。
 //
-// 鸿蒙差异在测试里映射、不改向量（D10-907 ①；先例 H-P14 / H-R14）：见 harmonyState()。
+// 下架（D10-907 ① / FU-HM-OFFSHELF-STATE，HM-L2-BUTTON #24）：鸿蒙下架已是 DISABLED，与向量 disabled 直接对上，不再映射；
+// 另核 retryText = error.30141 文案（见 a2 的下架分支）。
 // 不依赖时区（verify 在默认 / UTC / America/Los_Angeles 各跑一遍）：nowMillis 固定 1794022200000（与 iOS 同一时刻），
 // 断言不涉及取价时间；DefaultTexts 是升锁到 a89c1ec3a 后的包内契约字典（A10 钉住几条原文）。
 // 接入：List.test.ets 导入并调用 ctaKeyVectorTest()；gen.py 生成 CtaKeyVectorsData.ets（--check 查漂移）。
@@ -188,16 +189,6 @@ function stateRaw(state: BuyButtonState): string {
   }
 }
 
-/**
- * D10-907 ①（先例 H-P14 / H-R14：鸿蒙差异在测试里映射，不改向量文件）：鸿蒙的下架卡由映射直接给「稍后再试」态，按钮字是
- * error.30141「商品已下架」（ProductCardMapper 下架分支，APP-06b 共性第 28 条；冻结用例 App06bReviewR1.test.ets:50-53）。
- * 所以向量里 availability=off_shelf 的 disabled 在鸿蒙判为 retry_later，且 retryText = 同一 texts 给的 error.30141 文案
- * （见 a2 的下架分支）；buyBase 与诊断照向量判。其余状态与向量逐字相同。
- */
-function harmonyState(card: Record<string, Object>, vectorState: string): string {
-  return card['availability'] === 'off_shelf' && vectorState === 'disabled' ? 'retry_later' : vectorState;
-}
-
 /** baseCard 逐字段被 over 覆盖；值为 null 表示不带这个字段（向量 harness；ArkTS 不用 delete，直接不放）。 */
 function overlay(base: Record<string, Object | null>, over: Record<string, Object | null>): Record<string, Object> {
   const out: Record<string, Object> = {};
@@ -295,6 +286,9 @@ export default function ctaKeyVectorTest() {
     // ---------------------------------------------------------------- A2 23 条逐条跑（各按自己的 textsMode）
     it('a2_vectors_present', 0, () => {
       same('cases.length', v.cases.length, 23);
+      // 向量须含下架禁用行：否则 a2 下架分支（retryText = error.30141）永远进不去（HM-L2-BUTTON #24，测试 v3 交回 §3）。
+      truthy('向量含下架禁用行', v.cases.some((r: CtaCase): boolean =>
+        r.card['availability'] === 'off_shelf' && r.expect.state === 'disabled'));
     });
     for (const row of v.cases) {
       it('a2_vector_' + row.id, 0, () => {
@@ -305,10 +299,9 @@ export default function ctaKeyVectorTest() {
         const e: CtaExpect = row.expect;
         const m: Mapped = mapCard(card, texts, row.buyEnabled);
         same(label + ' buyBase', m.data.buyBase, e.buyBase);
-        const wantState: string = harmonyState(card, e.state);
-        same(label + ' state', stateRaw(m.data.buyState), wantState);
-        if (wantState !== e.state) {
-          // 下架映射（D10-907 ①）：按钮字是同一 texts 给的 error.30141 文案，不是空串。
+        same(label + ' state', stateRaw(m.data.buyState), e.state);
+        if (card['availability'] === 'off_shelf' && e.state === 'disabled') {
+          // 下架（D10-907 ① / FU-HM-OFFSHELF-STATE）：DISABLED + 同一 texts 给的 error.30141 文案，不是空串。
           const offShelf: string = texts.text(OFF_SHELF_TEXT);
           truthy(label + ' error.30141 文案非空', offShelf.length > 0);
           same(label + ' retryText（error.30141）', m.data.retryText, offShelf);
@@ -329,7 +322,7 @@ export default function ctaKeyVectorTest() {
         // 剪贴板弹层 / 首页 / AI 卡走 fromCardWithStatus：同一张卡、平台 on，结果与 fromCard 相同，诊断原样转过去。
         const w: Mapped = mapWithStatus(card, texts, row.buyEnabled, ProductCardMapper.PURCHASE_ON);
         same(label + ' fromCardWithStatus buyBase', w.data.buyBase, e.buyBase);
-        same(label + ' fromCardWithStatus state', stateRaw(w.data.buyState), wantState);
+        same(label + ' fromCardWithStatus state', stateRaw(w.data.buyState), e.state);
         sameList(label + ' fromCardWithStatus 诊断', w.diagnostics, wantDiagnostics);
       });
     }
@@ -504,9 +497,9 @@ export default function ctaKeyVectorTest() {
       same('buyEnabled=false state', stateRaw(limited.data.buyState), 'disabled');
       same('buyEnabled=false buyBase', limited.data.buyBase, BUY);
       sameList('buyEnabled=false 诊断', limited.diagnostics, [UNKNOWN]);
-      // 下架（D10-907 ① 的鸿蒙映射）：「商品已下架」，按钮有字。
+      // 下架（D10-907 ① / FU-HM-OFFSHELF-STATE）：DISABLED + 「商品已下架」，按钮有字。
       const gone: Mapped = mapCard(cardWith(base, UNKNOWN, '{"availability":"off_shelf"}'), texts, false);
-      same('off_shelf state', stateRaw(gone.data.buyState), 'retry_later');
+      same('off_shelf state', stateRaw(gone.data.buyState), 'disabled');
       same('off_shelf retryText', gone.data.retryText, DefaultTexts.text(OFF_SHELF_TEXT) ?? '<字典缺 error.30141>');
       same('off_shelf buyBase', gone.data.buyBase, BUY);
       sameList('off_shelf 诊断', gone.diagnostics, [UNKNOWN]);

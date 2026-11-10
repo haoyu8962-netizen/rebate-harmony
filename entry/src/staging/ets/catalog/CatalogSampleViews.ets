@@ -23,9 +23,14 @@ import { FeelLabSample } from './FeelLab';
 @ObservedV2
 export class CatalogEvents {
   @Trace oauthCount: number = 0;
+  /** CouliButton / BuyButton 样例 onTap 的真实计数（HM-L2-BUTTON：加载中 / 禁用 / 下架连点不回调，设备用例 Ds02L2Ui 读）。 */
+  @Trace buttonCount: number = 0;
+  @Trace buyCount: number = 0;
   @Trace lastLink: string = '无';
   /** 协议确认框【同意并继续】后同步到 AgreementCheckRow/three/unchecked 这一个样例（同一实例）。 */
   @Trace agreementThreeChecked: boolean = false;
+  /** HM-L2-PRICE-TAG「切换金额」：为真时 PriceTag / RebateTag 的 normal 样例换一组金额（看数字过渡；其余样例不变）。 */
+  @Trace amountAlt: boolean = false;
 }
 
 /** 样例文字（组件清单画板与登录 v2 的原文；正式页面经文案字典取键，不从这里复用）。 */
@@ -82,7 +87,7 @@ export struct CatalogSampleView {
   build() {
     Column() {
       if (this.component === 'CouliButton') {
-        ButtonSample({ variant: this.variant, state: this.state, controlId: this.controlId() })
+        ButtonSample({ variant: this.variant, state: this.state, controlId: this.controlId(), events: this.events })
       } else if (this.component === 'CouliIconButton') {
         IconButtonSample({ variant: this.variant, state: this.state, controlId: this.controlId() })
       } else if (this.component === 'CouliTextField' || this.component === 'CouliTextArea'
@@ -131,7 +136,7 @@ export struct CatalogSampleView {
       } else if (this.component === 'FeelLab') {
         FeelLabSample()
       } else {
-        BusinessSample({ component: this.component, variant: this.variant, state: this.state })
+        BusinessSample({ component: this.component, variant: this.variant, state: this.state, events: this.events })
       }
     }
     .width('100%')
@@ -146,6 +151,7 @@ struct ButtonSample {
   @Param variant: string = '';
   @Param state: string = '';
   @Param controlId: string = '';
+  @Param events: CatalogEvents = new CatalogEvents();
 
   private kind(): CouliButtonVariant {
     if (this.variant.startsWith('secondary')) {
@@ -181,7 +187,10 @@ struct ButtonSample {
       loading: this.state === 'loading',
       pressedPreview: this.state === 'pressed',
       buttonId: this.controlId,
-      textId: 'catalog-text/CouliButton/' + this.variant + '/' + this.state
+      textId: 'catalog-text/CouliButton/' + this.variant + '/' + this.state,
+      onTap: () => {
+        this.events.buttonCount++;
+      }
     })
   }
 
@@ -1168,6 +1177,7 @@ struct BusinessSample {
   @Param component: string = '';
   @Param variant: string = '';
   @Param state: string = '';
+  @Param events: CatalogEvents = new CatalogEvents();
   @Local trend: TrendState = TrendState.COLLAPSED;
   @Local materials: ShareMaterial[] = [];
   @Local copyItems: ShareCopyItem[] = [];
@@ -1187,16 +1197,24 @@ struct BusinessSample {
 
   private price(): PriceTagModelValue {
     const long: boolean = this.state === 'long-price';
+    // 「切换金额」（HM-L2-PRICE-TAG）：只换 normal 样例，券后价 −100 分（有券的券额 +100，无券的券前价同减）。
+    const alt: number = this.events.amountAlt && this.state === 'normal' ? 100 : 0;
     if (this.variant.startsWith('no-coupon')) {
-      return new PriceTagModelValue('taobao', long ? 10099999 : 3990, 0, long ? 10099999 : 3990, false);
+      return new PriceTagModelValue('taobao', long ? 10099999 : 3990 - alt, 0, long ? 10099999 : 3990 - alt, false);
     }
     if (this.variant.startsWith('pdd')) {
-      return new PriceTagModelValue('pdd', long ? 10099999 : 1990, 300, long ? 10099699 : 1690, false);
+      return new PriceTagModelValue('pdd', long ? 10099999 : 1990, 300 + alt, long ? 10099699 : 1690 - alt, false);
     }
     if (this.variant.startsWith('presale')) {
-      return new PriceTagModelValue('taobao', long ? 10099999 : 5678, 1000, long ? 9999999 : 4678, true);
+      return new PriceTagModelValue('taobao', long ? 10099999 : 5678, 1000 + alt, long ? 9999999 : 4678 - alt, true);
     }
-    return new PriceTagModelValue('taobao', long ? 10099999 : 2345, 1000, long ? 9999999 : 1345, false);
+    return new PriceTagModelValue('taobao', long ? 10099999 : 2345, 1000 + alt, long ? 9999999 : 1345 - alt, false);
+  }
+
+  /** RebateTag 单值样例（single / large / block）的金额（分）；「切换金额」时 normal 样例 269 → 369。 */
+  private rebateSingle(): number {
+    const single: boolean = this.variant === 'single' || this.variant === 'large' || this.variant === 'block';
+    return this.events.amountAlt && this.state === 'normal' && single ? 369 : 269;
   }
 
   private priceSize(): PriceTagSize {
@@ -1262,6 +1280,9 @@ struct BusinessSample {
         return BuyButtonState.DISABLED;
       case 'retry-later':
         return BuyButtonState.RETRY_LATER;
+      case 'off-shelf':
+        // 下架 = 禁用 +「商品已下架」（D10-907，与 ProductCardMapper 下架分支同形）。
+        return BuyButtonState.DISABLED;
       default:
         return BuyButtonState.NORMAL;
     }
@@ -1294,10 +1315,18 @@ struct BusinessSample {
             RebateTag({ content: RebateTagModel.make('price_compare_risk', 8888888, 9999999, false) })
           }
           .width(150)
+        } else if (this.variant === 'block') {
+          // 窄卡（首页网格，宽 < 180，GUIDE §6）两行：「钟表 + 预估返」一行、完整金额一行。
+          Column() {
+            RebateTag({ content: RebateTagModel.make('normal', this.rebateSingle(), this.rebateSingle(), false),
+              tagSize: RebateTagSize.BLOCK })
+          }
+          .width(160)
+          .alignItems(HorizontalAlign.Start)
         } else {
           RebateTag({
-            content: CardAmountMask.rebate(RebateTagModel.make(this.rebateBasis(), this.variant === 'range' ? 56 : 269,
-              this.variant === 'range' ? 112 : 269, this.variant === 'login_required'), this.state === 'amount-hidden'),
+            content: CardAmountMask.rebate(RebateTagModel.make(this.rebateBasis(), this.variant === 'range' ? 56 : this.rebateSingle(),
+              this.variant === 'range' ? 112 : this.rebateSingle(), this.variant === 'login_required'), this.state === 'amount-hidden'),
             tagSize: this.variant === 'large' ? RebateTagSize.LARGE : RebateTagSize.SMALL
           })
         }
@@ -1347,7 +1376,11 @@ struct BusinessSample {
           rebate: this.variant === 'no-rebate' ? RebateTagModel.make('no_rebate', 0, 0, false)
             : RebateTagModel.make(this.variant === 'range' ? 'price_compare_risk' : 'normal',
               this.variant === 'range' ? 135 : 269, 269, false),
-          state: this.buyState()
+          state: this.buyState(),
+          retryText: this.state === 'off-shelf' ? CatalogText.offShelf : '',
+          onTap: () => {
+            this.events.buyCount++;
+          }
         })
       } else if (this.component === 'AmountGrid') {
         Column() {

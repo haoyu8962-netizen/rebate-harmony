@@ -21,6 +21,7 @@ export default function testsuite() {
   ds02R1UiTest();
   // HM-L2-CARD（#24 只加；README ⑩ / D10-1177）：L2 批 1 共用设备套件 Ds02L2Ui，随主 entry 步跑（不新增设备步）；子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui + COULI_HM_DEVICE_SET=l2。
   // 排在 Ds02Ui、Ds02R1Ui 之后：check-ui-facilities 严格加载器的钩子 [0] / [1] 仍是这两个套件的。
+  // HM-L2-BUTTON（D10-1177 ⑩）：L2 共用套件 Ds02L2Ui，随主步跑（不新增设备步）；子集跑 COULI_HM_TEST_FILTER class=Ds02L2Ui。
   ds02L2UiTest();
   authChangeDeviceTest();
   fx05aUiTest();

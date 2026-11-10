@@ -17,7 +17,7 @@
 # HM-07v-a（编排 D10-405 D4 / 测试 v2 T0）：同一测试包可按 Hypium 套件分步跑——
 #   COULI_HM_TEST_FILTER  class=<套件名> 或 notClass=<套件名>（逗号分隔多个；空 = 全部套件），原样传给 aa test 的 -s class / -s notClass；
 #   COULI_HM_DEVICE_SET   entry_test 结果按哪份必跑名单核对（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / tabbar / l2 / all，缺省 all），见 ds02/check_device_result.py。
-#   HM-L2-CARD：l2 = 子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui 时用的名单（8 条）；verify 不单列此步（README ⑩），主步照跑。
+#   HM-L2-CARD：l2 = 子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui 时用的名单（HM-L2 批 1 集成后 26 条 = l2card 8 + l2skel 6 + l2button 7 + l2price 5）；verify 不单列此步（README ⑩），主步照跑。
 # 每一步都先卸载再装（应用数据清空、首启前状态），所以分出去的步从「未同意隐私、冷启动」开始，不受前一步留下的状态影响。
 set -euo pipefail
 

@@ -269,6 +269,12 @@ export struct CatalogDetail {
           this.sheetFont = false;
         }))
     }
+    if (this.component === 'PriceTag' || this.component === 'RebateTag') {
+      // HM-L2-PRICE-TAG：目录内切换金额（数字过渡目视 / 录屏；设备用例 Ds02L2Ui l2price_04 读切换前后的金额节点）。
+      this.action('catalog-amount-toggle', '切换金额', () => {
+        this.events.amountAlt = !this.events.amountAlt;
+      })
+    }
     if (this.component === 'AgreementCheckRow') {
       this.action('catalog-agreement-confirm', '协议确认框', () => {
         this.confirmAgreement();
@@ -278,6 +284,20 @@ export struct CatalogDetail {
       Text(this.events.lastLink)
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary))
         .id('catalog-agreement-last-link')
+    }
+    if (this.component === 'CouliButton') {
+      Text('点按次数：')
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      Text(String(this.events.buttonCount))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
+        .id('catalog-events/CouliButton')
+    }
+    if (this.component === 'BuyButton') {
+      Text('点按次数：')
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+      Text(String(this.events.buyCount))
+        .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textPrimary, undefined, true))
+        .id('catalog-events/BuyButton')
     }
     if (this.component === 'OAuthButton') {
       Text('点按次数：')

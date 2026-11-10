@@ -27,6 +27,26 @@ export enum CouliButtonSize {
 const COMPACT_VISUAL_HEIGHT: number = 44;
 
 /**
+ * 系统按钮样式档（HM-L2-BUTTON，button.d.ts ButtonStyleMode，API 12）：主按钮、实底卡内白底 → 强调；次按钮 → 普通；文字按钮 → 文字。
+ * 主题盖不到的底色、字色、描边仍在下面显式传令牌（bgColor / foreground / border），颜色只来自 CouliColors。
+ */
+function buttonStyleOf(variant: CouliButtonVariant): ButtonStyleMode {
+  switch (variant) {
+    case CouliButtonVariant.SECONDARY:
+      return ButtonStyleMode.NORMAL;
+    case CouliButtonVariant.TEXT:
+      return ButtonStyleMode.TEXTUAL;
+    default:
+      return ButtonStyleMode.EMPHASIZED;
+  }
+}
+
+/** 系统控件尺寸档（ControlSize，API 12）：紧凑 → SMALL，常规 → NORMAL。不用来定高度：高度仍由 constraintSize 48 / 44 与命中区定。 */
+function controlSizeOf(size: CouliButtonSize): ControlSize {
+  return size === CouliButtonSize.COMPACT ? ControlSize.SMALL : ControlSize.NORMAL;
+}
+
+/**
  * 通用按钮：主 / 次 / 文字 / 实底卡内白底；loading（转圈 + 文案，禁用）、禁用（底 #E9E2D9 字 #655E57，读屏读「不可用」）。
  * 文字不截断：放不下时换行、按钮增高（adaptation-a11y-spec §2）。
  */
@@ -44,7 +64,7 @@ export struct CouliButton {
   @Param buttonId: string = '';
   /** 按钮文字 Text 的组件 id（目录页大字号测量用）；空串不设。 */
   @Param textId: string = '';
-  /** 目录页静态展示「按下」：系统按压是瞬时变暗，样例直接画按下底色（主按钮 color.button.primary.pressed.*）。 */
+  /** 目录专用，业务不得传：目录页静态展示「按下」（系统按压是瞬时变暗，样例直接画按下底色，主按钮 color.button.primary.pressed.*）。 */
   @Param pressedPreview: boolean = false;
   @Event onTap: () => void = () => {
   };
@@ -126,6 +146,8 @@ export struct CouliButton {
       }
       .justifyContent(FlexAlign.Center)
     }
+    .buttonStyle(buttonStyleOf(this.variant))
+    .controlSize(controlSizeOf(this.buttonSize))
     .width(this.fullWidth ? '100%' : undefined)
     .constraintSize({
       minHeight: this.buttonSize === CouliButtonSize.COMPACT ? COMPACT_VISUAL_HEIGHT : CouliComponentMetrics.buttonMinHeight,

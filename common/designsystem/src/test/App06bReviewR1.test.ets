@@ -49,7 +49,7 @@ export default function app06bReviewR1Test() {
     // R1-07：下架卡置灰、其它卡照常
     it('r1_07_off_shelf_card_buy_button_disabled_with_off_shelf_text', 0, () => {
       const off: ProductCardData = ProductCardMapper.fromCard(card(',"availability":"off_shelf"'), new KeyTexts(), true);
-      expect(off.buyState).assertEqual(BuyButtonState.RETRY_LATER);
+      expect(off.buyState).assertEqual(BuyButtonState.DISABLED);
       expect(off.retryText).assertEqual('<error.30141>');
       const ok: ProductCardData = ProductCardMapper.fromCard(card(',"availability":"ok"'), new KeyTexts(), true);
       expect(ok.buyState).assertEqual(BuyButtonState.NORMAL);
