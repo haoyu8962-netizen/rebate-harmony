@@ -1,6 +1,6 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import { CouliColors } from '../CouliColors';
-import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing } from '../CouliMetrics';
+import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTextStyle, CouliTypography } from '../CouliTypography';
 import {
   CardAmountMask, PresaleDisplay, PriceTagContent, PriceTagModel, RebateKind, RebateTagContent,
@@ -17,6 +17,8 @@ import {
   RebateTagSize, rangeBreakable
 } from './Price';
 import { CouliIcon } from './CouliIcon';
+import { CouliCard, CouliCardKind } from './CouliCard';
+import { PressKind } from '../logic/MotionPolicy';
 
 enum TextStyleKind {
   LIST = 'list',
@@ -130,6 +132,15 @@ export class ProductCardA11y {
     }
     return parts.filter((p: string): boolean => p.length > 0).join(PriceTerms.comma);
   }
+
+  /**
+   * 列表 / AI / 网格卡信息区（图 + 标题 + 标签 + 价格 + 返利）的整块读屏名「平台，标题，价格，返利」（HM-L2-PRODUCT-CELL）：
+   * 与 scrollTileLabel 同一口径（价格不可用、amount_unknown、not_launched、金额隐藏同规则），不带推广标识；
+   * 不读预估返后（DETAIL-V3 U1 列表卡不显示）、图片占位、口径 i 与按钮文字（购买按钮、口径 i 各自单独一项）。
+   */
+  static cellLabel(data: ProductCardData): string {
+    return ProductCardA11y.scrollTileLabel(data, null);
+  }
 }
 
 export enum ProductCardVariant {
@@ -194,6 +205,10 @@ export class ProductCardData {
  * 商品卡：列表紧凑卡（GUIDE §7.2.1 定稿写法）、AI 卡、网格卡、详情大卡。
  * 放不下时整块换行（价格行的返利标签、底行的按钮），不缩字号、不截断金额、不隐藏副行（§7.2.1 降级规则）。
  * 列表卡里「暂无返利」隐藏、不显示预估返后（BR-TEXT-10、§7.2.1 表）。标题两行截断，平台标签在标题最前。
+ * HM-L2-PRODUCT-CELL：外壳走 CouliCard（白底 / 圆角 / 阴影来自卡片件）。openable = false（默认）时是静态卡：组件内不接按压、
+ * 不接点击，页面外层 .onClick 照旧生效（README ⑥ / D10-1177，5 处页面调用零改动）；openable = true 时列表 / AI / 网格卡整卡可点
+ * （BOUNCE 按压，回调 onOpen；外跳不加触感）。列表 / AI / 网格卡不显示「预估返后」（DETAIL-V3 U1），详情大卡照旧。
+ * 读屏：信息区合一项「平台，标题，价格，返利」（ProductCardA11y.cellLabel），购买按钮、口径 i 各自单独一项。
  */
 @ComponentV2
 export struct ProductCard {
@@ -205,6 +220,13 @@ export struct ProductCard {
    * 网格卡放在首页段卡（白卡）里（HM-07v H11 / H-V08）：不再画自己的白底、阴影与内边距（卡套卡），只留内容；默认 false 不变。
    */
   @Param inset: boolean = false;
+  /**
+   * 整卡可点（README ⑥ / D10-1177）：默认 false，外壳是静态 CouliCard，不接按压与点击、不吞页面外层 .onClick；
+   * true 时列表 / AI / 网格卡外壳走 CouliCard 可点版，点信息区回调 onOpen（购买按钮只回调 onBuy）。详情大卡不可点。
+   */
+  @Param openable: boolean = false;
+  @Event onOpen: () => void = () => {
+  };
   @Event onBuy: () => void = () => {
   };
   @Local badgeWidth: number = 0;
@@ -231,6 +253,11 @@ export struct ProductCard {
   /** 卡内显示的「预估返后」（金额隐藏时不显示）。 */
   private estNet(): string | null {
     return CardAmountMask.estNet(this.data.estNet, this.data.amountHidden);
+  }
+
+  /** 列表 / AI / 网格卡的外壳：openable 时可点（按压 + onOpen），否则静态（无按压、无点击）。 */
+  private cardKind(): CouliCardKind {
+    return this.openable ? CouliCardKind.TAPPABLE : CouliCardKind.STATIC;
   }
 
   private context(): string {
@@ -310,15 +337,13 @@ export struct ProductCard {
     }
   }
 
+  /** 价格副行 + 规格 / 预售说明。列表 / AI / 网格卡不显示「预估返后」（DETAIL-V3 U1；数据字段 estNet 不变，详情大卡照旧）。 */
   @Builder
-  subLines(showEstNet: boolean) {
+  subLines() {
     Column() {
       Text(this.data.price.noCoupon ? PriceTerms.noCoupon : (this.data.price.subLine ?? ''))
         .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary, undefined, true))
       this.notes(CouliTypography.caption)
-      if (showEstNet) {
-        EstNetLine({ text: this.estNet(), rebate: this.rebate() })
-      }
     }
     .alignItems(HorizontalAlign.Start)
   }
@@ -395,39 +420,65 @@ export struct ProductCard {
       }
 
       if (!this.noPrice()) {
-        this.subLines(this.showsRebate())
+        this.subLines()
       }
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
   }
 
+  /**
+   * 列表 / AI 卡外壳：CouliCard（白底、圆角、阴影来自卡片件）。groupAccessibility: false：可点版不把整卡合成一项，
+   * 读屏由内容里的信息区组与购买按钮、口径 i 各自承担（购买按钮单独一项）。
+   */
   @Builder
   listCard() {
+    CouliCard({
+      kind: this.cardKind(),
+      press: PressKind.BOUNCE,
+      groupAccessibility: false,
+      cardPadding: CouliSpacing.space3,
+      onTap: () => {
+        this.onOpen();
+      }
+    }) {
+      this.listBody()
+    }
+  }
+
+  @Builder
+  listBody() {
     Column({ space: CouliSpacing.space2 }) {
-      Row({ space: CouliSpacing.space3 }) {
-        this.image(96)
-        Column({ space: CouliSpacing.space1 }) {
-          Column() {
-            this.title(TextStyleKind.LIST)
-          }
-          .padding({ right: this.variant === ProductCardVariant.AI ? 28 : 0 })
+      // 信息区（图 + 标题 + 标签 + 价格 + 返利）读屏合一项「平台，标题，价格，返利」；购买按钮与口径 i 在区外，各自单独一项。
+      Column({ space: CouliSpacing.space2 }) {
+        Row({ space: CouliSpacing.space3 }) {
+          this.image(96)
+          Column({ space: CouliSpacing.space1 }) {
+            Column() {
+              this.title(TextStyleKind.LIST)
+            }
+            .padding({ right: this.variant === ProductCardVariant.AI ? 28 : 0 })
 
-          this.tagRow()
-          if (!this.widePrice()) {
-            this.priceBlock()
+            this.tagRow()
+            if (!this.widePrice()) {
+              this.priceBlock()
+            }
           }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
         }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-      }
-      .alignItems(VerticalAlign.Top)
-      .width('100%')
+        .alignItems(VerticalAlign.Top)
+        .width('100%')
 
-      // 大字号：价格区占整卡宽（金额段不拆、不裁切，放不下时整块换行；Android 第 2 轮评审，三端统一）。
-      if (this.widePrice()) {
-        this.priceBlock()
+        // 大字号：价格区占整卡宽（金额段不拆、不裁切，放不下时整块换行；Android 第 2 轮评审，三端统一）。
+        if (this.widePrice()) {
+          this.priceBlock()
+        }
       }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .accessibilityGroup(true)
+      .accessibilityText(ProductCardA11y.cellLabel(this.data))
 
       // 底行：左口径说明，右按钮；放不下时按钮整块换到下一行靠右（两侧各自 flexGrow，按钮在右侧容器里靠右）。
       Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
@@ -454,10 +505,6 @@ export struct ProductCard {
       }
       .constraintSize({ minHeight: CouliInteraction.minTouchTarget - CouliSpacing.space1 })
     }
-    .padding(CouliSpacing.space3)
-    .backgroundColor(CouliColors.backgroundSurface)
-    .borderRadius(CouliRadius.card)
-    .shadow(CouliShadow.card)
     .width('100%')
   }
 
@@ -481,25 +528,51 @@ export struct ProductCard {
     .width('100%')
   }
 
+  /** 网格卡外壳：CouliCard；inset（嵌在首页段卡里）时不画白底、阴影与内边距（卡套卡），只留内容。 */
   @Builder
   gridCard() {
-    Column({ space: CouliSpacing.space2 }) {
-      this.image('100%')
-      this.title(TextStyleKind.LIST)
-      this.tagRow()
-      if (this.data.priceUnavailable) {
-        this.unavailableNote(CouliTypography.caption)
+    CouliCard({
+      kind: this.cardKind(),
+      press: PressKind.BOUNCE,
+      groupAccessibility: false,
+      inset: this.inset,
+      cardPadding: this.inset ? 0 : CouliSpacing.space2,
+      onTap: () => {
+        this.onOpen();
       }
-      if (!this.noPrice()) {
-        PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })
-        this.subLines(false)
-        if (!this.showsRebate()) {
-          // 不显示返利块（暂无返利、平台 not_launched）时，价格口径 i 仍保留在价格副行下（BR-PRICE-03；APP-11v Android 评审 r1 S1）。
-          Row() {
-            this.gridInfo()
-          }
-          .padding({ left: CouliSpacing.space3 })
+    }) {
+      this.gridBody()
+    }
+  }
+
+  @Builder
+  gridBody() {
+    Column({ space: CouliSpacing.space2 }) {
+      // 信息区（图 + 标题 + 标签 + 价格）读屏合一项「平台，标题，价格，返利」（返利已在读屏名里，下方返利块 spoken: false；
+      // 口径 i、购买按钮在区外，各自单独一项）。
+      Column({ space: CouliSpacing.space2 }) {
+        this.image('100%')
+        this.title(TextStyleKind.LIST)
+        this.tagRow()
+        if (this.data.priceUnavailable) {
+          this.unavailableNote(CouliTypography.caption)
         }
+        if (!this.noPrice()) {
+          PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })
+          this.subLines()
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .accessibilityGroup(true)
+      .accessibilityText(ProductCardA11y.cellLabel(this.data))
+
+      if (!this.noPrice() && !this.showsRebate()) {
+        // 不显示返利块（暂无返利、平台 not_launched）时，价格口径 i 仍保留在价格副行下（BR-PRICE-03；APP-11v Android 评审 r1 S1）。
+        Row() {
+          this.gridInfo()
+        }
+        .padding({ left: CouliSpacing.space3 })
       }
       if (this.showsRebate()) {
         // 窄卡返利块两行（GUIDE §6）：「钟表 + 预估返 + 口径 i」一行、金额一行（H-V08：i 进返利块首行，命中区 48 不撑高行）。
@@ -509,7 +582,9 @@ export struct ProductCard {
           lines: this.noPrice() ? [] : this.data.disclaimerLines,
           buttonLabel: this.data.disclaimerButtonLabel,
           noteTitle: this.data.disclaimerTitle,
-          noteCloseText: this.data.disclaimerCloseText
+          noteCloseText: this.data.disclaimerCloseText,
+          // 返利已读在信息区的整块读屏名里，这里不再读一遍；口径 i 仍单独可聚焦。
+          spoken: false
         })
       }
       if (this.showBuy) {
@@ -517,10 +592,6 @@ export struct ProductCard {
       }
     }
     .alignItems(HorizontalAlign.Start)
-    .padding(this.inset ? 0 : CouliSpacing.space2)
-    .backgroundColor(this.inset ? Color.Transparent : CouliColors.backgroundSurface)
-    .borderRadius(this.inset ? 0 : CouliRadius.card)
-    .shadow(this.inset ? { radius: 0, color: Color.Transparent } : CouliShadow.card)
     .width('100%')
   }
 
@@ -535,59 +606,61 @@ export struct ProductCard {
     })
   }
 
+  /**
+   * 详情页头部大卡：静态 CouliCard（不可点：详情头没有打开目标，openable 不作用于大卡；HM-FLOW-DETAIL / U2 再改）。
+   * 「预估返后」照旧（U1 只去列表卡的）；标题是 TITLE_BAR 角色，不并入信息区读屏组。
+   */
   @Builder
   largeCard() {
-    Column({ space: CouliSpacing.space3 }) {
-      if (this.data.priceUnavailable) {
-        this.unavailableNote(CouliTypography.body)
-      }
-      if (!this.noPrice()) {
-        PriceTag({ content: this.data.price, tagSize: PriceTagSize.DETAIL, showSub: true,
-          presale: PresaleDisplay.EXTERNAL })
-        // 规格说明与预售说明（定金与尾款以下单页为准）：详情大卡同样保留（R1-06，03 §10.2 预售）。
-        if (ProductCardTags.notes(this.data.specNote, this.data.price).length > 0) {
-          this.notes(CouliTypography.footnote)
+    CouliCard({ kind: CouliCardKind.STATIC, groupAccessibility: false, cardPadding: CouliSpacing.space4 }) {
+      Column({ space: CouliSpacing.space3 }) {
+        if (this.data.priceUnavailable) {
+          this.unavailableNote(CouliTypography.body)
         }
-      }
-      if (!this.data.priceUnavailable) {
-        // 平台 not_launched（共性第 31 条）：返利整块不显示（不显示「暂无返利」，也不读出金额）。
-        if (!this.data.rebateHidden) {
-          Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
-            space: { main: LengthMetrics.vp(CouliSpacing.space3), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-            RebateTag({ content: this.rebate(), tagSize: RebateTagSize.LARGE })
-            if (this.data.disclaimerPrefix.length > 0) {
-              Text(this.data.disclaimerPrefix)
-                .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+        if (!this.noPrice()) {
+          PriceTag({ content: this.data.price, tagSize: PriceTagSize.DETAIL, showSub: true,
+            presale: PresaleDisplay.EXTERNAL })
+          // 规格说明与预售说明（定金与尾款以下单页为准）：详情大卡同样保留（R1-06，03 §10.2 预售）。
+          if (ProductCardTags.notes(this.data.specNote, this.data.price).length > 0) {
+            this.notes(CouliTypography.footnote)
+          }
+        }
+        if (!this.data.priceUnavailable) {
+          // 平台 not_launched（共性第 31 条）：返利整块不显示（不显示「暂无返利」，也不读出金额）。
+          if (!this.data.rebateHidden) {
+            Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
+              space: { main: LengthMetrics.vp(CouliSpacing.space3), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
+              RebateTag({ content: this.rebate(), tagSize: RebateTagSize.LARGE })
+              if (this.data.disclaimerPrefix.length > 0) {
+                Text(this.data.disclaimerPrefix)
+                  .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
+              }
+            }
+          }
+
+          Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space4),
+            cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
+            EstNetLine({ text: this.estNet(), large: true, rebate: this.rebate() })
+            if (this.data.quoteTime.length > 0 && !this.amountUnknown()) {
+              Text(this.data.quoteTime)
+                .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined,
+                  true))
+                .id('product_card_quote_time')
             }
           }
         }
 
-        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space4),
-          cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
-          EstNetLine({ text: this.estNet(), large: true, rebate: this.rebate() })
-          if (this.data.quoteTime.length > 0 && !this.amountUnknown()) {
-            Text(this.data.quoteTime)
-              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary, undefined,
-                true))
-              .id('product_card_quote_time')
-          }
+        this.tagRow()
+        Divider().color(CouliColors.borderSubtle).strokeWidth(CouliComponentMetrics.controlBorderWidth)
+        this.title(TextStyleKind.LARGE)
+        if (this.data.shopName.length > 0) {
+          Text(this.data.shopName)
+            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
         }
       }
-
-      this.tagRow()
-      Divider().color(CouliColors.borderSubtle).strokeWidth(CouliComponentMetrics.controlBorderWidth)
-      this.title(TextStyleKind.LARGE)
-      if (this.data.shopName.length > 0) {
-        Text(this.data.shopName)
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
     }
-    .alignItems(HorizontalAlign.Start)
-    .padding(CouliSpacing.space4)
-    .backgroundColor(CouliColors.backgroundSurface)
-    .borderRadius(CouliRadius.card)
-    .shadow(CouliShadow.card)
-    .width('100%')
   }
 
   build() {
