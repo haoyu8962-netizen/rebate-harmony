@@ -344,6 +344,14 @@ node "$ROOT/tools/ci/l2cell/run-logic.cjs" || fail_fast "l2cell-logic" "见上�
 node "$ROOT/tools/ci/l2cell/check-arkts.cjs" --real || fail_fast "l2cell-arkts" "L2ProductCell / Ds02L2Ui 测试文件 ArkTS 严格检查失败"
 record "HM-L2-PRODUCT-CELL 宿主检查" PASS "外壳 / 不吞点击 / 去预估返后 / 读屏合一 / 隐私接线 / 无触感 / 图片段 / 目录 / 登记（自测）/ 纯逻辑 / ArkTS"
 
+# FU-HM-NUMERIC-TRANSITION：NumericTextTransition 一律以选项对象构造（API 20 上无参构造读 options.flipDirection 抛 TypeError 闪退）、
+# CouliMotion.numeric() 签名不变且每次新建、FeelLab 保留数字过渡样例并经 numeric()、MotionPolicy 与 PRICE-TAG 直接替换不变（先自测）；numeric() 在 SDK 20 / 24 × 减弱动态下 node 执行。
+step "FU-HM-NUMERIC-TRANSITION 宿主检查"
+python3 "$ROOT/tools/ci/numeric/check_numeric.py" --self-test || fail_fast "numeric-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/numeric/check_numeric.py" || fail_fast "numeric-host" "见上方违反项"
+node "$ROOT/tools/ci/numeric/run-numeric.cjs" || fail_fast "numeric-logic" "见上方用例"
+record "FU-HM-NUMERIC-TRANSITION 宿主检查" PASS "选项对象构造 / 字段与取值 / numeric() 签名与每次新建 / FeelLab 样例 / 直接替换不变（自测）/ 纯逻辑"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
