@@ -352,6 +352,17 @@ python3 "$ROOT/tools/ci/numeric/check_numeric.py" || fail_fast "numeric-host" "�
 node "$ROOT/tools/ci/numeric/run-numeric.cjs" || fail_fast "numeric-logic" "见上方用例"
 record "FU-HM-NUMERIC-TRANSITION 宿主检查" PASS "选项对象构造 / 字段与取值 / numeric() 签名与每次新建 / FeelLab 样例 / 直接替换不变（自测）/ 纯逻辑"
 
+# FU-HM-LOGIN-PHONE-LAYOUT（D10-1223 / 编排 15:49 / D10-1230 判据 1 / D10-1231 FU-HM-A11Y-01 并入）：绑定页发码与登录页「N 秒后可重新获取 / 重新获取」
+# 是系统按钮（CouliButton 非 TEXT 变体）、所在容器可换行不定高、手机号框高度随字号长（minHeight 52）、出错播报 + 焦点移到出错的框 + 错误关联到输入框、
+# 手机号单行与脱敏号码不在数字中间断（先自测：参照件全过、变异逐个打红、良性改写不误报）；脱敏号码纯逻辑 node 执行；测试与参照件 ArkTS 严格检查。
+step "FU-HM-LOGIN-PHONE-LAYOUT 宿主检查"
+python3 "$ROOT/tools/ci/loginphone/check_login_phone.py" --self-test || fail_fast "loginphone-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/loginphone/check_login_phone.py" || fail_fast "loginphone-host" "见上方违反项"
+node "$ROOT/tools/ci/loginphone/run-logic.cjs" --self-test || fail_fast "loginphone-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/loginphone/run-logic.cjs" || fail_fast "loginphone-logic" "见上方用例"
+node "$ROOT/tools/ci/loginphone/check-arkts.cjs" --real || fail_fast "loginphone-arkts" "LoginPhoneLayout / LoginPhoneUi 与参照件 ArkTS 严格检查失败"
+record "FU-HM-LOGIN-PHONE-LAYOUT 宿主检查" PASS "发码 / 重新获取系统按钮 / 可换行 / 手机号框随字号长 / 出错播报移焦关联 / 判据 1（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -1052,8 +1063,10 @@ run_device_tests core common/core core_test
 #   entry-me12wc  APP-12w-c-harmony 21 条（只跑 Me12wcUi 套件：账号状态 / 申诉视觉与处罚申诉红线；H-R16）；同样先卸载再装、从未同意隐私开始
 #                 （会员 → 冻结组直达 → 封禁组 10006 落页 → 真退出）、各自 1800 秒（超了按 risk / appeal 拆两步，不放宽门槛）
 #   entry-tabbar  FU-HM-TAB-BAR 7 条（只跑 TabBarShellUi 套件：系统底栏节点、选中只跟 Router、首页常驻、材质、深浅色、G32、200%）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
+#   entry-loginphone  FU-HM-LOGIN-PHONE-LAYOUT 6 条（只跑 LoginPhoneUi 套件：登录出错关联输入框、手机号框随字号长、判据 1、倒计时 / 重新获取与绑定页发码是按钮且不截断）；
+#                 同样先卸载再装、从未同意隐私开始（游客登录页 → 微信第三方新号进绑定页）、各自 1800 秒
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -1070,6 +1083,8 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-me12wc class=Me12wcUi me12wc
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-tabbar class=TabBarShellUi tabbar
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-loginphone class=LoginPhoneUi loginphone
 # 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
 if [ -n "${DEVICE_FAILED:-}" ]; then
     echo "DEVICE_STEPS_FAILED${DEVICE_FAILED}"
