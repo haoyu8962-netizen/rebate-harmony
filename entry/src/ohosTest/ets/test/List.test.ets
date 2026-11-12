@@ -13,6 +13,7 @@ import me12wbUiTest from './Me12wbUi.test';
 import me12wcUiTest from './Me12wcUi.test';
 import tabBarShellUiTest from './TabBarShellUi.test';
 import loginPhoneUiTest from './LoginPhoneUi.test';
+import hmA11yUiTest from './HmA11yUi.test';
 import ds02L2UiTest from './Ds02L2Ui.test';
 
 export default function testsuite() {
@@ -52,6 +53,9 @@ export default function testsuite() {
   // FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：绑定手机号页 / 短信登录页适配与登录出错读屏；verify 里单独一个设备步（class=LoginPhoneUi，先卸载重装、
   // 从未同意隐私开始：游客登录页 → 微信第三方新号进绑定页），其他步都不跑它。排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
   loginPhoneUiTest();
+  // FU-HM-A11Y（#24 只加；README ⑪ / D10-1248）：四单共用设备套件 HmA11yUi（COMMON 首建，唯一 describe 里各单一个段函数）；verify 里单独一个设备步
+  // entry-a11y（class=HmA11yUi，先卸载重装、从未同意隐私开始），其他步都不跑它。排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
+  hmA11yUiTest();
   // HM-07v-a：驱动真实应用，隐私状态单向（基本模式 → 完整功能 → 会员），必须排在最后。
   hm07vHomeUiTest();
 }

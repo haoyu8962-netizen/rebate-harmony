@@ -206,10 +206,11 @@ MUTANTS = [
     # APP-12w-b-harmony 测试 v1（#24 只换定位串）：主步再排除 Me12wbUi、device-test 再认 me12wb。
     # APP-12w-c-harmony 测试 v1（#24 只换定位串，H-R16）：主步再排除 Me12wcUi、device-test 再认 me12wc。
     # HM-BATCH1-DEVFIX（#24 只换定位串，D10-1279 ③）：主步再排除 Ds02L2Ui（排除名单最前）、另有第十一步 entry-l2。
-    ('主步没排除 b 套件', 'C2', 'tools/ci/verify.sh', 'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
-     'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
-     [('tools/ci/verify.sh', None)], 'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
-     'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main'),
+    # FU-HM-A11Y-COMMON（#24 只换定位串）：主步再排除 HmA11yUi（排除名单最前）、另有 entry-a11y。HM-BATCH1-FREEZE 集成 1：两单叠加，最前为 HmA11yUi,Ds02L2Ui。
+    ('主步没排除 b 套件', 'C2', 'tools/ci/verify.sh', 'notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
+     'notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
+     [('tools/ci/verify.sh', None)], 'notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
+     'notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main'),
     ('没有 b 设备步', 'C2', 'tools/ci/verify.sh', 'entry-hm07vb class=Hm07vOverlayUi hm07vb', 'entry-hm07vb class=Hm07vOverlayUi all',
      [('tools/ci/verify.sh', None)], 'entry-hm07vb class=Hm07vOverlayUi hm07vb', 'entry-hm07vb class=Hm07vOverlayUi all'),
     ('device-test 不认 hm07vb', 'C2', 'tools/ci/device-test.sh', 'main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|all)', 'main|hm07va|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|all)',

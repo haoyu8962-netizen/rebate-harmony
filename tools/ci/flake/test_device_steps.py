@@ -12,9 +12,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-STEPS = ['entry', 'entry-hm07va', 'entry-hm07vb', 'entry-hm05r', 'entry-me12v', 'entry-me12wa', 'entry-me12wb', 'entry-me12wc', 'entry-tabbar', 'entry-loginphone', 'entry-l2']
-SETS = ['main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2']
+STEPS = ['entry', 'entry-hm07va', 'entry-hm07vb', 'entry-hm05r', 'entry-me12v', 'entry-me12wa', 'entry-me12wb', 'entry-me12wc', 'entry-tabbar', 'entry-loginphone', 'entry-l2', 'entry-a11y']
+SETS = ['main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2', 'a11y']
 # HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：第十一个 entry 步 entry-l2（class=Ds02L2Ui），整步 4200 秒（D10-1286 ③ 由 3600 换值）；其余各步 1800 秒。
+# HM-BATCH1-FREEZE 集成 1（#24 只加）：FU-HM-A11Y-COMMON 的 entry-a11y（class=HmA11yUi，1800 秒）叠加为第十二个 entry 步，排在 entry-l2 之后。
 TOTALS = {'l2': '4200'}
 
 FAKE_DEVICE = '''#!/bin/bash
@@ -104,7 +105,8 @@ echo ALL_GREEN
         self.assertEqual([l.split()[1] for l in shas], ['step=core'] + ['step=' + x for x in STEPS])
         self.assertTrue(shas[0].split()[2] == 'app=none' and all(len(l.split()[3]) == len('test=') + 64 for l in shas))
         # 评审 r2 S2-A：每步的设施留痕计数进汇总（INFO，只打印）。
-        self.assertEqual(r.stdout.count('RECORD|flake-trace '), 12)
+        # HM-BATCH1-FREEZE 集成 1（#24 换值）：DEVFIX entry-l2 与 A11Y entry-a11y 叠加，core + entry 12 步 = 13。
+        self.assertEqual(r.stdout.count('RECORD|flake-trace '), 13)
         self.assertIn('RECORD|flake-trace entry-hm07va|INFO', r.stdout)
 
     def test_one_red_step_does_not_stop_later_steps(self):
@@ -125,14 +127,14 @@ echo ALL_GREEN
     def test_several_red_and_core_red(self):
         r = self.run_probe({'FAIL_SETS': 'all hm07va me12wb'})
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(len(r.receipts), 12)
+        self.assertEqual(len(r.receipts), 13)  # HM-BATCH1-FREEZE 集成 1：12 → 13（换值，步数）
         self.assertIn('DEVICE_STEPS_FAILED core entry-hm07va entry-me12wb\n', r.stdout)
 
     def test_missing_pass_line_is_red(self):
         r = self.run_probe({'NO_REPORT_SET': 'me12v'})
         self.assertEqual(r.returncode, 1)
         self.assertIn('DEVICE_STEPS_FAILED entry-me12v\n', r.stdout)
-        self.assertEqual(len(r.receipts), 12)
+        self.assertEqual(len(r.receipts), 13)  # HM-BATCH1-FREEZE 集成 1：12 → 13（换值，步数）
 
     def test_no_device_fails_fast(self):
         for kind in ['1', 'lost', 'lostboot', 'boot']:

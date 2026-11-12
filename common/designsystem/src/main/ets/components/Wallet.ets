@@ -46,6 +46,11 @@ export class AmountGridItem {
   readonly segments: string[];
   /** 小字里不可拆分的金额段（如「¥34.56」），按小字字号参与纵排判断。 */
   readonly noteSegments: string[];
+  /**
+   * 问号按钮的稳定键（FU-HM-A11Y-06）：AmountGrid 给了 helpIdPrefix 时问号 id = 前缀 + 本键——按条目、不按下标（横排 / 纵排顺序
+   * 不同）。工厂不变，由调用方经 withHelpKey 补；空串不挂 id。
+   */
+  helpKey: string = '';
 
   private constructor(label: string, value: string, spoken: string, tone: AmountTone, helpLabel: string, note: string,
     maskable: boolean, segments: string[]) {
@@ -58,6 +63,12 @@ export class AmountGridItem {
     this.maskable = maskable;
     this.segments = segments;
     this.noteSegments = AmountGridItem.moneyWords(note);
+  }
+
+  /** 补问号稳定键（返回自身，接在工厂后面用）。 */
+  withHelpKey(key: string): AmountGridItem {
+    this.helpKey = key;
+    return this;
   }
 
   /** 文字里含「¥」的词（按空白切分）：作为不可拆分段参与测量。 */
@@ -216,6 +227,8 @@ export struct AmountGrid {
   @Param onBrand: boolean = false;
   /** 金额隐藏开关已打开：金额一律显示「****」，分项小字不显示，读屏读「金额已隐藏」（BR-TEXT-10 细则「金额隐藏」）。 */
   @Param masked: boolean = false;
+  /** 问号按钮 id 前缀（FU-HM-A11Y-06：说明弹窗关闭后焦点回问号）；空串不挂 id（订单页等不受影响）。 */
+  @Param helpIdPrefix: string = '';
   @Event onHelp: (index: number) => void = (_index: number) => {
   };
   /** 字号（运行中变化时布局随之切换，R1-03）。 */
@@ -275,6 +288,8 @@ export struct AmountGrid {
           .attributeModifier(new CouliTextModifier(this.onBrand ? CouliTypography.footnote : CouliTypography.footnote,
             this.labelColor(item), this.onBrand ? CouliFontWeight.semibold : undefined))
           .flexShrink(1)
+          // FU-HM-A11Y-19：标签已在下方金额的读屏名里（「标签，金额」），这里不再单独读。
+          .accessibilityLevel('no')
         if (item.helpLabel.length > 0) {
           Button({ type: ButtonType.Normal, stateEffect: true }) {
             CouliIcon({ name: 'help', iconSize: 16, color: this.labelColor(item) })
@@ -286,12 +301,14 @@ export struct AmountGrid {
           .accessibilityText(item.helpLabel)
           .focusable(true)
           .focusBox(CouliFocus.box)
+          .id(this.helpIdPrefix.length > 0 && item.helpKey.length > 0 ? this.helpIdPrefix + item.helpKey : undefined)
           .onClick(() => {
             this.onHelp(index);
           })
         }
       }
-      .accessibilityGroup(item.helpLabel.length === 0)
+      // FU-HM-A11Y-19：无问号时整行（装饰图标 + 标签）不读；有问号时行本身照常，问号按钮单独可聚焦。
+      .accessibilityLevel(item.helpLabel.length === 0 ? 'no' : 'auto')
 
       Text(this.hides(item) ? PriceTerms.amountMask : item.value)
         .attributeModifier(new CouliTextModifier(this.large ? CouliTypography.title : CouliTypography.body,
@@ -358,6 +375,8 @@ export struct WalletHeroCard {
   @Param amountHidden: boolean = false;
   /** 眼睛按钮读屏名称（amount_mask.hide / amount_mask.show）。 */
   @Param eyeLabel: string = '';
+  /** 眼睛按钮 id（FU-HM-A11Y-05：切换金额隐藏后焦点留在它上面）；空串不挂 id。 */
+  @Param eyeId: string = '';
   @Param withdrawText: string = '';
   @Param recordText: string = '';
   @Param items: AmountGridItem[] = [];
@@ -365,6 +384,8 @@ export struct WalletHeroCard {
   @Param withdrawDisabled: boolean = false;
   /** 【提现】按钮 id（弹层关闭后焦点回到它；空串不设）。 */
   @Param withdrawId: string = '';
+  /** 下方数字格问号按钮 id 前缀（透传 AmountGrid.helpIdPrefix；空串不挂）。 */
+  @Param helpIdPrefix: string = '';
   @Event onToggleHidden: () => void = () => {
   };
   @Event onWithdraw: () => void = () => {
@@ -382,6 +403,8 @@ export struct WalletHeroCard {
           Text(this.label)
             .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textInverse,
               CouliFontWeight.semibold))
+            // FU-HM-A11Y-19：标签已在大数字的读屏名里（「标签，金额」）。
+            .accessibilityLevel('no')
           Button({ type: ButtonType.Normal, stateEffect: true }) {
             CouliIcon({ name: this.amountHidden ? 'eye-off' : 'eye', iconSize: 20, color: CouliColors.textInverse })
           }
@@ -392,6 +415,7 @@ export struct WalletHeroCard {
           .accessibilityText(this.eyeLabel)
           .focusable(true)
           .focusBox(CouliFocus.box)
+          .id(this.eyeId.length > 0 ? this.eyeId : undefined)
           .onClick(() => {
             this.onToggleHidden();
           })
@@ -446,6 +470,7 @@ export struct WalletHeroCard {
           large: false,
           onBrand: true,
           masked: this.amountHidden,
+          helpIdPrefix: this.helpIdPrefix,
           onHelp: (i: number) => {
             this.onHelp(i);
           }

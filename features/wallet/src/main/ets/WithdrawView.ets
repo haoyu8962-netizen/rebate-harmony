@@ -13,10 +13,17 @@ import {
   DraftWalletTexts, fmt1, maskedSpoken, money, moneySpoken, PendingAlertCard, RenderBound, WalletLink,
   WalletNoticeBar, WalletTexts
 } from './WalletViewKit';
+import { isAmountError } from './WithdrawA11y';
 
 type JSONValue = Object | null;
 
 const ID_SUBMIT: string = 'withdraw_submit';
+/** 金额框（FU-HM-A11Y-03：金额类提交错误时读屏焦点移到这里，错误文字作为它的读屏说明）。 */
+const ID_AMOUNT: string = 'withdraw_amount';
+/** 金额类错误先播报、再移读屏焦点的间隔（与登录页 fieldError 同）。 */
+const A11Y_ERROR_DELAY_MS: number = 300;
+/** 手续费问号（FU-HM-A11Y-06：说明弹窗关闭后焦点回到它）。 */
+const ID_HELP_FEE_TAX: string = 'withdraw_help_fee_tax';
 
 /** 提现页的出口（entry 接 Router、配置）。 */
 export class WithdrawPageConfig {
@@ -45,6 +52,13 @@ class WithdrawModel {
   @Trace keptGuideText: string = '';
   @Trace estimate: JSONValue = 'hidden';
   @Trace inputText: string = '';
+  /**
+   * 金额框显示的文字（FU-HM-A11Y-04）。平时等于 inputText；不合法输入被拒时先跟到被拒串、下一轮写回 inputText，
+   * 让输入框回到已接受的值而不重建金额卡（键盘焦点留在框里）。
+   */
+  @Trace inputShown: string = '';
+  /** 金额类提交错误的文字（FU-HM-A11Y-03）：金额框的读屏说明；banner 清空（改金额、重新提交等）或换成非金额类错误时清空。 */
+  @Trace amountError: string = '';
   @Trace inputValid: boolean = false;
   @Trace payoutLine: string = '';
   @Trace payoutError: string = '';
@@ -61,8 +75,6 @@ class WithdrawModel {
   @Trace stepUp: boolean = false;
   @Trace rulesLink: boolean = false;
   @Trace busyElsewhere: boolean = false;
-  /** 不合法输入被拒绝时加 1：金额卡按它重建，输入框回到原值。 */
-  @Trace inputReset: number = 0;
 }
 
 /**
@@ -84,8 +96,13 @@ export struct WithdrawView {
   private announcePending: boolean = false;
   private lastSubmitted: number = 0;
   private lastPendingKey: string = '';
+  /** 页面仍在（aboutToAppear 置 true、aboutToDisappear 置 false）：金额类错误的延时移焦执行前复核，离页后不发旧移焦请求。 */
+  private alive: boolean = false;
+  /** 金额类错误的延时移焦任务（-1 = 没有）：新错误前与离页时取消，过期任务不执行（FU-HM-A11Y-03）。 */
+  private amountFocusTimer: number = -1;
 
   aboutToAppear(): void {
+    this.alive = true;
     const ui: UIContext = this.getUIContext();
     try {
       this.savedAvoidMode = ui.getKeyboardAvoidMode();
@@ -99,6 +116,8 @@ export struct WithdrawView {
   }
 
   aboutToDisappear(): void {
+    this.alive = false;
+    clearTimeout(this.amountFocusTimer);
     const saved: KeyboardAvoidMode | null = this.savedAvoidMode;
     if (saved !== null) {
       try {
@@ -126,12 +145,16 @@ export struct WithdrawView {
     m.keptGuideText = kept === null || keptText === null ? '' : this.t(keptText);
     m.estimate = s.estimate;
     m.inputText = s.inputText;
+    m.inputShown = s.inputText;
     m.inputValid = s.inputFen !== null;
     m.payoutLine = s.payoutLine ?? '';
     m.payoutError = s.payoutError === null ? '' : s.payoutError.text;
     m.rulesError = s.rulesError === null ? '' : s.rulesError.text;
     m.errorText = s.error === null ? '' : s.error.text;
     m.bannerText = s.banner === null ? '' : s.banner.text;
+    if (s.banner === null) {
+      m.amountError = '';
+    }
     m.pending = s.pending;
     m.pendingBusy = s.pendingBusy;
     m.pendingVersion = s.pendingVersion;
@@ -148,6 +171,23 @@ export struct WithdrawView {
       this.lastBannerSeq = s.banner.seq;
       // 提交失败等：assertive 播报一次。
       CouliAnnounce.say(ui, s.banner.text);
+      if (isAmountError(s.banner.textKey)) {
+        // FU-HM-A11Y-03：金额类错误关联到金额框，播报后读屏焦点移过去（只移读屏焦点、不弹键盘）；金额框不可编辑时不移。
+        m.amountError = s.banner.text;
+        if (m.editable) {
+          clearTimeout(this.amountFocusTimer);
+          const seq: number = s.banner.seq;
+          this.amountFocusTimer = setTimeout(() => {
+            this.amountFocusTimer = -1;
+            // 执行时复核：页面仍在、没有更新的 banner、仍是金额类错误（改金额 / 重新提交 / 非金额类错误已清空）、金额框仍可编辑。
+            if (this.alive && this.lastBannerSeq === seq && this.model.amountError.length > 0 && this.model.editable) {
+              CouliFocusReturn.accessibilityFocus(ui, ID_AMOUNT);
+            }
+          }, A11Y_ERROR_DELAY_MS);
+        }
+      } else {
+        m.amountError = '';
+      }
     }
     if (s.notice !== null && s.notice.seq !== this.lastNoticeSeq) {
       this.lastNoticeSeq = s.notice.seq;
@@ -250,6 +290,8 @@ export struct WithdrawView {
     options.primaryText = this.t('withdraw.ok');
     options.secondaryText = this.t('cs.appeal_entry');
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；返回走 onDismissed = 与【知道了】同一出口，不新增资金动作（D10-1248 ③）。
+    options.backDismisses = true;
     options.returnFocusId = ID_SUBMIT;
     options.onPrimary = () => this.config.controller.dismissRisk();
     options.onSecondary = () => this.config.controller.appeal();
@@ -289,6 +331,8 @@ export struct WithdrawView {
     options.primaryText = this.t('pending_confirm.abandon.ok');
     options.secondaryText = this.t('pending_confirm.abandon.cancel');
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；没有 onDismissed，返回 = 【再想想】只关弹窗、不执行放弃（D10-1248 ③）。
+    options.backDismisses = true;
     options.returnFocusId = 'withdraw_abandon';
     options.onPrimary = () => {
       this.config.controller.abandon(version, key);
@@ -301,6 +345,7 @@ export struct WithdrawView {
     options.title = this.t('wallet.help.title.fee_tax');
     options.message = this.t('wallet.help.fee_tax');
     options.primaryText = this.t('wallet.help.ok');
+    options.returnFocusId = ID_HELP_FEE_TAX;
     CouliDialog.open(this.getUIContext(), options);
   }
 
@@ -449,7 +494,7 @@ export struct WithdrawView {
           Text(this.t('withdraw.currency'))
             .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
             .accessibilityLevel('no')
-          TextInput({ text: this.model.inputText,
+          TextInput({ text: this.model.inputShown,
             placeholder: this.model.editable ? '' : this.t('withdraw.realname_locked') })
             .type(InputType.NUMBER_DECIMAL)
             .maxLength(12)
@@ -459,12 +504,17 @@ export struct WithdrawView {
             .padding(0)
             .layoutWeight(1)
             .enabled(this.model.editable)
-            .id('withdraw_amount')
+            .id(ID_AMOUNT)
             .accessibilityText(this.t('withdraw.amount_label'))
+            .accessibilityDescription(this.model.amountError)
             .onChange((value: string) => {
               if (!this.config.controller.setInput(value)) {
-                // 不合法整段不接受：输入框回到原值（按键重建输入框）。
-                this.model.inputReset++;
+                // 不合法整段不接受：显示值先跟到被拒串、下一轮写回已接受的金额（TextInput 的 text 不是双向绑定，同值写入不刷新）。
+                // 不改金额卡的 ForEach 键、不重建输入框，键盘焦点留在框里（FU-HM-A11Y-04）；被拒不播报（D10-1248 ⑤）。
+                this.model.inputShown = value;
+                setTimeout(() => {
+                  this.model.inputShown = this.model.inputText;
+                }, 0);
               }
             })
         }
@@ -537,6 +587,7 @@ export struct WithdrawView {
             .accessibilityText(this.t('wallet.help.label.fee_tax'))
             .focusable(true)
             .focusBox(CouliFocus.box)
+            .id(ID_HELP_FEE_TAX)
             .onClick(() => this.helpFeeTax())
           }
         }
@@ -706,8 +757,7 @@ export struct WithdrawView {
       this.balanceCard()
       ForEach([this.model.version], (_v: number) => {
         this.amountCard()
-      }, (_v: number) => 'withdraw_amount_' + this.model.editable + '_' + (this.model.pending !== null) + '_'
-        + this.model.inputReset)
+      }, (_v: number) => 'withdraw_amount_' + this.model.editable + '_' + (this.model.pending !== null))
       if (this.model.guide !== null && (this.model.guide as WalletRecord)['actionRaw'] !== 'none') {
         this.guideCard()
       }

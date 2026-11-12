@@ -1,0 +1,6 @@
+# FU-HM-A11Y-FUNDS 设备必跑名单（entry-a11y 步的 FUNDS 段；与 HmA11yFundsCases.ets 的 A11Y_FUNDS_DEVICE_CASES 逐条一致；#24 并入 a11y 集合）
+a11y_funds_04_wallet_amount_labels_read_once
+a11y_funds_03_wallet_eye_toggle_keeps_focus_and_layout
+a11y_funds_02_withdraw_rejected_input_keeps_value_focus_and_node
+a11y_funds_05_step_up_title_present_code_keeps_keyboard_focus
+a11y_funds_01_withdraw_amount_error_described_on_amount_field

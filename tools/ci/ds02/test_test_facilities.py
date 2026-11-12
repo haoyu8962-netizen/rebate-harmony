@@ -214,7 +214,8 @@ run_device_tests core common/core core_test
                                      ['core_test|||||all|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|'
                                       # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换定位）：主步再排除 Ds02L2Ui（放在排除名单最前）。
-                                      'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
+                                      # HM-BATCH1-FREEZE 集成 1（#24 换定位）：FU-HM-A11Y-COMMON 主步再排除 HmA11yUi，叠加后放在排除名单最前。
+                                      'notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
                                       'device-test-entry-hm07va',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vOverlayUi|hm07vb|'
@@ -236,7 +237,11 @@ run_device_tests core common/core core_test
                                       'device-test-entry-loginphone',
                                       # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加）：第十一步 entry-l2，Ds02L2Ui 42 条，整步 4200 秒（实测加余量；D10-1286 ③ 由 3600 换值）。
                                       'entry_test|' + tmp + '/Staging.hap|600000|4200|class=Ds02L2Ui|l2|'
-                                      'device-test-entry-l2'])
+                                      'device-test-entry-l2',
+                                      # FU-HM-A11Y-COMMON 测试 v1（#24 只加）：第十一步 a11y，主步再排除 HmA11yUi（放在排除名单最前）。
+                                      # HM-BATCH1-FREEZE 集成 1：叠加后 entry-a11y 为第十二步，排在 entry-l2 之后。
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|class=HmA11yUi|a11y|'
+                                      'device-test-entry-a11y'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 if probe == 'hm07vb-step-fails':
@@ -296,7 +301,9 @@ run_device_tests core common/core core_test
         # HM-L2 批 1 集成 2（FREEZE，D10-1177 ⑨）：STATE 段（Ds02L2UiState 7 条）叠在上面五单之后，合集 = 288 + CouliCard 渲染 2 + Ds02L2Ui 33 = 323。
         # HM-L2-PRODUCT-CELL（#24 只加）：cell 段 9 条（tools/ci/l2cell/device-cases.txt）叠在 STATE 段之后，目录不增行；合集 323 → 332。
         # FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：单独步 loginphone 6 条（tools/ci/loginphone/device-cases.txt）进合集；332 → 338。
-        self.assertEqual(len(names), 338)
+        # FU-HM-A11Y-COMMON（#24 只加）：单独步 a11y 5 条（tools/ci/a11ycommon/device-cases.txt）进合集；338 → 343。
+        # FU-HM-A11Y-FUNDS（#24 只加）：a11y 步 FUNDS 段 5 条（tools/ci/a11yfunds/device-cases.txt）进合集；343 → 348。
+        self.assertEqual(len(names), 348)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -332,8 +339,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 338)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 338)
+        self.assertEqual(validate(report(names)), 348)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 348)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -381,6 +388,7 @@ run_device_tests core common/core core_test
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
         loginphone = expected_names('loginphone')
+        a11y = expected_names('a11y')
         l2 = expected_names('l2')
         # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换值）：Ds02L2Ui 42 条摘出主步、单列 entry-l2，main 219 → 177。
         self.assertEqual(len(main), 177)
@@ -415,9 +423,14 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
         self.assertEqual(len(loginphone), 6)
+        # FU-HM-A11Y-FUNDS（#24 只加）：COMMON 5 + FUNDS 5。
+        self.assertEqual(len(a11y), 10)
         # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加一项）：各步并集再并 l2（单列 entry-l2）才等于合集。
-        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | l2, every)
+        # HM-BATCH1-FREEZE 集成 1（#24 只加一项）：并集再并 a11y（单列 entry-a11y）。
+        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | l2 | a11y, every)
         self.assertEqual(loginphone & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | l2), set())
+        # FU-HM-A11Y-COMMON（#24 只加）：a11y 与其余各步不相交。HM-BATCH1-FREEZE 集成 1（只加一项）：也与 l2 不相交。
+        self.assertEqual(a11y & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | l2), set())
         # HM-L2-CARD（#24 只加）：l2 是主步的子集（README ⑩ 不新增设备步），与 8 个单独步不相交，名单与套件导出常量一致。
         # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换值）：Ds02L2Ui 单列 entry-l2 后 l2 与主步不相交（原「l2 是主步的子集」随 ⑩ 作废）。
         self.assertEqual(l2 & main, set())
@@ -959,6 +972,370 @@ run_device_tests core common/core core_test
                 dark.write_text(original)
             assert_resource_palette(self, root)
 
+
+# FU-HM-A11Y-FUNDS（#24 只加，补复核 S1 / S3-1）：verify.sh 登记自检。a11ycommon / a11yfunds 宿主步与 wallet 本机单测
+# 被摘掉（整步、某一行）、脱离 fail_fast 链、挪进条件块或函数、挪到 --fast 早退之后，都要红。放在 ds02 步里跑，
+# 不靠被守的步自己守自己（摘整步时被守的守卫也一起没了）。
+A11Y_HOST_STEPS = [
+    ('FU-HM-A11Y-COMMON 宿主检查', [
+        'python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" --self-test',
+        'python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py"',
+        'node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" --self-test',
+        'node "$ROOT/tools/ci/a11ycommon/run-logic.cjs"',
+        'node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs"',
+    ]),
+    ('FU-HM-A11Y-FUNDS 宿主检查', [
+        'python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" --self-test',
+        'python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py"',
+        'node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" --self-test',
+        'node "$ROOT/tools/ci/a11yfunds/run-logic.cjs"',
+        'node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs"',
+    ]),
+]
+WALLET_UNIT_TEST = 'run_unit_tests wallet features/wallet'
+FAST_EXIT = 'if [ "$FAST" -eq 1 ]; then'
+
+
+def verify_top_level(source):
+    """verify.sh 的顶层命令行 [(行号, 行)]：不在函数体、if / for / while / until / case 块、heredoc 里，不是注释。
+    结构对不上（块没闭合、多余闭合、heredoc 没结束）抛 ValueError（fail-closed）。"""
+    lines = source.split('\n')
+    out, stack, heredoc = [], [], None
+    for no, line in enumerate(lines, 1):
+        if heredoc is not None:
+            if line.strip() == heredoc:
+                heredoc = None
+            continue
+        if stack and stack[-1] == 'fn':
+            if line == '}':
+                stack.pop()
+            continue
+        if line[:1] in ('', ' ', '\t', '#'):
+            pass
+        elif re.match(r'[A-Za-z_][A-Za-z0-9_]*\(\) \{$', line):
+            if stack:
+                raise ValueError('第 %d 行：块里定义函数' % no)
+            stack.append('fn')
+            continue
+        else:
+            word = line.split()[0].rstrip(';')
+            single = re.search(r'(;|\s)(fi|done|esac)\s*$', line)
+            if word in ('if', 'for', 'while', 'until', 'case') and not single:
+                stack.append({'if': 'fi', 'case': 'esac'}.get(word, 'done'))
+            elif word in ('fi', 'done', 'esac'):
+                if not stack or stack[-1] != word:
+                    raise ValueError('第 %d 行：多余或错配的 %s' % (no, word))
+                stack.pop()
+            elif not stack:
+                out.append((no, line))
+        m = re.search(r"<<-?\s*['\"]?([A-Za-z_]+)['\"]?\s*$", line)
+        if m and not line.lstrip().startswith('#'):
+            heredoc = m.group(1)
+    if stack or heredoc is not None:
+        raise ValueError('文件结束时块 / heredoc 未闭合：%s %s' % (stack, heredoc))
+    return out
+
+
+def a11y_host_registration_violations(source):
+    try:
+        top = verify_top_level(source)
+    except ValueError as e:
+        return ['R0 verify.sh 结构无法解析（fail-closed）：%s' % e]
+    v = []
+    lines = source.split('\n')
+    fast = [no for no, line in enumerate(lines, 1) if line == FAST_EXIT]
+    if len(fast) != 1:
+        v.append('R0 verify.sh 应恰有一处 --fast 早退（%s），实际 %d 处' % (FAST_EXIT, len(fast)))
+    fast_no = fast[0] if fast else 0
+    exits = [no for no, line in top if re.match(r'(exit|return)\b', line)]
+    for title, cmds in A11Y_HOST_STEPS:
+        steps = [no for no, line in top if line == 'step "%s"' % title]
+        records = [no for no, line in top if line.startswith('record "%s" PASS ' % title)]
+        if len(steps) != 1 or len(records) != 1 or records[0] < steps[0]:
+            v.append('R1 verify 顶层缺「%s」步（step / record PASS 各恰一行且 record 在后；实际 step %s record %s）'
+                     % (title, steps, records))
+            continue
+        block = [(no, line) for no, line in top if steps[0] < no < records[0]]
+        cursor = steps[0]
+        for cmd in cmds:
+            chain = re.compile(re.escape(cmd) + r' \|\| fail_fast "[^"]+" "[^"]*"$')
+            hits = [no for no, line in block if line.split(' ||')[0].rstrip() == cmd]
+            good = [no for no, line in block if chain.match(line) and no > cursor]
+            if not hits:
+                v.append('R2 「%s」步缺命令：%s' % (title, cmd))
+            elif not good:
+                v.append('R3 「%s」步命令不在 fail_fast 链上或顺序不对：%s' % (title, cmd))
+            else:
+                cursor = good[0]
+        if fast_no and records[0] > fast_no:
+            v.append('R4 「%s」步须在 --fast 早退（第 %d 行）之前，fast 模式也要跑' % (title, fast_no))
+        if any(no < records[0] for no in exits):
+            v.append('R4 「%s」步之前有顶层 exit / return：%s' % (title, [no for no in exits if no < records[0]]))
+    order = [next((no for no, line in top if line == 'step "%s"' % t), 0) for t, _ in A11Y_HOST_STEPS]
+    if all(order) and order != sorted(order):
+        v.append('R1 FUNDS 宿主步须排在 COMMON 宿主步之后')
+    defs = [no for no, line in enumerate(lines, 1) if line == 'run_unit_tests() {']
+    body = source.split('\nrun_unit_tests() {\n', 1)[1].split('\n}\n', 1)[0] if len(defs) == 1 else ''
+    tail = [line.strip() for line in body.split('\n') if line.strip()][-1:]
+    if len(defs) != 1 or body.count('fail_fast "test $label"') < 2 or not tail or not tail[0].startswith('fail_fast "test $label"'):
+        v.append('R5 run_unit_tests 须恰定义一次，缺结果与未通过都走 fail_fast "test $label"（最后一句兜底）')
+    wallet = [no for no, line in top if line.rstrip() == WALLET_UNIT_TEST]
+    designsystem = [no for no, line in top if line.rstrip() == 'run_unit_tests designsystem common/designsystem']
+    if len(wallet) != 1:
+        v.append('R5 verify 顶层须恰一行 %s（实际 %d 行；注释掉、挂 || true、挪进条件块 / 函数都不算）' % (WALLET_UNIT_TEST, len(wallet)))
+    elif not defs or wallet[0] < defs[0] or (fast_no and wallet[0] < fast_no) or not designsystem or wallet[0] < designsystem[0]:
+        v.append('R5 %s 须在 run_unit_tests 定义、--fast 早退与 designsystem 单测之后（与其余本机单测同位）' % WALLET_UNIT_TEST)
+    elif any(no < wallet[0] for no in exits):
+        v.append('R5 %s 之前有顶层 exit / return' % WALLET_UNIT_TEST)
+    return v
+
+
+class VerifyA11yHostRegistration(unittest.TestCase):
+    """FU-HM-A11Y-FUNDS（#24 只加）：补复核 S1（a11yfunds 宿主步 + wallet 单测）与 S3-1（a11ycommon 宿主步）的登记自检。"""
+
+    def source(self):
+        return (Path(__file__).resolve().parents[3] / 'tools/ci/verify.sh').read_text(encoding='utf-8')
+
+    def test_verify_registers_a11y_host_steps_and_wallet_unit_test(self):
+        self.assertEqual(a11y_host_registration_violations(self.source()), [])
+
+    def test_registration_mutations_are_killed_and_benign_rewrites_pass(self):
+        source = self.source()
+        funds = 'python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" ||'
+        common = 'python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" ||'
+
+        def line_of(prefix):
+            hits = [line for line in source.split('\n') if line.startswith(prefix)]
+            self.assertEqual(len(hits), 1, prefix)
+            return hits[0] + '\n'
+
+        def step_block(title):
+            start = source.index('step "%s"\n' % title)
+            end = source.index('\n', source.index('record "%s" PASS ' % title)) + 1
+            return source[start:end]
+
+        def drop(text):
+            return lambda s: s.replace(text, '', 1)
+
+        def sub(old, new):
+            return lambda s: s.replace(old, new, 1)
+
+        def move_after_fast(text):
+            return lambda s: s.replace(text, '', 1).replace('\nrun_unit_tests generated common/generated\n',
+                                                            '\n' + text + 'run_unit_tests generated common/generated\n', 1)
+
+        wallet = WALLET_UNIT_TEST + '\n'
+        mutations = [
+            ('摘 a11yfunds 整步', drop(step_block('FU-HM-A11Y-FUNDS 宿主检查'))),
+            ('只摘 a11yfunds 本体行', drop(line_of(funds))),
+            ('摘 a11yfunds 自测行', drop(line_of('python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" --self-test'))),
+            ('摘 a11yfunds 逻辑行', drop(line_of('node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" ||'))),
+            ('摘 a11yfunds 逻辑自测行', drop(line_of('node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" --self-test'))),
+            ('摘 a11yfunds ArkTS 行', drop(line_of('node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs"'))),
+            ('a11yfunds 本体行注释掉', sub(line_of(funds), '# ' + line_of(funds))),
+            ('a11yfunds 本体行改 || true', sub(line_of(funds), funds.replace(' ||', ' || true\n'))),
+            ('a11yfunds 本体行 fail_fast 后挂 || true', sub(line_of(funds), line_of(funds).rstrip('\n') + ' || true\n')),
+            ('a11yfunds 本体行挪进 if false', sub(line_of(funds), 'if false; then\n' + line_of(funds) + 'fi\n')),
+            ('a11yfunds 本体行改 --help', sub(line_of(funds), line_of(funds).replace('.py" ||', '.py" --help ||'))),
+            ('a11yfunds 整步挪到 --fast 早退之后', move_after_fast(step_block('FU-HM-A11Y-FUNDS 宿主检查'))),
+            ('a11yfunds 步前插顶层 exit 0', sub('step "FU-HM-A11Y-FUNDS 宿主检查"\n', 'exit 0\nstep "FU-HM-A11Y-FUNDS 宿主检查"\n')),
+            ('a11yfunds 步排到 a11ycommon 之前', lambda s: s.replace(step_block('FU-HM-A11Y-FUNDS 宿主检查'), '', 1).replace(
+                step_block('FU-HM-A11Y-COMMON 宿主检查'), step_block('FU-HM-A11Y-FUNDS 宿主检查') + step_block('FU-HM-A11Y-COMMON 宿主检查'), 1)),
+            ('摘 wallet 本机单测', drop(wallet)),
+            ('wallet 单测注释掉', sub(wallet, '# ' + wallet)),
+            ('wallet 单测挂 || true', sub(wallet, WALLET_UNIT_TEST + ' || true\n')),
+            ('wallet 单测挪进 if 块', sub(wallet, 'if [ "$FAST" -eq 2 ]; then\n    ' + wallet + 'fi\n')),
+            ('wallet 单测挪到 --fast 早退之前', lambda s: s.replace(wallet, '', 1).replace(FAST_EXIT, wallet + FAST_EXIT, 1)),
+            ('run_unit_tests 失败不再 fail_fast', sub('    fail_fast "test $label"', '    record "test $label"')),
+            ('摘 a11ycommon 整步', drop(step_block('FU-HM-A11Y-COMMON 宿主检查'))),
+            ('只摘 a11ycommon 本体行', drop(line_of(common))),
+            ('摘 a11ycommon ArkTS 行', drop(line_of('node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs"'))),
+            ('a11ycommon 本体行改 || true', sub(line_of(common), common.replace(' ||', ' || true\n'))),
+            ('verify 块没闭合（fail-closed）', sub(FAST_EXIT + '\n', FAST_EXIT + '\nif true; then\n')),
+        ]
+        benign = [
+            ('改 fail_fast 文案', sub('"a11yfunds-host" "见上方违反项"', '"a11yfunds-host" "见上方违反项（AF1–AF7）"')),
+            ('步内加注释', sub('step "FU-HM-A11Y-FUNDS 宿主检查"\n', 'step "FU-HM-A11Y-FUNDS 宿主检查"\n# 注释\n')),
+            ('wallet 单测前加空行', sub(wallet, '\n' + wallet)),
+        ]
+        for name, mutate in mutations:
+            mutated = mutate(source)
+            self.assertNotEqual(mutated, source, name)
+            got = a11y_host_registration_violations(mutated)
+            self.assertTrue(got, '变异「%s」没被登记自检杀' % name)
+            print('KILLED verify 登记变异 %s ← %s' % (name, got[0]))
+        for name, mutate in benign:
+            mutated = mutate(source)
+            self.assertNotEqual(mutated, source, name)
+            self.assertEqual(a11y_host_registration_violations(mutated), [], '良性改写「%s」被误报' % name)
+            print('BENIGN verify 登记 %s：0 违反' % name)
+
+
+
+A11Y_STEP = ('entry-a11y', 'class=HmA11yUi', 'a11y')
+DEVICE_SUMMARY = 'if [ -n "${DEVICE_FAILED:-}" ]; then'
+
+
+def a11y_device_registration_violations(verify, device):
+    """HM-BATCH1-FREEZE 集成 1（#24 只加）：FUNDS 登记自检扩到合并后的形态——entry-l2 与 entry-a11y 两个单列步并存时，
+    entry-a11y 的设备步登记（照 DEVFIX 对 Ds02L2Ui 的「恰在一个设备步」钉法）：
+    D1 verify 顶层分派的 entry 设备步里恰有一步会跑 HmA11yUi（class= 含它，或 notClass= / 无过滤而不排除它），就是 entry-a11y class=HmA11yUi a11y；
+    D2 该步 COULI_HM_TEST_TOTAL_TIMEOUT=1800、COULI_HM_TEST_CASE_TIMEOUT=600000（照 COMMON 所定），排在设备步汇总之前，分派行无条件（不包在块里）；
+    D3 主步恰一个（entry … main，1800 秒），notClass 同时排除 HmA11yUi 与 Ds02L2Ui；entry-l2 仍在（两单列步并存）；步骤名不重复；
+    D4 device-test.sh 的 COULI_HM_DEVICE_SET case 认 a11y（复核 COMMON S3-b M8），且 a11y 不走 l2 的 4200 秒门槛。"""
+    v = []
+    try:
+        top = {no for no, _ in verify_top_level(verify)}
+    except ValueError as e:
+        return ['D0 verify.sh 结构无法解析（fail-closed）：%s' % e]
+    lines = verify.split('\n')
+    steps = []
+    for i, line in enumerate(lines):
+        if line.strip().startswith('run_device_tests entry '):
+            parts = line.split()
+            prev = lines[i - 1] if i else ''
+            timeouts = dict(re.findall(r'(COULI_HM_TEST_(?:TOTAL|CASE)_TIMEOUT)=(\d+)', prev))
+            unconditional = prev.rstrip().endswith('\\') and i in top and line.startswith('    run_device_tests ') \
+                and not line.startswith(' ' * 5)
+            steps.append((parts[-3], parts[-2], parts[-1], timeouts, i + 1, unconditional))
+
+    def runs_suite(flt, suite):
+        if not flt.startswith(('class=', 'notClass=')):
+            return True
+        kind, names = flt.split('=', 1)
+        return (suite in names.split(',')) == (kind == 'class')
+
+    runners = [s for s in steps if runs_suite(s[1], 'HmA11yUi')]
+    if [s[:3] for s in runners] != [A11Y_STEP]:
+        v.append('D1 恰一步跑 HmA11yUi 且就是 entry-a11y class=HmA11yUi a11y（实际 %s）' % [s[:3] for s in runners])
+    a11y = [s for s in steps if s[:3] == A11Y_STEP]
+    summary = verify.find(DEVICE_SUMMARY)
+    summary_no = verify[:summary].count('\n') + 1 if summary >= 0 else 0
+    if len(a11y) != 1:
+        v.append('D2 entry-a11y 分派行应恰一行（实际 %d）' % len(a11y))
+    else:
+        s = a11y[0]
+        if s[3] != {'COULI_HM_TEST_TOTAL_TIMEOUT': '1800', 'COULI_HM_TEST_CASE_TIMEOUT': '600000'}:
+            v.append('D2 entry-a11y 超时应为整步 1800 秒、单例 600000 ms（实际 %s）' % s[3])
+        if not s[5]:
+            v.append('D2 entry-a11y 分派行须无条件（顶层、上一行是超时续行）')
+        if not summary_no or s[4] > summary_no:
+            v.append('D2 entry-a11y 须排在设备步汇总（%s）之前' % DEVICE_SUMMARY)
+    main = [s for s in steps if s[0] == 'entry']
+    if len(main) != 1 or main[0][2] != 'main' or main[0][3].get('COULI_HM_TEST_TOTAL_TIMEOUT') != '1800' \
+            or not main[0][1].startswith('notClass=') \
+            or not {'HmA11yUi', 'Ds02L2Ui'} <= set(main[0][1].split('=', 1)[1].split(',')):
+        v.append('D3 主步应恰一个（main、1800 秒），notClass 同时排除 HmA11yUi 与 Ds02L2Ui（实际 %s）' % [s[:4] for s in main])
+    if [s[:3] for s in steps if s[0] == 'entry-l2'] != [('entry-l2', 'class=Ds02L2Ui', 'l2')]:
+        v.append('D3 entry-l2 class=Ds02L2Ui l2 应恰一行（两单列步并存）')
+    if len({s[0] for s in steps}) != len(steps):
+        v.append('D3 设备步名重复')
+    case = [line for line in device.split('\n') if line.startswith('case "$DEVICE_SET" in ')]
+    if len(case) != 1 or 'a11y' not in case[0].split(' in ', 1)[1].split(')', 1)[0].split('|'):
+        v.append('D4 device-test.sh 的 COULI_HM_DEVICE_SET case 须认 a11y')
+    if '    if [ "$DEVICE_SET" = l2 ]; then\n' not in device or re.search(r'DEVICE_SET" = a11y', device):
+        v.append('D4 a11y 不得另设门槛（走 1800 秒原行）')
+    return v
+
+
+class VerifyA11yDeviceRegistrationMerged(unittest.TestCase):
+    """HM-BATCH1-FREEZE 集成 1（#24 只加）：FUNDS 登记自检（VerifyA11yHostRegistration）扩到合并后的形态——
+    宿主段登记原样保留；另钉 entry-a11y 设备步登记与 a11y 名单（与 entry-l2 并存），补复核 COMMON S3-b 的 M8 / M9 / M10 三处缺口。"""
+
+    root = Path(__file__).resolve().parents[3]
+
+    def texts(self):
+        return ((self.root / 'tools/ci/verify.sh').read_text(encoding='utf-8'),
+                (self.root / 'tools/ci/device-test.sh').read_text(encoding='utf-8'))
+
+    def test_real_verify_registers_entry_a11y_beside_entry_l2(self):
+        verify, device = self.texts()
+        self.assertEqual(a11y_device_registration_violations(verify, device), [])
+
+    def test_a11y_names_are_common_plus_funds_and_land_only_in_entry_a11y(self):
+        def cases(rel):
+            return {line.strip() for line in (self.root / rel).read_text().splitlines() if line.strip() and not line.startswith('#')}
+        common, funds = cases('tools/ci/a11ycommon/device-cases.txt'), cases('tools/ci/a11yfunds/device-cases.txt')
+        self.assertEqual((len(common), len(funds), common & funds), (5, 5, set()))
+        a11y = expected_names('a11y')
+        self.assertEqual(a11y, common | funds)
+        for other in ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2'):
+            self.assertEqual(expected_names(other) & a11y, set(), other)
+        self.assertLessEqual(a11y, expected_names('all'))
+
+        def report(case_names):
+            events = []
+            for name in case_names:
+                events += ['OHOS_REPORT_STATUS: test=' + name, 'OHOS_REPORT_STATUS_CODE: 1',
+                           'OHOS_REPORT_STATUS: test=' + name, 'OHOS_REPORT_STATUS_CODE: 0']
+            events += [f'Tests run: {len(case_names)}, Failure: 0, Error: 0, Pass: {len(case_names)}',
+                       'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
+            return '\n'.join(events)
+
+        main = sorted(expected_names('main'))
+        self.assertEqual(validate(report(sorted(a11y)), 'a11y'), 10)
+        bad = {
+            # M9：主步混进任一条 a11y 用例（套件过滤失效）即红。
+            **{'main-with-a11y-' + name: (report(main + [name]), 'main') for name in sorted(a11y)},
+            # M10：a11y 单独步多跑名单外用例（主步一条 / l2 一条 / 以后新增）即红。
+            'a11y-with-main-case': (report(sorted(a11y) + main[:1]), 'a11y'),
+            'a11y-with-l2-case': (report(sorted(a11y) + sorted(expected_names('l2'))[:1]), 'a11y'),
+            'a11y-with-future-case': (report(sorted(a11y) + ['future_extra_test']), 'a11y'),
+            **{'a11y-missing-' + name: (report(sorted(a11y - {name})), 'a11y') for name in sorted(a11y)},
+        }
+        for name, (text, set_name) in bad.items():
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    validate(text, set_name)
+
+    def test_device_registration_mutations_are_killed(self):
+        verify, device = self.texts()
+        a11y_line = [line for line in verify.split('\n') if ' entry-a11y class=HmA11yUi a11y' in line]
+        self.assertEqual(len(a11y_line), 1)
+        a11y_line = a11y_line[0]
+        a11y_head = 'COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \\\n' + a11y_line + '\n'
+        self.assertEqual(verify.count(a11y_head), 1)
+        main_line = [line for line in verify.split('\n') if ' entry notClass=' in line and 'run_device_tests' in line][0]
+        case_line = [line for line in device.split('\n') if line.startswith('case "$DEVICE_SET" in ')][0]
+
+        def v(old, new):
+            self.assertEqual(verify.count(old), 1, old)
+            return (verify.replace(old, new, 1), device)
+
+        def d(old, new):
+            self.assertEqual(device.count(old), 1, old)
+            return (verify, device.replace(old, new, 1))
+
+        mutations = [
+            ('摘 entry-a11y 步', v(a11y_head, '')),
+            ('entry-a11y 包进 if', v(a11y_head, 'if [ "${COULI_SKIP_A11Y:-0}" = 0 ]; then\n' + a11y_head + 'fi\n')),
+            ('entry-a11y 整步超时 3600', v(a11y_head, a11y_head.replace('TOTAL_TIMEOUT=1800', 'TOTAL_TIMEOUT=3600'))),
+            ('entry-a11y 单例超时放宽', v(a11y_head, a11y_head.replace('CASE_TIMEOUT=600000', 'CASE_TIMEOUT=900000'))),
+            ('entry-a11y 挪到设备步汇总之后', (verify.replace(a11y_head, '', 1).replace(DEVICE_SUMMARY, DEVICE_SUMMARY + '\n' + a11y_head.rstrip('\n'), 1), device)),
+            ('entry-a11y 改跑 main 名单', v(a11y_line, a11y_line.replace('HmA11yUi a11y', 'HmA11yUi main'))),
+            ('entry-a11y 过滤改 notClass', v(a11y_line, a11y_line.replace('class=HmA11yUi', 'notClass=HmA11yUi'))),
+            ('主步不排除 HmA11yUi', v(main_line, main_line.replace('HmA11yUi,', ''))),
+            ('主步不排除 Ds02L2Ui', v(main_line, main_line.replace('Ds02L2Ui,', ''))),
+            ('摘 entry-l2 步', v(' entry-l2 class=Ds02L2Ui l2\n', ' entry-l2b class=Ds02L2Ui l2\n')),
+            ('多一个 entry-a11y 步', v(a11y_head, a11y_head + a11y_head)),
+            ('device-test 不认 a11y', d(case_line, case_line.replace('a11y|', '', 1))),
+            ('a11y 另设门槛', d('    if [ "$DEVICE_SET" = l2 ]; then\n', '    if [ "$DEVICE_SET" = a11y ]; then\n        :\n    fi\n    if [ "$DEVICE_SET" = l2 ]; then\n')),
+            ('verify 块没闭合（fail-closed）', v(FAST_EXIT + '\n', FAST_EXIT + '\nif true; then\n')),
+        ]
+        for name, (mv, md) in mutations:
+            got = a11y_device_registration_violations(mv, md)
+            self.assertTrue(got, '变异「%s」没被设备步登记自检杀' % name)
+            print('KILLED entry-a11y 登记变异 %s ← %s' % (name, got[0]))
+        benign = [
+            ('entry-a11y 前加注释', v(a11y_head, '# 注释\n' + a11y_head)),
+            ('entry-l2 与 entry-a11y 对调', (verify.replace(a11y_head, '', 1).replace(
+                'COULI_HM_TEST_TOTAL_TIMEOUT=4200', a11y_head + 'COULI_HM_TEST_TOTAL_TIMEOUT=4200', 1), device)),
+            ('主步排除名单换序', v(main_line, main_line.replace('HmA11yUi,Ds02L2Ui,', 'Ds02L2Ui,HmA11yUi,'))),
+        ]
+        for name, (mv, md) in benign:
+            self.assertNotEqual((mv, md), (verify, device), name)
+            self.assertEqual(a11y_device_registration_violations(mv, md), [], '良性改写「%s」被误报' % name)
+            print('BENIGN entry-a11y 登记 %s：0 违反' % name)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

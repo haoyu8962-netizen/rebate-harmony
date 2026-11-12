@@ -438,7 +438,7 @@ export struct OrderDetailView {
               spoken: view.orderNoSpoken,
               copyable: view.copyable,
               copyText: this.t(OrderKeys.COPY),
-              copySpoken: this.t(OrderKeys.COPY_SPOKEN),
+              copySpoken: view.copySpoken,
               rowId: 'order_detail',
               onCopy: () => {
                 // FU-HM-0712 R1-01：页面仍有效、正在显示的仍是这一单且单号一致，才走统一写入口。

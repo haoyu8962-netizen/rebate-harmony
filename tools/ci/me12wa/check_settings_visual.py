@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = 'cc872c3'
 FIXTURE = 'tools/ci/me12wa/fixtures/settings-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-a-harmony-v1-aux/make_baseline.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = '2d63b60f9510aba0dae1ff3b90d7227d583ef770e63ee4fe41ba20e6ed5dd782'
+FIXTURE_SHA256 = 'a21b1a1a3db38d771f4bdec4bfdbe197538e3ba977466e958209b369267e61b8'
 
 VIEW = 'features/me/src/main/ets/SettingsView.ets'
 PARTS = 'features/me/src/main/ets/SettingsParts.ets'

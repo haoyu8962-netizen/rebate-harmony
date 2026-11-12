@@ -9,7 +9,11 @@ import { CouliIcon } from './CouliIcon';
 import { CouliTextModifier, TABULAR_FEATURE } from './CouliText';
 import { CouliFontScale } from './FontScale';
 import { CouliAnnounce } from './States';
+import { CouliFocusReturn } from './Overlays';
 import { StepUpPanelFit } from '../logic/StepUpPanelFit';
+
+/** 半屏弹出后再把读屏焦点移进标题（FU-HM-A11Y-08；半屏入场动画比对话框长，Overlays 的 120 ms 不够；设备走查再调）。 */
+const STEP_UP_TITLE_FOCUS_DELAY_MS: number = 400;
 
 // 二次验证面板（StepUpSheet）的纯视图：APP-13a §3 鸿蒙——从 features/wallet 挪到 DesignSystem，钱包（提现、收款账号）与「我的」
 // （申请注销、换手机号）共用。Feature 之间不能依赖，所以视图放这里、只认本文件的驱动接口（StepUpPanelDriver）；执行器仍在 Core
@@ -124,11 +128,16 @@ export struct StepUpPanel {
   private lastErrorSeq: number = 0;
   private lastClear: number = 0;
   private win: window.Window | null = null;
+  /** 面板仍在（aboutToAppear 置 true、aboutToDisappear 置 false）：标题延时移焦执行前复核，关面板 / 重开后旧任务不发。 */
+  private alive: boolean = false;
+  /** 标题延时移焦任务（-1 = 没有）：再次排队前与关面板时取消（FU-HM-A11Y-08）。 */
+  private titleFocusTimer: number = -1;
   private readonly onKeyboard: (height: number) => void = (height: number): void => {
     this.keyboardVp = height > 0 ? this.getUIContext().px2vp(height) : 0;
   };
 
   aboutToAppear(): void {
+    this.alive = true;
     CouliFontScale.attach(this.getUIContext());
     this.driver.listen((s: StepUpPanelState): void => this.apply(s));
     this.apply(this.driver.state);
@@ -138,6 +147,8 @@ export struct StepUpPanel {
   }
 
   aboutToDisappear(): void {
+    this.alive = false;
+    clearTimeout(this.titleFocusTimer);
     this.driver.close();
     const win: window.Window | null = this.win;
     this.win = null;
@@ -315,6 +326,18 @@ export struct StepUpPanel {
               .focusable(true)
               .focusBox(CouliFocus.box)
               .layoutWeight(1)
+              .onAppear(() => {
+                // FU-HM-A11Y-08：面板打开时读屏焦点进标题。只移读屏焦点，验证码框仍拿键盘默认焦点（defaultFocus）。
+                const ui: UIContext = this.getUIContext();
+                clearTimeout(this.titleFocusTimer);
+                this.titleFocusTimer = setTimeout(() => {
+                  this.titleFocusTimer = -1;
+                  // 执行时复核面板仍在（400 ms 内关面板或重开时，旧任务不发移焦请求）。
+                  if (this.alive) {
+                    CouliFocusReturn.accessibilityFocus(ui, 'step_up_title');
+                  }
+                }, STEP_UP_TITLE_FOCUS_DELAY_MS);
+              })
             Button({ type: ButtonType.Normal, stateEffect: true }) {
               CouliIcon({ name: 'close', iconSize: 22, color: CouliColors.textPrimary })
             }

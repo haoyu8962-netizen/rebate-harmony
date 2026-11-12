@@ -363,6 +363,29 @@ node "$ROOT/tools/ci/loginphone/run-logic.cjs" || fail_fast "loginphone-logic" "
 node "$ROOT/tools/ci/loginphone/check-arkts.cjs" --real || fail_fast "loginphone-arkts" "LoginPhoneLayout / LoginPhoneUi 与参照件 ArkTS 严格检查失败"
 record "FU-HM-LOGIN-PHONE-LAYOUT 宿主检查" PASS "发码 / 重新获取系统按钮 / 可换行 / 手机号框随字号长 / 出错播报移焦关联 / 判据 1（自测）/ 纯逻辑 / ArkTS"
 
+# FU-HM-A11Y-COMMON（QA-12b FU-HM-A11Y-06 / 07 / 09，三端共性 ①③④；D10-1231 / D10-1248 ③⑧⑨ / D10-1275）：订单【复制】读屏名带本行完整单号
+# （copy_spoken「复制订单号 {no}」、copy_label「复制」）、问号说明弹窗关闭后焦点回问号（id 按条目、互不相同）、全仓 dismissOnMask=false 必配
+# backDismisses=true 且资金页返回只等同【知道了】/【取消】、me12wc 冻结件 0 差异（先自测：参照件全过、变异逐个打红、良性改写不误报）；
+# 复制读屏名纯逻辑 node 执行；测试与参照件 ArkTS 严格检查。
+step "FU-HM-A11Y-COMMON 宿主检查"
+python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" --self-test || fail_fast "a11ycommon-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" || fail_fast "a11ycommon-host" "见上方违反项"
+node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" --self-test || fail_fast "a11ycommon-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" || fail_fast "a11ycommon-logic" "见上方用例"
+node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs" || fail_fast "a11ycommon-arkts" "A11yCommon / HmA11yUi 与参照件 ArkTS 严格检查失败"
+record "FU-HM-A11Y-COMMON 宿主检查" PASS "复制读屏名带单号 / 问号回焦 / 确认弹窗返回可关且不新增资金动作 / me12wc 冻结（自测）/ 纯逻辑 / ArkTS"
+
+# FU-HM-A11Y-FUNDS（QA-12b FU-HM-A11Y-03 / 04 / 05 / 08 / 19；D10-1248 ④⑤⑥）：金额类提交错误关联金额框并只移读屏焦点、被拒输入不重建金额卡、
+# 小眼睛有 id 且切换后不重建（或回焦）、二次验证打开时读屏焦点进标题（验证码框仍拿键盘默认焦点）、金额格标签只读一次；资金页只动视图
+# （core / entry wallet 0 差异、资金调用集合不变）。先自测（参照件全过、变异逐个打红、良性改写不误报），金额类判定纯逻辑 node 执行，ArkTS 严格检查。
+step "FU-HM-A11Y-FUNDS 宿主检查"
+python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" --self-test || fail_fast "a11yfunds-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" || fail_fast "a11yfunds-host" "见上方违反项"
+node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" --self-test || fail_fast "a11yfunds-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" || fail_fast "a11yfunds-logic" "见上方用例"
+node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs" || fail_fast "a11yfunds-arkts" "WithdrawA11y / HmA11yFundsCases 与参照件 ArkTS 严格检查失败"
+record "FU-HM-A11Y-FUNDS 宿主检查" PASS "金额错误关联与移焦 / 被拒不重建 / 小眼睛焦点 / 二次验证标题 / 标签只读一次 / 资金页只动视图（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -868,6 +891,8 @@ run_unit_tests() {
 run_unit_tests generated common/generated
 run_unit_tests core common/core
 run_unit_tests designsystem common/designsystem
+# FU-HM-A11Y-FUNDS（#24 只加）：features/wallet 本机单测（WithdrawA11y：金额类错误码判定，D10-1248 ④）。
+run_unit_tests wallet features/wallet
 # 格式向量的时区回归（BR-TEXT-11 固定 Asia/Shanghai，与设备时区无关）：Local Test 进程继承 TZ（已实测 getTimezoneOffset 随之变化）。
 run_unit_tests designsystem common/designsystem UTC
 run_unit_tests designsystem common/designsystem America/Los_Angeles
@@ -1074,8 +1099,14 @@ run_device_tests core common/core core_test
 #                 编排 D10-1286 ③（#24 只换值）：门槛 3600 → 4200 秒。设备子集 r2 设备步实测 2945 s，读法修好后各条跑完估 +400–450 s ≈ 3350–3400 s，
 #                 3600 只剩约 6% 余量（HM-L2-BATCH1/device-subset-r2/result.md §4）。首轮整轮跑完按 entry-l2 实耗复核（实耗加两成左右，不越放越宽）；
 #                 FU-HM-L2-SPLIT：批 1 落地后把 l2 拆成两步、每步约 30 分钟（后半段红不重跑前半段）。
+#   entry-a11y    FU-HM-A11Y 共用套件 HmA11yUi（COMMON 段 5 条：订单复制读屏名带单号、钱包 / 提现问号回焦、登录 / 提现确认弹窗系统返回可关；
+#                 HOME-SEARCH / FUNDS / AGENT 段集成时加入）；同样先卸载再装、从未同意隐私开始（游客 → 会员）、各自 1800 秒
+#                 FU-HM-A11Y-FUNDS（#24 只加）：已并入 FUNDS 段 5 条（钱包标签只读一次、小眼睛焦点与排法、提现被拒输入不重建、二次验证键盘默认焦点、
+#                 金额类提交错误关联金额框），a11y 步 5 → 10 条；步数、超时、notClass 不变
+#   HM-BATCH1-FREEZE 集成 1（#24 只加 / 换定位）：entry-l2 与 entry-a11y 两个单列步并存（l2 在前、a11y 在后，排在设备步汇总之前）；
+#                 主步排除名单最前依次为 HmA11yUi、Ds02L2Ui（各自原先「放最前」叠加），主步仍 177 条、门槛 1800 秒不调；entry-l2 4200 秒、entry-a11y 1800 秒照原单。
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -1096,6 +1127,8 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-loginphone class=LoginPhoneUi loginphone
 COULI_HM_TEST_TOTAL_TIMEOUT=4200 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-l2 class=Ds02L2Ui l2
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-a11y class=HmA11yUi a11y
 # 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
 if [ -n "${DEVICE_FAILED:-}" ]; then
     echo "DEVICE_STEPS_FAILED${DEVICE_FAILED}"

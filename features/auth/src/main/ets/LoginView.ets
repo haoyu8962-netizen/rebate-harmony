@@ -533,6 +533,8 @@ export struct LoginView {
     options.primaryText = this.t(LoginKeys.RISK_BLOCKED_OK);
     options.secondaryText = this.t(LoginKeys.APPEAL);
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关），焦点回 returnFocusId。
+    options.backDismisses = true;
     options.returnFocusId = ID_CODE;
     options.onSecondary = () => this.config.onCustomerService();
     CouliDialog.open(this.getUIContext(), options);
@@ -634,6 +636,8 @@ export struct LoginView {
     options.primaryText = this.t(LoginKeys.RISK_BLOCKED_OK);
     options.secondaryText = this.t(LoginKeys.APPEAL);
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关），焦点回 returnFocusId。
+    options.backDismisses = true;
     options.returnFocusId = 'login_oauth_' + provider;
     options.onSecondary = () => this.config.onCustomerService();
     CouliDialog.open(this.getUIContext(), options);

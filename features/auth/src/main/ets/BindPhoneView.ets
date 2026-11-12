@@ -466,6 +466,8 @@ export struct BindPhoneView {
     options.primaryText = this.t(BindPhoneKeys.RISK_OK);
     options.secondaryText = this.t(BindPhoneKeys.APPEAL);
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关），焦点回 returnFocusId。
+    options.backDismisses = true;
     options.returnFocusId = ID_SUBMIT;
     options.onSecondary = () => this.config.onCustomerService();
     this.openDialog(options);
@@ -535,6 +537,8 @@ export struct BindPhoneView {
     options.primaryText = this.t(BindPhoneKeys.MERGE_OK);
     options.secondaryText = this.t(BindPhoneKeys.MERGE_CANCEL);
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；返回走 onDismissed = 【取消】（不并号）。
+    options.backDismisses = true;
     options.returnFocusId = ID_SUBMIT;
     options.onPrimary = () => this.mergeDecided(MergeDecision.CONFIRM);
     options.onSecondary = () => this.mergeDecided(MergeDecision.CANCEL);

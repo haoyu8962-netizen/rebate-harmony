@@ -218,6 +218,8 @@ export struct PayoutAccountPage {
     options.primaryText = this.t('withdraw.ok');
     options.secondaryText = this.t('cs.appeal_entry');
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；返回走 onDismissed = 与【知道了】同一出口，不新增资金动作（D10-1248 ③）。
+    options.backDismisses = true;
     options.returnFocusId = ID_SAVE;
     options.onPrimary = () => this.config.controller.dismissRisk();
     options.onSecondary = () => this.config.controller.appeal();
@@ -265,6 +267,8 @@ export struct PayoutAccountPage {
     options.primaryText = this.t('pending_confirm.abandon.ok');
     options.secondaryText = this.t('pending_confirm.abandon.cancel');
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；没有 onDismissed，返回 = 【再想想】只关弹窗、不执行放弃（D10-1248 ③）。
+    options.backDismisses = true;
     options.returnFocusId = 'payout_abandon';
     options.onPrimary = () => {
       this.config.controller.abandon(version, key);

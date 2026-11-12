@@ -10,6 +10,14 @@ import { DraftWalletTexts, fmt1, money, WalletMaskUi, WalletNoticeBar, WalletTex
 
 type JSONValue = Object | null;
 
+/** 问号按钮 id（FU-HM-A11Y-06：说明弹窗关闭后焦点回到点开它的问号）。数字格问号 = 前缀 + 条目键。 */
+const HELP_ID_PREFIX: string = 'wallet_help_';
+const HELP_KEY_FROZEN: string = 'frozen';
+const HELP_KEY_ESTIMATED: string = 'estimated';
+const ID_HELP_PAUSED: string = 'wallet_help_pending_paused';
+/** 主卡眼睛按钮（FU-HM-A11Y-05：切换金额隐藏后焦点留在它上面）。 */
+const ID_AMOUNT_EYE: string = 'wallet_amount_eye';
+
 /** 钱包页的出口（entry 接 Router：页面按钮直接调这里，执行前复核页面仍在）。 */
 export class WalletPageConfig {
   readonly controller: WalletController;
@@ -130,7 +138,7 @@ export struct WalletView {
     }
     return [
       AmountGridItem.money(this.t('wallet.frozen'), this.fen(v['frozen']), AmountTone.NORMAL,
-        this.t('wallet.help.label.frozen')),
+        this.t('wallet.help.label.frozen')).withHelpKey(HELP_KEY_FROZEN),
       AmountGridItem.money(this.t('wallet.withdrawn'), this.fen(v['withdrawn']))
     ];
   }
@@ -143,7 +151,7 @@ export struct WalletView {
     const items: AmountGridItem[] = [
       AmountGridItem.money(this.t('wallet.estimated'), this.fen(v['estimated']), AmountTone.REBATE,
         this.t('wallet.help.label.estimated'), fmt1(this.config.texts, 'wallet.received_line', 'amount',
-          money(this.fen(v['receivedLine']))))
+          money(this.fen(v['receivedLine'])))).withHelpKey(HELP_KEY_ESTIMATED)
     ];
     const month: JSONValue | undefined = v['earliestMonth'];
     if (month !== null && month !== undefined && typeof month === 'object') {
@@ -155,11 +163,13 @@ export struct WalletView {
     return items;
   }
 
-  private help(key: string, title: string): void {
+  /** 说明弹窗；returnId = 点开它的问号 id（关闭后焦点回去）。 */
+  private help(key: string, title: string, returnId: string): void {
     const options: CouliDialogOptions = new CouliDialogOptions();
     options.title = title;
     options.message = this.t(key);
     options.primaryText = this.t('wallet.help.ok');
+    options.returnFocusId = returnId;
     CouliDialog.open(this.getUIContext(), options);
   }
 
@@ -209,11 +219,13 @@ export struct WalletView {
       amountSpoken: CouliFormat.moneySpoken(this.fen((this.model.view as WalletRecord)['hero'])),
       amountHidden: this.maskUi.masked,
       eyeLabel: this.t(this.maskUi.masked ? 'amount_mask.show' : 'amount_mask.hide'),
+      eyeId: ID_AMOUNT_EYE,
       withdrawText: this.t('wallet.withdraw'),
       recordText: this.t('wallet.records'),
       items: this.heroItems(),
       withdrawDisabled: !this.model.withdrawAllowed,
       withdrawId: 'wallet_withdraw',
+      helpIdPrefix: HELP_ID_PREFIX,
       onToggleHidden: () => this.maskUi.toggle(),
       onWithdraw: () => {
         if (this.config.controller.alive) {
@@ -228,7 +240,7 @@ export struct WalletView {
       },
       onHelp: (i: number) => {
         if (i === 0) {
-          this.help('wallet.help.frozen', this.t('wallet.frozen'));
+          this.help('wallet.help.frozen', this.t('wallet.frozen'), HELP_ID_PREFIX + HELP_KEY_FROZEN);
         }
       }
     })
@@ -241,9 +253,10 @@ export struct WalletView {
         items: this.estimateItems(),
         large: true,
         masked: this.maskUi.masked,
+        helpIdPrefix: HELP_ID_PREFIX,
         onHelp: (i: number) => {
           if (i === 0) {
-            this.help('wallet.help.estimated', this.t('wallet.estimated'));
+            this.help('wallet.help.estimated', this.t('wallet.estimated'), HELP_ID_PREFIX + HELP_KEY_ESTIMATED);
           }
         }
       })
@@ -264,7 +277,9 @@ export struct WalletView {
           .accessibilityText(this.t('wallet.help.label.pending_paused'))
           .focusable(true)
           .focusBox(CouliFocus.box)
-          .onClick(() => this.help('wallet.help.pending_paused', this.t('wallet.help.title.pending_paused')))
+          .id(ID_HELP_PAUSED)
+          .onClick(() => this.help('wallet.help.pending_paused', this.t('wallet.help.title.pending_paused'),
+            ID_HELP_PAUSED))
         }
         .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3, top: CouliSpacing.space2,
           bottom: CouliSpacing.space2 })
@@ -361,9 +376,11 @@ export struct WalletView {
                   }
                 })
               }
+              // FU-HM-A11Y-05：键里不含金额隐藏开关——切换只靠状态刷新（大数字、眼睛、数字格的 masked 都是 @Param，
+              // AmountGrid 的纵横排按 masked 重算），不重建主卡，焦点留在眼睛上。
               ForEach([this.model.version], (_v: number) => {
                 this.heroCard()
-              }, (v: number) => 'wallet_hero_' + v + '_' + this.maskUi.masked + '_' + this.model.withdrawAllowed)
+              }, (v: number) => 'wallet_hero_' + v + '_' + this.model.withdrawAllowed)
               if (this.reasonText().length > 0) {
                 WalletNoticeBar({ text: this.reasonText(), tone: 'info', barId: 'wallet_disabled_reason' })
               }

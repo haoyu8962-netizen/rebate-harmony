@@ -101,10 +101,12 @@ def check_cases(root):
     # APP-12w-c-harmony 测试 v1（#24 只换定位串，H-R16）：主步再排除 Me12wcUi，另有第八步 entry-me12wc（check_risk_visual.py C2 守）。
     # FU-HM-LOGIN-PHONE-LAYOUT 测试 v1（#24 只换定位串）：主步再排除 LoginPhoneUi（放在排除名单最前），另有第十步 entry-loginphone。
     # HM-BATCH1-DEVFIX（#24 只换定位串 + 步数换值，D10-1279 ③）：主步再排除 Ds02L2Ui（放在排除名单最前），另有第十一步 entry-l2。
-    if ['entry', 'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi', 'main'] not in tails \
-            or ['entry-hm07va', 'class=Hm07vHomeUi', 'hm07va'] not in tails or len(dispatch) != 11:
-        errors.append('C4 verify.sh 没把 entry 拆成设备步（entry notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main / '
-                      'entry-hm07va class=Hm07vHomeUi hm07va / entry-hm07vb / entry-hm05r / entry-me12v / entry-me12wa / entry-me12wb / entry-me12wc / entry-tabbar / entry-loginphone / entry-l2）')
+    # FU-HM-A11Y-COMMON 测试 v1（#24 只换定位串）：主步再排除 HmA11yUi（放在排除名单最前），另有第十一步 entry-a11y。
+    # HM-BATCH1-FREEZE 集成 1（#24 只换定位串 + 步数换值）：两单叠加，排除名单最前为 HmA11yUi,Ds02L2Ui；entry 步 12 个（entry-l2 第十一、entry-a11y 第十二）。
+    if ['entry', 'notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi', 'main'] not in tails \
+            or ['entry-hm07va', 'class=Hm07vHomeUi', 'hm07va'] not in tails or len(dispatch) != 12:
+        errors.append('C4 verify.sh 没把 entry 拆成设备步（entry notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main / '
+                      'entry-hm07va class=Hm07vHomeUi hm07va / entry-hm07vb / entry-hm05r / entry-me12v / entry-me12wa / entry-me12wb / entry-me12wc / entry-tabbar / entry-loginphone / entry-l2 / entry-a11y）')
     device = read(root, 'tools/ci/device-test.sh')
     if '${FILTER_ARGS[@]+"${FILTER_ARGS[@]}"}' not in device or '--set "$DEVICE_SET"' not in device \
             or '[ "$elapsed_seconds" -le 1800 ]' not in device:
@@ -276,7 +278,7 @@ def self_test():
         ('套件没排最后', 'entry/src/ohosTest/ets/test/List.test.ets', '  hm07vHomeUiTest();\n', '', 'C3'),
         ('设备用例商品样例与 fixture 不一致', SUITE, '"price_fen":3200', '"price_fen":3300', 'C5'),
         ('entry 没拆步', 'tools/ci/verify.sh', 'entry-hm07va class=Hm07vHomeUi hm07va', 'entry', 'C4'),
-        ('原 entry 步没排除本套件', 'tools/ci/verify.sh', 'entry notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
+        ('原 entry 步没排除本套件', 'tools/ci/verify.sh', 'entry notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
          'entry "" all',
          'C4'),
         ('套件过滤没传给 aa test', 'tools/ci/device-test.sh', ' ${FILTER_ARGS[@]+"${FILTER_ARGS[@]}"}', '', 'C4'),

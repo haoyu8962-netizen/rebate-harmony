@@ -814,11 +814,13 @@ class VerifyStep(Base):
     # 只换该条映射的新行；旧行键、BASE_COMMIT、映射条数（2）都不动，新行仍须逐字相等。
     # HM-BATCH1-DEVFIX-harmony（#24 只换值，同 D10-1179 做法，编排 D10-1279 ③）：主步 notClass 在排除名单最前再加 Ds02L2Ui（第十一步 entry-l2），
     # 同样只换该条映射的新行；旧行键、BASE_COMMIT、映射条数（2）不动。
+    # FU-HM-A11Y-COMMON-harmony（#24 只换值，同上）：主步 notClass 在排除名单最前再加 HmA11yUi（第十一步 entry-a11y），只换同一条新行。
+    # HM-BATCH1-FREEZE 集成 1（#24 只换值）：两单叠加后排除名单最前为 HmA11yUi,Ds02L2Ui（entry-l2 第十一步、entry-a11y 第十二步），只换同一条新行。
     REWRITTEN_LINES = {
         '    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / all，见 ds02/check_device_result.py）':
         '    # $8 entry_test 必跑名单（main / hm07va / hm07vb / hm05r / me12v / me12wa / me12wb / me12wc / tabbar / all，见 ds02/check_device_result.py）',
         '    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi main':
-        '    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
+        '    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
     }
 
     def lines(self):
