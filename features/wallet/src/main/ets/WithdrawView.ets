@@ -17,6 +17,8 @@ import {
 type JSONValue = Object | null;
 
 const ID_SUBMIT: string = 'withdraw_submit';
+/** 手续费问号（FU-HM-A11Y-06：说明弹窗关闭后焦点回到它）。 */
+const ID_HELP_FEE_TAX: string = 'withdraw_help_fee_tax';
 
 /** 提现页的出口（entry 接 Router、配置）。 */
 export class WithdrawPageConfig {
@@ -250,6 +252,8 @@ export struct WithdrawView {
     options.primaryText = this.t('withdraw.ok');
     options.secondaryText = this.t('cs.appeal_entry');
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；返回走 onDismissed = 与【知道了】同一出口，不新增资金动作（D10-1248 ③）。
+    options.backDismisses = true;
     options.returnFocusId = ID_SUBMIT;
     options.onPrimary = () => this.config.controller.dismissRisk();
     options.onSecondary = () => this.config.controller.appeal();
@@ -289,6 +293,8 @@ export struct WithdrawView {
     options.primaryText = this.t('pending_confirm.abandon.ok');
     options.secondaryText = this.t('pending_confirm.abandon.cancel');
     options.dismissOnMask = false;
+    // FU-HM-A11Y-07：系统返回 / 读屏返回手势可关（点遮罩仍不关）；没有 onDismissed，返回 = 【再想想】只关弹窗、不执行放弃（D10-1248 ③）。
+    options.backDismisses = true;
     options.returnFocusId = 'withdraw_abandon';
     options.onPrimary = () => {
       this.config.controller.abandon(version, key);
@@ -301,6 +307,7 @@ export struct WithdrawView {
     options.title = this.t('wallet.help.title.fee_tax');
     options.message = this.t('wallet.help.fee_tax');
     options.primaryText = this.t('wallet.help.ok');
+    options.returnFocusId = ID_HELP_FEE_TAX;
     CouliDialog.open(this.getUIContext(), options);
   }
 
@@ -537,6 +544,7 @@ export struct WithdrawView {
             .accessibilityText(this.t('wallet.help.label.fee_tax'))
             .focusable(true)
             .focusBox(CouliFocus.box)
+            .id(ID_HELP_FEE_TAX)
             .onClick(() => this.helpFeeTax())
           }
         }

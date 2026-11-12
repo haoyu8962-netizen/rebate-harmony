@@ -46,6 +46,11 @@ export class AmountGridItem {
   readonly segments: string[];
   /** 小字里不可拆分的金额段（如「¥34.56」），按小字字号参与纵排判断。 */
   readonly noteSegments: string[];
+  /**
+   * 问号按钮的稳定键（FU-HM-A11Y-06）：AmountGrid 给了 helpIdPrefix 时问号 id = 前缀 + 本键——按条目、不按下标（横排 / 纵排顺序
+   * 不同）。工厂不变，由调用方经 withHelpKey 补；空串不挂 id。
+   */
+  helpKey: string = '';
 
   private constructor(label: string, value: string, spoken: string, tone: AmountTone, helpLabel: string, note: string,
     maskable: boolean, segments: string[]) {
@@ -58,6 +63,12 @@ export class AmountGridItem {
     this.maskable = maskable;
     this.segments = segments;
     this.noteSegments = AmountGridItem.moneyWords(note);
+  }
+
+  /** 补问号稳定键（返回自身，接在工厂后面用）。 */
+  withHelpKey(key: string): AmountGridItem {
+    this.helpKey = key;
+    return this;
   }
 
   /** 文字里含「¥」的词（按空白切分）：作为不可拆分段参与测量。 */
@@ -216,6 +227,8 @@ export struct AmountGrid {
   @Param onBrand: boolean = false;
   /** 金额隐藏开关已打开：金额一律显示「****」，分项小字不显示，读屏读「金额已隐藏」（BR-TEXT-10 细则「金额隐藏」）。 */
   @Param masked: boolean = false;
+  /** 问号按钮 id 前缀（FU-HM-A11Y-06：说明弹窗关闭后焦点回问号）；空串不挂 id（订单页等不受影响）。 */
+  @Param helpIdPrefix: string = '';
   @Event onHelp: (index: number) => void = (_index: number) => {
   };
   /** 字号（运行中变化时布局随之切换，R1-03）。 */
@@ -286,6 +299,7 @@ export struct AmountGrid {
           .accessibilityText(item.helpLabel)
           .focusable(true)
           .focusBox(CouliFocus.box)
+          .id(this.helpIdPrefix.length > 0 && item.helpKey.length > 0 ? this.helpIdPrefix + item.helpKey : undefined)
           .onClick(() => {
             this.onHelp(index);
           })
@@ -365,6 +379,8 @@ export struct WalletHeroCard {
   @Param withdrawDisabled: boolean = false;
   /** 【提现】按钮 id（弹层关闭后焦点回到它；空串不设）。 */
   @Param withdrawId: string = '';
+  /** 下方数字格问号按钮 id 前缀（透传 AmountGrid.helpIdPrefix；空串不挂）。 */
+  @Param helpIdPrefix: string = '';
   @Event onToggleHidden: () => void = () => {
   };
   @Event onWithdraw: () => void = () => {
@@ -446,6 +462,7 @@ export struct WalletHeroCard {
           large: false,
           onBrand: true,
           masked: this.amountHidden,
+          helpIdPrefix: this.helpIdPrefix,
           onHelp: (i: number) => {
             this.onHelp(i);
           }

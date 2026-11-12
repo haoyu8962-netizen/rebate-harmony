@@ -62,7 +62,7 @@ export class OrderKeys {
   static readonly ORDER_NO: string = 'order_list.order_no';
   static readonly ORDER_NO_SPOKEN: string = 'order_list.order_no_spoken';
   static readonly STAR: string = 'order_list.star';
-  static readonly COPY: string = 'order_list.copy';
+  static readonly COPY: string = 'order_list.copy_label';
   static readonly COPY_SPOKEN: string = 'order_list.copy_spoken';
   static readonly IMAGE_PLACEHOLDER: string = 'order_list.image_placeholder';
   static readonly RETRY: string = 'order_list.retry';
@@ -113,6 +113,8 @@ export class OrderView {
   readonly orderNoLabel: string;
   readonly orderNo: string;
   readonly orderNoSpoken: string;
+  /** 【复制】的读屏名「复制订单号 {no}」，{no} = 本行完整单号（FU-HM-A11Y-09，D10-1248 ⑨）；不可复制（分享单）为空串。 */
+  readonly copySpoken: string;
   readonly copyable: boolean;
   readonly statusLabel: string;
   readonly statusTone: string;
@@ -157,6 +159,9 @@ export class OrderView {
     const spokenVars: Map<string, string> = new Map<string, string>();
     spokenVars.set('no', this.copyable ? this.orderNo : OrderNumberDisplay.spoken(this.orderNo, texts.text(OrderKeys.STAR)));
     this.orderNoSpoken = texts.format(OrderKeys.ORDER_NO_SPOKEN, spokenVars);
+    const copyVars: Map<string, string> = new Map<string, string>();
+    copyVars.set('no', this.orderNo);
+    this.copySpoken = this.copyable ? texts.format(OrderKeys.COPY_SPOKEN, copyVars) : '';
     const statusText: Record<string, Object | null> = OrderStatusText.of(this.status);
     const labelKey: string = statusText['labelKey'] as string;
     if (this.status === 'CREDITED_PART_CLAWED') {

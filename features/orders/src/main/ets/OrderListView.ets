@@ -756,7 +756,7 @@ export struct OrderListView {
               spoken: view.orderNoSpoken,
               copyable: view.copyable,
               copyText: this.t(OrderKeys.COPY),
-              copySpoken: this.t(OrderKeys.COPY_SPOKEN),
+              copySpoken: view.copySpoken,
               rowId: 'orders_card_' + view.orderId,
               onCopy: () => {
                 // 绑定渲染时的这一行（APP-07 第 18 条）；FU-HM-0712：经本页守卫核对票据（页面已销毁、换条件、切子 Tab、会话已变的旧卡零写入）。

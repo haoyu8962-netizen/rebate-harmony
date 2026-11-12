@@ -10,6 +10,12 @@ import { DraftWalletTexts, fmt1, money, WalletMaskUi, WalletNoticeBar, WalletTex
 
 type JSONValue = Object | null;
 
+/** 问号按钮 id（FU-HM-A11Y-06：说明弹窗关闭后焦点回到点开它的问号）。数字格问号 = 前缀 + 条目键。 */
+const HELP_ID_PREFIX: string = 'wallet_help_';
+const HELP_KEY_FROZEN: string = 'frozen';
+const HELP_KEY_ESTIMATED: string = 'estimated';
+const ID_HELP_PAUSED: string = 'wallet_help_pending_paused';
+
 /** 钱包页的出口（entry 接 Router：页面按钮直接调这里，执行前复核页面仍在）。 */
 export class WalletPageConfig {
   readonly controller: WalletController;
@@ -130,7 +136,7 @@ export struct WalletView {
     }
     return [
       AmountGridItem.money(this.t('wallet.frozen'), this.fen(v['frozen']), AmountTone.NORMAL,
-        this.t('wallet.help.label.frozen')),
+        this.t('wallet.help.label.frozen')).withHelpKey(HELP_KEY_FROZEN),
       AmountGridItem.money(this.t('wallet.withdrawn'), this.fen(v['withdrawn']))
     ];
   }
@@ -143,7 +149,7 @@ export struct WalletView {
     const items: AmountGridItem[] = [
       AmountGridItem.money(this.t('wallet.estimated'), this.fen(v['estimated']), AmountTone.REBATE,
         this.t('wallet.help.label.estimated'), fmt1(this.config.texts, 'wallet.received_line', 'amount',
-          money(this.fen(v['receivedLine']))))
+          money(this.fen(v['receivedLine'])))).withHelpKey(HELP_KEY_ESTIMATED)
     ];
     const month: JSONValue | undefined = v['earliestMonth'];
     if (month !== null && month !== undefined && typeof month === 'object') {
@@ -155,11 +161,13 @@ export struct WalletView {
     return items;
   }
 
-  private help(key: string, title: string): void {
+  /** 说明弹窗；returnId = 点开它的问号 id（关闭后焦点回去）。 */
+  private help(key: string, title: string, returnId: string): void {
     const options: CouliDialogOptions = new CouliDialogOptions();
     options.title = title;
     options.message = this.t(key);
     options.primaryText = this.t('wallet.help.ok');
+    options.returnFocusId = returnId;
     CouliDialog.open(this.getUIContext(), options);
   }
 
@@ -214,6 +222,7 @@ export struct WalletView {
       items: this.heroItems(),
       withdrawDisabled: !this.model.withdrawAllowed,
       withdrawId: 'wallet_withdraw',
+      helpIdPrefix: HELP_ID_PREFIX,
       onToggleHidden: () => this.maskUi.toggle(),
       onWithdraw: () => {
         if (this.config.controller.alive) {
@@ -228,7 +237,7 @@ export struct WalletView {
       },
       onHelp: (i: number) => {
         if (i === 0) {
-          this.help('wallet.help.frozen', this.t('wallet.frozen'));
+          this.help('wallet.help.frozen', this.t('wallet.frozen'), HELP_ID_PREFIX + HELP_KEY_FROZEN);
         }
       }
     })
@@ -241,9 +250,10 @@ export struct WalletView {
         items: this.estimateItems(),
         large: true,
         masked: this.maskUi.masked,
+        helpIdPrefix: HELP_ID_PREFIX,
         onHelp: (i: number) => {
           if (i === 0) {
-            this.help('wallet.help.estimated', this.t('wallet.estimated'));
+            this.help('wallet.help.estimated', this.t('wallet.estimated'), HELP_ID_PREFIX + HELP_KEY_ESTIMATED);
           }
         }
       })
@@ -264,7 +274,9 @@ export struct WalletView {
           .accessibilityText(this.t('wallet.help.label.pending_paused'))
           .focusable(true)
           .focusBox(CouliFocus.box)
-          .onClick(() => this.help('wallet.help.pending_paused', this.t('wallet.help.title.pending_paused')))
+          .id(ID_HELP_PAUSED)
+          .onClick(() => this.help('wallet.help.pending_paused', this.t('wallet.help.title.pending_paused'),
+            ID_HELP_PAUSED))
         }
         .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3, top: CouliSpacing.space2,
           bottom: CouliSpacing.space2 })
