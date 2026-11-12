@@ -168,7 +168,7 @@ export struct SkeletonWalletCard {
 
 /**
  * 防闪包装件：loading 变 true 起 300ms 内不画骨架（HIDDEN 时什么都不画），骨架出现后至少留 300ms 再换内容。
- * 阶段由 SkeletonGate 定，本件只负责按 nextDueInMs 定时再 tick；离开时清定时器。
+ * 阶段由 SkeletonGate 定，本件只负责按 nextDueInMs 定时再 tick；骨架真正上屏（onAppear）时调 markOnScreen，最短停留从上屏起算；离开时清定时器。
  */
 @ComponentV2
 export struct SkeletonHost {
@@ -219,7 +219,15 @@ export struct SkeletonHost {
   build() {
     Column() {
       if (this.phase === SkeletonPhase.SHOWING) {
-        this.skeleton()
+        Column() {
+          this.skeleton()
+        }
+        .width('100%')
+        .onAppear(() => {
+          // 骨架真正上屏：最短显示从这里起算（判定到挂载的延迟不计入 300ms），再按新的剩余时长重排定时器。
+          this.gate.markOnScreen();
+          this.refresh();
+        })
       } else if (this.phase === SkeletonPhase.CONTENT) {
         this.content()
       }
