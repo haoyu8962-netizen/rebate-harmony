@@ -1392,8 +1392,15 @@ class L2ButtonRig {
     return found;
   }
 
-  /** 同 Ds02Ui.measureSample：量几何前把目标整块拉进列表可视区（bounds 只含可见部分）。 */
+  /**
+   * 同 Ds02Ui.measureSample：量几何前把目标整块拉进列表可视区（bounds 只含可见部分）。
+   * HM-BATCH1-DEVFIX 测试 v3（子集 r3 cell_08，只加诊断）：逐次记下目标框与滑动位移；收不拢时先打一行 L2BUTTON_NOT_FULLY_VISIBLE
+   * （与 v2 L2PRICE_NOT_FULLY_VISIBLE 同格式；run-subset 的 hilog 过滤收 L2BUTTON）再抛。抛错文案前缀不变，后附同样读数；
+   * clippedBoth=true 即目标上下沿同时被裁（目标高 ≥ 视口高），位移恒约为 0、永远收不拢。收敛逻辑与判定条件不变。
+   */
   static async fullyVisible(component: string, id: string): Promise<Component> {
+    const trail: string[] = [];
+    let last: string = '-';
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const found: Component = await L2ButtonRig.find(component, id);
       const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + component)).getBounds();
@@ -1403,10 +1410,30 @@ class L2ButtonRig {
       const from: number = Math.floor((view.top + view.bottom) / 2);
       const limit: number = (view.bottom - view.top) * 0.35;
       const shift: number = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+      last = 'r=' + L2ButtonRig.box(r) + ' view=' + L2ButtonRig.box(view) + ' clippedBoth=' + (r.top <= view.top && r.bottom >= view.bottom);
+      trail.push(attempt + ':' + L2ButtonRig.box(r) + '>' + Math.round(shift));
       await driver.swipe(x, from, x, Math.floor(from - shift), 600);
       await L2ButtonRig.idle();
     }
-    throw new Error('L2BUTTON_SAMPLE_NOT_FULLY_VISIBLE: ' + id);
+    const reading: string = last + ' attempts=8 swipes=' + trail.length + ' trail=' + trail.join(' ');
+    trace('L2BUTTON_NOT_FULLY_VISIBLE ' + id + ' ' + reading);
+    throw new Error('L2BUTTON_SAMPLE_NOT_FULLY_VISIBLE: ' + id + ' ' + reading);
+  }
+
+  /** 诊断用矩形文字「左,上,右,下」（同 L2PriceRig.box）。 */
+  static box(r: Rect): string {
+    return r.left + ',' + r.top + ',' + r.right + ',' + r.bottom;
+  }
+
+  /**
+   * HM-BATCH1-DEVFIX 测试 v3（子集 r3 button_03，只改读法）：从列表上部重新逐个往下找之前，把目录样例列表复位到顶部。
+   * 写法同 L2CellRig.top / Ds02Traversal.collectRenderedCases 的 scrollToTop(10000)。样例按清单从上到下排，回顶后 searchUiComponent
+   * 「先往下」的半程方向就对了（r3：100% 遍历停在列表下部、切 200% 后内容约变 2 倍长，从 variants[0] 重找先往下空转 60 s）。
+   */
+  static async top(component: string): Promise<void> {
+    const list: Component = await L2ButtonRig.node('catalog-cases/' + component);
+    await list.scrollToTop(10000);
+    await L2ButtonRig.idle();
   }
 
   static controlId(variant: string, state: string): string {
@@ -1675,6 +1702,8 @@ export function ds02L2UiButtonCases(): void {
       await L2ButtonRig.open(COULI_BUTTON);
       await L2ButtonRig.click('catalog-theme-light');
       await L2ButtonRig.setFont('100');
+      // 测试 v3（r3 button_03，只改读法）：100% / 200% 两轮、BuyButton 段都从列表顶部往下找（上一条用例可能停在列表下部）。
+      await L2ButtonRig.top(COULI_BUTTON);
       const variants: string[] = FULL_VARIANTS.concat(SHORT_VARIANTS);
       const normal: number[] = [];
       for (const variant of variants) {
@@ -1683,6 +1712,7 @@ export function ds02L2UiButtonCases(): void {
         normal.push(r.bottom - r.top);
       }
       await L2ButtonRig.setFont('200');
+      await L2ButtonRig.top(COULI_BUTTON);
       for (let i: number = 0; i < variants.length; i++) {
         const tag: string = variants[i] + '/default@200%';
         const button: Component = await L2ButtonRig.fullyVisible(COULI_BUTTON, L2ButtonRig.controlId(variants[i], 'default'));
@@ -1693,6 +1723,7 @@ export function ds02L2UiButtonCases(): void {
         expect(tag + ' 文字放大 ' + ((inner.bottom - inner.top) > normal[i] * 1.5)).assertEqual(tag + ' 文字放大 true');
       }
       await L2ButtonRig.open(BUY_BUTTON);
+      await L2ButtonRig.top(BUY_BUTTON);
       for (const state of ['default', 'off-shelf']) {
         const button: Component = await L2ButtonRig.buyButton('single', state);
         const outer: Rect = await button.getBounds();
@@ -1977,6 +2008,16 @@ class L2PriceRig {
     return r.left + ',' + r.top + ',' + r.right + ',' + r.bottom;
   }
 
+  /**
+   * HM-BATCH1-DEVFIX 测试 v3（子集 r3 price_01，只改读法）：从 cases[0] 重新逐个往下找之前，把目录样例列表复位到顶部
+   * （同 L2ButtonRig.top / L2CellRig.top 的 scrollToTop(10000)）。样例按清单从上到下排，回顶后 searchUiComponent「先往下」的半程方向就对了。
+   */
+  static async top(component: string): Promise<void> {
+    const list: Component = await L2PriceRig.node('catalog-cases/' + component);
+    await list.scrollToTop(10000);
+    await L2PriceRig.idle();
+  }
+
   /** 去掉 rangeBreakable 插的零宽空格 / 词连接符再比文字。 */
   static plain(t: string): string {
     return t.split('\u200b').join('').split('\u2060').join('');
@@ -2023,6 +2064,8 @@ class L2PriceRig {
     await L2PriceRig.open(component);
     await L2PriceRig.click('catalog-theme-light');
     await L2PriceRig.setFont('100');
+    // 测试 v3（r3 price_01，只改读法）：100% / 200% 两轮都从列表顶部往下找（100% 遍历停在列表底部，切 200% 后从 cases[0] 重找）。
+    await L2PriceRig.top(component);
     const normal: number[] = [];
     const normalW: number[] = [];
     for (const c of cases) {
@@ -2031,6 +2074,7 @@ class L2PriceRig {
       normalW.push(hit.rect.right - hit.rect.left);
     }
     await L2PriceRig.setFont('200');
+    await L2PriceRig.top(component);
     for (let i: number = 0; i < cases.length; i++) {
       const c: PriceCase = cases[i];
       const tag: string = L2PriceRig.sampleId(c) + '@200%';
@@ -2991,11 +3035,34 @@ class L2CellRig {
     const list: Component = await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD);
     await list.scrollToTop(10000);
     await L2ButtonRig.idle();
+    // HM-BATCH1-DEVFIX 测试 v3（子集 r3 cell_09，只改读法 + 取证）：回顶后核首张卡（清单第一个样例 search/single）在屏；
+    // 不在就 trace L2CELL_TOP_MISS（带视口读数）并再 scrollToTop 一次。不断言（找卡照旧交给 card()）。
+    if (!(await L2CellRig.onScreen(L2CellRig.controlId(CELL_VARIANTS[0], CELL_STATES[0])))) {
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
+      trace('L2CELL_TOP_MISS ' + L2CellRig.controlId(CELL_VARIANTS[0], CELL_STATES[0]) + ' view=' + L2ButtonRig.box(view));
+      await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).scrollToTop(10000);
+      await L2ButtonRig.idle();
+    }
+  }
+
+  /** 节点在 ProductCard 样例列表可视区里（判法同 L2ButtonRig.find 的近邻判定：有面积、中心在视口内；不在即 find 要走 searchUiComponent）。只读不滑。 */
+  static async onScreen(id: string): Promise<boolean> {
+    const near: Component = await driver.findComponent(ON.id(id));
+    if (near === null || near === undefined) { return false; }
+    const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
+    const r: Rect = await near.getBounds();
+    const cx: number = (r.left + r.right) / 2;
+    const cy: number = (r.top + r.bottom) / 2;
+    return cx > view.left && cx < view.right && cy > view.top && cy < view.bottom && r.right > r.left && r.bottom > r.top;
   }
 
   /** 样例卡整块在列表可视区内，返回卡片屏幕框。 */
   static async card(variant: string, state: string): Promise<Rect> {
     await L2ButtonRig.open(PRODUCT_CARD);
+    // 测试 v3（r3 cell_09 取证）：目标卡不在屏、要走 searchUiComponent 之前留一行目标 id（下次 DS02_UI_SEARCH_EXHAUSTED 能对上是哪张卡）。
+    if (!(await L2CellRig.onScreen(L2CellRig.controlId(variant, state)))) {
+      trace('L2CELL_CARD_SEARCH ' + L2CellRig.controlId(variant, state));
+    }
     const c: Component = await L2ButtonRig.fullyVisible(PRODUCT_CARD, L2CellRig.controlId(variant, state));
     const r: Rect = await c.getBounds();
     check(r.right - r.left > 40 * density() && r.bottom - r.top > 40 * density(),
@@ -3003,7 +3070,99 @@ class L2CellRig {
     return r;
   }
 
+  /**
+   * HM-BATCH1-DEVFIX 测试 v3（子集 r3 cell_08，只改读法；照 v2 对 state 33 的做法）：200% 下最长样例整卡可能比视口高，
+   * 「整卡严格在视口内」在几何上做不到（裁后上下沿都等于视口边，位移恒约为 0）。本助手照 L2ButtonRig.fullyVisible 的收敛
+   * （同一位移公式、同 8 次）把卡拉进视口，区别只在：卡片上下沿同时被裁（卡高 ≥ 视口高）时不再空滑，判为高卡返回 true；
+   * 整卡严格可见返回 false（随后照旧走 card()）；8 次两样都不是也返回 false，交给 card() 按原口径再收敛 / 抛错（带 v3 读数）。
+   */
+  static async tall(variant: string, state: string): Promise<boolean> {
+    const id: string = L2CellRig.controlId(variant, state);
+    await L2ButtonRig.open(PRODUCT_CARD);
+    if (!(await L2CellRig.onScreen(id))) { trace('L2CELL_CARD_SEARCH ' + id); }
+    for (let attempt: number = 0; attempt < 8; attempt++) {
+      const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
+      const r: Rect = await found.getBounds();
+      if (r.top > view.top && r.bottom < view.bottom && r.bottom > r.top) { return false; }
+      if (r.top <= view.top && r.bottom >= view.bottom) {
+        trace('L2CELL_TALL ' + id + ' r=' + L2ButtonRig.box(r) + ' view=' + L2ButtonRig.box(view));
+        return true;
+      }
+      const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
+      const from: number = Math.floor((view.top + view.bottom) / 2);
+      const limit: number = (view.bottom - view.top) * 0.35;
+      const shift: number = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+      await driver.swipe(x, from, x, Math.floor(from - shift), 600);
+      await L2ButtonRig.idle();
+    }
+    return false;
+  }
+
+  /**
+   * 高卡第一段：把卡顶严格拉进视口（手指下滑 0.35 视口、内容下移，至多 8 次），返回此时的卡框。
+   * 左右边界不受竖向裁剪影响，即整卡左右；竖向只是可见部分（用例只用它的左右）。L2CELL_SAMPLE_TINY 照 card() 原文核。
+   */
+  static async cardTop(variant: string, state: string): Promise<Rect> {
+    const id: string = L2CellRig.controlId(variant, state);
+    const trail: string[] = [];
+    for (let attempt: number = 0; attempt < 8; attempt++) {
+      const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
+      const r: Rect = await found.getBounds();
+      if (r.top > view.top && r.bottom > r.top) {
+        check(r.right - r.left > 40 * density() && r.bottom - r.top > 40 * density(),
+          'L2CELL_SAMPLE_TINY ' + variant + '/' + state + ' ' + (r.right - r.left) + 'x' + (r.bottom - r.top));
+        return r;
+      }
+      trail.push(attempt + ':' + L2ButtonRig.box(r) + '/' + L2ButtonRig.box(view));
+      const h: number = view.bottom - view.top;
+      const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
+      const from: number = Math.floor(view.top + h * 0.3);
+      await driver.swipe(x, from, x, Math.floor(from + h * 0.35), 600);
+      await L2ButtonRig.idle();
+    }
+    trace('L2CELL_TALL_TOP_NOT_VISIBLE ' + id + ' trail=' + trail.join(' '));
+    throw new Error('L2CELL_TALL_TOP_NOT_VISIBLE: ' + id + ' trail=' + trail.join(' '));
+  }
+
+  /**
+   * 高卡分段往下：卡底已严格露出（在视口下沿之上）返回 false，分段结束；否则手指上滑 0.35 视口（内容上移，相邻两段重叠约 0.65 视口，
+   * 每个 Text 至少在一段里在屏）返回 true。第 12 段仍不见卡底就抛 L2CELL_TALL_NOT_COVERED（带读数），不当作量完。
+   */
+  static async nextSegment(variant: string, state: string, segment: number): Promise<boolean> {
+    const id: string = L2CellRig.controlId(variant, state);
+    const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
+    const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
+    const r: Rect = await found.getBounds();
+    if (r.bottom < view.bottom && r.bottom > r.top) {
+      trace('L2CELL_TALL_SEGMENTS ' + id + ' n=' + (segment + 1));
+      return false;
+    }
+    if (segment >= 11) {
+      const reading: string = 'r=' + L2ButtonRig.box(r) + ' view=' + L2ButtonRig.box(view) + ' segments=' + (segment + 1);
+      trace('L2CELL_TALL_NOT_COVERED ' + id + ' ' + reading);
+      throw new Error('L2CELL_TALL_NOT_COVERED: ' + id + ' ' + reading);
+    }
+    const h: number = view.bottom - view.top;
+    const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
+    const from: number = Math.floor(view.top + h * 0.65);
+    await driver.swipe(x, from, x, Math.floor(from - h * 0.35), 600);
+    await L2ButtonRig.idle();
+    return true;
+  }
+
+  /**
+   * HM-BATCH1-DEVFIX 测试 v3（子集 r3 cell_01，只改读法）：计数 Text 在卡片正下方、不在 catalog-control 框内，card() 只保证卡片整块可见；
+   * UiTest 不返回屏外节点，计数行还在视口下沿外时 node() 8 s 等不到。读之前先 findComponent，找不到就把计数节点自身整块拉进视口
+   * （L2ButtonRig.fullyVisible，同卡片口径）再读。计数格式检查与计数值判据不变。
+   */
   static async counts(variant: string, state: string): Promise<CellCounts> {
+    const near: Component = await driver.findComponent(ON.id(L2CellRig.eventsId(variant, state)));
+    if (near === null || near === undefined) {
+      trace('L2CELL_EVENTS_OFFSCREEN ' + L2CellRig.eventsId(variant, state));
+      await L2ButtonRig.fullyVisible(PRODUCT_CARD, L2CellRig.eventsId(variant, state));
+    }
     const raw: string = await (await L2ButtonRig.node(L2CellRig.eventsId(variant, state))).getText();
     const m: RegExpMatchArray | null = raw.match(new RegExp('^(\\d+)\\|(\\d+)\\|(\\d+)$'));
     check(m !== null, 'L2CELL_EVENTS_FORMAT ' + variant + '/' + state + ' 计数应为「open|buy|outer」，实际 ' + raw);
@@ -3192,8 +3351,9 @@ export function ds02L2UiCellCases(): void {
     it(L2CELL_DEVICE_CASES[1], 0, async (): Promise<void> => {
       await L2CellRig.top();
       for (const v of CELL_OPENABLE) {
-        const r: Rect = await L2CellRig.card(v, 'single');
+        // 测试 v3（r3 cell_01 同一缺口，只改读法）：先读计数（可能为拉计数行进视口而滑动），再取卡框，点击用新卡框，避免坐标过期。
         const base: CellCounts = await L2CellRig.counts(v, 'single');
+        const r: Rect = await L2CellRig.card(v, 'single');
         const p: Point = L2CellRig.infoPoint(r);
         await driver.click(p.x, p.y);
         await L2ButtonRig.idle();
@@ -3215,8 +3375,9 @@ export function ds02L2UiCellCases(): void {
     it(L2CELL_DEVICE_CASES[2], 0, async (): Promise<void> => {
       await L2CellRig.top();
       for (const v of CELL_OUTER) {
-        const r: Rect = await L2CellRig.card(v, 'single');
+        // 测试 v3（只改读法）：先 counts 再 card，同 cell_02。
         const base: CellCounts = await L2CellRig.counts(v, 'single');
+        const r: Rect = await L2CellRig.card(v, 'single');
         const p: Point = L2CellRig.infoPoint(r);
         await driver.click(p.x, p.y);
         await L2ButtonRig.idle();
@@ -3232,8 +3393,8 @@ export function ds02L2UiCellCases(): void {
         check(after.text() === wantBuy.text(), 'L2CELL_OUTER_BUY ' + v + ' 点购买应只 buy +1（不冒到外层），计数 ' + got.text() + ' → ' + after.text());
       }
       // 详情大卡：不可点、无外层点击，点了计数不动。
-      const r: Rect = await L2CellRig.card('large', 'single');
       const base: CellCounts = await L2CellRig.counts('large', 'single');
+      const r: Rect = await L2CellRig.card('large', 'single');
       const p: Point = L2CellRig.infoPoint(r);
       await driver.click(p.x, p.y);
       await L2ButtonRig.idle();
@@ -3338,13 +3499,20 @@ export function ds02L2UiCellCases(): void {
         await L2CellRig.top();
         for (const v of ['search', 'ai']) {
           for (const s of ['single', 'long-price']) {
-            const r: Rect = await L2CellRig.card(v, s);
-            const nodes: Component[] = await driver.findComponents(ON.type('Text').within(ON.id(L2CellRig.controlId(v, s))));
-            for (const n of (nodes ?? [])) {
-              const b: Rect = await n.getBounds();
-              const t: string = await n.getText();
-              check(b.left >= r.left - 1 && b.right <= r.right + 1, 'L2CELL_200_OUTSIDE ' + v + '/' + s + ' 「' + t + '」越出卡片 ['
-                + b.left + ',' + b.right + '] / [' + r.left + ',' + r.right + ']');
+            // 测试 v3（r3 cell_08，只改读法）：long-price 在 200% 下整卡可能比视口高（tall），此时不强求整卡严格可见：
+            // 先把卡顶拉进视口，再按 0.35 视口分段往下滑直到卡底露出，每段把屏上的 Text 照旧比卡片左右 [r.left-1, r.right+1]
+            // （findComponents 只返回屏上节点；左右边界不受竖向裁剪影响）。single 不高于视口，照旧整卡严格可见（购买在卡内检查用整卡框）。
+            const tall: boolean = s !== 'single' && await L2CellRig.tall(v, s);
+            const r: Rect = tall ? await L2CellRig.cardTop(v, s) : await L2CellRig.card(v, s);
+            for (let segment: number = 0; ; segment++) {
+              const nodes: Component[] = await driver.findComponents(ON.type('Text').within(ON.id(L2CellRig.controlId(v, s))));
+              for (const n of (nodes ?? [])) {
+                const b: Rect = await n.getBounds();
+                const t: string = await n.getText();
+                check(b.left >= r.left - 1 && b.right <= r.right + 1, 'L2CELL_200_OUTSIDE ' + v + '/' + s + ' 「' + t + '」越出卡片 ['
+                  + b.left + ',' + b.right + '] / [' + r.left + ',' + r.right + ']');
+              }
+              if (!tall || !(await L2CellRig.nextSegment(v, s, segment))) { break; }
             }
             L2CellRig.assertReader(v, s, await L2CellRig.reader(v, s));
             if (s === 'single') {
