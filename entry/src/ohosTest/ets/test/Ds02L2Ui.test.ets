@@ -1075,6 +1075,16 @@ async function skEvents(): Promise<SkRun> {
 }
 
 /**
+ * HM-BATCH1-DEVFIX（只改读法）：加载途中读计数行，读不到返回 null、不判缺。骨架（一张 SkeletonProductCard）顶替单行「内容已加载」后
+ * 计数行被往下推，可能暂时落出列表可视区（设备子集 l2skel_05 红在这里）；记录里的毫秒是样例自己按点按时刻记的，什么时候读不影响读数。
+ */
+async function skEventsMaybe(): Promise<SkRun | null> {
+  const found: Component = await driver.findComponent(ON.id(SK_EVENTS));
+  if (found === null || found === undefined) { return null; }
+  return skParse(await found.getText());
+}
+
+/**
  * 点一个加载按钮（不等空闲，免得把时序拖后），在 untilMs 内每约 150 ms 看一次屏上有没有骨架标记，直到「本次」记录里内容回来且过了 settleMs。
  * 返回记录；seen 里记屏上见到骨架的次数。
  */
@@ -1085,14 +1095,20 @@ async function skLoad(button: string, run: string, settleMs: number, seen: numbe
   const start: number = Date.now();
   await target.click();
   let last: SkRun = new SkRun();
+  let offscreen: number = 0;
   for (;;) {
     const mark: Component = await driver.findComponent(ON.id(SK_MARK_SKELETON));
     if (mark !== null && mark !== undefined) { seen[0]++; }
-    last = await skEvents();
+    const read: SkRun | null = await skEventsMaybe();
+    if (read === null) { offscreen++; } else { last = read; }
     const elapsed: number = Date.now() - start;
     if ((last.name === run && last.back >= 0 && elapsed >= settleMs) || elapsed >= settleMs + 4000) { break; }
     await driver.delayMs(150);
   }
+  // 加载结束后把计数行拉回可视区再读一次定稿（读不到仍红 L2SKEL_NODE_MISSING，同原 skEvents）。
+  await skVisible('Skeleton', SK_EVENTS);
+  last = await skEvents();
+  if (offscreen > 0) { console.info('L2SKEL_HOST_EVENTS_OFFSCREEN ' + run + ' 轮询中计数行读不到 ' + offscreen + ' 次'); }
   console.info('L2SKEL_HOST_RUN ' + run + ' ' + last.raw + ' seen=' + seen[0]);
   check(last.name === run, 'L2SKEL_HOST_SAMPLE_DEAD 点了 ' + button + '，样例记录仍是 ' + last.raw + '（应以 ' + run + '| 开头）');
   return last;
@@ -2477,8 +2493,50 @@ async function assertBlockColors(scope: On, blockKey: string, iconKey: string, d
 
 async function buttonIn(scope: On): Promise<Component> {
   const buttons: Component[] = await driver.findComponents(ON.type('Button').within(scope));
+  // HM-BATCH1-DEVFIX 诊断（只打日志，不参与判定）：设备子集 l2state 29 红在下面这条「恰 1 个」，当时没有数量读数。
+  await traceButtons(scope, buttons);
   check(buttons !== null && buttons !== undefined && buttons.length === 1, 'expected exactly one Button in ErrorState');
   return buttons[0];
+}
+
+/** 诊断行：作用域里 Button 的个数，逐个的类型 / bounds / 可用 / 文字（读不到的记 ?）；另记作用域里 LoadingProgress 个数。只 trace，不断言。 */
+async function traceButtons(scope: On, buttons: Component[]): Promise<void> {
+  const parts: string[] = [];
+  try {
+    for (const b of (buttons ?? [])) {
+      const r: Rect = await b.getBounds();
+      parts.push((await b.getType()) + '@' + r.left + ',' + r.top + ',' + r.right + ',' + r.bottom + ' enabled=' + (await b.isEnabled())
+        + ' text=' + JSON.stringify(await b.getText()));
+    }
+    const loading: Component[] = await driver.findComponents(ON.type('LoadingProgress').within(scope));
+    trace('L2STATE_BUTTONS n=' + (buttons === null || buttons === undefined ? 'null' : buttons.length) + ' loading='
+      + (loading === null || loading === undefined ? 0 : loading.length) + ' [' + parts.join('; ') + ']');
+  } catch (e) {
+    trace('L2STATE_BUTTONS n=' + (buttons === null || buttons === undefined ? 'null' : buttons.length) + ' [' + parts.join('; ')
+      + '] read-error ' + String(e));
+  }
+}
+
+/**
+ * 重试按钮的名字：CouliButton 是 Button { Row { [LoadingProgress] Text } }，Button 容器本身 getText / getDescription 为空，
+ * 名字在子 Text 上（设备子集 l2state 28）。依次取 Button 的 getText、getDescription，再取作用域里落在按钮框内的 Text 的文字
+ * （同 L2ButtonRig.buyTexts / L2CellRig.texts 的 ON.type('Text').within 读法，按 bounds 归到这个按钮）。
+ */
+async function buttonName(scope: On, button: Component): Promise<string> {
+  const own: string = await button.getText();
+  if (own.length > 0) { return own; }
+  const described: string = await button.getDescription();
+  if (described.length > 0) { return described; }
+  const box: Rect = await button.getBounds();
+  const nodes: Component[] = await driver.findComponents(ON.type('Text').within(scope));
+  const inside: string[] = [];
+  for (const n of (nodes ?? [])) {
+    const r: Rect = await n.getBounds();
+    const cx: number = (r.left + r.right) / 2;
+    const cy: number = (r.top + r.bottom) / 2;
+    if (cx > box.left && cx < box.right && cy > box.top && cy < box.bottom) { inside.push(await n.getText()); }
+  }
+  return inside.join('');
 }
 
 async function hasLoading(scope: On): Promise<boolean> {
@@ -2577,7 +2635,7 @@ export function ds02L2UiStateCases(): void {
             await textRect(scope, OFFLINE_MESSAGE);
           }
           const button: Component = await buttonIn(scope);
-          check((await button.getText()).length > 0 || (await button.getDescription()).length > 0, 'retry button has no name');
+          check((await buttonName(scope, button)).length > 0, 'retry button has no name');
           await assertBlockColors(scope, 'status.error.background', 'status.error.text', mode === 'dark',
             'error-' + pair[0] + '-' + pair[1] + '-' + mode);
         }
@@ -2811,6 +2869,18 @@ class L2CellRig {
     await L2ButtonRig.setFont('100');
   }
 
+  /**
+   * HM-BATCH1-DEVFIX（只改读法）：用例开头把 ProductCard 样例列表复位到顶部，不依赖上一条停下的滚动位置
+   * （设备子集 cell_01 走到列表底部后，02–09 从底部起找靠上的样例，searchUiComponent 先下后上各 60 s 耗尽预算）。
+   * 写法同 Ds02Traversal.collectRenderedCases 的 scrollToTop(10000)；样例按清单 变体 × 状态 顺序排，用例内逐个往下找。
+   */
+  static async top(): Promise<void> {
+    await L2ButtonRig.open(PRODUCT_CARD);
+    const list: Component = await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD);
+    await list.scrollToTop(10000);
+    await L2ButtonRig.idle();
+  }
+
   /** 样例卡整块在列表可视区内，返回卡片屏幕框。 */
   static async card(variant: string, state: string): Promise<Rect> {
     await L2ButtonRig.open(PRODUCT_CARD);
@@ -2942,6 +3012,7 @@ export function ds02L2UiCellCases(): void {
     // 书 §3 设备「目录 ProductCard 六变体 × 现有状态」：逐态渲染、计数节点在、初始格式「open|buy|outer」。
     it(L2CELL_DEVICE_CASES[0], 0, async (): Promise<void> => {
       await L2ButtonRig.open(PRODUCT_CARD);
+      await L2CellRig.top();
       const kind: string = await (await L2ButtonRig.node('catalog-kind/' + PRODUCT_CARD)).getText();
       check(kind === 'L2 业务组件', 'L2CELL_KIND 目录标记应为「L2 业务组件」，实际 ' + kind);
       for (const v of CELL_VARIANTS) {
@@ -2954,6 +3025,7 @@ export function ds02L2UiCellCases(): void {
 
     // README ⑥：openable=true 时整卡点击回调 onOpen 一次；点购买只回调 onBuy、不触发 onOpen（书 §3「Buy 点击不触发 onOpen」）。
     it(L2CELL_DEVICE_CASES[1], 0, async (): Promise<void> => {
+      await L2CellRig.top();
       for (const v of CELL_OPENABLE) {
         const r: Rect = await L2CellRig.card(v, 'single');
         const base: CellCounts = await L2CellRig.counts(v, 'single');
@@ -2976,6 +3048,7 @@ export function ds02L2UiCellCases(): void {
 
     // 书 §7「吞点击」：openable=false（页面现状）时组件内不接按压，页面外层 .onClick 照常触发；点购买由按钮自己接、不冒到外层。
     it(L2CELL_DEVICE_CASES[2], 0, async (): Promise<void> => {
+      await L2CellRig.top();
       for (const v of CELL_OUTER) {
         const r: Rect = await L2CellRig.card(v, 'single');
         const base: CellCounts = await L2CellRig.counts(v, 'single');
@@ -3007,6 +3080,7 @@ export function ds02L2UiCellCases(): void {
     // 书 §3「openable=true 样例整卡按压可见」（CouliCard BOUNCE；减弱动态退化为 background.muted 高亮，D10-1163 ①）；openable=false 按住无变化。
     it(L2CELL_DEVICE_CASES[3], 0, async (): Promise<void> => {
       await L2ButtonRig.click('catalog-theme-light');
+      await L2CellRig.top();
       for (const v of ['search', 'ai']) {
         const shots: Pixels[] = await L2CellRig.hold(v, 'single');
         if (reducedMotion()) {
@@ -3030,6 +3104,7 @@ export function ds02L2UiCellCases(): void {
     // 书 §2.3：读屏信息区一项「平台，标题，价格，返利」、购买按钮单独一项（2 项；口径 i 照旧单独）。
     it(L2CELL_DEVICE_CASES[4], 0, async (): Promise<void> => {
       await L2ButtonRig.setFont('100');
+      await L2CellRig.top();
       for (const v of ['search', 'ai', 'favorite']) {
         for (const s of ['single', 'range', 'no-rebate']) {
           await L2CellRig.card(v, s);
@@ -3045,6 +3120,7 @@ export function ds02L2UiCellCases(): void {
 
     // D10-871（按 D10-1177 ② 读）+ BUTTON 评审 r1 S3-1：金额隐藏样例里可见文字、读屏、购买按钮都不出现本卡金额；按钮回落「购买」。
     it(L2CELL_DEVICE_CASES[5], 0, async (): Promise<void> => {
+      await L2CellRig.top();
       for (const v of CELL_VARIANTS) {
         await L2CellRig.card(v, 'amount-hidden');
         const amounts: string[] = v === 'grid' ? CELL_GRID_AMOUNTS : (v === 'large' ? CELL_LARGE_AMOUNTS : [CELL_REBATE_AMOUNT]);
@@ -3068,6 +3144,7 @@ export function ds02L2UiCellCases(): void {
 
     // U1：列表 / AI / 网格卡不显示「预估返后」（详情大卡照旧）；列表 / AI 购买按钮一行「购买预估返 ¥x」。
     it(L2CELL_DEVICE_CASES[6], 0, async (): Promise<void> => {
+      await L2CellRig.top();
       for (const v of CELL_VARIANTS) {
         await L2CellRig.card(v, 'single');
         const shown: string[] = await L2CellRig.texts(v, 'single');
@@ -3092,6 +3169,7 @@ export function ds02L2UiCellCases(): void {
     it(L2CELL_DEVICE_CASES[7], 0, async (): Promise<void> => {
       await L2ButtonRig.setFont('200');
       try {
+        await L2CellRig.top();
         for (const v of ['search', 'ai']) {
           for (const s of ['single', 'long-price']) {
             const r: Rect = await L2CellRig.card(v, s);
@@ -3122,6 +3200,8 @@ export function ds02L2UiCellCases(): void {
         for (const mode of ['light', 'dark']) {
           await L2ButtonRig.click('catalog-theme-' + mode);
           await driver.delayMs(400);
+          // 浅色一轮走到 large（列表靠下），深色一轮从顶部重新往下找。
+          await L2CellRig.top();
           const dark: boolean = mode === 'dark';
           const surface: number[] = token('background.surface', dark);
           for (const v of ['search', 'ai', 'favorite', 'grid', 'large']) {
@@ -3149,6 +3229,10 @@ export function ds02L2UiCellCases(): void {
 // 集成 2：STATE 段排在 PRICE-TAG 之后（state），段前准备 / 段后复位 = 原 Ds02L2UiState beforeAll / afterAll 原文（L2StateSegment.l2StateSetup / l2StateLeave）。
 // HM-L2-PRODUCT-CELL（只加本段分支）：cell 段排在 STATE 之后，段前准备 = L2CellRig.enterCatalog（直达 ProductCard 详情、浅色、100%），
 // 段后复位 = L2CellRig.leaveCatalog（回索引、浅色、100%，同 BUTTON / PRICE-TAG 段后复位）。
+// HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ①）：每段结束（段后复位之后、下一段段前准备之前；最后一段在 describe afterAll 里）一律再回目录索引
+// （l2ReturnToIndex，复用 L2ButtonRig.index：已在索引直接返回，否则 pressBack 回 catalog-index，回不去就断言红）。原各段段后复位原文一字不改。
+// 设备子集（HM-L2-BATCH1/device-subset/result.md §1.3）：CARD / SKELETON 段停在组件详情页，BUTTON 段前准备只认首页或目录索引，8 轮 no-home_list 整段连带。
+// 回索引失败与段后复位失败同口径：只打 L2_SEGMENT_INDEX_FAILED，留到 describe afterAll 再抛，不记到下一段的用例上。
 const L2_SEGMENTS: string[] = ['card', 'button', 'price', 'state', 'cell'];
 let l2Segment: string = 'card';
 let l2SegmentSetupError: Error | null = null;
@@ -3208,6 +3292,12 @@ async function l2LeaveSegment(segment: string): Promise<void> {
   }
 }
 
+/** HM-BATCH1-DEVFIX（D10-1279 ①）：段结束回目录索引；与段无关、无条件（每段都走）。 */
+async function l2ReturnToIndex(segment: string): Promise<void> {
+  await runUiTask(driver, async (): Promise<void> => { await L2ButtonRig.index(); });
+  trace('L2_SEGMENT_AT_INDEX ' + segment);
+}
+
 /** it 包装在用例体之前调用：本条与上一条不同段时，先复位上一段、再准备本段（各只一次）。 */
 async function l2EnterSegment(name: string): Promise<void> {
   const next: string = l2SegmentOf(name);
@@ -3221,6 +3311,12 @@ async function l2EnterSegment(name: string): Promise<void> {
       await l2LeaveSegment(previous);
     } catch (e) {
       trace('L2_SEGMENT_LEAVE_FAILED ' + previous + ' ' + String(e));
+      if (l2SegmentLeaveError === null) { l2SegmentLeaveError = e as Error; }
+    }
+    try {
+      await l2ReturnToIndex(previous);
+    } catch (e) {
+      trace('L2_SEGMENT_INDEX_FAILED ' + previous + ' ' + String(e));
       if (l2SegmentLeaveError === null) { l2SegmentLeaveError = e as Error; }
     }
     try {
@@ -3238,5 +3334,6 @@ async function l2EnterSegment(name: string): Promise<void> {
 async function l2FinishSegments(): Promise<void> {
   const earlier: Error | null = l2SegmentLeaveError;
   await l2LeaveSegment(l2Segment);
+  await l2ReturnToIndex(l2Segment);
   if (earlier !== null) { throw earlier; }
 }
