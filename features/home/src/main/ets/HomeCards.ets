@@ -4,11 +4,11 @@
 import { display, LengthMetrics } from '@kit.ArkUI';
 import {
   HomeAction, HomeActivityItem, HomeAdLabel, HomeBannerItem, HomeBuiltinIcon, HomeCard, HomeCardView,
-  HomeDraftTexts, HomeIconArt, HomeIconItem, HomeNoticeDisplay, HomeNoticeRow, HomePopupGeometry, HomePopupTicket, HomeProductRow,
-  HomeTap
+  HomeDraftTexts, HomeIconArt, HomeIconItem, HomeNoticeA11y, HomeNoticeDisplay, HomeNoticeRow, HomePopupGeometry, HomePopupTicket,
+  HomeProductRow, HomeTap
 } from 'core';
 import {
-  CouliColors, CouliFocus, CouliIcon, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier,
+  CouliColors, CouliFocus, CouliFocusReturn, CouliIcon, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier,
   CouliTypography, CouliFontWeight, PlatformIcon, PlatformIconSize, PlatformIconSource, ProductCard, ProductCardData,
   ProductCardMeasure, ProductCardVariant, ProductGridLayout, CouliFontScale
 } from 'designsystem';
@@ -677,7 +677,8 @@ export struct HomeNoticeCard {
         .height(CouliInteraction.minTouchTarget)
         .backgroundColor(Color.Transparent)
         .id('home_notice_close')
-        .accessibilityText(HomeDraftTexts.text('home.notice.close'))
+        // FU-HM-A11Y-17：关闭名带行标识「关闭公告，<正文前 12 字>…」（HomeNoticeA11y.closeLabel，逻辑层钉住）。
+        .accessibilityText(HomeNoticeA11y.closeLabel(row.item.text))
         .focusBox(CouliFocus.box)
         .onClick(() => {
           // 渲染时的关闭票据：三元组 + 环境、本机记录清理世代与是否允许落盘（R1-01）；执行层只比较。
@@ -814,6 +815,8 @@ export struct HomePopupView {
   @Local windowHeight: number = 0;
   @Local imageWidth: number = 0;
   @Local imageHeight: number = 0;
+  /** 弹窗出现时排队的读屏移焦票据（到【关闭】）；弹窗收起（关闭、返回、点遮罩、点图片跳转）时作废。 */
+  private closeFocus: number = 0;
 
   aboutToAppear(): void {
     try {
@@ -823,6 +826,12 @@ export struct HomePopupView {
     } catch (e) {
       // 取不到窗口尺寸：几何按 0 处理，关闭层照样完整可点。
     }
+  }
+
+  aboutToDisappear(): void {
+    // 弹窗收起（关闭、返回、点遮罩、点图片跳转）：出现时排队、还没到点的读屏移焦作废，不再把读屏焦点拉回已收起的弹窗。
+    CouliFocusReturn.cancel(this.closeFocus);
+    this.closeFocus = 0;
   }
 
   private tickets(): HomePopupTicket[] {
@@ -900,11 +909,8 @@ export struct HomePopupView {
     .accessibilityText(HomeDraftTexts.text('home.popup.label'))
     .onAppear(() => {
       this.port?.popupShown(t);
-      try {
-        this.getUIContext().getFocusController().requestFocus('home_popup_close');
-      } catch (e) {
-        // 焦点请求失败不影响弹窗。
-      }
+      // FU-HM-A11Y-15：键盘焦点与读屏焦点一起移到关闭（CouliFocusReturn.to 两种都移）。
+      this.closeFocus = CouliFocusReturn.to(this.getUIContext(), 'home_popup_close');
     })
   }
 

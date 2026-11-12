@@ -363,6 +363,7 @@ export {
 export { ApiClientHomeContractPort } from './src/main/ets/home/HomeController';
 export { NativeRouteHosts } from './src/main/ets/router/RoutePolicy';
 export { HomeDraftTexts } from './src/main/ets/home/HomeDraftTexts';
+export { HomeNoticeA11y } from './src/main/ets/home/HomeNoticeA11y';
 export { HomePopupGeometry } from './src/main/ets/home/HomePopupGeometry';
 export { HomeSignal, HomeSignalHub, HomeVisibilityHub, TabWillChangeRegistry } from './src/main/ets/home/HomeSignals';
 export { HomePopupPresenter, HomePopupDialogHost } from './src/main/ets/home/HomePopupDialogHost';

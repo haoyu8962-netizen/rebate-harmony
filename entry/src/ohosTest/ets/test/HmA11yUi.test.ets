@@ -21,6 +21,7 @@ import { base, ensureMember } from './Me12wbRig';
 import { waitUntil } from './FlakeKit';
 import { a11yFundsCases } from './HmA11yFundsCases';
 import { a11yAgentCases } from './A11yAgentSeg';
+import { a11yHomeSearchCases } from './A11yHomeSearchSeg';
 
 /** 与 tools/ci/a11ycommon/device-cases.txt、ds02/check_device_result.py --set a11y（#24）一致。 */
 export const A11Y_COMMON_DEVICE_CASES: string[] = [
@@ -368,6 +369,9 @@ export default function hmA11yUiTest() {
     // FU-HM-A11Y-AGENT（FU-HM-A11Y-10 / 12 / 14 / 17 / 18 / 20；段与名单在 A11yAgentSeg.ets、tools/ci/a11yagent/device-cases.txt；
     // HM-BATCH1-FREEZE 集成 2 #24 只加，按集成顺序排在 FUNDS 段之后）
     a11yAgentCases();
+    // FU-HM-A11Y-HOME-SEARCH（#24 只加）：首页弹窗 / 公告关闭 / 搜索框标签 / 价格半屏 5 条（段在 A11yHomeSearchSeg.ets）。
+    // HM-BATCH1-FREEZE 集成 3：按集成顺序排在 AGENT 段之后（乙补丁原排 COMMON 段之后，段间无顺序依赖，见段文件头）。
+    a11yHomeSearchCases();
     // FU-HM-A11Y-HOME-SEARCH / FUNDS / AGENT：各在此调一次自己的段函数（集成时合并）。
   });
 }

@@ -152,6 +152,7 @@ import { TestDebugRoutes } from './TestDebugRoutes';
 import loginPhoneLayoutTest from './LoginPhoneLayout.test';
 import a11yCommonLogicTest from './A11yCommon.test';
 import a11yAgentReplyTagTest from './A11yAgentReplyTag.test';
+import a11yHomeNoticeTest from './A11yHomeNotice.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -322,4 +323,6 @@ export default function testsuite() {
   a11yCommonLogicTest();
   // FU-HM-A11Y-AGENT（#24 只加；D10-1248 ⑬）：AI 回复行操作的行标识（本条正文前 12 字）。
   a11yAgentReplyTagTest();
+  // FU-HM-A11Y-HOME-SEARCH（#24 只加；FU-HM-A11Y-17 / README ⑬）：首页公告【关闭】读屏名带行标识（HomeNoticeA11y.closeLabel）。
+  a11yHomeNoticeTest();
 }

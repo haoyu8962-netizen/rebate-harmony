@@ -402,6 +402,18 @@ node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" || fail_fast "a11yagent-arkts" "
 node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" --fixtures || fail_fast "a11yagent-arkts 参照件" "参照件 ArkTS 严格检查失败"
 record "FU-HM-A11Y-AGENT 宿主检查" PASS "商品卡读屏激活 / AI 卡 openable / 输入框标签 / 弹层标题移焦回焦 / 行标识 / 圆点（自测）/ 纯逻辑 / 点一次（执行级）/ ArkTS"
 
+# FU-HM-A11Y-HOME-SEARCH（FU-HM-A11Y-11 / 13 / 15 / 17 首页段；README ⑫ ⑬，D10-1248）：首页弹窗出现时读屏 + 键盘焦点到【关闭】、公告【关闭】读屏名带行标识、
+# 价格半屏焦点进标题 / 关闭回【价格】/ 校验错误播报并关联两个价格框、搜索框读屏名是标签不是占位（先自测：参照件全过、变异逐个打红、良性改写不误报）；
+# 公告关闭名纯逻辑 node 执行；测试与参照件 ArkTS 严格检查（--reference 用参照件虚拟覆盖，--real 查真实产品）。
+step "FU-HM-A11Y-HOME-SEARCH 宿主检查"
+python3 "$ROOT/tools/ci/a11yhome/check_a11y_home_search.py" --self-test || fail_fast "a11yhome-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/a11yhome/check_a11y_home_search.py" || fail_fast "a11yhome-host" "见上方违反项"
+node "$ROOT/tools/ci/a11yhome/run-logic.cjs" --self-test || fail_fast "a11yhome-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/a11yhome/run-logic.cjs" || fail_fast "a11yhome-logic" "见上方用例"
+node "$ROOT/tools/ci/a11yhome/check-arkts.cjs" --reference || fail_fast "a11yhome-arkts 参照" "A11yHomeNotice / A11yHomeSearchSeg 与参照件 ArkTS 严格检查失败"
+node "$ROOT/tools/ci/a11yhome/check-arkts.cjs" --real || fail_fast "a11yhome-arkts" "A11yHomeNotice / A11yHomeSearchSeg 对真实产品 ArkTS 严格检查失败"
+record "FU-HM-A11Y-HOME-SEARCH 宿主检查" PASS "弹窗焦点 / 公告关闭行标识 / 价格半屏进出焦点与错误播报关联 / 搜索框标签（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。

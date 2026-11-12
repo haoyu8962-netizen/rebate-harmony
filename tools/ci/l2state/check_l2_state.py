@@ -28,6 +28,8 @@
         DEFAULT_RETRY_ID 同为 couli-error-retry；【重试】onAppear 回调恰一句 CouliFocusReturn.to(this.getUIContext(), this.retryId)
         （同步、无条件）、ErrorState 别处不移焦点；CouliFocusReturn 来自 ./Overlays，其 to(ui, id) 同步无条件 requestFocus(id)、
         并发同 id 的读屏焦点。焦点真的落到【重试】由真机读屏核对一次、记进验收记录。
+        HM-BATCH1-FREEZE 集成 3（#24 只换值，FU-HM-FOCUS-RETURN-STALE）：to 改返回可作废票据，空 id 的提前返回换成 return 0;、
+        末句恰为 return ticket;，别处不得有 return；参照件节选同步换成新形态。
 不做（D10-1177 ⑦）：文案键迁移——参数保持，FU-HM-STATE-KEYS 另办；本检查不判文案键。
 """
 
@@ -309,6 +311,13 @@ MUTATIONS = [
     ("SL8 to 对错误态 id 提前返回", OV, "    if (id.length === 0) {\n", "    if (id.length === 0 || id === 'couli-error-retry') {\n", "SL8-request"),
     ("SL8 读屏焦点不发", OV, "      CouliFocusReturn.accessibilityFocus(ui, id);\n", "", "SL8-a11y"),
     ("SL8 读屏焦点 customId 换值", OV, "      event.customId = id;\n", "      event.customId = 'couli-dialog-title';\n", "SL8-a11y"),
+    # HM-BATCH1-FREEZE 集成 3（#24 只加）：to 返回票据后的同口径变异——键盘焦点后、读屏焦点排队前插 return、空 id 返回值换掉、末句不是 return ticket;、
+    # 提前返回挪到键盘焦点之前（条件换掉）都红。
+    ("SL8 to 键盘焦点后插 return 0", OV, "    CouliFocusReturn.issued++;\n", "    return 0;\n    CouliFocusReturn.issued++;\n", "SL8-request"),
+    ("SL8 to 空 id 返回值换成 1", OV, "    if (id.length === 0) {\n      return 0;\n", "    if (id.length === 0) {\n      return 1;\n", "SL8-request"),
+    ("SL8 to 末句改 return 0", OV, "    return ticket;\n  }\n", "    return 0;\n  }\n", "SL8-request"),
+    ("SL8 to 键盘焦点前加别的提前返回", OV, "    if (id.length === 0) {\n      return 0;\n    }\n",
+     "    if (id.length === 0) {\n      return 0;\n    }\n    if (id === 'couli-error-retry') {\n      return 0;\n    }\n", "SL8-request"),
     ("SL8 设备套件 DEFAULT_RETRY_ID 换值", SU, "const DEFAULT_RETRY_ID: string = 'couli-error-retry';", "const DEFAULT_RETRY_ID: string = 'couli-error-retry2';", "SL8-suite"),
 ]
 # 要同时改两处的变异：（名字，[(文件, 原串, 新串), ...]，应报的规则前缀）

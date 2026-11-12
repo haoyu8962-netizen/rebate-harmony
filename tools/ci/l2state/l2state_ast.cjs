@@ -26,6 +26,9 @@
 //         CouliFocusReturn.to(this.getUIContext(), this.retryId)；ErrorState 里别处不再移焦点（无第二个 CouliFocusReturn / requestFocus / focusControl）；
 //       CouliFocusReturn 从 ./Overlays 导入；Overlays.ets 的 static to(ui, id) 里恰一处 ui.getFocusController().requestFocus(id)，同步执行
 //         （不在嵌套函数里、只在 try 块里、不在任何 if 里），之前只许 if (id.length === 0) { return; } 一个提前返回；
+//         HM-BATCH1-FREEZE 集成 3（#24 只换值，FU-HM-FOCUS-RETURN-STALE：to 改返回可作废票据 number）：上句的提前返回换成
+//         if (id.length === 0) { return 0; }；另外 to 函数体最后一句必须恰是 return ticket;（不是提前返回，不能跳过任何语句），
+//         其余位置不得有 return（插在键盘焦点之后、读屏焦点排队之前的 return 照样红）。
 //         to 里恰一处 CouliFocusReturn.accessibilityFocus(ui, id)，accessibilityFocus 发 requestFocusForAccessibility 且 customId = id（读屏焦点）。
 //       焦点真的落到【重试】由真机读屏核对一次、记进验收记录（不在本检查里）。
 'use strict';
@@ -730,20 +733,24 @@ function checkFocusWiring() {
           if (!ts.isExpressionStatement(p) && !ts.isBlock(p)) { ok = false; }
         }
         // 函数体顶层：这句之前只许 if (id.length === 0) { return; }；别处不得有提前返回。
+        // HM-BATCH1-FREEZE 集成 3（#24 只换值）：to 返回票据后，提前返回换成 { return 0; }；末句恰为 return ticket;（见文件头 SL8）。
         const top = to.body.statements;
+        const last = top.length > 0 ? top[top.length - 1] : null;
+        const tail = last !== null && ts.isReturnStatement(last) && compact(last) === 'returnticket;' ? last : null;
+        if (tail === null) { ok = false; }
         const at = top.findIndex((s) => s.pos <= reqs[0].pos && reqs[0].end <= s.end);
         for (let i = 0; i < at; i++) {
           const s = top[i];
           const guard = ts.isIfStatement(s) && !s.elseStatement && compact(s.expression) === 'id.length===0' &&
-            compact(s.thenStatement) === '{return;}';
+            compact(s.thenStatement) === '{return0;}';
           if (!guard) { ok = false; }
         }
         const returns = collect(to.body, (n) => ts.isReturnStatement(n) && enclosingFunction(n, to) === null);
-        if (returns.some((r) => !(at > 0 && top.slice(0, at).some((s) => s.pos <= r.pos && r.end <= s.end)))) { ok = false; }
+        if (returns.some((r) => r !== tail && !(at > 0 && top.slice(0, at).some((s) => s.pos <= r.pos && r.end <= s.end)))) { ok = false; }
       }
       if (!ok) {
         report('SL8-request', reqs[0] || to, 'CouliFocusReturn.to 里应恰一处 ui.getFocusController().requestFocus(id)，同步执行（不在嵌套函数 / if / catch 里），' +
-          '之前只许 if (id.length === 0) { return; }；实际 ' + reqs.map(compact).join(' ; '), OVERLAYS);
+          '之前只许 if (id.length === 0) { return 0; }、末句恰为 return ticket;、别处无 return（集成 3 换值）；实际 ' + reqs.map(compact).join(' ; '), OVERLAYS);
       }
       const a11y = collect(to.body, (n) => ts.isCallExpression(n) && compact(n.expression) === 'CouliFocusReturn.accessibilityFocus');
       if (a11y.length !== 1 || compact(a11y[0]) !== 'CouliFocusReturn.accessibilityFocus(ui,id)') {
