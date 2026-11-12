@@ -1972,11 +1972,18 @@ class L2PriceRig {
    * HM-BATCH1-DEVFIX 测试 v2（子集 r2 price_01，只加诊断）：逐次记下样例框 / 视口矩形与滑动位移；收不拢时先打一行
    * L2PRICE_NOT_FULLY_VISIBLE（hilog 过滤 L2PRICE）再抛，抛错文案带最后一次读数、滑动次数与「样例裁两边」标记（样例高 ≥ 视口高时
    * 上下沿同时被裁，滑动位移恒为 0，永远收不拢）。收敛逻辑与判定条件不变。
+   * HM-BATCH1-DEVFIX 测试 v4（子集 r4b price_01，只改读法）：r4b 读数 trail 是来回振荡——每次实际位移约为算出位移的 2.1 倍
+   * （swipe 600 px/s 松手后惯性续滑），200% 下 presale-list/long-price 样例高约 1315、视口 1454，两头只余约 70 px，于是上下沿轮流被裁、
+   * 8 次收不拢。改为：算出的位移与上一次反向（即上一次滑过头）后，此后位移减半（只减一次，不再往下减，免得短于滑动阈值滑不动）。
+   * 从没滑过头的样例走的位移序列与原来逐次相同。判定条件仍是严格整块可见（裁过的边恰等于视口边，等号不放行，同 v2 对 visibleSample）。
+   * 走过 searchUiComponent（列表被重新定位）后减半状态清零。
    */
   static async fullyVisible(component: string, id: string): Promise<Component> {
     const trail: string[] = [];
     let last: string = '-';
     let swipes: number = 0;
+    let gain: number = 1;
+    let previous: number = 0;
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const list: Component = await L2PriceRig.node('catalog-cases/' + component);
       let found: Component = await driver.findComponent(ON.id(id));
@@ -1984,6 +1991,8 @@ class L2PriceRig {
         trail.push(attempt + ':search');
         found = await searchUiComponent(driver, ON.id('catalog-cases/' + component), ON.id(id));
         expect(found !== null && found !== undefined).assertTrue();
+        gain = 1;
+        previous = 0;
       }
       const view: Rect = await list.getBounds();
       const r: Rect = await found.getBounds();
@@ -1991,7 +2000,10 @@ class L2PriceRig {
       const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
       const from: number = Math.floor((view.top + view.bottom) / 2);
       const limit: number = (view.bottom - view.top) * 0.35;
-      const shift: number = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+      const raw: number = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+      if (previous !== 0 && (raw > 0) !== (previous > 0)) { gain = 0.5; }
+      previous = raw;
+      const shift: number = raw * gain;
       last = 'r=' + L2PriceRig.box(r) + ' view=' + L2PriceRig.box(view) + ' clippedBoth=' + (r.top <= view.top && r.bottom >= view.bottom);
       trail.push(attempt + ':' + L2PriceRig.box(r) + '>' + Math.round(shift));
       await driver.swipe(x, from, x, Math.floor(from - shift), 600);
@@ -3074,12 +3086,19 @@ class L2CellRig {
    * HM-BATCH1-DEVFIX 测试 v3（子集 r3 cell_08，只改读法；照 v2 对 state 33 的做法）：200% 下最长样例整卡可能比视口高，
    * 「整卡严格在视口内」在几何上做不到（裁后上下沿都等于视口边，位移恒约为 0）。本助手照 L2ButtonRig.fullyVisible 的收敛
    * （同一位移公式、同 8 次）把卡拉进视口，区别只在：卡片上下沿同时被裁（卡高 ≥ 视口高）时不再空滑，判为高卡返回 true；
-   * 整卡严格可见返回 false（随后照旧走 card()）；8 次两样都不是也返回 false，交给 card() 按原口径再收敛 / 抛错（带 v3 读数）。
+   * 整卡严格可见返回 false（随后照旧走 card()）。
+   * HM-BATCH1-DEVFIX 测试 v4（子集 r4b cell_08，只改读法）：r4b 读数 r=87,1108,1229,2734 / view=0,1071,1316,2734，8 次读数一字不变——
+   * 卡只比视口矮约 37 px，算出的位移只有 19 px，短于滑动阈值，列表根本没动；卡底恰等于视口下沿，分不清是贴边还是被裁（bounds 只含可见部分）。
+   * 改为：一次滑动后读数（卡框 + 视口）与滑动前完全相同（滑不动）时 trace L2CELL_TALL_STUCK 并返回 true；8 次既没收拢也没判高时
+   * trace L2CELL_TALL_UNSETTLED 并返回 true。两者都转分段量（cardTop + nextSegment）：本函数只用于 long-price，该样例的判据只比
+   * Text 左右与卡片左右（不受竖向裁剪影响），分段保证每个 Text 至少在一段里在屏、被比过，判据与覆盖面都不变；
+   * 不再交给 card() 去要求「整卡严格可见」这一读法前提（它在几乎等高的卡上收不拢，见上）。
    */
   static async tall(variant: string, state: string): Promise<boolean> {
     const id: string = L2CellRig.controlId(variant, state);
     await L2ButtonRig.open(PRODUCT_CARD);
     if (!(await L2CellRig.onScreen(id))) { trace('L2CELL_CARD_SEARCH ' + id); }
+    let before: string = '';
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
       const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
@@ -3089,6 +3108,12 @@ class L2CellRig {
         trace('L2CELL_TALL ' + id + ' r=' + L2ButtonRig.box(r) + ' view=' + L2ButtonRig.box(view));
         return true;
       }
+      const reading: string = 'r=' + L2ButtonRig.box(r) + ' view=' + L2ButtonRig.box(view);
+      if (reading === before) {
+        trace('L2CELL_TALL_STUCK ' + id + ' ' + reading + ' attempt=' + attempt);
+        return true;
+      }
+      before = reading;
       const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
       const from: number = Math.floor((view.top + view.bottom) / 2);
       const limit: number = (view.bottom - view.top) * 0.35;
@@ -3096,7 +3121,8 @@ class L2CellRig {
       await driver.swipe(x, from, x, Math.floor(from - shift), 600);
       await L2ButtonRig.idle();
     }
-    return false;
+    trace('L2CELL_TALL_UNSETTLED ' + id + ' ' + before);
+    return true;
   }
 
   /**
