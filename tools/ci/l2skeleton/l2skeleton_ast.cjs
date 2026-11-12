@@ -13,6 +13,10 @@
 //      该动画不可达、未减弱时可达；aboutToDisappear 收尾；底色 background.muted；不读 motion 令牌（S4）
 //   K5 读屏跳过：SkeletonBlock no-hide-descendants；三种形状卡外壳是静态 CouliCard + a11yLevel 'no-hide-descendants'；无颜色字面量（S5）
 //   K6 SkeletonHost：loading / skeleton / content 参数；内部 SkeletonGate + 定时器（离开时清）；@Monitor('loading')；build 不绕过门控
+//      v3（HM-BATCH1-DEVFIX，tests-harmony-v4-handback.md §3.4）：SHOWING 分支里的上屏回调（SDK common.d.ts CommonMethod 的 onAppear /
+//      onAttach / onAreaChange / onVisibleAreaChange）走到 this.<门控字段>.markOnScreen()（K6-on-screen）；K3 门控类须有 markOnScreen()
+//      v4（HM-BATCH1-DEVFIX 评审 Codex S2-1）：K6-on-screen / monitor / timer / tick / clear-first / gate 这些钉调用的规则只认会执行的调用
+//      （liveCalls / isDeadAt，照 a11yhome_ast.cjs reachableCalls：常量为假的分支、退出语句之后、从不调用的闭包与局部函数都不算）
 //   K7 目录：Skeleton 矩阵 + host × gated；样例画真实骨架件与 SkeletonHost，样例 id 约定（AST 部分；inventory 在 py）
 //   K8 登记：designsystem List.test 顶层恰调用一次 skeletonGateTest；Ds02L2Ui 的 L2SKEL 段（名单比对在 py）
 //   K9 页面不动：页面 / 功能模块不用新件；现有 7 处骨架调用（3 个文件）原样
@@ -435,7 +439,10 @@ function checkHost(host) {
     report('K6-gate', SKEL, host, 'SkeletonHost 内部没有 new SkeletonGate(…)（书 §2.4：门控只在纯逻辑里，包装件不另写时序）');
   }
   for (const m of ['loadingChanged', 'tick', 'nextDueInMs']) {
-    if (!methodCalls(host, m).length) { report('K6-gate', SKEL, host, 'SkeletonHost 没调 SkeletonGate.' + m + '()'); }
+    // v4（Codex S2-1）：至少一处会执行（不在常量为假的分支、return 之后、从不调用的闭包里）。
+    if (!methodCalls(host, m).filter((c) => !isDeadAt(c, null, host, 0)).length) {
+      report('K6-gate', SKEL, host, 'SkeletonHost 没调 SkeletonGate.' + m + '()（只认会执行的调用）');
+    }
   }
   const monitors = host.members.filter((m) => ts.isMethodDeclaration(m) && decoratorNodes(m).some((d) =>
     ts.isCallExpression(d.expression) && compact(d.expression.expression) === 'Monitor' &&
@@ -468,6 +475,7 @@ function checkHost(host) {
       report('K6-branches', SKEL, s, 'this.skeleton() 应只在阶段为 SkeletonPhase.SHOWING 的分支里');
     }
   }
+  checkHostOnScreen(host, build, sk);
   for (const c of ct) {
     const branches = enclosingIfs(c, build).map((x) => x.branch);
     for (const s of sk) {
@@ -478,14 +486,288 @@ function checkHost(host) {
     }
   }
 }
+// v3（HM-BATCH1-DEVFIX，tests-harmony-v4-handback.md §3.4）：设备三轮在屏 315 / 293 / 274 ms——最短停留从门控判定 SHOWING 起算，
+// 判定到骨架真正挂上屏的延迟被吃进 300ms。包装件须在骨架上屏时调 gate.markOnScreen()。「上屏回调」以 SDK common.d.ts CommonMethod 为准：
+// onAppear（mounts a display）/ onAttach（mounts to view tree）/ onAreaChange（首次布局完成）/ onVisibleAreaChange（可见区域变化）。
+// 判据：该属性挂在 build() 里 SkeletonPhase.SHOWING 分支之内的组件上（分支外的外层容器在宿主挂载时就触发，内容分支不是骨架上屏），
+// 回调（箭头函数 / 函数表达式 / this.<方法> 引用，含其经 this.<方法>() 走到的方法）里有 this.<门控字段>.markOnScreen()；
+// 门控字段 = 本 struct 里 new SkeletonGate(…) 初始化或类型标注为 SkeletonGate 的字段（另 new 一个门控来调不算）。
+const ON_SCREEN = ['onAppear', 'onAttach', 'onAreaChange', 'onVisibleAreaChange'];
+function checkHostOnScreen(host, build, sk) {
+  const gateFields = new Set(host.members.filter((m) => ts.isPropertyDeclaration(m) &&
+    ((m.initializer && ts.isNewExpression(unwrap(m.initializer)) && compact(unwrap(m.initializer).expression) === 'SkeletonGate') ||
+      (m.type && m.type.getText() === 'SkeletonGate'))).map((m) => nameText(m.name)));
+  const isMark = (n) => ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
+    n.expression.name.text === 'markOnScreen' && isThisMember(n.expression.expression) &&
+    gateFields.has(unwrap(n.expression.expression).name.text);
+  const marks = (root) => collect(root, isMark).length > 0;
+  const branches = [];
+  for (const s of sk) {
+    const hit = enclosingIfs(s, build).find((x) => collect(x.cond, (y) => compact(y) === 'SkeletonPhase.SHOWING').length);
+    if (hit && !branches.includes(hit.branch)) { branches.push(hit.branch); }
+  }
+  let ok = false;
+  for (const br of branches) {
+    for (const a of attributeCalls(br, ON_SCREEN)) {
+      // v4（Codex S2-1）：上屏属性本身在 build 里会执行，回调里的 markOnScreen 也须会执行（常量为假的分支、return 之后、
+      // 从不调用的闭包里都不算）；与原「出现即算」取与，只收紧。
+      if (isDeadAt(a, null, host, 0)) { continue; }
+      for (const arg of Array.from(a.arguments || [])) {
+        const e = unwrap(arg);
+        if (!e || !(ts.isArrowFunction(e) || ts.isFunctionExpression(e) || isThisMember(e))) { continue; }
+        if (reachableRoots(host, e).some(marks) && liveCalls(host, [e], isMark).length > 0) { ok = true; }
+      }
+    }
+  }
+  if (!ok) {
+    report('K6-on-screen', SKEL, branches[0] || build, 'SkeletonHost 应在骨架上屏回调（SkeletonPhase.SHOWING 分支内组件的 onAppear / onAttach / ' +
+      'onAreaChange / onVisibleAreaChange）里调 this.<门控>.markOnScreen()，最短显示从上屏起算（HM-BATCH1-DEVFIX §3.4：设备在屏 315 / 293 / 274 ms）');
+  }
+}
 function reaches(owner, method, callee, depth) {
+  if (!method || !method.body || depth > 3) { return false; }
+  // v4（Codex S2-1）：只认会执行的调用（liveCalls）；原「出现即算」再与之取与，判据只收紧。
+  return liveCalls(owner, [method.body], (n) => isCallTo(n, callee)).length > 0 && reachesTextually(owner, method, callee, depth);
+}
+function reachesTextually(owner, method, callee, depth) {
   if (!method || !method.body || depth > 3) { return false; }
   if (methodCalls(method.body, callee).length) { return true; }
   for (const c of collect(method.body, (n) => ts.isCallExpression(n) && isThisMember(n.expression))) {
     const m = methodOf(owner, unwrap(c.expression).name.text);
-    if (m && m !== method && reaches(owner, m, callee, depth + 1)) { return true; }
+    if (m && m !== method && reachesTextually(owner, m, callee, depth + 1)) { return true; }
   }
   return false;
+}
+function isCallTo(n, name) {
+  return ts.isCallExpression(n) && ((ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name) ||
+    (ts.isIdentifier(n.expression) && n.expression.text === name));
+}
+
+// ---------------------------------------------------------------- v4（HM-BATCH1-DEVFIX 评审 Codex S2-1）：钉调用的规则只认会执行的调用
+// 实证漏洞：`if (false) { this.gate.markOnScreen(); }`、未调用的闭包里的调用，原 K6-on-screen 照算，宿主检查返回 [] 仍过。
+// 同线先例 tools/ci/a11yhome/a11yhome_ast.cjs reachableCalls / isDead：下列位置的调用确定不会执行，不算——
+//   常量为假的 if / 三元 / && 右侧、常量为真的 || 右侧、常量为假的 while / for 体；同一语句列表里一定退出的语句
+//   （return / throw / break / continue，或两支都退出的 if）之后；值从不被调用的函数（裸表达式语句、void、声明后没有被调用 /
+//   当实参传出 / 返回 / 存起来的局部箭头、函数表达式、局部函数声明）。常量：字面量、局部 const、模块顶层 const、本 struct 的
+//   readonly 或无装饰器且全部写入同值的 this.<字段>。只在确定不可执行时排除，判不了按会执行（不误伤合法写法）。
+// 用于：K6-on-screen（上屏回调 → markOnScreen）、K6-monitor（@Monitor → loadingChanged）、K6-timer（aboutToDisappear → clearTimeout）、
+// K6-tick（定时器回调 → tick）、K6-clear-first（排定时器前先 clearTimeout）、K6-gate（loadingChanged / tick / nextDueInMs 至少一处会执行）。
+const NO_CONST = undefined;
+function constOf(e, owner, depth) {
+  e = unwrap(e);
+  if (!e || depth > 8) { return NO_CONST; }
+  const next = (x) => constOf(x, owner, depth + 1);
+  const K = ts.SyntaxKind;
+  if (e.kind === K.TrueKeyword) { return true; }
+  if (e.kind === K.FalseKeyword) { return false; }
+  if (e.kind === K.NullKeyword) { return null; }
+  if (ts.isNumericLiteral(e)) { return Number(e.text); }
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) { return e.text; }
+  if (ts.isIdentifier(e)) {
+    if (e.text === 'undefined') { return null; }
+    const init = constInit(e);
+    return init ? next(init) : NO_CONST;
+  }
+  if (ts.isVoidExpression(e)) { return null; }
+  if (ts.isPrefixUnaryExpression(e)) {
+    const v = next(e.operand);
+    if (v === NO_CONST) { return NO_CONST; }
+    if (e.operator === K.ExclamationToken) { return !v; }
+    if (e.operator === K.MinusToken && typeof v === 'number') { return -v; }
+    return NO_CONST;
+  }
+  if (isThisMember(e) && owner) { return fieldConst(owner, unwrap(e).name.text, depth); }
+  if (ts.isConditionalExpression(e)) {
+    const c = next(e.condition);
+    return c === NO_CONST ? NO_CONST : (c ? next(e.whenTrue) : next(e.whenFalse));
+  }
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    const a = next(e.left);
+    if (op === K.AmpersandAmpersandToken) {
+      if (a !== NO_CONST && !a) { return a; }
+      const b = next(e.right);
+      if (a !== NO_CONST) { return b; }
+      return b !== NO_CONST && !b ? false : NO_CONST;
+    }
+    if (op === K.BarBarToken) {
+      if (a !== NO_CONST && a) { return a; }
+      const b = next(e.right);
+      if (a !== NO_CONST) { return b; }
+      return b !== NO_CONST && b ? true : NO_CONST;
+    }
+    if (op === K.QuestionQuestionToken) {
+      if (a === NO_CONST) { return NO_CONST; }
+      return a === null ? next(e.right) : a;
+    }
+    const b = next(e.right);
+    if (a === NO_CONST || b === NO_CONST) { return NO_CONST; }
+    switch (op) {
+      case K.EqualsEqualsEqualsToken: case K.EqualsEqualsToken: return a === b;
+      case K.ExclamationEqualsEqualsToken: case K.ExclamationEqualsToken: return a !== b;
+      case K.GreaterThanToken: return a > b;
+      case K.GreaterThanEqualsToken: return a >= b;
+      case K.LessThanToken: return a < b;
+      case K.LessThanEqualsToken: return a <= b;
+      default: return NO_CONST;
+    }
+  }
+  return NO_CONST;
+}
+/** 标识符对应的 const 初值：同名局部 const（向外逐层块），再模块顶层 const；let / var / 参数 / 被遮蔽一律不算常量。 */
+function constInit(id) {
+  let cur = id.parent;
+  while (cur) {
+    if ((ts.isArrowFunction(cur) || ts.isFunctionExpression(cur) || isFunctionLike(cur)) &&
+      (cur.parameters || []).some((p) => ts.isIdentifier(p.name) && p.name.text === id.text)) { return null; }
+    const list = ts.isBlock(cur) || ts.isSourceFile(cur) || ts.isCaseClause(cur) || ts.isDefaultClause(cur) ? cur.statements : null;
+    if (list) {
+      for (const st of list) {
+        if (!ts.isVariableStatement(st)) { continue; }
+        for (const d of st.declarationList.declarations) {
+          if (ts.isIdentifier(d.name) && d.name.text === id.text) {
+            return (st.declarationList.flags & ts.NodeFlags.Const) && d.initializer ? d.initializer : null;
+          }
+        }
+      }
+    }
+    cur = cur.parent;
+  }
+  return null;
+}
+/** this.<字段> 的常量值：readonly 取初值；无装饰器（外部写不进）且初值与本 struct 内全部写入同值才算定值；否则不是常量。 */
+function fieldConst(owner, field, depth) {
+  const prop = propOf(owner, field);
+  if (!prop || !prop.initializer || decoratorNodes(prop).length) { return NO_CONST; }
+  const v = constOf(prop.initializer, owner, depth + 1);
+  if (v === NO_CONST) { return NO_CONST; }
+  if ((prop.modifiers || []).some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword)) { return v; }
+  for (const w of thisWrites(owner)) {
+    if (w.field !== field) { continue; }
+    if (!w.rhs || constOf(w.rhs, owner, depth + 1) !== v) { return NO_CONST; }
+  }
+  return v;
+}
+function constTruthOf(e, owner) { const v = constOf(e, owner, 0); return v === NO_CONST ? NO_CONST : !!v; }
+/** 语句是否一定退出所在语句列表（之后的兄弟语句不会执行）。 */
+function alwaysExits(st, owner) {
+  if (!st) { return false; }
+  if (ts.isReturnStatement(st) || ts.isThrowStatement(st) || ts.isBreakStatement(st) || ts.isContinueStatement(st)) { return true; }
+  if (ts.isBlock(st)) { return st.statements.some((s) => alwaysExits(s, owner)); }
+  if (ts.isIfStatement(st)) {
+    const c = constTruthOf(st.expression, owner);
+    if (c === true) { return alwaysExits(st.thenStatement, owner); }
+    if (c === false) { return !!st.elseStatement && alwaysExits(st.elseStatement, owner); }
+    return !!st.elseStatement && alwaysExits(st.thenStatement, owner) && alwaysExits(st.elseStatement, owner);
+  }
+  return false;
+}
+function isFnExpr(n) { return ts.isArrowFunction(n) || ts.isFunctionExpression(n); }
+/** 函数值会不会被调用：只在确定不会时返回 false（被调用 / 当实参传出 / 返回 / 存进对象或字段 → 按会调用算）。 */
+function fnInvoked(fn, owner, depth) {
+  if (depth > 4) { return true; }
+  let cur = fn;
+  let p = fn.parent;
+  if (ts.isFunctionDeclaration(fn)) {
+    return fn.name ? nameUsedAsCallable(fn.name.text, fn.parent, fn.name, owner, depth) : false;
+  }
+  while (p && (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isNonNullExpression(p))) { cur = p; p = p.parent; }
+  if (!p) { return true; }
+  if (ts.isExpressionStatement(p) || ts.isVoidExpression(p)) { return false; }
+  if (ts.isPropertyAssignment(p) && p.initializer === cur && ts.isObjectLiteralExpression(p.parent)) {
+    let q = p.parent.parent;
+    while (q && ts.isParenthesizedExpression(q)) { q = q.parent; }
+    return !(q && (ts.isExpressionStatement(q) || ts.isVoidExpression(q)));
+  }
+  if (ts.isVariableDeclaration(p) && p.initializer === cur && ts.isIdentifier(p.name)) {
+    let scope = p.parent;
+    while (scope && !ts.isBlock(scope) && !ts.isSourceFile(scope) && !ts.isCaseClause(scope) && !ts.isDefaultClause(scope)) { scope = scope.parent; }
+    return nameUsedAsCallable(p.name.text, scope || p.getSourceFile(), p.name, owner, depth);
+  }
+  return true;
+}
+/** 名字在 scope 里有没有一处会执行的「调用 / 当实参传出 / 返回 / 赋给别处 / 放进对象或数组」引用。 */
+function nameUsedAsCallable(name, scope, decl, owner, depth) {
+  let used = false;
+  walk(scope, (x) => {
+    if (used || !ts.isIdentifier(x) || x.text !== name || x === decl) { return; }
+    let cur = x;
+    let p = x.parent;
+    while (p && (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isNonNullExpression(p))) { cur = p; p = p.parent; }
+    if (!p) { return; }
+    if (ts.isPropertyAccessExpression(p) && p.name === cur) { return; }
+    if (ts.isPropertyAssignment(p) && p.name === cur) { return; }
+    const live = (ts.isCallExpression(p) && (p.expression === cur || Array.from(p.arguments).includes(cur))) ||
+      (ts.isNewExpression(p) && Array.from(p.arguments || []).includes(cur)) ||
+      ts.isReturnStatement(p) || (ts.isArrowFunction(p) && p.body === cur) ||
+      (ts.isBinaryExpression(p) && p.right === cur && p.operatorToken.kind === ts.SyntaxKind.EqualsToken) ||
+      (ts.isVariableDeclaration(p) && p.initializer === cur) || ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p) ||
+      ts.isArrayLiteralExpression(p);
+    if (live && !isDeadAt(x, null, owner, depth + 1)) { used = true; }
+  });
+  return used;
+}
+/** node 是否确定不会执行（向上走到所在方法为止；root 是扫描起点，本身按会执行算）。 */
+function isDeadAt(node, root, owner, depth) {
+  const K = ts.SyntaxKind;
+  let cur = node;
+  let p = node.parent;
+  while (p) {
+    if (ts.isIfStatement(p)) {
+      const c = constTruthOf(p.expression, owner);
+      if ((cur === p.thenStatement && c === false) || (cur === p.elseStatement && c === true)) { return true; }
+    } else if (ts.isConditionalExpression(p)) {
+      const c = constTruthOf(p.condition, owner);
+      if ((cur === p.whenTrue && c === false) || (cur === p.whenFalse && c === true)) { return true; }
+    } else if (ts.isBinaryExpression(p) && cur === p.right) {
+      const k = p.operatorToken.kind;
+      const c = constTruthOf(p.left, owner);
+      if ((k === K.AmpersandAmpersandToken && c === false) || (k === K.BarBarToken && c === true)) { return true; }
+      if (k === K.QuestionQuestionToken) { const v = constOf(p.left, owner, 0); if (v !== NO_CONST && v !== null) { return true; } }
+    } else if (ts.isWhileStatement(p) && cur === p.statement) {
+      if (constTruthOf(p.expression, owner) === false) { return true; }
+    } else if (ts.isForStatement(p) && cur === p.statement && p.condition) {
+      if (constTruthOf(p.condition, owner) === false) { return true; }
+    } else if (ts.isBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p) || ts.isSourceFile(p)) {
+      for (const st of p.statements) {
+        if (st === cur) { break; }
+        if (alwaysExits(st, owner)) { return true; }
+      }
+    }
+    if (ts.isMethodDeclaration(p) || ts.isConstructorDeclaration(p) || ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) {
+      return false;
+    }
+    if ((isFnExpr(p) || ts.isFunctionDeclaration(p)) && p !== root && !fnInvoked(p, owner, depth)) { return true; }
+    cur = p;
+    p = p.parent;
+  }
+  return false;
+}
+/**
+ * 从 roots 出发会执行的调用里满足 pred 的（含嵌套闭包；经 this.<方法>() 调用、或作实参传出的 this.<方法> 引用展开方法体，最多 4 层）。
+ * root 本身是 this.<方法> 引用（如 .onAppear(this.onShown)）时从该方法体起。
+ */
+function liveCalls(owner, roots, pred) {
+  const out = [];
+  const seen = new Set();
+  const follow = (ref, depth) => {
+    const m = owner ? methodOf(owner, unwrap(ref).name.text) : null;
+    if (m && m.body && !seen.has(m)) { seen.add(m); scan(m.body, depth + 1); }
+  };
+  function scan(node, depth) {
+    walk(node, (n) => {
+      if (!ts.isCallExpression(n) || isDeadAt(n, node, owner, 0)) { return; }
+      if (pred(n)) { out.push(n); }
+      if (depth >= 4) { return; }
+      if (isThisMember(n.expression)) { follow(n.expression, depth); }
+      for (const a of Array.from(n.arguments || [])) { if (isThisMember(a)) { follow(a, depth); } }
+    });
+  }
+  for (const r of roots) {
+    if (!r) { continue; }
+    if (isThisMember(r)) { follow(r, -1); } else { scan(r, 0); }
+  }
+  return out;
 }
 function enclosingIfs(node, stop) {
   const out = [];
@@ -857,7 +1139,9 @@ function blockedBy(node, ev, stop) {
   return false;
 }
 function reachesFrom(owner, node, callee) {
-  return reachableRoots(owner, node).some((r) => methodCalls(r, callee).length > 0);
+  // v4（Codex S2-1）：与原「出现即算」取与，另须有一处会执行（liveCalls），只收紧。
+  return reachableRoots(owner, node).some((r) => methodCalls(r, callee).length > 0) &&
+    liveCalls(owner, [node], (n) => isCallTo(n, callee)).length > 0;
 }
 function checkHostSchedule(host) {
   const timers = collect(host, (n) => ts.isCallExpression(n) && compact(n.expression) === 'setTimeout');
@@ -1017,8 +1301,11 @@ function checkLogic() {
   }
   const cls = topLevel(gate, (n) => ts.isClassDeclaration(n) && n.name && n.name.text === 'SkeletonGate')[0];
   if (!cls || !hasExport(cls)) { report('K3-gate-api', GATE, cls || null, 'export class SkeletonGate（书 §2.4）'); return; }
-  for (const m of ['loadingChanged', 'tick', 'nextDueInMs']) {
-    if (!methodOf(cls, m)) { report('K3-gate-api', GATE, cls, 'SkeletonGate 缺方法 ' + m + '()（书 §2.4）'); }
+  for (const m of ['loadingChanged', 'tick', 'nextDueInMs', 'markOnScreen']) {
+    if (!methodOf(cls, m)) {
+      report('K3-gate-api', GATE, cls, 'SkeletonGate 缺方法 ' + m + '()（书 §2.4' +
+        (m === 'markOnScreen' ? '；HM-BATCH1-DEVFIX §3.4：最短显示从骨架上屏起算' : '') + '）');
+    }
   }
   const ctor = cls.members.find((m) => ts.isConstructorDeclaration(m));
   if (!ctor || ctor.parameters.length !== 1 || !ctor.parameters[0].type || ctor.parameters[0].type.getText() !== 'SkeletonClock') {

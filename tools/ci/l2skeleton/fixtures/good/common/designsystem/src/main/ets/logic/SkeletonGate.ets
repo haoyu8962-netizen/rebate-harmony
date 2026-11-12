@@ -23,7 +23,7 @@ export class SkeletonGate {
   private readonly clock: SkeletonClock;
   private loading: boolean = false;
   private loadingSince: number = 0;
-  /** 骨架真正出现（tick 第一次给出 SHOWING）的时刻；-1 = 没在显示。 */
+  /** 最短显示的起算时刻：tick 第一次给出 SHOWING 时记下，骨架真正上屏（markOnScreen）时后移到上屏时刻；-1 = 没在显示。 */
   private shownAt: number = -1;
 
   constructor(clock: SkeletonClock) {
@@ -37,6 +37,13 @@ export class SkeletonGate {
     this.loading = loading;
     if (loading && this.shownAt < 0) {
       this.loadingSince = this.clock.now();
+    }
+  }
+
+  /** 骨架真正挂上屏时由包装件调用（HM-BATCH1-DEVFIX）：最短显示从上屏起算，判定 SHOWING 到上屏之间的延迟不计入；没在显示时无作用。 */
+  markOnScreen(): void {
+    if (this.shownAt >= 0) {
+      this.shownAt = Math.max(this.shownAt, this.clock.now());
     }
   }
 

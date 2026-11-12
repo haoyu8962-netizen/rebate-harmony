@@ -31,6 +31,13 @@
      this.loading；this.skeleton() 只在 SkeletonPhase.SHOWING 分支、与 this.content() 不同分支
      v2：setTimeout 延时取 nextDueInMs()（或其局部 const），剩余 0 / 正数时排、负数时不排（K6-schedule）；回调走到 tick（K6-tick）；
      排之前先 clearTimeout（K6-clear-first）；句柄存进 this.<字段> 且有 clearTimeout(this.<字段>)（K6-handle）
+     v3（HM-BATCH1-DEVFIX 测试作者，只收紧、300 / 300 不动；NATIVE/HM-BATCH1-DEVFIX/tests-harmony-v4-handback.md §3.4：设备在屏
+     315 / 293 / 274 ms，最短停留从判定 SHOWING 起算而非骨架上屏起算）：SkeletonPhase.SHOWING 分支内组件的上屏回调（SDK common.d.ts
+     CommonMethod：onAppear / onAttach / onAreaChange / onVisibleAreaChange）走到 this.<门控字段>.markOnScreen()（K6-on-screen）；
+     K3 门控类须有 markOnScreen()（K3-gate-api）；run-logic 变异加「markOnScreen 空实现（从判定时刻起算）」等
+     v4（HM-BATCH1-DEVFIX 评审 Codex S2-1，只收紧）：K6-on-screen / K6-monitor / K6-timer / K6-tick / K6-clear-first / K6-gate 这些
+     钉调用的规则只认会执行的调用（照 a11yhome_ast.cjs reachableCalls）：常量为假的 if / 三元 / && 、退出语句之后、从不调用的闭包与
+     局部函数里的调用都不算；判不了按会执行。自测另加「合法写法仍绿」的正例（GOOD_VARIANTS）
   K7 目录（书 §2.3、README ⑨）：Skeleton 矩阵 = product / order / wallet × loading + host × gated，ProductCardSkeleton = list × loading；
      样例画 SkeletonProductCard / SkeletonOrderCard / SkeletonWalletCard / SkeletonHost、不再用 SkeletonBlock 现拼；设备 id 约定齐；
      画 order / wallet 的样例无 padding / 底色；inventory.tsv 的 Skeleton 行与矩阵一致（#24 只加行）
@@ -89,7 +96,7 @@ RULE_TITLES = {
     "K3": "SkeletonGate 纯逻辑（进 Logic.ets、无 @kit / $r、300 / 300、时钟注入、不读减弱动态）",
     "K4": "微光（linearGradient、无限循环、系统曲线、减弱动态不可达、离开收尾且不写状态、真在动、窄带可见且有色差、muted 底色、无 motion 令牌）",
     "K5": "读屏跳过与外壳（SkeletonBlock / 三种形状卡 no-hide-descendants、静态 CouliCard、无颜色字面量）",
-    "K6": "SkeletonHost（参数、内部 SkeletonGate、@Monitor、定时器调度与回调、离开不写状态、不绕过门控）",
+    "K6": "SkeletonHost（参数、内部 SkeletonGate、@Monitor、定时器调度与回调、离开不写状态、不绕过门控、骨架上屏调 markOnScreen）",
     "K7": "目录（矩阵 + host × gated、真实骨架件样例、id 约定、inventory）",
     "K8": "登记（designsystem List、verify 四步、设备用例名单）",
     "K9": "页面不动（不用新件、7 处调用原样）",
@@ -270,8 +277,21 @@ LEAVE = ("  aboutToDisappear(): void {\n    // 只置非状态字段：不写 @L
 TRANSLATE = "          .translate({ x: (this.sweep * 350 - 100) + '%' })\n"
 HOST_UPDATE = "  private update(): void {\n    this.cancel();\n"
 HOST_TIMER = "      this.timer = setTimeout(() => {\n        this.timer = -1;\n        this.update();\n      }, due);\n"
-HOST_BUILD = ("      if (this.phase === SkeletonPhase.SHOWING) {\n        this.skeleton()\n      } else if (this.phase === SkeletonPhase.CONTENT) {\n"
-              "        this.content()\n      }\n")
+HOST_ON_SCREEN = ("        .onAppear(() => {\n          // 骨架真正上屏：最短显示从这里起算（判定到挂载的延迟不吃进 300ms），再按新的剩余时长重排定时器。\n"
+                  "          this.gate.markOnScreen();\n          this.update();\n        })\n")
+HOST_BUILD = ("      if (this.phase === SkeletonPhase.SHOWING) {\n        Column() {\n          this.skeleton()\n        }\n        .width('100%')\n"
+              + HOST_ON_SCREEN + "      } else if (this.phase === SkeletonPhase.CONTENT) {\n        this.content()\n      }\n")
+HOST_BUILD_TAIL = ("      } else if (this.phase === SkeletonPhase.CONTENT) {\n        this.content()\n      }\n    }\n    .width('100%')\n")
+OUTER_ON_SCREEN = "    .onAppear(() => {\n      this.gate.markOnScreen();\n      this.update();\n    })\n"
+with open(os.path.join(GOOD, SKEL), encoding="utf-8") as _f:
+    _GOOD_SKEL = _f.read()
+# update() 的 tick 起到 build() 的 if/else 止（一段连续原文，供「判定时刻就 mark + 去上屏回调」这种两处一起改的变异用）。
+HOST_SPAN = _GOOD_SKEL[_GOOD_SKEL.index("    this.phase = this.gate.tick();\n"):_GOOD_SKEL.index(HOST_BUILD) + len(HOST_BUILD)]
+# v4（Codex S2-1）：update() 方法头起到 build() 的 if/else 止（加私有方法 + 改上屏回调两处一起改的写法用）。
+HOST_SPAN2 = _GOOD_SKEL[_GOOD_SKEL.index(HOST_UPDATE):_GOOD_SKEL.index(HOST_BUILD) + len(HOST_BUILD)]
+MARK = "          this.gate.markOnScreen();\n"
+ON_SCREEN_HEAD = "        .onAppear(() => {\n"
+GATE_MARK = ("  markOnScreen(): void {\n    if (this.shownAt >= 0) {\n      this.shownAt = Math.max(this.shownAt, this.clock.now());\n    }\n  }\n")
 # （名字，文件，原串，新串，应报的规则前缀）；原串在参照件里必须唯一。old=None 表示删文件；old='' 表示在文件末尾追加 new。
 MUTATIONS = [
     # ---- 书 §3 S6 点名的五类
@@ -349,7 +369,7 @@ MUTATIONS = [
     ("Host 离开不清定时器", SK, "  aboutToDisappear(): void {\n    this.cancel();\n  }\n", "  aboutToDisappear(): void {\n    this.timer = -1;\n  }\n", "K6-timer"),
     ("Host 没有定时器（到点不 tick）", SK, "      this.timer = setTimeout(() => {\n        this.timer = -1;\n        this.update();\n      }, due);\n",
      "      this.timer = due;\n", "K6-timer"),
-    ("Host 骨架与内容同一分支", SK, HOST_BUILD, "      if (this.phase === SkeletonPhase.SHOWING) {\n        this.skeleton()\n        this.content()\n      }\n", "K6-branches"),
+    ("Host 骨架与内容同一分支", SK, HOST_BUILD, HOST_BUILD.replace("      } else if (this.phase === SkeletonPhase.CONTENT) {\n", ""), "K6-branches"),
     ("Host 骨架在 HIDDEN 也显示", SK, HOST_BUILD, HOST_BUILD.replace("this.phase === SkeletonPhase.SHOWING", "this.phase !== SkeletonPhase.CONTENT"), "K6-branches"),
     ("Host loading 默认 true", SK, "  @Param loading: boolean = false;", "  @Param loading: boolean = true;", "K6-props"),
     ("Host 缺 content 参数", SK, "  @BuilderParam content: () => void = emptySkeletonSlot;\n", "", "K6"),
@@ -387,6 +407,58 @@ MUTATIONS = [
      "  private update(): void {\n    this.phase = this.gate.tick();\n    const due: number = this.gate.nextDueInMs();\n    if (due >= 0) {\n" + HOST_TIMER + "    }\n    this.cancel();\n  }\n",
      "K6-clear-first"),
     ("v2 Host 句柄不存", SK, HOST_TIMER, HOST_TIMER.replace("      this.timer = setTimeout(", "      setTimeout("), "K6-handle"),
+    # ---- v3（HM-BATCH1-DEVFIX §3.4）：最短停留从骨架上屏起算——Host 在骨架上屏回调里调 markOnScreen
+    ("v3 Host 不调 markOnScreen（最短停留从判定时刻起算，实现现状）", SK, HOST_ON_SCREEN,
+     HOST_ON_SCREEN.replace("          this.gate.markOnScreen();\n", ""), "K6-on-screen"),
+    ("v3 Host 去掉上屏回调", SK, "        .width('100%')\n" + HOST_ON_SCREEN, "        .width('100%')\n", "K6-on-screen"),
+    ("v3 Host 在判定时刻调 markOnScreen（update 里 tick 出 SHOWING 就调，不挂上屏回调）", SK, HOST_SPAN,
+     HOST_SPAN.replace("    this.phase = this.gate.tick();\n",
+                       "    this.phase = this.gate.tick();\n    if (this.phase === SkeletonPhase.SHOWING) {\n      this.gate.markOnScreen();\n    }\n", 1)
+     .replace("        .width('100%')\n" + HOST_ON_SCREEN, "        .width('100%')\n"), "K6-on-screen"),
+    ("v3 Host 上屏回调挂在外层容器（宿主挂载即触发，不是骨架上屏）", SK, "        .width('100%')\n" + HOST_ON_SCREEN + HOST_BUILD_TAIL,
+     "        .width('100%')\n" + HOST_BUILD_TAIL + OUTER_ON_SCREEN, "K6-on-screen"),
+    ("v3 Host 上屏回调挂在内容分支", SK, HOST_BUILD,
+     "      if (this.phase === SkeletonPhase.SHOWING) {\n        Column() {\n          this.skeleton()\n        }\n        .width('100%')\n"
+     "      } else if (this.phase === SkeletonPhase.CONTENT) {\n        Column() {\n          this.content()\n        }\n" + HOST_ON_SCREEN + "      }\n",
+     "K6-on-screen"),
+    ("v3 Host 用离屏回调 onDisAppear 调 markOnScreen", SK, HOST_ON_SCREEN, HOST_ON_SCREEN.replace(".onAppear(", ".onDisAppear("), "K6-on-screen"),
+    ("v3 Host 上屏回调里另 new 一个门控来 mark", SK, "          this.gate.markOnScreen();\n",
+     "          new SkeletonGate(new SystemSkeletonClock()).markOnScreen();\n", "K6-on-screen"),
+    ("v3 门控缺 markOnScreen", GT, GATE_MARK, "", "K3-gate-api"),
+    # ---- v4（HM-BATCH1-DEVFIX 评审 Codex S2-1）：调用写在不会执行的位置不算（原守卫对这些返回 [] 仍过）
+    ("v4 markOnScreen 包进 if (false)", SK, MARK, "          if (false) {\n            this.gate.markOnScreen();\n          }\n", "K6-on-screen"),
+    ("v4 markOnScreen 放进未调用的闭包", SK, MARK,
+     "          const mark = (): void => {\n            this.gate.markOnScreen();\n          };\n", "K6-on-screen"),
+    ("v4 markOnScreen 在 return 之后", SK, HOST_ON_SCREEN,
+     ON_SCREEN_HEAD + "          this.update();\n          return;\n" + MARK + "        })\n", "K6-on-screen"),
+    ("v4 markOnScreen 在常量为假的三元分支", SK, MARK, "          false ? this.gate.markOnScreen() : this.update();\n", "K6-on-screen"),
+    ("v4 markOnScreen 在常量为假的 && 右侧", SK, MARK, "          false && this.gate.markOnScreen();\n", "K6-on-screen"),
+    ("v4 markOnScreen 由局部 const 假值守住", SK, MARK,
+     "          const enabled: boolean = false;\n          if (enabled) {\n            this.gate.markOnScreen();\n          }\n", "K6-on-screen"),
+    ("v4 markOnScreen 在 while (false) 体里", SK, MARK, "          while (false) {\n            this.gate.markOnScreen();\n          }\n", "K6-on-screen"),
+    ("v4 markOnScreen 在裸箭头表达式语句里（从不调用）", SK, MARK, "          () => {\n            this.gate.markOnScreen();\n          };\n", "K6-on-screen"),
+    ("v4 markOnScreen 在只被 void 引用的闭包里", SK, MARK,
+     "          const mark = (): void => {\n            this.gate.markOnScreen();\n          };\n          void mark;\n", "K6-on-screen"),
+    ("v4 markOnScreen 在未调用的局部函数声明里", SK, MARK,
+     "          function mark(): void {\n            this.gate.markOnScreen();\n          }\n", "K6-on-screen"),
+    ("v4 上屏回调经私有方法，方法里 return 之后才 mark", SK, HOST_SPAN2,
+     "  private onSkeletonShown(): void {\n    return;\n    this.gate.markOnScreen();\n  }\n\n" +
+     HOST_SPAN2.replace(MARK, "          this.onSkeletonShown();\n"), "K6-on-screen"),
+    ("v4 上屏属性本身在 SHOWING 分支里常量为假的 if 中", SK, HOST_BUILD,
+     "      if (this.phase === SkeletonPhase.SHOWING) {\n        Column() {\n          this.skeleton()\n        }\n        .width('100%')\n"
+     "        if (false) {\n          Column()\n" + HOST_ON_SCREEN.replace("        ", "          ", 1) + "        }\n"
+     "      } else if (this.phase === SkeletonPhase.CONTENT) {\n        this.content()\n      }\n", "K6-on-screen"),
+    # ---- v4 同类钉调用的规则：@Monitor / 离开清定时器 / 定时器回调 tick / 排前先清 / 门控调用
+    ("v4 Host @Monitor 里 return 之后才 loadingChanged", SK, "  onLoadingChanged(): void {\n    this.gate.loadingChanged(",
+     "  onLoadingChanged(): void {\n    return;\n    this.gate.loadingChanged(", "K6-monitor"),
+    ("v4 Host 离开的 clearTimeout 包进 if (false)", SK, "  aboutToDisappear(): void {\n    this.cancel();\n  }\n",
+     "  aboutToDisappear(): void {\n    if (false) {\n      this.cancel();\n    }\n  }\n", "K6-timer"),
+    ("v4 Host 定时器回调的 tick 包进 if (false)", SK, HOST_TIMER,
+     HOST_TIMER.replace("        this.update();\n", "        if (false) {\n          this.update();\n        }\n"), "K6-tick"),
+    ("v4 Host 排前清旧定时器放进未调用的闭包", SK, HOST_UPDATE,
+     "  private update(): void {\n    const clear = (): void => {\n      this.cancel();\n    };\n", "K6-clear-first"),
+    ("v4 Host 的 gate.tick() 只在常量为假的分支", SK, "    this.phase = this.gate.tick();\n",
+     "    if (false) {\n      this.phase = this.gate.tick();\n    }\n", "K6-gate"),
     # ---- K7 目录
     ("目录漏 host × gated", MF, ", m(['host'], ['gated'])]),", "]),", "K7-manifest"),
     ("目录漏 wallet", MF, "[m(['product', 'order', 'wallet'], ['loading'])", "[m(['product', 'order'], ['loading'])", "K7-manifest"),
@@ -422,6 +494,31 @@ MUTATIONS = [
 ]
 # 页面正例：DemoPage.ets 只在注释 / 字符串里提到新件名，不算（K9 走 AST）。
 
+# v4（Codex S2-1）正例：合法写法须仍绿（check 返回 []）。（名字，文件，原串，新串）
+GOOD_VARIANTS = [
+    ("onAppear 里只调 markOnScreen（不重排）", SK, HOST_ON_SCREEN, ON_SCREEN_HEAD + MARK + "        })\n"),
+    ("onAppear 经私有方法调 markOnScreen", SK, HOST_SPAN2,
+     "  private onSkeletonShown(): void {\n    this.gate.markOnScreen();\n    this.update();\n  }\n\n" +
+     HOST_SPAN2.replace(MARK + "          this.update();\n", "          this.onSkeletonShown();\n")),
+    ("onAppear 里局部闭包随即调用", SK, MARK, "          const mark = (): void => {\n            this.gate.markOnScreen();\n          };\n          mark();\n"),
+    ("onAppear 里常量为真的 if", SK, MARK, "          if (true) {\n            this.gate.markOnScreen();\n          }\n"),
+    ("onAppear 里非常量条件守卫", SK, MARK, "          if (this.phase === SkeletonPhase.SHOWING) {\n            this.gate.markOnScreen();\n          }\n"),
+    ("markOnScreen 之后才 return", SK, HOST_ON_SCREEN, ON_SCREEN_HEAD + MARK + "          this.update();\n          return;\n        })\n"),
+    ("改用 onAttach 回调", SK, HOST_ON_SCREEN, HOST_ON_SCREEN.replace(".onAppear(", ".onAttach(")),
+]
+
+
+def apply_edit(root, rel, old, new):
+    """在 root 副本上把 rel 里唯一的 old 换成 new；返回错误文案或 None。"""
+    path = os.path.join(root, rel)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    if text.count(old) != 1:
+        return "原串出现 %d 次（应 1 次）" % text.count(old)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text.replace(old, new))
+    return None
+
 
 def copy_good(dest):
     shutil.copytree(GOOD, dest)
@@ -447,6 +544,13 @@ LOGIC_MUTANTS = [
     ("减弱动态照播微光", "  return !reduced;", "  return true;"),
     ("微光开关写反", "  return !reduced;", "  return reduced;"),
     ("阶段枚举两个同值", "  HIDDEN,\n  SHOWING,\n  CONTENT\n", "  HIDDEN = 0,\n  SHOWING = 0,\n  CONTENT = 2\n"),
+    # ---- v3（HM-BATCH1-DEVFIX §3.4）：最短停留从骨架上屏（markOnScreen）起算
+    ("v3 markOnScreen 空实现（仍从判定时刻起算，实现现状）", GATE_MARK, "  markOnScreen(): void {\n  }\n"),
+    ("v3 markOnScreen 往前挪（取 min）", "Math.max(this.shownAt, this.clock.now())", "Math.min(this.shownAt, this.clock.now())"),
+    ("v3 markOnScreen 没在显示也起算（HIDDEN / 撤后调用会出骨架）", GATE_MARK,
+     "  markOnScreen(): void {\n    this.shownAt = this.clock.now();\n  }\n"),
+    ("v3 markOnScreen 不改最短显示、只重启出现延时", GATE_MARK,
+     "  markOnScreen(): void {\n    if (this.shownAt >= 0) {\n      this.loadingSince = this.clock.now();\n    }\n  }\n"),
 ]
 
 
@@ -517,6 +621,20 @@ def self_test():
             if not any(r == want or r.startswith(want + "-") for r in rules) and "INCOMPLETE" not in rules:
                 failures.append("变异「%s」没被 %s 杀（实际 %s）" % (name, want, sorted(rules)))
             shutil.rmtree(root)
+        for idx, (name, rel, old, new) in enumerate(GOOD_VARIANTS):
+            root = os.path.join(tmp, "g%02d" % idx)
+            copy_good(root)
+            err = apply_edit(root, rel, old, new)
+            if err:
+                failures.append("正例「%s」%s" % (name, err))
+            else:
+                try:
+                    got = check(root)
+                except Incomplete as e:
+                    got = [{"rule": "INCOMPLETE", "file": rel, "line": 0, "msg": str(e)}]
+                if got:
+                    failures.append("正例「%s」应绿却红：%s" % (name, [(v["rule"], v["line"], v["msg"][:60]) for v in got]))
+            shutil.rmtree(root)
         root = os.path.join(tmp, "msyntax")
         copy_good(root)
         with open(os.path.join(root, SKEL), "a", encoding="utf-8") as f:
@@ -528,14 +646,14 @@ def self_test():
             pass
     logic_failures, logic_total = run_logic_mutants()
     failures += logic_failures
-    total = len(MUTATIONS) + 1 + logic_total
+    total = len(MUTATIONS) + len(GOOD_VARIANTS) + 1 + logic_total
     if failures:
         for f in failures:
             print("SELFTEST FAIL: %s" % f)
         print("L2SKEL_SELFTEST 失败 %d / %d" % (len(failures), total))
         return 1
-    print("L2SKEL_SELFTEST 通过（REFERENCE_ONLY）：参照件 0 违反 + 宿主变异 %d 全杀 + 语法错误 fail-closed + run-logic 参照绿 / 变异 %d 全红"
-          " / 缺文件红在断言" % (len(MUTATIONS), len(LOGIC_MUTANTS)))
+    print("L2SKEL_SELFTEST 通过（REFERENCE_ONLY）：参照件 0 违反 + 宿主变异 %d 全杀 + 合法写法正例 %d 全绿 + 语法错误 fail-closed"
+          " + run-logic 参照绿 / 变异 %d 全红 / 缺文件红在断言" % (len(MUTATIONS), len(GOOD_VARIANTS), len(LOGIC_MUTANTS)))
     return 0
 
 

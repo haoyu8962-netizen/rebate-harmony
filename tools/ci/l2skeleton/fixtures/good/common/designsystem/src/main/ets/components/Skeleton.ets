@@ -195,7 +195,15 @@ export struct SkeletonHost {
   build() {
     Column() {
       if (this.phase === SkeletonPhase.SHOWING) {
-        this.skeleton()
+        Column() {
+          this.skeleton()
+        }
+        .width('100%')
+        .onAppear(() => {
+          // 骨架真正上屏：最短显示从这里起算（判定到挂载的延迟不吃进 300ms），再按新的剩余时长重排定时器。
+          this.gate.markOnScreen();
+          this.update();
+        })
       } else if (this.phase === SkeletonPhase.CONTENT) {
         this.content()
       }

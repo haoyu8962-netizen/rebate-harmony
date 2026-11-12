@@ -32,6 +32,9 @@ const SUITE = fs.existsSync(path.join(root, SUITE_REL)) ? path.join(root, SUITE_
 const GATE = path.join(root, 'common/designsystem/src/main/ets/logic/SkeletonGate.ets');
 // 书 §2.4 + 测试作者约定的契约名（SkeletonGate.test.ets 文件头）。
 const CONTRACT = ['SkeletonGate', 'SkeletonPhase', 'shimmerEnabled'];
+// HM-BATCH1-DEVFIX 测试作者 v3：类方法契约（tests-harmony-v4-handback.md §3.4 加 markOnScreen）。被测类缺这些方法时在原型上补「契约缺失」桩，
+// 调用即 AssertionError('CONTRACT_MISSING …')，用例红在断言（FAIL[ASSERT]），不是 TypeError（FAIL[THROW]）。只补缺的，不改已有的。
+const METHOD_CONTRACT = { SkeletonGate: ['loadingChanged', 'tick', 'nextDueInMs', 'markOnScreen'] };
 
 function contractStub(missing, why) {
   const fail = () => { throw new assert.AssertionError({ message: 'CONTRACT_MISSING ' + missing + '：' + why }); };
@@ -74,6 +77,17 @@ function makeLoader(fakes) {
       for (const name of CONTRACT) {
         if (!(name in module.exports)) {
           module.exports[name] = contractStub(name, 'logic/SkeletonGate.ets 没有导出 ' + name);
+        }
+      }
+      for (const [cls, methods] of Object.entries(METHOD_CONTRACT)) {
+        const ctor = module.exports[cls];
+        if (typeof ctor !== 'function' || !ctor.prototype) { continue; }
+        for (const m of methods) {
+          if (typeof ctor.prototype[m] !== 'function') {
+            ctor.prototype[m] = function () {
+              throw new assert.AssertionError({ message: 'CONTRACT_MISSING ' + cls + '.' + m + '()：logic/SkeletonGate.ets 的 ' + cls + ' 没有这个方法' });
+            };
+          }
         }
       }
     }

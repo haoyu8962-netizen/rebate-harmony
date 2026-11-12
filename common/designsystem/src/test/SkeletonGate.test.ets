@@ -17,6 +17,15 @@
 //   - 延时内加载结束：直接 CONTENT，此后不再出现骨架；下一次 loadingChanged(true) 重新起算（只按最新一次加载走）。
 //   - nextDueInMs()：有待变阶段时为剩余毫秒，到点而未 tick 时为 0（不为负）；骨架显示中且仍在加载、或 CONTENT 空闲时 < 0。
 //   - 门控与减弱动态无关（类里不读 reduced / CouliMotion，宿主 K3 钉）；减弱动态只由 shimmerEnabled 关掉微光。
+// HM-BATCH1-DEVFIX 测试作者 v3（新鲜独立 Claude，只收紧、300 / 300 不动；依据 NATIVE/HM-BATCH1-DEVFIX/tests-harmony-v4-handback.md §3.4：
+// 设备上 skel_05 三轮在屏 315 / 293 / 274 ms——最短停留从「判定 SHOWING」那一刻起算，判定到骨架真正挂上屏之间的延迟被吃进 300 ms 里）：
+//   新增接口 SkeletonGate.markOnScreen(): void——包装件在骨架真正上屏（SkeletonHost 的上屏回调，宿主 K6-on-screen 钉）时调用。
+//   - 骨架显示中（判定 SHOWING 之后、撤之前）调用：最短停留改从调用时刻起算；隐藏不得早于「上屏 + MIN_VISIBLE_MS」（含整点撤）。
+//     nextDueInMs() 随之按上屏时刻倒数；仍在加载时照旧 < 0。
+//   - 骨架没在显示（空闲 / HIDDEN / 已 CONTENT）时调用：无作用（不出骨架、不改延时、不把已撤的骨架拉回来）。
+//   - 从没调用 markOnScreen：与原约定一致，从 tick 第一次给出 SHOWING 的时刻起算（不另设兜底延长，原 15 条照旧）。
+//   - 同一次显示里重复调用不钉（宿主每次挂载只上屏一次）。
+//   run-logic.cjs 在被测类缺 markOnScreen 时补「契约缺失」桩，新用例红在断言（CONTRACT_MISSING），不是 THROW。
 // 期望值是抄自任务书的字面量（300 / 300），不读实现。没有 hvigor 时由 tools/ci/l2skeleton/run-logic.cjs 用 node 执行同一份文件；
 // logic/SkeletonGate.ets 不存在时 run-logic 用「契约缺失」桩替上，各条红在断言（CONTRACT_MISSING），不是导入错误。
 import { describe, it, expect } from '@ohos/hypium';
@@ -55,6 +64,12 @@ class Rig {
 
   due(): number {
     return this.gate.nextDueInMs();
+  }
+
+  /** 骨架真正上屏（宿主上屏回调里调 markOnScreen）。 */
+  onScreen(): Rig {
+    this.gate.markOnScreen();
+    return this;
   }
 }
 
@@ -209,6 +224,89 @@ export default function skeletonGateTest() {
       r.at(450).load(false);
       expect(r.tick()).assertEqual(SkeletonPhase.SHOWING);
       expect(r.at(600).tick()).assertEqual(SkeletonPhase.CONTENT);
+    });
+
+    // ---- HM-BATCH1-DEVFIX v3（tests-harmony-v4-handback.md §3.4）：最短停留从骨架上屏（markOnScreen）起算，不从判定时刻起算。
+    // 判定 SHOWING 在 300，骨架 45 ms 后（345）才上屏，350 加载结束：上屏后满 300（645）才撤，644 仍 SHOWING。
+    it('skeleton_gate_min_visible_counts_from_on_screen_mark_not_from_decision', 0, () => {
+      const r: Rig = shownAt300(0);
+      r.at(345).onScreen();
+      r.at(350).load(false);
+      expect(r.tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.due()).assertEqual(295);
+      expect(r.at(600).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(640).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.due()).assertEqual(5);
+      expect(r.at(644).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.due()).assertEqual(1);
+      expect(r.at(645).tick()).assertEqual(SkeletonPhase.CONTENT);
+      expect(r.due() < 0).assertTrue();
+    });
+
+    // 上屏时仍在加载：照旧无待变阶段（< 0）；之后加载结束，按上屏时刻倒数（不按判定时刻）。
+    it('skeleton_gate_on_screen_mark_while_loading_then_counts_down_from_mark', 0, () => {
+      const r: Rig = shownAt300(1000);
+      r.at(1345).onScreen();
+      expect(r.due() < 0).assertTrue();
+      expect(r.at(1500).tick()).assertEqual(SkeletonPhase.SHOWING);
+      r.load(false);
+      expect(r.due()).assertEqual(145);
+      expect(r.at(1600).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(1644).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(1645).tick()).assertEqual(SkeletonPhase.CONTENT);
+    });
+
+    // 延迟更长（120 ms）、加载早已结束：判定后 300（600）不撤，上屏后满 300（720）才撤。
+    it('skeleton_gate_long_mount_delay_keeps_skeleton_300ms_after_on_screen', 0, () => {
+      const r: Rig = shownAt300(0);
+      r.at(310).load(false);
+      expect(r.tick()).assertEqual(SkeletonPhase.SHOWING);
+      r.at(420).onScreen();
+      expect(r.due()).assertEqual(300);
+      expect(r.at(600).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(719).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(720).tick()).assertEqual(SkeletonPhase.CONTENT);
+    });
+
+    // 判定与上屏同一刻：与原约定完全相同（300 + 300）。
+    it('skeleton_gate_on_screen_mark_at_decision_moment_keeps_original_timing', 0, () => {
+      const r: Rig = shownAt300(0);
+      r.onScreen();
+      r.at(450).load(false);
+      expect(r.due()).assertEqual(150);
+      expect(r.at(599).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(600).tick()).assertEqual(SkeletonPhase.CONTENT);
+    });
+
+    // 未调用 markOnScreen：与原约定一致，从判定 SHOWING 的时刻起算（不另设兜底延长）。
+    it('skeleton_gate_without_on_screen_mark_counts_from_decision_as_before', 0, () => {
+      const r: Rig = shownAt300(0);
+      r.at(345).load(false);
+      expect(r.due()).assertEqual(255);
+      expect(r.at(599).tick()).assertEqual(SkeletonPhase.SHOWING);
+      expect(r.at(600).tick()).assertEqual(SkeletonPhase.CONTENT);
+    });
+
+    // 骨架没在显示时调 markOnScreen 无作用：空闲不出骨架；HIDDEN 里不提前出、不改延时；已撤之后不把骨架拉回、不留待变阶段。
+    it('skeleton_gate_on_screen_mark_when_not_showing_is_noop', 0, () => {
+      const idle: Rig = new Rig(0).onScreen();
+      expect(idle.tick()).assertEqual(SkeletonPhase.CONTENT);
+      expect(idle.due() < 0).assertTrue();
+      const r: Rig = new Rig(0).load(true);
+      r.at(100).onScreen();
+      expect(r.tick()).assertEqual(SkeletonPhase.HIDDEN);
+      expect(r.due()).assertEqual(200);
+      expect(r.at(299).tick()).assertEqual(SkeletonPhase.HIDDEN);
+      expect(r.at(300).tick()).assertEqual(SkeletonPhase.SHOWING);
+      r.at(310).load(false);
+      expect(r.at(600).tick()).assertEqual(SkeletonPhase.CONTENT);
+      r.at(700).onScreen();
+      expect(r.tick()).assertEqual(SkeletonPhase.CONTENT);
+      expect(r.due() < 0).assertTrue();
+      expect(r.at(1200).tick()).assertEqual(SkeletonPhase.CONTENT);
+      r.at(2000).load(true);
+      expect(r.at(2299).tick()).assertEqual(SkeletonPhase.HIDDEN);
+      expect(r.at(2300).tick()).assertEqual(SkeletonPhase.SHOWING);
     });
   });
 }
