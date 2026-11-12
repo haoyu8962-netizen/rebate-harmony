@@ -96,7 +96,7 @@ run_device_tests core common/core core_test
                     # （上面 build 回执仍只有一次），各步都装同一 Staging 应用、各自 1800 秒（构建 / 同源回执不变）。
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||'] + ['entry_test|' + tmp + '/Staging.hap|600000|1800'] * 10
-                                     + ['entry_test|' + tmp + '/Staging.hap|600000|3600'])  # HM-BATCH1-DEVFIX 加第十一步 entry-l2（3600 秒，D10-1279 ③，#24 只加）；D10-232；HM-05r 测试 v1 加第四步 entry-hm05r；APP-12v-harmony 加第五步 entry-me12v；APP-12w-a-harmony 加第六步 entry-me12wa；APP-12w-b-harmony 加第七步 entry-me12wb；APP-12w-c-harmony 加第八步 entry-me12wc；FU-HM-TAB-BAR-harmony 加第九步 entry-tabbar（D10-1179）；FU-HM-LOGIN-PHONE-LAYOUT-harmony 加第十步 entry-loginphone（#24）
+                                     + ['entry_test|' + tmp + '/Staging.hap|600000|4200'])  # HM-BATCH1-DEVFIX 加第十一步 entry-l2（4200 秒：D10-1279 ③ 加步 3600，D10-1286 ③ 换值 4200，#24）；D10-232；HM-05r 测试 v1 加第四步 entry-hm05r；APP-12v-harmony 加第五步 entry-me12v；APP-12w-a-harmony 加第六步 entry-me12wa；APP-12w-b-harmony 加第七步 entry-me12wb；APP-12w-c-harmony 加第八步 entry-me12wc；FU-HM-TAB-BAR-harmony 加第九步 entry-tabbar（D10-1179）；FU-HM-LOGIN-PHONE-LAYOUT-harmony 加第十步 entry-loginphone（#24）
                 if probe == 'entry-build-fails':
                     # 构建失败也要先还原构建镜像的模块配置，再报失败；不核对、不上设备。
                     self.assertEqual((folder / 'build-receipts').read_text().splitlines()[-2:],

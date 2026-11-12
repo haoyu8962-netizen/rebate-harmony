@@ -1068,9 +1068,12 @@ run_device_tests core common/core core_test
 #   entry-l2      HM-BATCH1-DEVFIX（编排 D10-1279 ③，照 entry-tabbar 先例单列）：L2 批 1 共用套件 Ds02L2Ui 42 条（card 8 + skel 6 + button 7 + price 5
 #                 + state 7 + cell 9，--set l2）从主步摘出、单独一步跑：主步在排除名单最前加 Ds02L2Ui（主步 219 → 177 条，门槛 1800 秒不调）；
 #                 本步必跑、不可跳过（与其它步一样无跳过开关，红即 DEVICE_STEPS_FAILED）；同样先卸载再装、从未同意隐私开始（段前准备点「不同意」进基本模式）。
-#                 超时 / 门槛 3600 秒（device-test.sh 对 --set l2 单列；其余各步仍 1800 秒）：设备子集实测（HM-L2-BATCH1/device-subset/result.md）
+#                 超时 / 门槛 4200 秒（device-test.sh 对 --set l2 单列；其余各步仍 1800 秒）：设备子集实测（HM-L2-BATCH1/device-subset/result.md）
 #                 套件 2199 s，其中实际执行 ≈ 1146 s（去掉 cell 空耗 966 s、button 段前准备空转 87 s），补上未执行部分（button 段单跑 r2 实测 ≤ 603 s、
 #                 state 余量 ≈ 100 s、cell 02–09 按 cell_01 实测 142 s/条 × 8 ≈ 1136 s）上沿估 ≈ 2985 s，加约 20% 余量取 3600 s；单例仍 600000 ms。
+#                 编排 D10-1286 ③（#24 只换值）：门槛 3600 → 4200 秒。设备子集 r2 设备步实测 2945 s，读法修好后各条跑完估 +400–450 s ≈ 3350–3400 s，
+#                 3600 只剩约 6% 余量（HM-L2-BATCH1/device-subset-r2/result.md §4）。首轮整轮跑完按 entry-l2 实耗复核（实耗加两成左右，不越放越宽）；
+#                 FU-HM-L2-SPLIT：批 1 落地后把 l2 拆成两步、每步约 30 分钟（后半段红不重跑前半段）。
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -1091,7 +1094,7 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-tabbar class=TabBarShellUi tabbar
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-loginphone class=LoginPhoneUi loginphone
-COULI_HM_TEST_TOTAL_TIMEOUT=3600 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+COULI_HM_TEST_TOTAL_TIMEOUT=4200 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-l2 class=Ds02L2Ui l2
 # 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
 if [ -n "${DEVICE_FAILED:-}" ]; then

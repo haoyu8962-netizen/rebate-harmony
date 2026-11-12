@@ -28,6 +28,9 @@ NATIVE/HM-L2-BUTTON/review-harmony-r1.md S3-1 与 tests-harmony-v3-handback.md�
   P9 登记：designsystem List.test.ets 直接调用 l2ProductCellTest(); 恰一次；Ds02L2Ui：L2CELL_DEVICE_CASES = device-cases.txt、
      ds02L2UiCellCases() 在 describe('Ds02L2Ui') 里 STATE 段之后调用恰一次、it 按常量下标 0..n-1 注册、段边界有 cell 分支；
      verify.sh 跑本检查（自测 + 本体）、run-logic.cjs、check-arkts.cjs
+  HM-BATCH1-DEVFIX swap2（编排 D10-1286 ②，#24 只加）：--self-test 另跑 sim-reader.cjs——设备 l2cell_05 / 08 的读屏判定（真实
+     Ds02L2Ui.test.ets 的 L2CellRig.reader / buttonUnits / assertReader 原文 + Hm07vHomeRig.announce）在合成组件树上原样全对：
+     正例绿；卡里真多出一个 Button（含与购买按钮逐字相同的）必须红在指定失败码；把读法改回按文字归并等变异必须被打红。
 
 用法：
   python3 tools/ci/l2cell/check_l2_cell.py [--root <目录>]    检查（默认仓库根）
@@ -392,6 +395,45 @@ def cross_check(tmp, failures):
     return len(CROSS)
 
 
+SIM_READER = os.path.join(HERE, "sim-reader.cjs")
+
+
+def sim_reader_mutants():
+    """HM-BATCH1-DEVFIX swap2（D10-1286 ②，只加）：读屏判定离线合成树自测——原样全对，削弱判定的变异必须被打红。"""
+    failures = []
+    tool = lint.hm10_toolchain()
+    env = dict(os.environ, COULI_HM_TYPESCRIPT=tool["typescript"])
+    suite_path = os.path.join(REPO_ROOT, SUITE)
+    proc = subprocess.run([tool["node"], SIM_READER, "--suite", suite_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    if proc.returncode != 0:
+        failures.append("sim-reader 原样不过：%s" % proc.stdout.decode("utf-8", "replace")[-800:])
+    with open(suite_path, encoding="utf-8") as f:
+        text = f.read()
+    keep = "      if (sub.length > 0) { out.push(L2CellRig.strip(sub)); }"
+    mutants = [
+        ("Button 子树按文字去重（逐字相同的第二个按钮被并掉）", keep,
+         "      if (sub.length > 0 && !out.some((o: string[]): boolean => o.join('|') === L2CellRig.strip(sub).join('|'))) "
+         "{ out.push(L2CellRig.strip(sub)); }"),
+        ("Button 子树不归并（读屏名与内层 Text 各算一项）", keep,
+         "      if (sub.length > 0) { for (const u of L2CellRig.strip(sub)) { out.push([u]); } }"),
+        ("购买项数放宽为至少", "check(buys.length === wantBuy,", "check(buys.length >= wantBuy,"),
+        ("多出读屏项不报", "      check(false, 'L2CELL_READER_EXTRA '", "      check(true, 'L2CELL_READER_EXTRA '"),
+        ("信息项放宽为至少 1 个", "check(info.length === 1, 'L2CELL_READER_INFO '", "check(info.length >= 1, 'L2CELL_READER_INFO '"),
+    ]
+    with tempfile.TemporaryDirectory(prefix="l2cell-sim-") as tmp:
+        for name, old, new in mutants:
+            if text.count(old) != 1:
+                failures.append("sim-reader 变异「%s」原串出现 %d 次（应 1 次）" % (name, text.count(old)))
+                continue
+            path = os.path.join(tmp, "Ds02L2Ui.test.ets")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text.replace(old, new))
+            proc = subprocess.run([tool["node"], SIM_READER, "--suite", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+            if proc.returncode == 0:
+                failures.append("sim-reader 变异「%s」没被打红" % name)
+    return failures, 1 + len(mutants)
+
+
 def self_test():
     failures = []
     with tempfile.TemporaryDirectory(prefix="l2cell-selftest-") as tmp:
@@ -451,7 +493,9 @@ def self_test():
         except Incomplete:
             pass
         cross = cross_check(tmp, failures)
-    total = len(MUTATIONS) + len(BENIGN) + 3 + cross
+    sim_failures, sim_total = sim_reader_mutants()
+    failures += sim_failures
+    total = len(MUTATIONS) + len(BENIGN) + 3 + cross + sim_total
     if failures:
         for f in failures:
             print("SELFTEST FAIL: %s" % f)
@@ -459,6 +503,7 @@ def self_test():
         return 1
     print("L2CELL_SELFTEST 通过：参照件 1 + 变异 %d 全杀 + 良性改写 %d 全绿 + 语法错误 / 缺文件 fail-closed + l2button 交叉核对 %d"
           % (len(MUTATIONS), len(BENIGN), cross))
+    print("L2CELL_SELFTEST 读屏判定离线合成树（sim-reader，D10-1286 ②）：原样全对 + 变异 %d 全红" % (sim_total - 1))
     return 0
 
 

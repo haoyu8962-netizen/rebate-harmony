@@ -21,7 +21,8 @@
 #   HM-L2-STATE：原 l2state = 子集跑 COULI_HM_TEST_FILTER=class=Ds02L2UiState 的 7 条；集成 2 起 STATE 段并入 Ds02L2Ui 唯一 describe，class=Ds02L2UiState 不复存在，这 7 条并入 l2（verify 不单列此步，README ⑩，主步照跑）。
 #   HM-L2-PRODUCT-CELL（#24 只加）：cell 段 9 条（tools/ci/l2cell/device-cases.txt，l2cell_）同在 Ds02L2Ui 唯一 describe，并入 l2：33 → 42 条（+ l2cell 9）；不另设 set，verify 不单列此步（README ⑩），主步照跑。
 #   HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ③）：verify 单列设备步 entry-l2（class=Ds02L2Ui，--set l2，42 条），主步排除 Ds02L2Ui；
-#   l2 这一步的整步门槛单列为 3600 秒（按设备子集实测加余量，依据见 verify.sh 设备段 entry-l2 注释），其余各步（含主步 main）仍 1800 秒不调。
+#   l2 这一步的整步门槛单列为 4200 秒（按设备子集实测加余量，依据见 verify.sh 设备段 entry-l2 注释），其余各步（含主步 main）仍 1800 秒不调。
+#   编排 D10-1286 ③（#24 只换值）：l2 门槛 3600 → 4200 秒；首轮整轮按实耗复核，FU-HM-L2-SPLIT 批 1 落地后拆两步。
 # 每一步都先卸载再装（应用数据清空、首启前状态），所以分出去的步从「未同意隐私、冷启动」开始，不受前一步留下的状态影响。
 set -euo pipefail
 
@@ -240,9 +241,9 @@ grep -q "OHOS_REPORT_CODE: 0" "$RESULT" || die "aa test 没有报告 OHOS_REPORT
 grep -q "TestFinished-ResultCode: 0" "$RESULT" || die "aa test 没有报告 TestFinished-ResultCode: 0"
 if [ "$MODULE" = entry_test ]; then
     # 1800 秒门槛（D10-232）对每一步各自适用（D10-405 D4：拆步不放宽）。
-    # HM-BATCH1-DEVFIX（D10-1279 ③，只加）：单列步 entry-l2（--set l2）门槛 3600 秒（实测加余量）；其余各步原行不动、仍 1800 秒。
+    # HM-BATCH1-DEVFIX（D10-1279 ③，只加）：单列步 entry-l2（--set l2）门槛 4200 秒（实测加余量；D10-1286 ③ 由 3600 换值）；其余各步原行不动、仍 1800 秒。
     if [ "$DEVICE_SET" = l2 ]; then
-        [ "$elapsed_seconds" -le 3600 ] || die "entry 设备步（${DEVICE_SET}）超过 3600 秒：${elapsed_seconds}"
+        [ "$elapsed_seconds" -le 4200 ] || die "entry 设备步（${DEVICE_SET}）超过 4200 秒：${elapsed_seconds}"
     fi
     [ "$DEVICE_SET" = l2 ] || [ "$elapsed_seconds" -le 1800 ] || die "entry 设备步（${DEVICE_SET}）超过 1800 秒：${elapsed_seconds}"
     python3 "$(dirname "$0")/ds02/check_device_result.py" "$RESULT" --set "$DEVICE_SET" \

@@ -19,6 +19,15 @@
 //       Ds02L2Ui.test.ets 里有 describe('Ds02L2UiState')（facts.deviceCases 交给 py 对 device-cases.txt）
 //       HM-L2 批 1 集成 2（只换定位，integ2-harmony.md「§l2state 换定位」）：共用套件只剩一个 describe('Ds02L2Ui')（CARD / SKELETON 守卫
 //       「恰一个」），STATE 的 it 在段函数 ds02L2UiStateCases 里，该函数在这个 describe 回调里恰调用一次（同 K8）；名单 / 下标照旧核对。
+//   SL8 焦点接线（HM-BATCH1-DEVFIX swap2，编排 D10-1286 ①，#24 只加）：设备 l2state 31 不再硬判 isFocused（页面级 requestFocus 的结果
+//       UiTest 读不到），改在宿主钉住「进入错误态时对 couli-error-retry 请求焦点」这次调用——
+//       控件 id：ErrorState.retryId 默认 'couli-error-retry'、【重试】buttonId = this.retryId、设备套件 DEFAULT_RETRY_ID 同值；
+//       触发时机：【重试】CouliButton 链上恰一个 .onAppear，回调是无参箭头函数、函数体恰一句（不包 setTimeout / if / 其它语句）
+//         CouliFocusReturn.to(this.getUIContext(), this.retryId)；ErrorState 里别处不再移焦点（无第二个 CouliFocusReturn / requestFocus / focusControl）；
+//       CouliFocusReturn 从 ./Overlays 导入；Overlays.ets 的 static to(ui, id) 里恰一处 ui.getFocusController().requestFocus(id)，同步执行
+//         （不在嵌套函数里、只在 try 块里、不在任何 if 里），之前只许 if (id.length === 0) { return; } 一个提前返回；
+//         to 里恰一处 CouliFocusReturn.accessibilityFocus(ui, id)，accessibilityFocus 发 requestFocusForAccessibility 且 customId = id（读屏焦点）。
+//       焦点真的落到【重试】由真机读屏核对一次、记进验收记录（不在本检查里）。
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -31,6 +40,10 @@ const DS_LIST = 'common/designsystem/src/test/List.test.ets';
 const UI_LIST = 'entry/src/ohosTest/ets/test/List.test.ets';
 const UI_SUITE = 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets';
 const LOGIC_SUITE = 'common/designsystem/src/test/L2State.test.ets';
+// HM-BATCH1-DEVFIX swap2（D10-1286 ①，只加）：SL8 焦点接线要看 CouliFocusReturn 的实现。
+const OVERLAYS = 'common/designsystem/src/main/ets/components/Overlays.ets';
+const RETRY_DEFAULT_ID = 'couli-error-retry';
+const FOCUS_CALL = 'CouliFocusReturn.to(this.getUIContext(),this.retryId)';
 // 集成 2 换值：子集过滤 class=Ds02L2UiState 随单一 describe 不复存在，套件 describe 名统一为 Ds02L2Ui；STATE 段 = 段函数 UI_SEGMENT。
 const UI_DESCRIBE = 'Ds02L2Ui';
 const UI_SEGMENT = 'ds02L2UiStateCases';
@@ -632,8 +645,134 @@ function checkRegistration() {
   }
 }
 
+// ---------------------------------------------------------------- SL8 焦点接线（D10-1286 ①）
+
+/** n 往上最近的函数类节点（方法 / 箭头函数 / 函数表达式）；到 stop 为止没有返回 null。 */
+function enclosingFunction(n, stop) {
+  for (let p = n.parent; p && p !== stop; p = p.parent) {
+    if (ts.isFunctionLike(p)) { return p; }
+  }
+  return null;
+}
+/** 是不是移焦点的调用：CouliFocusReturn.<任意>、<任意>.requestFocus / requestFocusForAccessibility、focusControl.<任意>。 */
+function isFocusMove(n) {
+  if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression)) { return false; }
+  const owner = n.expression.expression.getText();
+  const name = n.expression.name.text;
+  return owner === 'CouliFocusReturn' || owner === 'focusControl' || name === 'requestFocus' || name === 'requestFocusForAccessibility';
+}
+
+function checkFocusWiring() {
+  const sf = parse(STATES);
+  if (sf !== null) {
+    const imp = sf.statements.filter((s) => ts.isImportDeclaration(s)).find((s) => s.importClause && s.importClause.namedBindings &&
+      ts.isNamedImports(s.importClause.namedBindings) && s.importClause.namedBindings.elements.some((e) => e.name.text === 'CouliFocusReturn'));
+    if (!imp || imp.moduleSpecifier.text !== './Overlays') {
+      report('SL8-import', imp || sf, 'States.ets 应从 ./Overlays 导入 CouliFocusReturn（焦点请求走 DS 的 FocusController 实现），实际 ' +
+        (imp ? imp.moduleSpecifier.text : '没导入'), STATES);
+    }
+    const struct = findStruct(sf, 'ErrorState');
+    const build = struct !== null ? methodOf(struct, 'build') : null;
+    if (struct !== null && build !== null) {
+      const retryId = propsOf(struct).retryId;
+      if (!retryId || retryId.init !== "'" + RETRY_DEFAULT_ID + "'") {
+        report('SL8-id', struct, 'ErrorState.retryId 默认值应为 \'' + RETRY_DEFAULT_ID + '\'（错误态出现时焦点目标），实际 ' + (retryId ? retryId.init : '缺'));
+      }
+      const buttons = componentsIn(build).filter((c) => c.name === 'CouliButton');
+      if (buttons.length !== 1) {
+        report('SL8-timing', struct, 'ErrorState 应恰有一个【重试】CouliButton（焦点在它出现时请求），实际 ' + buttons.length);
+      } else {
+        const b = buttons[0];
+        const obj = argsOf(b.node).length === 1 ? unwrap(argsOf(b.node)[0]) : null;
+        const bid = obj && ts.isObjectLiteralExpression(obj) ? objProp(obj, 'buttonId') : undefined;
+        if (!bid || compact(bid) !== 'this.retryId') {
+          report('SL8-id', b.node, '【重试】buttonId 应为 this.retryId（焦点请求的 id 就是按钮自身 id），实际 ' + (bid ? compact(bid) : '缺'));
+        }
+        const appear = b.chain.calls.filter((c) => c.name === 'onAppear');
+        const fn = appear.length === 1 && appear[0].args.length === 1 ? unwrap(appear[0].args[0]) : null;
+        let body = null;
+        if (fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && fn.parameters.length === 0) {
+          if (ts.isBlock(fn.body)) {
+            const st = fn.body.statements;
+            body = st.length === 1 && ts.isExpressionStatement(st[0]) ? st[0].expression : null;
+          } else {
+            body = fn.body;
+          }
+        }
+        if (body === null || compact(unwrap(body)) !== FOCUS_CALL) {
+          report('SL8-timing', appear.length > 0 ? appear[0].node : b.node, '【重试】链上应恰一个 .onAppear，回调是无参函数、函数体恰一句 ' +
+            'CouliFocusReturn.to(this.getUIContext(), this.retryId)（出现时同步、无条件请求焦点；不包 setTimeout / if，不加别的语句）');
+        }
+      }
+      const moves = collect(struct, isFocusMove);
+      const others = moves.filter((n) => compact(n) !== FOCUS_CALL);
+      if (moves.length - others.length !== 1 || others.length > 0) {
+        report('SL8-only', struct, 'ErrorState 里应只有【重试】onAppear 那一处移焦点，实际 ' + moves.map(compact).join(' ; '));
+      }
+    }
+  }
+  const ov = parse(OVERLAYS);
+  if (ov !== null) {
+    const cls = findClass(ov, 'CouliFocusReturn');
+    const to = cls !== null ? methodOf(cls, 'to') : null;
+    const isStatic = (m) => !!(m && m.modifiers && m.modifiers.some((x) => x.kind === ts.SyntaxKind.StaticKeyword));
+    if (to === null || !to.body || !isStatic(to) || to.parameters.map((x) => x.name.getText()).join(',') !== 'ui,id') {
+      report('SL8-request', to || cls || ov, 'Overlays.ets 应有 CouliFocusReturn.static to(ui, id)', OVERLAYS);
+    } else {
+      const reqs = collect(to.body, (n) => ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === 'requestFocus');
+      let ok = reqs.length === 1 && compact(reqs[0]) === 'ui.getFocusController().requestFocus(id)' && enclosingFunction(reqs[0], to) === null;
+      if (ok) {
+        // 从调用往上到 to 的函数体：只许 ExpressionStatement / Block / TryStatement（且在 try 块里，不在 catch / finally 里）。
+        let prev = reqs[0];
+        for (let p = reqs[0].parent; p && p !== to.body; prev = p, p = p.parent) {
+          if (ts.isTryStatement(p)) { if (p.tryBlock !== prev) { ok = false; } continue; }
+          if (!ts.isExpressionStatement(p) && !ts.isBlock(p)) { ok = false; }
+        }
+        // 函数体顶层：这句之前只许 if (id.length === 0) { return; }；别处不得有提前返回。
+        const top = to.body.statements;
+        const at = top.findIndex((s) => s.pos <= reqs[0].pos && reqs[0].end <= s.end);
+        for (let i = 0; i < at; i++) {
+          const s = top[i];
+          const guard = ts.isIfStatement(s) && !s.elseStatement && compact(s.expression) === 'id.length===0' &&
+            compact(s.thenStatement) === '{return;}';
+          if (!guard) { ok = false; }
+        }
+        const returns = collect(to.body, (n) => ts.isReturnStatement(n) && enclosingFunction(n, to) === null);
+        if (returns.some((r) => !(at > 0 && top.slice(0, at).some((s) => s.pos <= r.pos && r.end <= s.end)))) { ok = false; }
+      }
+      if (!ok) {
+        report('SL8-request', reqs[0] || to, 'CouliFocusReturn.to 里应恰一处 ui.getFocusController().requestFocus(id)，同步执行（不在嵌套函数 / if / catch 里），' +
+          '之前只许 if (id.length === 0) { return; }；实际 ' + reqs.map(compact).join(' ; '), OVERLAYS);
+      }
+      const a11y = collect(to.body, (n) => ts.isCallExpression(n) && compact(n.expression) === 'CouliFocusReturn.accessibilityFocus');
+      if (a11y.length !== 1 || compact(a11y[0]) !== 'CouliFocusReturn.accessibilityFocus(ui,id)') {
+        report('SL8-a11y', a11y[0] || to, 'CouliFocusReturn.to 里应恰一处 CouliFocusReturn.accessibilityFocus(ui, id)（读屏焦点同一 id），实际 ' +
+          a11y.map(compact).join(' ; '), OVERLAYS);
+      }
+    }
+    const af = cls !== null ? methodOf(cls, 'accessibilityFocus') : null;
+    const sets = af ? collect(af, (n) => ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      compact(n.left) === 'event.customId') : [];
+    const evs = af ? collect(af, (n) => ts.isNewExpression(n) && compact(n.expression) === 'accessibility.EventInfo') : [];
+    if (sets.length !== 1 || compact(sets[0].right) !== 'id' || evs.length !== 1 || !evs[0].arguments ||
+      stringValue(evs[0].arguments[0]) !== 'requestFocusForAccessibility') {
+      report('SL8-a11y', af || cls || ov, 'CouliFocusReturn.accessibilityFocus 应发 requestFocusForAccessibility 事件且 event.customId = id', OVERLAYS);
+    }
+  }
+  const suite = parse(UI_SUITE);
+  if (suite !== null) {
+    const decls = collect(suite, (n) => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'DEFAULT_RETRY_ID');
+    if (decls.length !== 1 || !decls[0].initializer || stringValue(decls[0].initializer) !== RETRY_DEFAULT_ID) {
+      report('SL8-suite', decls[0] || null, 'Ds02L2Ui.test.ets 的 STATE 段 DEFAULT_RETRY_ID 应恰一处、值 \'' + RETRY_DEFAULT_ID +
+        '\'（设备用例找的重试控件就是焦点目标）', UI_SUITE);
+    }
+  }
+}
+
 const symbols = symbolNames();
 checkStatesFile(symbols);
 checkCatalog();
 checkRegistration();
+checkFocusWiring();
 process.stdout.write(JSON.stringify({ violations: violations, incomplete: incomplete, facts: facts }));

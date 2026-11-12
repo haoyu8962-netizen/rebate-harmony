@@ -234,8 +234,8 @@ run_device_tests core common/core core_test
                                       # FU-HM-LOGIN-PHONE-LAYOUT 测试 v1（#24 只加）：第十步 loginphone，主步再排除 LoginPhoneUi（放在排除名单最前）。
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=LoginPhoneUi|loginphone|'
                                       'device-test-entry-loginphone',
-                                      # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加）：第十一步 entry-l2，Ds02L2Ui 42 条，整步 3600 秒（实测加余量）。
-                                      'entry_test|' + tmp + '/Staging.hap|600000|3600|class=Ds02L2Ui|l2|'
+                                      # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加）：第十一步 entry-l2，Ds02L2Ui 42 条，整步 4200 秒（实测加余量；D10-1286 ③ 由 3600 换值）。
+                                      'entry_test|' + tmp + '/Staging.hap|600000|4200|class=Ds02L2Ui|l2|'
                                       'device-test-entry-l2'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
@@ -808,11 +808,11 @@ run_device_tests core common/core core_test
     def test_ds02_l2ui_each_case_runs_in_exactly_one_device_step(self):
         """HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ③）：Ds02L2Ui 单列设备步 entry-l2，照 entry-tabbar 先例。钉住：
         ① verify.sh 实际分派的 entry 设备步里，恰有一步会跑 Ds02L2Ui 套件（class= 含它，或 notClass= / 无过滤而不排除它），
-           就是 entry-l2 class=Ds02L2Ui l2，整步 3600 秒、单例 600000 ms，排在设备步汇总之前（必跑、不可跳过：分派行无条件、无跳过开关）；
+           就是 entry-l2 class=Ds02L2Ui l2，整步 4200 秒（D10-1286 ③ 由 3600 换值）、单例 600000 ms，排在设备步汇总之前（必跑、不可跳过：分派行无条件、无跳过开关）；
            主步 notClass 排除 Ds02L2Ui，主步 COULI_HM_TEST_TOTAL_TIMEOUT 仍 1800；
         ② 套件里六段导出常量声明的每条用例（带 mode 的按 light / dark 展开）恰落在一个设备步的必跑名单里、且就是跑它的 entry-l2 那步；
            不许两边都不在（l2 名单 == 套件全部用例），不许两边都在（main 不含任一条）；
-        ③ device-test.sh 对 --set l2 的门槛 3600 秒，其余步原 1800 秒门槛行仍在。"""
+        ③ device-test.sh 对 --set l2 的门槛 4200 秒（D10-1286 ③ 换值），其余步原 1800 秒门槛行仍在。"""
         root = Path(__file__).resolve().parents[3]
         verify = (root / 'tools/ci/verify.sh').read_text()
         lines = verify.splitlines()
@@ -833,7 +833,7 @@ run_device_tests core common/core core_test
 
         runners = [step for step in steps if runs_suite(step[1], 'Ds02L2Ui')]
         self.assertEqual([(label, flt, dset) for label, flt, dset, _, _ in runners], [('entry-l2', 'class=Ds02L2Ui', 'l2')])
-        self.assertEqual(runners[0][3], {'COULI_HM_TEST_TOTAL_TIMEOUT': '3600', 'COULI_HM_TEST_CASE_TIMEOUT': '600000'})
+        self.assertEqual(runners[0][3], {'COULI_HM_TEST_TOTAL_TIMEOUT': '4200', 'COULI_HM_TEST_CASE_TIMEOUT': '600000'})
         self.assertLess(runners[0][4], verify.index('if [ -n "${DEVICE_FAILED:-}" ]; then'))
         main = [step for step in steps if step[0] == 'entry']
         self.assertEqual(len(main), 1)
@@ -863,7 +863,7 @@ run_device_tests core common/core core_test
         self.assertEqual(set().union(*lists.values()), every)
         device = (root / 'tools/ci/device-test.sh').read_text()
         gate = device.split('if [ "$MODULE" = entry_test ]; then\n    # 1800 秒门槛', 1)[1].split('\nfi\n', 1)[0]
-        self.assertIn('    if [ "$DEVICE_SET" = l2 ]; then\n        [ "$elapsed_seconds" -le 3600 ] || die', gate)
+        self.assertIn('    if [ "$DEVICE_SET" = l2 ]; then\n        [ "$elapsed_seconds" -le 4200 ] || die', gate)
         self.assertIn('    [ "$DEVICE_SET" = l2 ] || [ "$elapsed_seconds" -le 1800 ] || die', gate)
         self.assertEqual(gate.count('-le '), 2)
 

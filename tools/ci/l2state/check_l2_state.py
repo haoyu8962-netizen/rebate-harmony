@@ -23,6 +23,11 @@
         与 tools/ci/l2state/device-cases.txt 逐条一致
         HM-L2 批 1 集成 2（只换定位，integ2-harmony.md「§l2state 换定位」）：共用套件只剩一个 describe('Ds02L2Ui')，STATE 的 it 在段函数
         ds02L2UiStateCases 里，该函数在这个 describe 回调里恰调用一次（同 K8）；名单 / 下标与 device-cases.txt 逐条一致照旧
+    SL8 焦点接线（HM-BATCH1-DEVFIX swap2，编排 D10-1286 ①，#24 只加）：设备 l2state 31 不再硬判 isFocused（UiTest 读不到页面级
+        requestFocus 的结果），宿主钉住「进入错误态时对 couli-error-retry 请求焦点」这次调用：retryId 默认 / buttonId / 设备套件
+        DEFAULT_RETRY_ID 同为 couli-error-retry；【重试】onAppear 回调恰一句 CouliFocusReturn.to(this.getUIContext(), this.retryId)
+        （同步、无条件）、ErrorState 别处不移焦点；CouliFocusReturn 来自 ./Overlays，其 to(ui, id) 同步无条件 requestFocus(id)、
+        并发同 id 的读屏焦点。焦点真的落到【重试】由真机读屏核对一次、记进验收记录。
 不做（D10-1177 ⑦）：文案键迁移——参数保持，FU-HM-STATE-KEYS 另办；本检查不判文案键。
 """
 
@@ -53,7 +58,9 @@ UI_SUITE = "entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets"
 LOGIC_SUITE = "common/designsystem/src/test/L2State.test.ets"
 INVENTORY = "tools/ci/ds02/fixtures/inventory.tsv"
 CASES = "tools/ci/l2state/device-cases.txt"
-AST_FILES = (STATES, NAMES, MANIFEST, SAMPLES, DS_LIST, UI_LIST, UI_SUITE, LOGIC_SUITE)
+# HM-BATCH1-DEVFIX swap2（D10-1286 ①，只加）：SL8 焦点接线看 CouliFocusReturn 的实现（参照件 fixtures/good 里放节选）。
+OVERLAYS = "common/designsystem/src/main/ets/components/Overlays.ets"
+AST_FILES = (STATES, NAMES, MANIFEST, SAMPLES, DS_LIST, UI_LIST, UI_SUITE, LOGIC_SUITE, OVERLAYS)
 # 自测时从本仓库拷进参照树的本单测试文件（参照件只放实现侧节选）。
 OWN_TEST_FILES = (UI_SUITE, LOGIC_SUITE, CASES)
 
@@ -71,6 +78,7 @@ RULE_TITLES = {
     "SL5": "CouliAnnounce.errorText 纯函数",
     "SL6": "目录 retrying 态 / 说明 / inventory 只加行",
     "SL7": "套件登记与设备用例名单",
+    "SL8": "错误态出现时对 couli-error-retry 请求焦点（D10-1286 ①，设备 isFocused 改宿主）",
 }
 
 _spec = importlib.util.spec_from_file_location("couli_lint_for_l2state", os.path.join(HERE, "..", "lint.py"))
@@ -181,6 +189,8 @@ def render(violations):
 # ---------------------------------------------------------------- 自测：参照件 + 错误实现，全部要杀
 
 S, CM, SV, INV, DL, UL, SU, LS, CS, NM = STATES, MANIFEST, SAMPLES, INVENTORY, DS_LIST, UI_LIST, UI_SUITE, LOGIC_SUITE, CASES, NAMES
+OV = OVERLAYS  # HM-BATCH1-DEVFIX swap2（D10-1286 ①，只加）
+FOCUS_LINE = "            CouliFocusReturn.to(this.getUIContext(), this.retryId);\n"
 EMPTY_TAIL = "    .transition(CouliMotion.appear())\n  }\n}\n\n/**\n * 错误态"
 ERROR_TAIL = "    .transition(CouliMotion.appear())\n  }\n}\n\n/** 读屏播报"
 # （名字，文件，原串，新串，应报的规则前缀）；原串在参照文件里必须恰好出现一次
@@ -274,6 +284,32 @@ MUTATIONS = [
     ("段函数里另起 describe", SU, "export function ds02L2UiStateCases(): void {\n",
      "export function ds02L2UiStateCases(): void {\n  describe('Ds02L2UiState', () => {});\n", "SL7-suite"),
     ("套件少注册一条 it", SU, "    it(L2STATE_DEVICE_CASES[6], 0,", "    hypiumIt(L2STATE_DEVICE_CASES[6], 0,", "SL7"),
+    # SL8 焦点接线（HM-BATCH1-DEVFIX swap2，D10-1286 ①，只加）：去掉调用、换 id、换时机、焦点实现失效都必须红。
+    ("SL8 删焦点请求", S, "          .onAppear(() => {\n" + FOCUS_LINE + "          })\n", "", "SL8-timing"),
+    ("SL8 焦点请求换成标题 id", S, FOCUS_LINE, "            CouliFocusReturn.to(this.getUIContext(), 'couli-error-title');\n", "SL8-timing"),
+    ("SL8 焦点请求写死默认 id（调用方传的 retryId 失效）", S, FOCUS_LINE, "            CouliFocusReturn.to(this.getUIContext(), 'couli-error-retry');\n", "SL8-timing"),
+    ("SL8 焦点请求挪进 setTimeout（时机变了）", S, FOCUS_LINE,
+     "            setTimeout(() => CouliFocusReturn.to(this.getUIContext(), this.retryId), 0);\n", "SL8-timing"),
+    ("SL8 焦点请求加条件", S, FOCUS_LINE,
+     "            if (!this.retrying) {\n  " + FOCUS_LINE + "            }\n", "SL8-timing"),
+    ("SL8 出现后又把焦点移走", S, FOCUS_LINE, FOCUS_LINE + "            CouliFocusReturn.to(this.getUIContext(), 'couli-error-title');\n", "SL8-timing"),
+    ("SL8 onAppear 改 onDisAppear", S, "          .onAppear(() => {\n" + FOCUS_LINE, "          .onDisAppear(() => {\n" + FOCUS_LINE, "SL8-timing"),
+    ("SL8 aboutToAppear 里另移焦点", S, "    CouliAnnounce.say(this.getUIContext(), CouliAnnounce.errorText(this.title, this.message));\n",
+     "    CouliAnnounce.say(this.getUIContext(), CouliAnnounce.errorText(this.title, this.message));\n"
+     "    this.getUIContext().getFocusController().requestFocus('couli-error-title');\n", "SL8-only"),
+    ("SL8 retryId 默认值换了", S, "@Param retryId: string = 'couli-error-retry';", "@Param retryId: string = 'couli-retry';", "SL8-id"),
+    ("SL8 buttonId 不跟 retryId", S, "buttonId: this.retryId,", "buttonId: 'couli-error-retry-button',", "SL8-id"),
+    ("SL8 CouliFocusReturn 换成别处同名", S, "import { CouliFocusReturn } from './Overlays';", "import { CouliFocusReturn } from './FocusStub';", "SL8-import"),
+    ("SL8 to 不再请求键盘焦点", OV, "      ui.getFocusController().requestFocus(id);\n", "", "SL8-request"),
+    ("SL8 to 请求写死 id", OV, "      ui.getFocusController().requestFocus(id);\n", "      ui.getFocusController().requestFocus('couli-dialog-title');\n", "SL8-request"),
+    ("SL8 to 请求挪进 setTimeout", OV, "      ui.getFocusController().requestFocus(id);\n",
+     "      setTimeout(() => ui.getFocusController().requestFocus(id), 0);\n", "SL8-request"),
+    ("SL8 to 请求加条件", OV, "      ui.getFocusController().requestFocus(id);\n",
+     "      if (id !== 'couli-error-retry') {\n        ui.getFocusController().requestFocus(id);\n      }\n", "SL8-request"),
+    ("SL8 to 对错误态 id 提前返回", OV, "    if (id.length === 0) {\n", "    if (id.length === 0 || id === 'couli-error-retry') {\n", "SL8-request"),
+    ("SL8 读屏焦点不发", OV, "      CouliFocusReturn.accessibilityFocus(ui, id);\n", "", "SL8-a11y"),
+    ("SL8 读屏焦点 customId 换值", OV, "      event.customId = id;\n", "      event.customId = 'couli-dialog-title';\n", "SL8-a11y"),
+    ("SL8 设备套件 DEFAULT_RETRY_ID 换值", SU, "const DEFAULT_RETRY_ID: string = 'couli-error-retry';", "const DEFAULT_RETRY_ID: string = 'couli-error-retry2';", "SL8-suite"),
 ]
 # 要同时改两处的变异：（名字，[(文件, 原串, 新串), ...]，应报的规则前缀）
 MULTI_MUTATIONS = [

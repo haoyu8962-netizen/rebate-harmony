@@ -14,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 STEPS = ['entry', 'entry-hm07va', 'entry-hm07vb', 'entry-hm05r', 'entry-me12v', 'entry-me12wa', 'entry-me12wb', 'entry-me12wc', 'entry-tabbar', 'entry-loginphone', 'entry-l2']
 SETS = ['main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2']
-# HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：第十一个 entry 步 entry-l2（class=Ds02L2Ui），整步 3600 秒；其余各步 1800 秒。
-TOTALS = {'l2': '3600'}
+# HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：第十一个 entry 步 entry-l2（class=Ds02L2Ui），整步 4200 秒（D10-1286 ③ 由 3600 换值）；其余各步 1800 秒。
+TOTALS = {'l2': '4200'}
 
 FAKE_DEVICE = '''#!/bin/bash
 set -eu
