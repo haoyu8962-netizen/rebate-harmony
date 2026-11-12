@@ -37,6 +37,8 @@ export class SearchDraftTexts {
     // ---- Search / SearchTyping
     m.set('search.back', '返回');
     m.set('search.placeholder', '搜索商品');
+    // FU-HM-A11Y-13：搜索框读屏标签（代拟，待定稿）。
+    m.set('search.input_label', '搜索商品');
     m.set('search.clear', '清除');
     m.set('search.submit', '搜索');
     m.set('search.history.title', '搜索历史');

@@ -18,6 +18,8 @@ import {
 export class SearchKeys {
   static readonly BACK: string = 'search.back';
   static readonly PLACEHOLDER: string = 'search.placeholder';
+  /** FU-HM-A11Y-13：搜索框读屏标签（草稿键，待定稿）。 */
+  static readonly INPUT_LABEL: string = 'search.input_label';
   static readonly CLEAR: string = 'search.clear';
   static readonly SUBMIT: string = 'search.submit';
   static readonly FILTER_COUPON: string = 'search.filter.coupon';
@@ -310,6 +312,10 @@ export struct SearchView {
   };
   /** 结果区高度（常驻说明区的上限按它算）。 */
   @Local resultsHeight: number = 0;
+  /** 价格半屏排队中的读屏移焦票据（进标题 / 回【价格】，CouliFocusReturn.to）：关闭、重开、离页、被详情盖住时作废。 */
+  private sheetFocus: number = 0;
+  /** 页面是否被详情盖住（setCovered 记 true / false）：盖住算离页，期间半屏的进标题 / 回【价格】都不排。 */
+  private sheetCovered: boolean = false;
 
   aboutToAppear(): void {
     const life: SearchPageLife = this.config.life;
@@ -386,6 +392,8 @@ export struct SearchView {
 
   /** 页面出栈（life.exit）：注销布局观察，被覆盖 / 进后台的回调改成什么都不做。 */
   private detach(): void {
+    CouliFocusReturn.cancel(this.sheetFocus);
+    this.sheetFocus = 0;
     try {
       this.getUIContext().getUIObserver().off('didLayout', this.layoutListener);
     } catch (e) {
@@ -534,6 +542,12 @@ export struct SearchView {
     if (!this.config.life.alive) {
       return;
     }
+    this.sheetCovered = covered;
+    if (covered) {
+      // 被详情盖住算离页：排队中的读屏移焦不再发（盖住的页面节点还在树上，旧请求会把读屏焦点拉到看不见的页面）。
+      CouliFocusReturn.cancel(this.sheetFocus);
+      this.sheetFocus = 0;
+    }
     this.keeper.setCovered(covered);
     if (covered) {
       this.config.onPersistNow(this.record());
@@ -596,6 +610,8 @@ export struct SearchView {
   }
 
   private openSheet(): void {
+    CouliFocusReturn.cancel(this.sheetFocus);
+    this.sheetFocus = 0;
     this.model.sheetMin = fenToYuanText(this.model.priceMinFen);
     this.model.sheetMax = fenToYuanText(this.model.priceMaxFen);
     this.model.sheetError = '';
@@ -609,6 +625,7 @@ export struct SearchView {
     if (min === undefined || max === undefined
       || !this.config.controller.setFilters(this.model.hasCoupon, min, max)) {
       this.model.sheetError = this.t(SearchKeys.SHEET_INVALID);
+      CouliAnnounce.say(this.getUIContext(), this.model.sheetError);
       return;
     }
     this.model.sheetOpen = false;
@@ -651,7 +668,7 @@ export struct SearchView {
           .enterKeyType(EnterKeyType.Search)
           // 进程回收后恢复的页面不自动弹键盘（恢复的是结果列表与滚动位置）。
           .defaultFocus(this.config.initialQuery === null && this.config.restored === null)
-          .accessibilityText(this.t(SearchKeys.PLACEHOLDER))
+          .accessibilityText(this.t(SearchKeys.INPUT_LABEL))
           .onChange((value: string) => {
             this.model.inputText = value;
             this.persist();
@@ -826,6 +843,11 @@ export struct SearchView {
       onDisappear: () => {
         this.model.sheetOpen = false;
         this.persist();
+        CouliFocusReturn.cancel(this.sheetFocus);
+        this.sheetFocus = 0;
+        if (this.config.life.alive && !this.sheetCovered) {
+          this.sheetFocus = CouliFocusReturn.to(this.getUIContext(), ID_FILTER_PRICE);
+        }
       }
     })
   }
@@ -841,6 +863,7 @@ export struct SearchView {
       .borderRadius(CouliRadius.button)
       .backgroundColor(CouliColors.backgroundMuted)
       .accessibilityText(placeholder)
+      .accessibilityDescription(this.model.sheetError)
       .onChange((v: string) => onValue(v))
   }
 
@@ -851,6 +874,18 @@ export struct SearchView {
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
           CouliFontWeight.semibold))
         .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+        .id('search_price_title')
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .onAppear(() => {
+          CouliFocusReturn.cancel(this.sheetFocus);
+          this.sheetFocus = 0;
+          // 出现回调可能迟到于离页 / 被详情盖住：此时不再排进标题。
+          if (!this.config.life.alive || this.sheetCovered) {
+            return;
+          }
+          this.sheetFocus = CouliFocusReturn.to(this.getUIContext(), 'search_price_title');
+        })
       Row({ space: CouliSpacing.space2 }) {
         this.priceInput(this.model.sheetMin, this.t(SearchKeys.SHEET_MIN), 'search_price_min', (v: string) => {
           this.model.sheetMin = v;
