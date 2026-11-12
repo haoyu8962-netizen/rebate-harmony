@@ -1621,7 +1621,9 @@ export function ds02L2UiButtonCases(): void {
           for (const variant of group[0]) {
             for (const state of group[1]) {
               const tag: string = variant + '/' + state;
-              const button: Component = await L2ButtonRig.find(COULI_BUTTON, L2ButtonRig.controlId(variant, state));
+              // HM-BATCH1-DEVFIX 测试 v2（子集 r2 button_01 light，只改读法）：find 的近邻判定只看裁过的 bounds 中心，按钮只露一条边也收，
+              // 按钮中部的文字节点还在屏外；改为严格整块可见后再读（同本类 fullyVisible / Ds02Ui.measureSample）。下面的判据不变。
+              const button: Component = await L2ButtonRig.fullyVisible(COULI_BUTTON, L2ButtonRig.controlId(variant, state));
               expect(tag + ' type ' + (await button.getType())).assertEqual(tag + ' type Button');
               const inactive: boolean = state === 'disabled' || state === 'loading';
               expect(tag + ' enabled ' + (await button.isEnabled())).assertEqual(tag + ' enabled ' + !inactive);
@@ -1934,12 +1936,21 @@ class L2PriceRig {
     return 'catalog-sample/' + c.component + '/' + c.variant + '/' + c.state;
   }
 
-  /** 同 Ds02Ui.measureSample：量几何前把样例框整块拉进列表可视区（bounds 只含可见部分）。 */
+  /**
+   * 同 Ds02Ui.measureSample：量几何前把样例框整块拉进列表可视区（bounds 只含可见部分）。
+   * HM-BATCH1-DEVFIX 测试 v2（子集 r2 price_01，只加诊断）：逐次记下样例框 / 视口矩形与滑动位移；收不拢时先打一行
+   * L2PRICE_NOT_FULLY_VISIBLE（hilog 过滤 L2PRICE）再抛，抛错文案带最后一次读数、滑动次数与「样例裁两边」标记（样例高 ≥ 视口高时
+   * 上下沿同时被裁，滑动位移恒为 0，永远收不拢）。收敛逻辑与判定条件不变。
+   */
   static async fullyVisible(component: string, id: string): Promise<Component> {
+    const trail: string[] = [];
+    let last: string = '-';
+    let swipes: number = 0;
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const list: Component = await L2PriceRig.node('catalog-cases/' + component);
       let found: Component = await driver.findComponent(ON.id(id));
       if (found === null || found === undefined) {
+        trail.push(attempt + ':search');
         found = await searchUiComponent(driver, ON.id('catalog-cases/' + component), ON.id(id));
         expect(found !== null && found !== undefined).assertTrue();
       }
@@ -1950,10 +1961,20 @@ class L2PriceRig {
       const from: number = Math.floor((view.top + view.bottom) / 2);
       const limit: number = (view.bottom - view.top) * 0.35;
       const shift: number = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+      last = 'r=' + L2PriceRig.box(r) + ' view=' + L2PriceRig.box(view) + ' clippedBoth=' + (r.top <= view.top && r.bottom >= view.bottom);
+      trail.push(attempt + ':' + L2PriceRig.box(r) + '>' + Math.round(shift));
       await driver.swipe(x, from, x, Math.floor(from - shift), 600);
+      swipes++;
       await L2PriceRig.idle();
     }
-    throw new Error('L2PRICE_SAMPLE_NOT_FULLY_VISIBLE: ' + id);
+    const reading: string = last + ' attempts=8 swipes=' + swipes + ' trail=' + trail.join(' ');
+    trace('L2PRICE_NOT_FULLY_VISIBLE ' + id + ' ' + reading);
+    throw new Error('L2PRICE_SAMPLE_NOT_FULLY_VISIBLE: ' + id + ' ' + reading);
+  }
+
+  /** 诊断用矩形文字「左,上,右,下」。 */
+  static box(r: Rect): string {
+    return r.left + ',' + r.top + ',' + r.right + ',' + r.bottom;
   }
 
   /** 去掉 rangeBreakable 插的零宽空格 / 词连接符再比文字。 */
@@ -2405,7 +2426,11 @@ function sampleId(component: string, variant: string, state: string): string {
   return 'catalog-sample/' + component + '/' + variant + '/' + state;
 }
 
-/** 样例整块在列表可视区内时返回它的矩形；否则慢速短滑拉到中部再量（同 Ds02Ui.measureSample）。 */
+/**
+ * 样例整块在列表可视区内时返回它的矩形；否则慢速短滑拉到中部再量（同 Ds02Ui.measureSample）。
+ * HM-BATCH1-DEVFIX 测试 v4（子集 r2 state 28 / 29 / 33，只改读法）：bounds 只含可见部分，被视口裁过的边恰等于视口边，
+ * 原来的 >= / <= 会把只露一截的样例当成整块可见；改为严格不等式（同 Ds02Ui.measureSample / L2ButtonRig / L2PriceRig.fullyVisible）。
+ */
 async function visibleSample(component: string, variant: string, state: string): Promise<Rect> {
   const id: string = sampleId(component, variant, state);
   const listId: string = 'catalog-cases/' + component;
@@ -2416,7 +2441,7 @@ async function visibleSample(component: string, variant: string, state: string):
     }
     const view: Rect = await (await node(listId)).getBounds();
     const r: Rect = await (found as Component).getBounds();
-    if (r.top >= view.top && r.bottom <= view.bottom && r.bottom > r.top) { return r; }
+    if (r.top > view.top && r.bottom < view.bottom && r.bottom > r.top) { return r; }
     const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
     const from: number = Math.floor((view.top + view.bottom) / 2);
     const limit: number = (view.bottom - view.top) * 0.35;
@@ -2425,6 +2450,57 @@ async function visibleSample(component: string, variant: string, state: string):
     await idle();
   }
   throw new Error('L2STATE_SAMPLE_NOT_FULLY_VISIBLE: ' + id);
+}
+
+/**
+ * HM-BATCH1-DEVFIX 测试 v4（子集 r2 state 33，只改读法）：把样例里某个节点自身整块拉进列表可视区（严格不等式），返回同一滚动位置下
+ * 样例框的矩形；调用方随后不再滑动、直接用原读法（textRect / buttonIn）读这个节点。200% 下样例可能高过视口，不要求整块样例同时可见：
+ * 节点整块可见时，「节点在样例框内」与「节点在样例框可见部分内」等价，所以 200% 的框内判定照旧成立。
+ * 节点不在屏上时：样例只被裁上沿就往回翻，否则往下翻（被量的标题 → 正文 → 按钮自上而下）；样例整块在屏上仍找不到节点就直接返回，
+ * 由原读法照旧判缺（失败文案不变）。8 次收不拢抛 L2STATE_NODE_NOT_FULLY_VISIBLE（带最后一次读数）。
+ */
+async function nodeVisible(component: string, variant: string, state: string, target: On): Promise<Rect> {
+  const id: string = sampleId(component, variant, state);
+  const listId: string = 'catalog-cases/' + component;
+  let last: string = '-';
+  for (let attempt: number = 0; attempt < 8; attempt++) {
+    let sample: Component | null = await maybe(ON.id(id));
+    if (sample === null) {
+      sample = await searchUiComponent(driver, ON.id(listId), ON.id(id));
+    }
+    const view: Rect = await (await node(listId)).getBounds();
+    const box: Rect = await (sample as Component).getBounds();
+    const hit: Component | null = await maybe(target);
+    let r: Rect | null = null;
+    if (hit !== null) { r = await hit.getBounds(); }
+    const from: number = Math.floor((view.top + view.bottom) / 2);
+    const limit: number = (view.bottom - view.top) * 0.35;
+    let shift: number = limit;
+    if (r !== null && r.bottom > r.top && r.right > r.left) {
+      if (r.top > view.top && r.bottom < view.bottom) { return box; }
+      shift = Math.max(-limit, Math.min(limit, (r.top + r.bottom) / 2 - from));
+      last = 'node=' + r.left + ',' + r.top + ',' + r.right + ',' + r.bottom;
+    } else {
+      const clippedTop: boolean = box.top <= view.top;
+      const clippedBottom: boolean = box.bottom >= view.bottom;
+      if (!clippedTop && !clippedBottom) { return box; }
+      shift = clippedTop && !clippedBottom ? -limit : limit;
+      last = 'node=offscreen';
+    }
+    last += ' sample=' + box.left + ',' + box.top + ',' + box.right + ',' + box.bottom
+      + ' view=' + view.left + ',' + view.top + ',' + view.right + ',' + view.bottom + ' attempt=' + attempt;
+    const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
+    await driver.swipe(x, from, x, Math.floor(from - shift), 600);
+    await idle();
+  }
+  throw new Error('L2STATE_NODE_NOT_FULLY_VISIBLE: ' + id + ' ' + last);
+}
+
+/** v4：样例里的一段文字整块拉进可视区后按原 textRect 读，返回 [文字矩形, 同一滚动位置下样例框矩形]。 */
+async function textIn(component: string, variant: string, state: string, text: string): Promise<Rect[]> {
+  const scope: On = ON.id(sampleId(component, variant, state));
+  const box: Rect = await nodeVisible(component, variant, state, ON.type('Text').text(text).within(scope));
+  return [await textRect(scope, text), box];
 }
 
 function area(r: Rect): number {
@@ -2701,17 +2777,35 @@ export function ds02L2UiStateCases(): void {
     });
 
     // 书 §2.1 读屏「.onAppear 焦点移动不改；couli-error-retry id 不变」、§3 设备「焦点移到 couli-error-retry」。
+    // HM-BATCH1-DEVFIX swap2（编排 D10-1286 ①，modify_existing：改冻结用例的断言位置，照 HM07v D3 / APP-12w T7 先例）：
+    // 页面级 requestFocus 的结果 UiTest isFocused 读不到（子集 r2 §2.3），设备上不再硬判「焦点已在 couli-error-retry」。
+    // 「出现时对 couli-error-retry 请求焦点」这次调用改由宿主守卫 l2state SL8-focus 钉住（ErrorState【重试】的 onAppear 同步、无条件
+    // CouliFocusReturn.to(this.getUIContext(), this.retryId)，retryId 默认 couli-error-retry，to 内 requestFocus(id) 同步无条件），
+    // 焦点真的落到【重试】由真机读屏核对一次并记进验收记录。本例保留：出现后重试控件存在、是 Button、可点（可用且 clickable）、
+    // 可聚焦（测试在应用 UIContext 里对它 requestFocus，不存在 / 不可获焦时 FocusController 抛 150001–150003，必须不抛，同 APP-12w T7）。
+    // isFocused 只读一次打进 hilog（L2STATE_FOCUS_READ），不参与判定，留给真机读屏核对时对照。
     it(L2STATE_DEVICE_CASES[4], 0, async (): Promise<void> => {
       await open('ErrorState');
       await setFont('100');
       await theme('light');
       await liveError(false);
+      // swap2 准备步骤（不是判据）：上一条若红在重试中途，活样例 retrying 可能仍为 true；先结束重试，「可点」不受前一条牵连。
+      await click('catalog-state-settle/ErrorState');
       check((await maybe(ON.id(DEFAULT_RETRY_ID))) === null, 'couli-error-retry must only come from the live sample');
       for (let round: number = 0; round < 2; round++) {
         await click('catalog-state-toggle/ErrorState');
         const retry: Component = await node(DEFAULT_RETRY_ID);
         check((await retry.getType()) === 'Button', 'couli-error-retry should be the Button itself');
-        check(await focusedWithin(DEFAULT_RETRY_ID, 3000), 'focus did not move to couli-error-retry on appear (round ' + round + ')');
+        trace('L2STATE_FOCUS_READ round=' + round + ' isFocused=' + String(await focusedWithin(DEFAULT_RETRY_ID, 1000)));
+        check(await retry.isEnabled(), 'couli-error-retry should be enabled on appear (round ' + round + ')');
+        check(await retry.isClickable(), 'couli-error-retry should be clickable on appear (round ' + round + ')');
+        let focusErr: string = '';
+        try {
+          (await appUi()).getFocusController().requestFocus(DEFAULT_RETRY_ID);
+        } catch (e) {
+          focusErr = JSON.stringify(e);
+        }
+        check(focusErr.length === 0, 'couli-error-retry should be focusable, requestFocus threw ' + focusErr + ' (round ' + round + ')');
         await click('catalog-state-toggle/ErrorState');
         check(await absent(ON.id(DEFAULT_RETRY_ID), 5000), 'couli-error-retry still present after unmount (round ' + round + ')');
       }
@@ -2750,9 +2844,13 @@ export function ds02L2UiStateCases(): void {
         const emptyTitle100: Rect = await textRect(emptyScope, EMPTY_TITLE);
         const emptyMessage100: Rect = await textRect(emptyScope, EMPTY_MESSAGE);
         await setFont('200');
-        const emptyBox: Rect = await visibleSample('EmptyState', 'empty', 'default');
-        assertGrew(EMPTY_TITLE, emptyTitle100, await textRect(emptyScope, EMPTY_TITLE), emptyBox);
-        assertGrew(EMPTY_MESSAGE, emptyMessage100, await textRect(emptyScope, EMPTY_MESSAGE), emptyBox);
+        // v4（子集 r2 33，只改读法）：200% 下样例可能高过视口，原来读到的是被视口裁过的矩形（h200=115 不到一行高）。改为逐个把被量的
+        // 节点自身整块拉进可视区再量，框取同一滚动位置的样例框（见 nodeVisible）。assertGrew 的公式、容差与框内判定不变。
+        const emptyTitle200: Rect[] = await textIn('EmptyState', 'empty', 'default', EMPTY_TITLE);
+        assertGrew(EMPTY_TITLE, emptyTitle100, emptyTitle200[0], emptyTitle200[1]);
+        const emptyMessage200: Rect[] = await textIn('EmptyState', 'empty', 'default', EMPTY_MESSAGE);
+        assertGrew(EMPTY_MESSAGE, emptyMessage100, emptyMessage200[0], emptyMessage200[1]);
+        const emptyBox: Rect = emptyMessage200[1];
         // v2：200% 证据图经 FlakeKit.captureChecked 截空态样例框（落 cacheDir/flk-l2state-empty-200-<序号>.png），不直接调 screenCapture
         // （flake 守卫只放行 captureChecked 与 Ds02Ui 的整屏证据图）。证据图不参与「不截断」判定（判定是上面的 assertGrew）；
         // 截不到真截图仍红（FLAKE_CAPTURE_INVALID），比 v1 只看 screenCapture 返回 true 更严。
@@ -2768,9 +2866,12 @@ export function ds02L2UiStateCases(): void {
         const btn100: Rect = await (await buttonIn(errScope)).getBounds();
         check((btn100.bottom - btn100.top) / density >= 47.5, 'retry hit height < 48vp at 100%');
         await setFont('200');
-        const errBox: Rect = await visibleSample('ErrorState', 'offline', 'default');
-        assertGrew(OFFLINE_TITLE, errTitle100, await textRect(errScope, OFFLINE_TITLE), errBox);
-        assertGrew(OFFLINE_MESSAGE, errMessage100, await textRect(errScope, OFFLINE_MESSAGE), errBox);
+        // v4：同上，标题 / 正文 / 重试按钮各自整块可见时再量；errBox 取按钮整块可见时的样例框（按钮的框内判定原文不变）。
+        const errTitle200: Rect[] = await textIn('ErrorState', 'offline', 'default', OFFLINE_TITLE);
+        assertGrew(OFFLINE_TITLE, errTitle100, errTitle200[0], errTitle200[1]);
+        const errMessage200: Rect[] = await textIn('ErrorState', 'offline', 'default', OFFLINE_MESSAGE);
+        assertGrew(OFFLINE_MESSAGE, errMessage100, errMessage200[0], errMessage200[1]);
+        const errBox: Rect = await nodeVisible('ErrorState', 'offline', 'default', ON.type('Button').within(errScope));
         const btn200: Rect = await (await buttonIn(errScope)).getBounds();
         check((btn200.bottom - btn200.top) / density >= 47.5, 'retry hit height < 48vp at 200%');
         check(btn200.bottom - btn200.top > btn100.bottom - btn100.top, 'retry button did not grow at 200%');
@@ -2842,6 +2943,17 @@ class CellCounts {
 
   text(): string {
     return this.open + '|' + this.buy + '|' + this.outer;
+  }
+}
+
+/** 卡片读屏读数（v2）：announce 的全部单元（去掉「类型=」前缀），以及每个 Button 子树各自的单元（一棵子树 = 一项）。 */
+class CellReader {
+  units: string[];
+  buttons: string[][];
+
+  constructor(units: string[], buttons: string[][]) {
+    this.units = units;
+    this.buttons = buttons;
   }
 }
 
@@ -2933,13 +3045,59 @@ class L2CellRig {
     return out;
   }
 
-  /** 卡片子树的读屏单元（「类型=文字」，Hm07vHomeRig.announce）。 */
-  static async units(variant: string, state: string): Promise<string[]> {
+  /**
+   * 卡片子树的读屏单元（「类型=文字」，Hm07vHomeRig.announce），另按组件树结构记下每个 Button 子树各自的读屏单元。
+   * HM-BATCH1-DEVFIX 测试 v2（子集 r2 cell 05 / 08，只改读法）：Button 节点的读屏名与按钮内 Text 在组件树里各记一条，
+   * 两句不一定相同（BuyButton 读屏名「…预估返 123.45 元」、可见文字「…预估返 ¥123.45」），按同文字去重会数成 2 项；
+   * 改为按 Button 子树归并成一项。units 本身照旧是 announce 的全部单元（其它用例按它查读出的文字）。
+   */
+  static async reader(variant: string, state: string): Promise<CellReader> {
     const n: Record<string, Object> | null = findById(await appTree(), L2CellRig.controlId(variant, state));
     check(n !== null, 'L2CELL_INSPECTOR_MISSING ' + variant + '/' + state);
     const out: string[] = [];
     announce(n as Record<string, Object>, out);
-    return out.map((u: string): string => u.substring(u.indexOf('=') + 1));
+    const buttons: string[][] = [];
+    L2CellRig.buttonUnits(n as Record<string, Object>, buttons);
+    return new CellReader(L2CellRig.strip(out), buttons);
+  }
+
+  static strip(units: string[]): string[] {
+    return units.map((u: string): string => u.substring(u.indexOf('=') + 1));
+  }
+
+  /** 组件树字段（同 Hm07vHomeRig 的 attr / typeOf / childrenOf：$attrs / $type / $children，旧格式平铺 / type / children）。 */
+  static attr(n: Record<string, Object>, key: string): string {
+    const attrs: Record<string, Object> = n['$attrs'] !== undefined ? n['$attrs'] as Record<string, Object> : n;
+    const v: Object | undefined = attrs[key];
+    return v === undefined || v === null ? '' : String(v);
+  }
+
+  static typeOf(n: Record<string, Object>): string {
+    const v: Object | undefined = n['$type'] !== undefined ? n['$type'] : n['type'];
+    return v === undefined || v === null ? '' : String(v);
+  }
+
+  static childrenOf(n: Record<string, Object>): Record<string, Object>[] {
+    const c: Object | undefined = n['$children'] !== undefined ? n['$children'] : n['children'];
+    if (c === undefined || c === null || !Array.isArray(c)) { return []; }
+    return (c as Object[]).map((x: Object): Record<string, Object> => x as Record<string, Object>);
+  }
+
+  /**
+   * 子树里每个读屏可达的 Button：它整棵子树的 announce 单元记作一项（同 announce 的可达规则：隐藏子树不进，
+   * 非隐藏的 accessibilityGroup 整体一项、组内 Button 不单独读）。
+   */
+  static buttonUnits(n: Record<string, Object>, out: string[][]): void {
+    const level: string = L2CellRig.attr(n, 'accessibilityLevel');
+    if (level === 'no-hide-descendants') { return; }
+    if (L2CellRig.typeOf(n) === 'Button') {
+      const sub: string[] = [];
+      announce(n, sub);
+      if (sub.length > 0) { out.push(L2CellRig.strip(sub)); }
+      return;
+    }
+    if (level !== 'no' && L2CellRig.attr(n, 'accessibilityGroup') === 'true') { return; }
+    for (const child of L2CellRig.childrenOf(n)) { L2CellRig.buttonUnits(child, out); }
   }
 
   /** 样例标题：single / amount-hidden 短标题（stressCoffeeSingle / gridCoffee），range / long-price 长标题，no-rebate 抽纸（京东）。 */
@@ -2955,7 +3113,8 @@ class L2CellRig {
   }
 
   /** 读屏：信息区恰一项（「平台，标题，价格，返利」），购买按钮单独一项，其余只许口径 i；返回信息区那一项。 */
-  static assertReader(variant: string, state: string, units: string[]): string {
+  static assertReader(variant: string, state: string, read: CellReader): string {
+    const units: string[] = read.units;
     const tag: string = variant + '/' + state;
     const title: string = L2CellRig.title(variant, state);
     const info: string[] = units.filter((u: string): boolean => u.indexOf(title) >= 0);
@@ -2966,16 +3125,22 @@ class L2CellRig {
       check(label.indexOf('券后') > label.indexOf(title), 'L2CELL_READER_PRICE ' + tag + ' 信息项应在标题后读价格：' + label);
     }
     check(label.indexOf(CELL_EST_NET) < 0, 'L2CELL_READER_EST_NET ' + tag + ' 信息项读了预估返后：' + label);
-    // 购买按钮：Button 节点的读屏名与其内 Text 在组件树里可能各记一条（同一句），按去重后的文字数算「一项」。
-    const buys: string[] = [];
+    // 购买按钮：Button 节点的读屏名与其内 Text 在组件树里各记一条（两句可以不同：读屏名读「元」、可见文字带「¥」），
+    // 按 Button 子树归并成一项（v2，原按同文字去重）；不在任何 Button 子树里的含「购买」单元各算一项。
+    const buys: string[][] = [];
+    for (const b of read.buttons) {
+      if (b.some((u: string): boolean => u.indexOf(title) < 0 && u.indexOf('购买') >= 0)) { buys.push(b); }
+    }
+    const owned: string[] = [];
+    for (const b of buys) { for (const u of b) { owned.push(u); } }
     for (const u of units) {
-      if (u.indexOf(title) < 0 && u.indexOf('购买') >= 0 && buys.indexOf(u) < 0) { buys.push(u); }
+      if (u.indexOf(title) < 0 && u.indexOf('购买') >= 0 && owned.indexOf(u) < 0) { buys.push([u]); owned.push(u); }
     }
     const wantBuy: number = CELL_WITH_BUY.indexOf(variant) >= 0 ? 1 : 0;
     check(buys.length === wantBuy, 'L2CELL_READER_BUY ' + tag + ' 购买按钮应单独 ' + wantBuy + ' 项，实际 ' + JSON.stringify(units));
     for (const u of units) {
       // 'IMAGE'：按钮里的图标（口径 i、购买按钮）在组件树里记作 Image；商品图在信息区组内，不会单独出现。
-      if (u === label || buys.indexOf(u) >= 0 || CELL_DISCLAIMER_UNITS.indexOf(u) >= 0 || u === 'IMAGE') { continue; }
+      if (u === label || owned.indexOf(u) >= 0 || CELL_DISCLAIMER_UNITS.indexOf(u) >= 0 || u === 'IMAGE') { continue; }
       check(false, 'L2CELL_READER_EXTRA ' + tag + ' 多出读屏项「' + u + '」（价格 / 返利 / 标签 / 图片应并进信息区一项）全部 ' + JSON.stringify(units));
     }
     return label;
@@ -3108,14 +3273,14 @@ export function ds02L2UiCellCases(): void {
       for (const v of ['search', 'ai', 'favorite']) {
         for (const s of ['single', 'range', 'no-rebate']) {
           await L2CellRig.card(v, s);
-          const label: string = L2CellRig.assertReader(v, s, await L2CellRig.units(v, s));
+          const label: string = L2CellRig.assertReader(v, s, await L2CellRig.reader(v, s));
           if (s === 'single') {
             check(label.indexOf(CELL_REBATE_SPOKEN) > label.indexOf('券后'), 'L2CELL_READER_REBATE ' + v + ' 信息项应在价格后读返利：' + label);
           }
         }
       }
       await L2CellRig.card('grid', 'single');
-      L2CellRig.assertReader('grid', 'single', await L2CellRig.units('grid', 'single'));
+      L2CellRig.assertReader('grid', 'single', await L2CellRig.reader('grid', 'single'));
     });
 
     // D10-871（按 D10-1177 ② 读）+ BUTTON 评审 r1 S3-1：金额隐藏样例里可见文字、读屏、购买按钮都不出现本卡金额；按钮回落「购买」。
@@ -3125,7 +3290,8 @@ export function ds02L2UiCellCases(): void {
         await L2CellRig.card(v, 'amount-hidden');
         const amounts: string[] = v === 'grid' ? CELL_GRID_AMOUNTS : (v === 'large' ? CELL_LARGE_AMOUNTS : [CELL_REBATE_AMOUNT]);
         const shown: string[] = await L2CellRig.texts(v, 'amount-hidden');
-        const spoken: string[] = await L2CellRig.units(v, 'amount-hidden');
+        const read: CellReader = await L2CellRig.reader(v, 'amount-hidden');
+        const spoken: string[] = read.units;
         for (const a of amounts) {
           for (const t of shown) { check(t.indexOf(a) < 0, 'L2CELL_HIDDEN_SHOWN ' + v + ' 金额隐藏仍显示「' + t + '」'); }
           for (const u of spoken) { check(u.indexOf(a) < 0, 'L2CELL_HIDDEN_SPOKEN ' + v + ' 金额隐藏仍读出「' + u + '」'); }
@@ -3136,7 +3302,7 @@ export function ds02L2UiCellCases(): void {
           check(shown.indexOf(CELL_ONE_LINE) < 0, 'L2CELL_HIDDEN_BUY_LEAK ' + v + ' 金额隐藏时按钮仍是「' + CELL_ONE_LINE + '」（遮罩返利误传给按钮？S3-1）');
         }
         if (v !== 'large') {
-          const label: string = L2CellRig.assertReader(v, 'amount-hidden', spoken);
+          const label: string = L2CellRig.assertReader(v, 'amount-hidden', read);
           check(label.indexOf(CELL_HIDDEN_SPOKEN) >= 0, 'L2CELL_HIDDEN_LABEL ' + v + ' 信息项应读「金额已隐藏」：' + label);
         }
       }
@@ -3180,8 +3346,7 @@ export function ds02L2UiCellCases(): void {
               check(b.left >= r.left - 1 && b.right <= r.right + 1, 'L2CELL_200_OUTSIDE ' + v + '/' + s + ' 「' + t + '」越出卡片 ['
                 + b.left + ',' + b.right + '] / [' + r.left + ',' + r.right + ']');
             }
-            const units: string[] = await L2CellRig.units(v, s);
-            L2CellRig.assertReader(v, s, units);
+            L2CellRig.assertReader(v, s, await L2CellRig.reader(v, s));
             if (s === 'single') {
               const buy: Rect = await (await L2CellRig.textIn(v, s, CELL_ONE_LINE)).getBounds();
               check(buy.top >= r.top && buy.bottom <= r.bottom + 1, 'L2CELL_200_BUY_OUTSIDE ' + v + ' 购买按钮越出卡片');
