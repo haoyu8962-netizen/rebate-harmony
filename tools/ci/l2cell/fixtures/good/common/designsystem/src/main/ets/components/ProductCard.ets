@@ -106,10 +106,29 @@ export class ProductCardA11y {
    * 首页横滑卡（HM-07v H9）的整卡读屏名：横滑卡不显示标题与来源标签（Main-v3），读屏仍读「[推广标识]，平台，标题，价格，返利」。
    * 推广标识是服务端原文（BR-TEXT-17，去首尾空白，空则不读）；价格按 PriceTagModel 的读法（含副行、预售与预售说明）；
    * 价格不可用只读提示句、不读任何金额（BR-PRICE-01）；amount_unknown 不读价格、只读「可返利，金额以订单为准」（BR-PRICE-08）；
-   * 平台 not_launched 不读返利（共性 31）；金额隐藏按 CardAmountMask。
-   * 不拼图片占位文字、口径 i 的读屏名等装饰。
+   * 平台 not_launched 不读返利（共性 31）；金额隐藏按 CardAmountMask。暂无返利（basis=no_rebate）卡上不显示，也不读（D10-1248 ⑦）。
+   * 横滑卡不显示优惠标签，也不读。不拼图片占位文字、口径 i 的读屏名等装饰。
    */
   static scrollTileLabel(data: ProductCardData, adLabel: string | null): string {
+    return ProductCardA11y.spoken(data, adLabel, []);
+  }
+
+  /**
+   * 列表 / AI / 网格卡信息区（图 + 标题 + 标签 + 价格 + 返利）的整块读屏名「平台，标题，优惠标签，价格，返利」（HM-L2-PRODUCT-CELL；
+   * D10-1248 ⑦：读看得见的——标签行里的优惠标签照读、预售只读一次（价格读法里已有），暂无返利不显示也不读），与 scrollTileLabel 同一口径，
+   * 不带推广标识；不读预估返后（DETAIL-V3 U1）、图片占位、口径 i 与按钮文字。
+   */
+  static cellLabel(data: ProductCardData): string {
+    // 预售：有价格时价格读法里已读一次，标签行的「预售」不重读；不展示价格（价格不可用、amount_unknown）时价格读法不出现，
+    // 标签行里看得见的「预售」照标签行顺序读一次（测试 v2，Codex r1 S3）。
+    const priced: boolean = !data.priceUnavailable && data.rebate.kindRaw !== 'unknown';
+    const tags: string[] = ProductCardTags.compose(data.tags, data.price)
+      .filter((t: ProductTag): boolean => !(priced && data.price.presaleLabel !== null && t.label === data.price.presaleLabel))
+      .map((t: ProductTag): string => t.label.trim());
+    return ProductCardA11y.spoken(data, null, tags);
+  }
+
+  private static spoken(data: ProductCardData, adLabel: string | null, tags: string[]): string {
     const parts: string[] = [];
     const ad: string = adLabel === null ? '' : adLabel.trim();
     if (ad.length > 0) {
@@ -117,6 +136,9 @@ export class ProductCardA11y {
     }
     parts.push(data.platformLabel);
     parts.push(data.title);
+    for (const tag of tags) {
+      parts.push(tag);
+    }
     if (data.priceUnavailable) {
       parts.push(data.priceUnavailableText);
     } else if (data.rebate.kindRaw === 'unknown') {
@@ -126,19 +148,11 @@ export class ProductCardA11y {
       }
     } else {
       parts.push(PriceTagModel.spoken(data.price, true, PresaleDisplay.INLINE));
-      if (!data.rebateHidden) {
+      if (!data.rebateHidden && data.rebate.kindRaw !== 'none') {
         parts.push(CardAmountMask.rebate(data.rebate, data.amountHidden).spokenText);
       }
     }
     return parts.filter((p: string): boolean => p.length > 0).join(PriceTerms.comma);
-  }
-
-  /**
-   * HM-L2-PRODUCT-CELL 参照件：列表 / AI / 网格卡信息区的整块读屏名「平台，标题，价格，返利」（scrollTileLabel 同口径、不带推广标识）。
-   * 购买按钮与口径 i 不并入（各自单独一项）。
-   */
-  static cellLabel(data: ProductCardData): string {
-    return ProductCardA11y.scrollTileLabel(data, null);
   }
 }
 

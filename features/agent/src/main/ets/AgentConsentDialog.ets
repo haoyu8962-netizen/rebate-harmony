@@ -1,10 +1,19 @@
 import { ComponentContent } from '@kit.ArkUI';
 import { AgentConsentTicket } from 'core';
 import {
-  CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliInteraction, CouliModalInstance,
-  CouliModalPresenter, CouliModalSlot, CouliRadius, CouliShadowMask, CouliSpacing, CouliTextModifier, CouliTypography
+  CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn, CouliInteraction,
+  CouliModalInstance, CouliModalPresenter, CouliModalSlot, CouliRadius, CouliShadowMask, CouliSpacing, CouliTextModifier,
+  CouliTypography
 } from 'designsystem';
 import { AgentScreenPort } from './AgentScreenModel';
+
+/** 同意弹窗标题（打开时焦点进标题，FU-HM-A11Y-14）。 */
+const ID_CONSENT_TITLE: string = 'agent_consent_title';
+
+/** 一个弹窗实例关闭后是否把焦点还给页面（FU-HM-A11Y-14）：页面作废、被新实例替换、不可见或有阻挡层而由承载方收起的实例不还。 */
+class ConsentFocusBack {
+  back: boolean = true;
+}
 
 /** 同意弹窗的参数（ComponentContent 按值传入：本弹窗的票据 + 执行出口 + 关闭本实例）。 */
 class ConsentParams {
@@ -46,6 +55,7 @@ struct AgentConsentPanel {
     Row({ space: CouliSpacing.space2 }) {
       Text('•')
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+        .accessibilityLevel('no')
       Text(this.t(key))
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
         .layoutWeight(1)
@@ -59,6 +69,13 @@ struct AgentConsentPanel {
       Text(this.t('agent.draft.consent.title'))
         .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
         .accessibilityLevel('yes')
+        .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+        .id(ID_CONSENT_TITLE)
+        .focusable(true)
+        .focusBox(CouliFocus.box)
+        .onAppear(() => {
+          CouliFocusReturn.to(this.getUIContext(), ID_CONSENT_TITLE);
+        })
       Scroll() {
         Column({ space: CouliSpacing.space2 }) {
           this.line('agent.draft.consent.line1')
@@ -181,13 +198,15 @@ class ConsentPresenter implements CouliModalPresenter {
 
 /**
  * 同意弹窗的系统模态承载（openCustomDialog，isModal）：每次一个实例，绑定打开时的票据；系统返回 / 点遮罩（onWillDismiss）只提交本实例的票据
- * （consentDismissed）再收起本实例；页面作废时由 close() 同步关掉（不提交）。读屏只能访问弹窗内容，关闭后焦点回原位（APP-11 第 3 条）。
+ * （consentDismissed）再收起本实例；页面作废时由 close() 同步关掉（不提交）。读屏只能访问弹窗内容；打开时焦点进标题，用户关闭后焦点回输入框（不可用时回页面标题；APP-11 第 3 条，FU-HM-A11Y-14）。
  * 异步打开的竞态（harmony-review-r2 R2-05）：每个实例有独立的取消标记（CouliModalInstance）；打开完成时，已取消、已被替换或已失效
  * （票据、可见性、阻挡层）的实例直接关闭这次捕获的 content，不依赖它仍是当前实例，也不会误关替代它的新实例。
  */
 export class AgentConsentHost {
   private readonly ui: UIContext;
   private readonly slot: CouliModalSlot = new CouliModalSlot();
+  /** 当前实例的回焦标记（每个实例一份，旧实例迟到的 onDidDisappear 不会抢新实例或页面作废后的焦点）。 */
+  private focusBack: ConsentFocusBack | null = null;
 
   constructor(ui: UIContext) {
     this.ui = ui;
@@ -198,8 +217,14 @@ export class AgentConsentHost {
     return this.slot.openKey;
   }
 
-  /** stillValid：异步打开完成后再核对一次（控制器、弹窗票据、可见性、阻挡层，R1-10），不满足立即收起本实例。 */
-  open(ticket: AgentConsentTicket, port: AgentScreenPort, stillValid: () => boolean): void {
+  /**
+   * stillValid：异步打开完成后再核对一次（控制器、弹窗票据、可见性、阻挡层，R1-10），不满足立即收起本实例。
+   * returnFocusId：关闭后焦点回到哪里（输入框可用回输入框，否则回页面标题；FU-HM-A11Y-14），关闭那一刻再取。
+   */
+  open(ticket: AgentConsentTicket, port: AgentScreenPort, stillValid: () => boolean, returnFocusId: () => string): void {
+    this.dropFocusBack();
+    const focusBack: ConsentFocusBack = new ConsentFocusBack();
+    this.focusBack = focusBack;
     const params: ConsentParams = new ConsentParams(ticket, port);
     const content: ComponentContent<ConsentParams> = new ComponentContent<ConsentParams>(this.ui,
       wrapBuilder<[ConsentParams]>(consentBuilder), params);
@@ -209,6 +234,11 @@ export class AgentConsentHost {
         // 系统返回、点遮罩：只交回本实例的票据（按暂不使用收尾、不记录），再收起本实例；已取消的实例不提交。
         if (params.usable) {
           params.handled = true;
+          // 先把本实例从承载方摘下（openSerial 归零）再提交：提交引起的状态同步（不论发生在提交当中、onDidDisappear 之前还是之后）
+          // 都不会把本实例当成「承载方收起」去 close()，本实例的回焦标记留到 onDidDisappear 回焦一次（Codex r1 S2）。
+          if (inst !== null) {
+            this.slot.release(inst);
+          }
           port.consentDismissed(ticket);
         }
         action.dismiss();
@@ -217,6 +247,10 @@ export class AgentConsentHost {
         if (inst !== null) {
           inst.disappeared();
           this.slot.release(inst);
+        }
+        if (focusBack.back) {
+          focusBack.back = false;
+          CouliFocusReturn.to(this.ui, returnFocusId());
         }
       });
     inst = this.slot.show(ticket.serial, presenter, stillValid);
@@ -232,6 +266,15 @@ export class AgentConsentHost {
 
   /** 页面作废、票据换了、不可见、有阻挡层：同步关闭当前实例（不提交）。 */
   close(): void {
+    this.dropFocusBack();
     this.slot.close();
+  }
+
+  private dropFocusBack(): void {
+    const f: ConsentFocusBack | null = this.focusBack;
+    this.focusBack = null;
+    if (f !== null) {
+      f.back = false;
+    }
   }
 }

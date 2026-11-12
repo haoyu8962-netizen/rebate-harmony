@@ -23,6 +23,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set loginphone  绑定手机号 / 短信登录适配与出错读屏单独步（FU-HM-LOGIN-PHONE-LAYOUT 测试 v1：6 条 tools/ci/loginphone/device-cases.txt），且只能是这 6 条
   --set a11y    FU-HM-A11Y 共用套件 HmA11yUi 单独步（COMMON 段 5 条 tools/ci/a11ycommon/device-cases.txt + FUNDS 段 5 条
                 tools/ci/a11yfunds/device-cases.txt；其余两单集成时并入），且只能是这些
+                （HM-BATCH1-FREEZE 集成 2：+ AGENT 段 5 条 tools/ci/a11yagent/device-cases.txt，a11y 10 → 15）
   --set l2      子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui（HM-L2-CARD 8 条 tools/ci/l2card/device-cases.txt + HM-L2-SKELETON 6 条
                 tools/ci/l2skeleton/device-cases.txt + HM-L2-BUTTON 7 条 + HM-L2-PRICE-TAG 5 条 + HM-L2-STATE 7 条），且只能是这 33 条；verify 不单列此步（⑩）
                 （HM-BATCH1-DEVFIX，D10-1279 ③：verify 单列设备步 entry-l2 = class=Ds02L2Ui + --set l2，42 条必跑；上句「verify 不单列此步」自此作废）
@@ -36,6 +37,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 FU-HM-A11Y-FUNDS（#24 只加）：+ a11y 步 FUNDS 段 5 条（tools/ci/a11yfunds/device-cases.txt），a11y 5 → 10，合集 343 → 348
                 HM-BATCH1-FREEZE 集成 1（#24 只加）：DEVFIX（entry-l2 单列，main 219 → 177）与 A11Y（entry-a11y，a11y 10）叠加：
                 main 177、l2 42、a11y 10，合集 348（l2 改单列只换步、不改合集）
+                HM-BATCH1-FREEZE 集成 2（#24 只加）：+ a11y 步 AGENT 段 5 条（tools/ci/a11yagent/device-cases.txt），a11y 10 → 15，合集 348 → 353
 """
 import collections
 import csv
@@ -108,7 +110,8 @@ def a11y_names():
     """FU-HM-A11Y：共用套件 HmA11yUi 的设备用例（COMMON 段名单与 HmA11yUi.test.ets 的 A11Y_COMMON_DEVICE_CASES 一致；其余三单集成时各加一份名单）。"""
     names = set()
     # FU-HM-A11Y-FUNDS（#24 只加）：FUNDS 段名单并入（与 HmA11yFundsCases.ets 的 A11Y_FUNDS_DEVICE_CASES 一致）。
-    for rel in ('a11ycommon/device-cases.txt', 'a11yfunds/device-cases.txt'):
+    # HM-BATCH1-FREEZE 集成 2（#24 只加）：AGENT 段名单并入（与 A11yAgentSeg.ets 的 A11Y_AGENT_DEVICE_CASES 一致）。
+    for rel in ('a11ycommon/device-cases.txt', 'a11yfunds/device-cases.txt', 'a11yagent/device-cases.txt'):
         names |= {line.strip() for line in (Path(__file__).parents[1] / rel).read_text().splitlines()
                   if line.strip() and not line.startswith('#')}
     return names

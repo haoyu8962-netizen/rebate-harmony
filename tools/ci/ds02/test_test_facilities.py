@@ -303,7 +303,8 @@ run_device_tests core common/core core_test
         # FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：单独步 loginphone 6 条（tools/ci/loginphone/device-cases.txt）进合集；332 → 338。
         # FU-HM-A11Y-COMMON（#24 只加）：单独步 a11y 5 条（tools/ci/a11ycommon/device-cases.txt）进合集；338 → 343。
         # FU-HM-A11Y-FUNDS（#24 只加）：a11y 步 FUNDS 段 5 条（tools/ci/a11yfunds/device-cases.txt）进合集；343 → 348。
-        self.assertEqual(len(names), 348)
+        # HM-BATCH1-FREEZE 集成 2（#24 只加）：a11y 步 AGENT 段 5 条（tools/ci/a11yagent/device-cases.txt）进合集；348 → 353。
+        self.assertEqual(len(names), 353)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -339,8 +340,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 348)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 348)
+        self.assertEqual(validate(report(names)), 353)  # HM-BATCH1-FREEZE 集成 2：348 → 353（同上）
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 353)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -424,7 +425,8 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm05r), 11)
         self.assertEqual(len(loginphone), 6)
         # FU-HM-A11Y-FUNDS（#24 只加）：COMMON 5 + FUNDS 5。
-        self.assertEqual(len(a11y), 10)
+        # HM-BATCH1-FREEZE 集成 2（#24 换值）：+ AGENT 5，10 → 15。
+        self.assertEqual(len(a11y), 15)
         # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加一项）：各步并集再并 l2（单列 entry-l2）才等于合集。
         # HM-BATCH1-FREEZE 集成 1（#24 只加一项）：并集再并 a11y（单列 entry-a11y）。
         self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | l2 | a11y, every)
@@ -991,6 +993,17 @@ A11Y_HOST_STEPS = [
         'node "$ROOT/tools/ci/a11yfunds/run-logic.cjs"',
         'node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs"',
     ]),
+    # HM-BATCH1-FREEZE 集成 2（#24 只加）：AGENT 宿主步并入同一登记自检（排在 FUNDS 之后；命令顺序同 verify.sh）。
+    ('FU-HM-A11Y-AGENT 宿主检查', [
+        'python3 "$ROOT/tools/ci/a11yagent/check_a11y_agent.py" --self-test',
+        'python3 "$ROOT/tools/ci/a11yagent/check_a11y_agent.py"',
+        'node "$ROOT/tools/ci/a11yagent/run-logic.cjs" --self-test',
+        'node "$ROOT/tools/ci/a11yagent/run-logic.cjs"',
+        'node "$ROOT/tools/ci/a11yagent/run-tap.cjs" --self-test',
+        'node "$ROOT/tools/ci/a11yagent/run-tap.cjs"',
+        'node "$ROOT/tools/ci/a11yagent/check-arkts.cjs"',
+        'node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" --fixtures',
+    ]),
 ]
 WALLET_UNIT_TEST = 'run_unit_tests wallet features/wallet'
 FAST_EXIT = 'if [ "$FAST" -eq 1 ]; then'
@@ -1073,7 +1086,7 @@ def a11y_host_registration_violations(source):
             v.append('R4 「%s」步之前有顶层 exit / return：%s' % (title, [no for no in exits if no < records[0]]))
     order = [next((no for no, line in top if line == 'step "%s"' % t), 0) for t, _ in A11Y_HOST_STEPS]
     if all(order) and order != sorted(order):
-        v.append('R1 FUNDS 宿主步须排在 COMMON 宿主步之后')
+        v.append('R1 FUNDS 宿主步须排在 COMMON 宿主步之后（集成 2：AGENT 宿主步再排在 FUNDS 之后）')
     defs = [no for no, line in enumerate(lines, 1) if line == 'run_unit_tests() {']
     body = source.split('\nrun_unit_tests() {\n', 1)[1].split('\n}\n', 1)[0] if len(defs) == 1 else ''
     tail = [line.strip() for line in body.split('\n') if line.strip()][-1:]
@@ -1257,8 +1270,11 @@ class VerifyA11yDeviceRegistrationMerged(unittest.TestCase):
             return {line.strip() for line in (self.root / rel).read_text().splitlines() if line.strip() and not line.startswith('#')}
         common, funds = cases('tools/ci/a11ycommon/device-cases.txt'), cases('tools/ci/a11yfunds/device-cases.txt')
         self.assertEqual((len(common), len(funds), common & funds), (5, 5, set()))
+        # HM-BATCH1-FREEZE 集成 2（#24 只加 / 换值）：AGENT 段 5 条并入，与 COMMON / FUNDS 都不相交；a11y = 三段并集（10 → 15）。
+        agent = cases('tools/ci/a11yagent/device-cases.txt')
+        self.assertEqual((len(agent), agent & (common | funds)), (5, set()))
         a11y = expected_names('a11y')
-        self.assertEqual(a11y, common | funds)
+        self.assertEqual(a11y, common | funds | agent)
         for other in ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2'):
             self.assertEqual(expected_names(other) & a11y, set(), other)
         self.assertLessEqual(a11y, expected_names('all'))
@@ -1273,7 +1289,7 @@ class VerifyA11yDeviceRegistrationMerged(unittest.TestCase):
             return '\n'.join(events)
 
         main = sorted(expected_names('main'))
-        self.assertEqual(validate(report(sorted(a11y)), 'a11y'), 10)
+        self.assertEqual(validate(report(sorted(a11y)), 'a11y'), 15)  # HM-BATCH1-FREEZE 集成 2：10 → 15
         bad = {
             # M9：主步混进任一条 a11y 用例（套件过滤失效）即红。
             **{'main-with-a11y-' + name: (report(main + [name]), 'main') for name in sorted(a11y)},
@@ -1336,6 +1352,160 @@ class VerifyA11yDeviceRegistrationMerged(unittest.TestCase):
             self.assertNotEqual((mv, md), (verify, device), name)
             self.assertEqual(a11y_device_registration_violations(mv, md), [], '良性改写「%s」被误报' % name)
             print('BENIGN entry-a11y 登记 %s：0 违反' % name)
+
+
+# HM-BATCH1-FREEZE 集成 2（#24 只加）：AGENT 段并进 HmA11yUi / entry-a11y 体系后的登记自检。
+# 宿主步：AGENT 8 行已并入上面的 A11Y_HOST_STEPS（R1–R4 同口径），这里另做 AGENT 专属变异。
+# 设备段：HmA11yUi 唯一 describe('HmA11yUi') 里 COMMON / FUNDS / AGENT 三个段函数各恰调一次、段函数从各自文件导入、
+# 段文件不另起 describe；AGENT 名单 device-cases.txt = A11Y_AGENT_DEVICE_CASES（同序）= 段内 it(A11Y_AGENT_DEVICE_CASES[i]) 下标 0..n-1 各一次。
+A11Y_SEGMENTS = [('a11yCommonCases', None), ('a11yFundsCases', './HmA11yFundsCases'), ('a11yAgentCases', './A11yAgentSeg')]
+
+
+def a11y_segment_registration_violations(suite, agent_seg, agent_txt):
+    v = []
+    if suite.count("describe('HmA11yUi'") != 1:
+        return ['S1 HmA11yUi.test.ets 应恰有一个 describe(\'HmA11yUi\')（实际 %d）' % suite.count("describe('HmA11yUi'")]
+    head, body = suite.split("describe('HmA11yUi'", 1)
+    depth, end = 0, None
+    for i, ch in enumerate(body):
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end is None:
+        return ['S1 describe(\'HmA11yUi\') 块没闭合（fail-closed）']
+    inner = '\n'.join(line for line in body[:end].split('\n') if not line.strip().startswith('//'))
+    outer = '\n'.join(line for line in (head + body[end:]).split('\n') if not line.strip().startswith('//'))
+    for fn, src in A11Y_SEGMENTS:
+        calls = re.findall(r'^\s*' + fn + r'\(\);\s*$', inner, re.M)
+        if len(calls) != 1:
+            v.append('S2 describe(\'HmA11yUi\') 里须恰调一次 %s()（实际 %d）' % (fn, len(calls)))
+        if re.search(r'\b' + fn + r'\(\)', outer.replace('export function ' + fn + '()', '')):
+            v.append('S2 %s() 不得在 describe(\'HmA11yUi\') 之外调用' % fn)
+        if src and ("import { %s } from '%s';" % (fn, src)) not in suite:
+            v.append('S3 HmA11yUi.test.ets 须 import { %s } from \'%s\'' % (fn, src))
+    if 'describe(' in '\n'.join(line for line in agent_seg.split('\n') if not line.strip().startswith('//')):
+        v.append('S3 A11yAgentSeg.ets 不得另起 describe（段函数只在 HmA11yUi 唯一 describe 里调用）')
+    if not re.search(r'^export function a11yAgentCases\(\): void \{$', agent_seg, re.M):
+        v.append('S3 A11yAgentSeg.ets 须导出 a11yAgentCases(): void')
+    listed = [x.strip() for x in agent_txt.splitlines() if x.strip() and not x.startswith('#')]
+    m = re.search(r"A11Y_AGENT_DEVICE_CASES: string\[\] = \[(.*?)\];", agent_seg, re.S)
+    const = re.findall(r"'([^']+)'", m.group(1)) if m else []
+    idx = sorted(int(i) for i in re.findall(r'\bit\(A11Y_AGENT_DEVICE_CASES\[(\d+)\]', agent_seg))
+    literal = re.findall(r"\bit\('", agent_seg)
+    if listed != const or len(set(listed)) != len(listed) or not all(x.startswith('a11y_agent_') for x in listed) or len(listed) != 5:
+        v.append('S4 AGENT 名单不一致：device-cases.txt %s / 常量 %s（同序、a11y_agent_ 前缀、无重复、5 条）' % (listed, const))
+    if idx != list(range(len(const))) or literal:
+        v.append('S4 A11yAgentSeg.ets 的 it(A11Y_AGENT_DEVICE_CASES[i]) 下标须 0..%d 各恰一次、不另写字面量 it（实际 %s / 字面量 %d）'
+                 % (len(const) - 1, idx, len(literal)))
+    return v
+
+
+class VerifyA11yAgentMerged(unittest.TestCase):
+    """HM-BATCH1-FREEZE 集成 2（#24 只加）：AGENT 段并进 FUNDS 已建的 HmA11yUi / entry-a11y 体系与登记自检。"""
+
+    root = Path(__file__).resolve().parents[3]
+
+    def texts(self):
+        t = self.root / 'entry/src/ohosTest/ets/test'
+        return ((t / 'HmA11yUi.test.ets').read_text(encoding='utf-8'), (t / 'A11yAgentSeg.ets').read_text(encoding='utf-8'),
+                (self.root / 'tools/ci/a11yagent/device-cases.txt').read_text(encoding='utf-8'))
+
+    def test_real_segments_registered(self):
+        self.assertEqual(a11y_segment_registration_violations(*self.texts()), [])
+        # 设备步仍是 entry-a11y 一步（AGENT 不另开设备步），名单 15 条落在该步。
+        verify = (self.root / 'tools/ci/verify.sh').read_text(encoding='utf-8')
+        self.assertEqual(sum(1 for line in verify.split('\n') if 'run_device_tests ' in line and ' entry-a11y class=HmA11yUi a11y' in line), 1)
+        self.assertEqual(len(expected_names('a11y')), 15)
+
+    def test_segment_mutations_are_killed(self):
+        suite, seg, txt = self.texts()
+        call = '    a11yAgentCases();\n'
+        imp = "import { a11yAgentCases } from './A11yAgentSeg';\n"
+        self.assertEqual((suite.count(call), suite.count(imp)), (1, 1))
+        first = re.search(r"  'a11y_agent_01_[a-z0-9_]+',\n", seg).group(0)
+        it1 = 'it(A11Y_AGENT_DEVICE_CASES[1],'
+
+        def s(old, new):
+            self.assertEqual(suite.count(old), 1, old)
+            return (suite.replace(old, new, 1), seg, txt)
+
+        def g(old, new):
+            self.assertEqual(seg.count(old), 1, old)
+            return (suite, seg.replace(old, new, 1), txt)
+
+        mutations = [
+            ('摘 a11yAgentCases() 调用', s(call, '')),
+            ('a11yAgentCases() 注释掉', s(call, '    // a11yAgentCases();\n')),
+            ('a11yAgentCases() 调两次', s(call, call + call)),
+            ('a11yAgentCases() 挪到 describe 之外', (suite.replace(call, '', 1).replace(
+                'export default function hmA11yUiTest() {\n', 'export default function hmA11yUiTest() {\n  a11yAgentCases();\n', 1), seg, txt)),
+            ('摘 a11yFundsCases() 调用', s('    a11yFundsCases();\n', '')),
+            ('摘 a11yCommonCases() 调用', s('    a11yCommonCases();\n', '')),
+            ('摘 AGENT import', s(imp, '')),
+            ('段文件另起 describe', g('export function a11yAgentCases(): void {\n',
+                                     "export function a11yAgentCases(): void {\n  describe('A11yAgent', () => {});\n")),
+            ('名单少一条', (suite, seg, txt.replace(first.strip().strip("',") + '\n', '', 1))),
+            ('常量多一条', g(first, first + "  'a11y_agent_06_extra',\n")),
+            ('it 下标重复', g(it1, 'it(A11Y_AGENT_DEVICE_CASES[0],')),
+            ('段内另写字面量 it', g(it1, "it('a11y_agent_extra', 0, async (): Promise<void> => {});\n  " + it1)),
+            ('HmA11yUi 多一个 describe', s("describe('HmA11yUi'", "describe('HmA11yUi', () => {});\n  describe('HmA11yUi'")),
+        ]
+        for name, (ms, mg, mt) in mutations:
+            self.assertNotEqual((ms, mg, mt), (suite, seg, txt), name)
+            got = a11y_segment_registration_violations(ms, mg, mt)
+            self.assertTrue(got, '变异「%s」没被段登记自检杀' % name)
+            print('KILLED a11y 段登记变异 %s ← %s' % (name, got[0]))
+        benign = [
+            ('AGENT 段调用前加注释', s(call, '    // 注释\n' + call)),
+            ('FUNDS 与 AGENT 段调用对调', (suite.replace('    a11yFundsCases();\n', '@@F@@', 1).replace(
+                call, '    a11yFundsCases();\n', 1).replace('@@F@@', call, 1), seg, txt)),
+        ]
+        for name, (ms, mg, mt) in benign:
+            self.assertNotEqual((ms, mg, mt), (suite, seg, txt), name)
+            self.assertEqual(a11y_segment_registration_violations(ms, mg, mt), [], '良性改写「%s」被误报' % name)
+            print('BENIGN a11y 段登记 %s：0 违反' % name)
+
+    def test_agent_host_step_mutations_are_killed(self):
+        source = (self.root / 'tools/ci/verify.sh').read_text(encoding='utf-8')
+        start = source.index('step "FU-HM-A11Y-AGENT 宿主检查"\n')
+        end = source.index('\n', source.index('record "FU-HM-A11Y-AGENT 宿主检查" PASS ')) + 1
+        block = source[start:end]
+        funds = source[source.index('step "FU-HM-A11Y-FUNDS 宿主检查"\n'):
+                       source.index('\n', source.index('record "FU-HM-A11Y-FUNDS 宿主检查" PASS ')) + 1]
+        body = 'python3 "$ROOT/tools/ci/a11yagent/check_a11y_agent.py" ||'
+        tap = 'node "$ROOT/tools/ci/a11yagent/run-tap.cjs" ||'
+
+        def line_of(prefix):
+            hits = [line for line in source.split('\n') if line.startswith(prefix)]
+            self.assertEqual(len(hits), 1, prefix)
+            return hits[0] + '\n'
+
+        def sub(old, new):
+            self.assertEqual(source.count(old), 1, old)
+            return source.replace(old, new, 1)
+
+        mutations = [
+            ('摘 a11yagent 整步', sub(block, '')),
+            ('只摘 a11yagent 本体行', sub(line_of(body), '')),
+            ('摘 a11yagent 自测行', sub(line_of('python3 "$ROOT/tools/ci/a11yagent/check_a11y_agent.py" --self-test'), '')),
+            ('摘 run-tap 本体行', sub(line_of(tap), '')),
+            ('摘 run-tap 自测行', sub(line_of('node "$ROOT/tools/ci/a11yagent/run-tap.cjs" --self-test'), '')),
+            ('摘 ArkTS 参照件行', sub(line_of('node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" --fixtures'), '')),
+            ('a11yagent 本体行改 || true', sub(line_of(body), body.replace(' ||', ' || true\n'))),
+            ('run-tap 本体行挪进 if false', sub(line_of(tap), 'if false; then\n' + line_of(tap) + 'fi\n')),
+            ('a11yagent 整步挪到 --fast 早退之后', source.replace(block, '', 1).replace(
+                '\nrun_unit_tests generated common/generated\n', '\n' + block + 'run_unit_tests generated common/generated\n', 1)),
+            ('a11yagent 步排到 a11yfunds 之前', source.replace(block, '', 1).replace(funds, block + funds, 1)),
+        ]
+        for name, mutated in mutations:
+            self.assertNotEqual(mutated, source, name)
+            got = a11y_host_registration_violations(mutated)
+            self.assertTrue(got, '变异「%s」没被登记自检杀' % name)
+            print('KILLED a11yagent 宿主登记变异 %s ← %s' % (name, got[0]))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

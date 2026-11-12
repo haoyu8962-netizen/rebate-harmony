@@ -486,9 +486,29 @@ function checkProductCard() {
   }
 
   // P2-click：整个文件不接按压 / 点击（防吞页面外层 .onClick：SearchView / HomeCards / ClipboardViews，书 §7）。
+  // FU-HM-A11Y-AGENT（#24 换判据，PRODUCT-CELL 评审 S3-2 / D10-1248 ⑦）：唯一例外是信息组（accessibilityGroup + cellLabel）自身的 .onClick，
+  // 且只在 openable=true 时可达（读屏双击信息组 = onOpen）；openable=false 的四个变体里任何可达的 .onClick 照旧红。
+  const staticReach = new Set();
+  const cellClicks = new Set();
+  for (const variant of Object.keys(VARIANTS)) {
+    for (const open of [false, true]) {
+      for (const ev of reach(owner, { variant: variant, openable: open })) {
+        if (ev.kind !== 'comp') { continue; }
+        const isCell = ev.attrs.some((c) => c.name === 'accessibilityText' && c.args[0]
+          && resolvesTo(c.args[0], CELL_LABEL, owner, 0)) && ev.attrs.some((c) => c.name === 'accessibilityGroup');
+        for (const c of ev.attrs) {
+          if (c.name !== 'onClick') { continue; }
+          if (!open) { staticReach.add(c.node); }
+          if (open && isCell) { cellClicks.add(c.node); }
+        }
+      }
+    }
+  }
   for (const n of collect(sf, (x) => ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)
     && PRESS_ATTRS.includes(x.expression.name.text) && !isThis(x.expression.expression))) {
-    report('P2-click', n, 'ProductCard.ets 出现 .' + n.expression.name.text + '(（组件内接点击 / 按压会吞掉页面外层 .onClick；整卡按压只经 CouliCard 可点版、受 openable 管）');
+    if (n.expression.name.text === 'onClick' && cellClicks.has(n) && !staticReach.has(n)) { continue; }
+    report('P2-click', n, 'ProductCard.ets 出现 .' + n.expression.name.text + '(（组件内接点击 / 按压会吞掉页面外层 .onClick；整卡按压只经 CouliCard 可点版、受 openable 管；'
+      + '唯一例外：openable=true 时信息组自身的 .onClick → onOpen）');
   }
   for (const n of collect(sf, (x) => ts.isIdentifier(x) && PRESS_IDS.includes(x.text)
     && !(ts.isImportSpecifier(x.parent)))) {
@@ -514,7 +534,7 @@ function checkProductCard() {
   const cellFn = a11y ? a11y.members.find((m) => ts.isMethodDeclaration(m) && memberName(m) === 'cellLabel') : null;
   if (!cellFn || !(cellFn.modifiers || []).some((x) => x.kind === ts.SyntaxKind.StaticKeyword) || cellFn.parameters.length !== 1
     || !cellFn.type || cellFn.type.getText() !== 'string') {
-    report('P4-fn', cellFn || a11y, 'ProductCardA11y 应有 static cellLabel(data: ProductCardData): string（信息区整块读屏名「平台，标题，价格，返利」）', PRODUCT);
+    report('P4-fn', cellFn || a11y, 'ProductCardA11y 应有 static cellLabel(data: ProductCardData): string（信息区整块读屏名「平台，标题，看得见的优惠标签，价格，返利」；预售只读一次、「暂无返利」不读，D10-1248 ⑦ / D10-1328 ①）', PRODUCT);
   }
 
   // 可达界面：4 变体 × openable 两值。
@@ -678,12 +698,22 @@ function checkProductCard() {
 }
 
 // ---------------------------------------------------------------- P2-page 页面零改动
+// FU-HM-A11Y-AGENT（#24）：Agent 没有流程单，AI 卡由本单切 openable（README 待编排 ① / D10-1248 ⑦）；其余页面照旧零改动。
+// D10-1339 ①（点名）：只放行「AgentCards.ets 里 struct AgentProductItem 的 ProductCard 调用点」；同文件别的 struct、别的页面传了照样红。
+const OPENABLE_SITES = [{ file: 'features/agent/src/main/ets/AgentCards.ets', struct: 'AgentProductItem' }];
+function openableSite(rel, call) {
+  let owner = null;
+  for (let p = call.parent; p; p = p.parent) { if (ts.isStructDeclaration(p)) { owner = p; break; } }
+  const name = owner && owner.name ? owner.name.text : '';
+  return OPENABLE_SITES.some((s) => s.file === rel && s.struct === name);
+}
 function checkPages() {
   for (const rel of input.scan || []) {
     const sf = parse(rel);
     if (!sf) { continue; }
     for (const c of collect(sf, (n) => (ts.isEtsComponentExpression(n) || ts.isCallExpression(n)) && n.expression.getText() === 'ProductCard'
       && n.arguments && n.arguments[0] && ts.isObjectLiteralExpression(n.arguments[0]))) {
+      if (openableSite(rel, c)) { continue; }
       for (const name of ['openable', 'onOpen']) {
         const prop = property(c.arguments[0], name);
         if (prop) {

@@ -20,6 +20,7 @@ import { backToTabs, safeTexts, tabItem, T_ORDERS_TAB } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
 import { waitUntil } from './FlakeKit';
 import { a11yFundsCases } from './HmA11yFundsCases';
+import { a11yAgentCases } from './A11yAgentSeg';
 
 /** 与 tools/ci/a11ycommon/device-cases.txt、ds02/check_device_result.py --set a11y（#24）一致。 */
 export const A11Y_COMMON_DEVICE_CASES: string[] = [
@@ -364,6 +365,9 @@ export default function hmA11yUiTest() {
     a11yCommonCases();
     // FU-HM-A11Y-FUNDS（FU-HM-A11Y-03 / 04 / 05 / 08 / 19；段与名单在 HmA11yFundsCases.ets、tools/ci/a11yfunds/device-cases.txt）
     a11yFundsCases();
+    // FU-HM-A11Y-AGENT（FU-HM-A11Y-10 / 12 / 14 / 17 / 18 / 20；段与名单在 A11yAgentSeg.ets、tools/ci/a11yagent/device-cases.txt；
+    // HM-BATCH1-FREEZE 集成 2 #24 只加，按集成顺序排在 FUNDS 段之后）
+    a11yAgentCases();
     // FU-HM-A11Y-HOME-SEARCH / FUNDS / AGENT：各在此调一次自己的段函数（集成时合并）。
   });
 }

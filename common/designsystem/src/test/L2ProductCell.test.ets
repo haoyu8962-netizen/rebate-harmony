@@ -10,6 +10,8 @@
 //   ProductCard 信息区 .accessibilityText 用它（宿主 tools/ci/l2cell P4-info 钉接线）。
 //
 // 期望值是字面量（与 Hm07vHomeTile 同一套读法写法），不在测试里拼产品同款函数；c7 才拿 scrollTileLabel 比「口径一致」。
+// FU-HM-A11Y-AGENT（#24，编排裁定 D10-1248 ⑦ / PRODUCT-CELL 评审 S3-1）：c8 读看得见的——信息区里显示的优惠标签照读（在标题后、价格前，预售只读一次），
+// 列表 / 网格隐藏的「暂无返利」不读；横滑卡 scrollTileLabel 同改（不显示标签就不读标签、暂无返利不读，Hm07vHomeTile 同步），三类卡读法一致。
 // 不依赖时区：断言不涉及取价时间。
 import { describe, it, expect } from '@ohos/hypium';
 import { DefaultTexts } from 'generated';
@@ -17,7 +19,7 @@ import {
   BuyButtonModel, BuyButtonState, BuyContext, CardAmountMask, EstNetModel, PriceTagModel, RebateTagContent, RebateTagModel
 } from '../main/ets/format/PriceModels';
 import { ProductCardMapper, ProductCardTexts } from '../main/ets/format/ProductCardMapper';
-import { ProductCardA11y, ProductCardData } from '../main/ets/components/ProductCard';
+import { ProductCardA11y, ProductCardData, ProductTag } from '../main/ets/components/ProductCard';
 
 const NOW: number = 1794022200000;
 /** 契约字典 btn.buy（D10-1177 ②：金额隐藏且动词含本卡金额时回落到它）。 */
@@ -235,6 +237,35 @@ export default function l2ProductCellTest() {
         same('case ' + i, ProductCardA11y.cellLabel(c), ProductCardA11y.scrollTileLabel(c, null));
         same('case ' + i + ' 非空且以平台开头', ProductCardA11y.cellLabel(c).indexOf(c.platformLabel) === 0 && c.platformLabel.length > 0, true);
       });
+    });
+
+    // FU-HM-A11Y-AGENT（#24；D10-1248 ⑦，PRODUCT-CELL 评审 S3-1）：读看得见的权益、不读视觉隐藏文字。
+    it('l2cell_c8_cell_label_reads_visible_tags_not_hidden_no_rebate', 0, () => {
+      // 信息区标签行显示的优惠标签（benefit_tags）照读，顺序同视觉：标题后、价格前；横滑卡不显示标签，scrollTileLabel 不读。
+      const tagged: ProductCardData = nuts();
+      tagged.tags = [new ProductTag('包邮'), new ProductTag('退货包运费')];
+      same('带标签', ProductCardA11y.cellLabel(tagged), '淘宝，林间果 每日坚果 30袋，包邮，退货包运费，券后 19.9 元，券前 22.9 元，券 3 元，预估返 1.1 元');
+      same('横滑卡不显示标签也不读', ProductCardA11y.scrollTileLabel(tagged, null), ProductCardA11y.cellLabel(nuts()));
+      // 预售：标签行里的「预售」与价格读法里的「预售」是同一个，只读一次；调用方误写的「预售」文字标签同样不重读。
+      const presale: ProductCardData = data('taobao', '淘宝', '东北长粒香大米 10kg 新米 预售款', 8800, 0, true, 'normal', 321, 321);
+      presale.tags = [new ProductTag('包邮'), ProductTag.presaleSlot(), new ProductTag('预售')];
+      const p: string = ProductCardA11y.cellLabel(presale);
+      same('预售只读一次（标题里的「预售款」不算）', occurrences(p, '预售') - occurrences(p, '预售款'), 1);
+      same('预售卡读出包邮', p.indexOf('包邮') > p.indexOf('预售款'), true);
+      // 映射来的真实卡（benefit_tags 原样进标签行）。
+      const m: ProductCardData = mapped(',"benefit_tags":["有券","包邮"]');
+      same('映射卡读标签', ProductCardA11y.cellLabel(m).indexOf('洗衣液 3kg，有券，包邮，') > 0, true);
+      // 列表 / 网格 / AI 卡隐藏「暂无返利」（BR-TEXT-10），读屏也不读；横滑卡（返利块不显示）同样不读。
+      const none: ProductCardData = data('taobao', '淘宝', '加厚双层', 980, 100, false, 'no_rebate', 0, 0);
+      same('暂无返利不读', ProductCardA11y.cellLabel(none), '淘宝，加厚双层，券后 8.8 元，券前 9.8 元，券 1 元');
+      same('横滑卡暂无返利不读', ProductCardA11y.scrollTileLabel(none, null), '淘宝，加厚双层，券后 8.8 元，券前 9.8 元，券 1 元');
+      const noneMapped: ProductCardData = mapped(',"rebate_basis":"no_rebate","rebate_min_fen":0,"rebate_max_fen":0,"cta":{"text_key":"btn.buy.no_rebate"}');
+      lacks('映射 no_rebate 读屏名', ProductCardA11y.cellLabel(noneMapped), '暂无返利');
+      // 金额隐藏、amount_unknown 照旧（可见的「预估返 ****」「可返利，金额以订单为准」照读）。
+      const hidden: ProductCardData = nuts();
+      hidden.tags = [new ProductTag('包邮')];
+      hidden.amountHidden = true;
+      same('带标签 + 金额隐藏', ProductCardA11y.cellLabel(hidden), '淘宝，林间果 每日坚果 30袋，包邮，券后 19.9 元，券前 22.9 元，券 3 元，' + HIDDEN_REBATE);
     });
   });
 }

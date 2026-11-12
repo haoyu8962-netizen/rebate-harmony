@@ -386,6 +386,22 @@ node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" || fail_fast "a11yfunds-logic" "�
 node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs" || fail_fast "a11yfunds-arkts" "WithdrawA11y / HmA11yFundsCases 与参照件 ArkTS 严格检查失败"
 record "FU-HM-A11Y-FUNDS 宿主检查" PASS "金额错误关联与移焦 / 被拒不重建 / 小眼睛焦点 / 二次验证标题 / 标签只读一次 / 资金页只动视图（自测）/ 纯逻辑 / ArkTS"
 
+# FU-HM-A11Y-AGENT（QA-12b FU-HM-A11Y-10 / 12 / 14 / 17 / 18 / 20；D10-1248 ⑦⑬）：商品卡 openable 时信息组是按钮、读屏激活即 onOpen（不可点时与基线一致）、
+# AI 卡切 openable、输入框 / 举报补充说明固定读屏名、页面 / 同意 / 举报标题 TITLE_BAR 与弹层移焦回焦、举报入口 id 每条唯一、赞踩举报读屏名带行标识、
+# 装饰圆点对读屏隐藏（先自测：参照件全过、变异逐个打红、良性改写不误报）；行标识纯逻辑 node 执行；测试与参照件 ArkTS 严格检查。
+step "FU-HM-A11Y-AGENT 宿主检查"
+python3 "$ROOT/tools/ci/a11yagent/check_a11y_agent.py" --self-test || fail_fast "a11yagent-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/a11yagent/check_a11y_agent.py" || fail_fast "a11yagent-host" "见上方违反项"
+node "$ROOT/tools/ci/a11yagent/run-logic.cjs" --self-test || fail_fast "a11yagent-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/a11yagent/run-logic.cjs" || fail_fast "a11yagent-logic" "见上方用例"
+# D10-1339 ③：点信息区进详情恰一次（外壳与信息组不各触发一次）、读屏双击信息组恰一次、openable=false 不吞外层点击——真实 ProductCard /
+# CouliCard / CouliPressable 展开成组件树、按 ArkUI 手势竞争派发（替身；真机见 l2cell_02 / a11y_agent_01）。
+node "$ROOT/tools/ci/a11yagent/run-tap.cjs" --self-test || fail_fast "a11yagent-tap 自测" "见上方输出"
+node "$ROOT/tools/ci/a11yagent/run-tap.cjs" || fail_fast "a11yagent-tap" "见上方用例"
+node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" || fail_fast "a11yagent-arkts" "A11yAgentReplyTag / A11yAgentCellLabel / A11yAgentSeg ArkTS 严格检查失败"
+node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" --fixtures || fail_fast "a11yagent-arkts 参照件" "参照件 ArkTS 严格检查失败"
+record "FU-HM-A11Y-AGENT 宿主检查" PASS "商品卡读屏激活 / AI 卡 openable / 输入框标签 / 弹层标题移焦回焦 / 行标识 / 圆点（自测）/ 纯逻辑 / 点一次（执行级）/ ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。

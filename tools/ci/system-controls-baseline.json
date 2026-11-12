@@ -8,7 +8,7 @@
     "entry/src/main/ets/trade/TradeOverlay.ets": 3,
     "entry/src/main/ets/update/ForceUpdatePage.ets": 1,
     "entry/src/main/ets/update/UpdatePrompt.ets": 1,
-    "features/agent/src/main/ets/AgentCards.ets": 2,
+    "features/agent/src/main/ets/AgentCards.ets": 1,
     "features/agent/src/main/ets/AgentConsentDialog.ets": 1,
     "features/agent/src/main/ets/AgentTabRoot.ets": 4,
     "features/auth/src/main/ets/BindPhoneView.ets": 2,

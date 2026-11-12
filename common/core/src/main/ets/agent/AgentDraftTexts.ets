@@ -52,6 +52,7 @@ export class AgentDraftTexts {
     m.set('agent.draft.chip.paste', '粘贴查返利');
     m.set('agent.draft.chip.orders', '查订单');
     m.set('agent.draft.input_placeholder', '说说想买什么，或粘贴商品链接');
+    m.set('agent.draft.input_label', '给 AI 助手发消息');
     m.set('agent.draft.send', '发送');
     m.set('agent.draft.stop', '停止');
     m.set('agent.draft.disconnected', '连接中断');

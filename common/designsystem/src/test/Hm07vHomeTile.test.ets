@@ -64,8 +64,9 @@ export default function hm07vHomeTileTest() {
 
     it('hm07v_scroll_label_no_rebate_range_and_pdd_terms', 0, () => {
       const none: ProductCardData = data('taobao', '淘宝', '加厚双层', 980, 100, false, 'no_rebate', 0, 0);
+      // FU-HM-A11Y-AGENT（#24，D10-1248 ⑦）：横滑卡不显示「暂无返利」，读屏也不读（三类卡读法一致）。
       expect(ProductCardA11y.scrollTileLabel(none, '推广'))
-        .assertEqual('推广，淘宝，加厚双层，券后 8.8 元，券前 9.8 元，券 1 元，暂无返利');
+        .assertEqual('推广，淘宝，加厚双层，券后 8.8 元，券前 9.8 元，券 1 元');
       const range: ProductCardData = data('pdd', '拼多多', '厨房纸巾 4 卷', 1290, 300, false, 'normal', 135, 269);
       expect(ProductCardA11y.scrollTileLabel(range, null))
         .assertEqual('拼多多，厨房纸巾 4 卷，拼单券后 9.9 元，拼单券前 12.9 元，券 3 元，预估返 1.35 元到2.69 元');

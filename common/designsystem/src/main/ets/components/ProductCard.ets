@@ -106,10 +106,31 @@ export class ProductCardA11y {
    * 首页横滑卡（HM-07v H9）的整卡读屏名：横滑卡不显示标题与来源标签（Main-v3），读屏仍读「[推广标识]，平台，标题，价格，返利」。
    * 推广标识是服务端原文（BR-TEXT-17，去首尾空白，空则不读）；价格按 PriceTagModel 的读法（含副行、预售与预售说明）；
    * 价格不可用只读提示句、不读任何金额（BR-PRICE-01）；amount_unknown 不读价格、只读「可返利，金额以订单为准」（BR-PRICE-08）；
-   * 平台 not_launched 不读返利（共性 31）；金额隐藏按 CardAmountMask。
-   * 不拼图片占位文字、口径 i 的读屏名等装饰。
+   * 平台 not_launched 不读返利（共性 31）；金额隐藏按 CardAmountMask。暂无返利（basis=no_rebate）卡上不显示，也不读（D10-1248 ⑦）。
+   * 横滑卡不显示优惠标签，也不读。不拼图片占位文字、口径 i 的读屏名等装饰。
    */
   static scrollTileLabel(data: ProductCardData, adLabel: string | null): string {
+    return ProductCardA11y.spoken(data, adLabel, []);
+  }
+
+  /**
+   * 列表 / AI / 网格卡信息区（图 + 标题 + 标签 + 价格 + 返利）的整块读屏名「平台，标题，优惠标签，价格，返利」（HM-L2-PRODUCT-CELL；
+   * D10-1248 ⑦：读看得见的——标签行里的优惠标签照读、预售只读一次（价格读法里已有），暂无返利不显示也不读），与 scrollTileLabel 同一口径，
+   * 不带推广标识；不读预估返后（DETAIL-V3 U1）、图片占位、口径 i 与按钮文字。
+   */
+  static cellLabel(data: ProductCardData): string {
+    // 标签行看得见什么就读什么（ProductCardTags.compose：调用方误写的「预售」已去掉，预售时在占位处放一个「预售」）。
+    // 预售只读一次：展示价格时价格读法里已含「预售」，标签行的那一个不重读；不展示价格（价格不可用、amount_unknown，含平台 not_launched）
+    // 时价格读法不出现，按标签行位置读这一个（Codex r1 S3）。
+    const presale: string | null = data.price.presaleLabel;
+    const priceSpoken: boolean = !data.priceUnavailable && data.rebate.kindRaw !== 'unknown';
+    const tags: string[] = ProductCardTags.compose(data.tags, data.price)
+      .filter((t: ProductTag): boolean => !(priceSpoken && presale !== null && t.label === presale))
+      .map((t: ProductTag): string => t.label.trim());
+    return ProductCardA11y.spoken(data, null, tags);
+  }
+
+  private static spoken(data: ProductCardData, adLabel: string | null, tags: string[]): string {
     const parts: string[] = [];
     const ad: string = adLabel === null ? '' : adLabel.trim();
     if (ad.length > 0) {
@@ -117,6 +138,9 @@ export class ProductCardA11y {
     }
     parts.push(data.platformLabel);
     parts.push(data.title);
+    for (const tag of tags) {
+      parts.push(tag);
+    }
     if (data.priceUnavailable) {
       parts.push(data.priceUnavailableText);
     } else if (data.rebate.kindRaw === 'unknown') {
@@ -126,20 +150,11 @@ export class ProductCardA11y {
       }
     } else {
       parts.push(PriceTagModel.spoken(data.price, true, PresaleDisplay.INLINE));
-      if (!data.rebateHidden) {
+      if (!data.rebateHidden && data.rebate.kindRaw !== 'none') {
         parts.push(CardAmountMask.rebate(data.rebate, data.amountHidden).spokenText);
       }
     }
     return parts.filter((p: string): boolean => p.length > 0).join(PriceTerms.comma);
-  }
-
-  /**
-   * 列表 / AI / 网格卡信息区（图 + 标题 + 标签 + 价格 + 返利）的整块读屏名「平台，标题，价格，返利」（HM-L2-PRODUCT-CELL）：
-   * 与 scrollTileLabel 同一口径（价格不可用、amount_unknown、not_launched、金额隐藏同规则），不带推广标识；
-   * 不读预估返后（DETAIL-V3 U1 列表卡不显示）、图片占位、口径 i 与按钮文字（购买按钮、口径 i 各自单独一项）。
-   */
-  static cellLabel(data: ProductCardData): string {
-    return ProductCardA11y.scrollTileLabel(data, null);
   }
 }
 
@@ -446,39 +461,60 @@ export struct ProductCard {
     }
   }
 
+  /** 列表 / AI 卡信息区内容（图 + 标题 + 标签 + 价格 + 返利）。 */
   @Builder
-  listBody() {
-    Column({ space: CouliSpacing.space2 }) {
-      // 信息区（图 + 标题 + 标签 + 价格 + 返利）读屏合一项「平台，标题，价格，返利」；购买按钮与口径 i 在区外，各自单独一项。
-      Column({ space: CouliSpacing.space2 }) {
-        Row({ space: CouliSpacing.space3 }) {
-          this.image(96)
-          Column({ space: CouliSpacing.space1 }) {
-            Column() {
-              this.title(TextStyleKind.LIST)
-            }
-            .padding({ right: this.variant === ProductCardVariant.AI ? 28 : 0 })
-
-            this.tagRow()
-            if (!this.widePrice()) {
-              this.priceBlock()
-            }
-          }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
+  listInfo() {
+    Row({ space: CouliSpacing.space3 }) {
+      this.image(96)
+      Column({ space: CouliSpacing.space1 }) {
+        Column() {
+          this.title(TextStyleKind.LIST)
         }
-        .alignItems(VerticalAlign.Top)
-        .width('100%')
+        .padding({ right: this.variant === ProductCardVariant.AI ? 28 : 0 })
 
-        // 大字号：价格区占整卡宽（金额段不拆、不裁切，放不下时整块换行；Android 第 2 轮评审，三端统一）。
-        if (this.widePrice()) {
+        this.tagRow()
+        if (!this.widePrice()) {
           this.priceBlock()
         }
       }
       .alignItems(HorizontalAlign.Start)
-      .width('100%')
-      .accessibilityGroup(true)
-      .accessibilityText(ProductCardA11y.cellLabel(this.data))
+      .layoutWeight(1)
+    }
+    .alignItems(VerticalAlign.Top)
+    .width('100%')
+
+    // 大字号：价格区占整卡宽（金额段不拆、不裁切，放不下时整块换行；Android 第 2 轮评审，三端统一）。
+    if (this.widePrice()) {
+      this.priceBlock()
+    }
+  }
+
+  @Builder
+  listBody() {
+    Column({ space: CouliSpacing.space2 }) {
+      // 信息区（图 + 标题 + 标签 + 价格 + 返利）读屏合一项「平台，标题，价格，返利」；购买按钮与口径 i 在区外，各自单独一项。
+      // openable（FU-HM-A11Y-10 / PRODUCT-CELL S3-2）：信息区是按钮、读屏双击直接回调 onOpen；不可点时与原来一致（不接点击，不吞页面外层 .onClick）。
+      if (this.openable) {
+        Column({ space: CouliSpacing.space2 }) {
+          this.listInfo()
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .accessibilityGroup(true)
+        .accessibilityText(ProductCardA11y.cellLabel(this.data))
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .onClick(() => {
+          this.onOpen();
+        })
+      } else {
+        Column({ space: CouliSpacing.space2 }) {
+          this.listInfo()
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .accessibilityGroup(true)
+        .accessibilityText(ProductCardA11y.cellLabel(this.data))
+      }
 
       // 底行：左口径说明，右按钮；放不下时按钮整块换到下一行靠右（两侧各自 flexGrow，按钮在右侧容器里靠右）。
       Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
@@ -545,27 +581,47 @@ export struct ProductCard {
     }
   }
 
+  /** 网格卡信息区内容（图 + 标题 + 标签 + 价格）。 */
+  @Builder
+  gridInfoBody() {
+    this.image('100%')
+    this.title(TextStyleKind.LIST)
+    this.tagRow()
+    if (this.data.priceUnavailable) {
+      this.unavailableNote(CouliTypography.caption)
+    }
+    if (!this.noPrice()) {
+      PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })
+      this.subLines()
+    }
+  }
+
   @Builder
   gridBody() {
     Column({ space: CouliSpacing.space2 }) {
       // 信息区（图 + 标题 + 标签 + 价格）读屏合一项「平台，标题，价格，返利」（返利已在读屏名里，下方返利块 spoken: false；
       // 口径 i、购买按钮在区外，各自单独一项）。
-      Column({ space: CouliSpacing.space2 }) {
-        this.image('100%')
-        this.title(TextStyleKind.LIST)
-        this.tagRow()
-        if (this.data.priceUnavailable) {
-          this.unavailableNote(CouliTypography.caption)
+      if (this.openable) {
+        Column({ space: CouliSpacing.space2 }) {
+          this.gridInfoBody()
         }
-        if (!this.noPrice()) {
-          PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })
-          this.subLines()
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .accessibilityGroup(true)
+        .accessibilityText(ProductCardA11y.cellLabel(this.data))
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
+        .onClick(() => {
+          this.onOpen();
+        })
+      } else {
+        Column({ space: CouliSpacing.space2 }) {
+          this.gridInfoBody()
         }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .accessibilityGroup(true)
+        .accessibilityText(ProductCardA11y.cellLabel(this.data))
       }
-      .alignItems(HorizontalAlign.Start)
-      .width('100%')
-      .accessibilityGroup(true)
-      .accessibilityText(ProductCardA11y.cellLabel(this.data))
 
       if (!this.noPrice() && !this.showsRebate()) {
         // 不显示返利块（暂无返利、平台 not_launched）时，价格口径 i 仍保留在价格副行下（BR-PRICE-03；APP-11v Android 评审 r1 S1）。

@@ -151,6 +151,7 @@ import { RouteTable } from '../../Index';
 import { TestDebugRoutes } from './TestDebugRoutes';
 import loginPhoneLayoutTest from './LoginPhoneLayout.test';
 import a11yCommonLogicTest from './A11yCommon.test';
+import a11yAgentReplyTagTest from './A11yAgentReplyTag.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -319,4 +320,6 @@ export default function testsuite() {
   loginPhoneLayoutTest();
   // FU-HM-A11Y-COMMON（#24 只加；D10-1248 ⑨ / D10-1275）：复制按钮读「复制订单号 {no}」、键 order_list.copy_label「复制」。
   a11yCommonLogicTest();
+  // FU-HM-A11Y-AGENT（#24 只加；D10-1248 ⑬）：AI 回复行操作的行标识（本条正文前 12 字）。
+  a11yAgentReplyTagTest();
 }
