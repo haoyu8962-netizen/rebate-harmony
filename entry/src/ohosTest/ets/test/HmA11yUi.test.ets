@@ -19,6 +19,7 @@ import { check, GUEST, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts, tabItem, T_ORDERS_TAB } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
 import { waitUntil } from './FlakeKit';
+import { a11yFundsCases } from './HmA11yFundsCases';
 
 /** 与 tools/ci/a11ycommon/device-cases.txt、ds02/check_device_result.py --set a11y（#24）一致。 */
 export const A11Y_COMMON_DEVICE_CASES: string[] = [
@@ -361,6 +362,8 @@ export default function hmA11yUiTest() {
   describe('HmA11yUi', () => {
     // FU-HM-A11Y-COMMON（三端共性 ①③④）
     a11yCommonCases();
+    // FU-HM-A11Y-FUNDS（FU-HM-A11Y-03 / 04 / 05 / 08 / 19；段与名单在 HmA11yFundsCases.ets、tools/ci/a11yfunds/device-cases.txt）
+    a11yFundsCases();
     // FU-HM-A11Y-HOME-SEARCH / FUNDS / AGENT：各在此调一次自己的段函数（集成时合并）。
   });
 }

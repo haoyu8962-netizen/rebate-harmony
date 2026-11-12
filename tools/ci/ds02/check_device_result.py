@@ -19,7 +19,8 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
   --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
   --set loginphone  绑定手机号 / 短信登录适配与出错读屏单独步（FU-HM-LOGIN-PHONE-LAYOUT 测试 v1：6 条 tools/ci/loginphone/device-cases.txt），且只能是这 6 条
-  --set a11y    FU-HM-A11Y 共用套件 HmA11yUi 单独步（COMMON 段 5 条 tools/ci/a11ycommon/device-cases.txt；其余三单集成时并入），且只能是这些
+  --set a11y    FU-HM-A11Y 共用套件 HmA11yUi 单独步（COMMON 段 5 条 tools/ci/a11ycommon/device-cases.txt + FUNDS 段 5 条
+                tools/ci/a11yfunds/device-cases.txt；其余两单集成时并入），且只能是这些
   --set l2      子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui（HM-L2-CARD 8 条 tools/ci/l2card/device-cases.txt + HM-L2-SKELETON 6 条
                 tools/ci/l2skeleton/device-cases.txt + HM-L2-BUTTON 7 条 + HM-L2-PRICE-TAG 5 条 + HM-L2-STATE 7 条），且只能是这 33 条；verify 不单列此步（⑩）
                 （HM-L2 批 1 集成：class=Ds02L2Ui 跑的是唯一 describe 里的全部段，所以 l2 = 四段并集 14 → 26）
@@ -29,6 +30,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 HM-L2-PRODUCT-CELL（#24 只加）：+ cell 段 9 条，合集 323 → 332（= 288 + CouliCard 渲染 2 + Ds02L2Ui 42）
                 FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：+ 单独步 loginphone 6 条（tools/ci/loginphone/device-cases.txt），合集 332 → 338
                 FU-HM-A11Y-COMMON（#24 只加）：+ 单独步 a11y 5 条（tools/ci/a11ycommon/device-cases.txt），合集 338 → 343
+                FU-HM-A11Y-FUNDS（#24 只加）：+ a11y 步 FUNDS 段 5 条（tools/ci/a11yfunds/device-cases.txt），a11y 5 → 10，合集 343 → 348
 """
 import collections
 import csv
@@ -99,8 +101,12 @@ def tabbar_names():
 
 def a11y_names():
     """FU-HM-A11Y：共用套件 HmA11yUi 的设备用例（COMMON 段名单与 HmA11yUi.test.ets 的 A11Y_COMMON_DEVICE_CASES 一致；其余三单集成时各加一份名单）。"""
-    return {line.strip() for line in (Path(__file__).parents[1] / 'a11ycommon/device-cases.txt').read_text().splitlines()
-            if line.strip() and not line.startswith('#')}
+    names = set()
+    # FU-HM-A11Y-FUNDS（#24 只加）：FUNDS 段名单并入（与 HmA11yFundsCases.ets 的 A11Y_FUNDS_DEVICE_CASES 一致）。
+    for rel in ('a11ycommon/device-cases.txt', 'a11yfunds/device-cases.txt'):
+        names |= {line.strip() for line in (Path(__file__).parents[1] / rel).read_text().splitlines()
+                  if line.strip() and not line.startswith('#')}
+    return names
 
 
 def loginphone_names():

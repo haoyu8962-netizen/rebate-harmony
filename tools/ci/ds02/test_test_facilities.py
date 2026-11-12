@@ -291,7 +291,8 @@ run_device_tests core common/core core_test
         # HM-L2-PRODUCT-CELL（#24 只加）：cell 段 9 条（tools/ci/l2cell/device-cases.txt）叠在 STATE 段之后，目录不增行；合集 323 → 332。
         # FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：单独步 loginphone 6 条（tools/ci/loginphone/device-cases.txt）进合集；332 → 338。
         # FU-HM-A11Y-COMMON（#24 只加）：单独步 a11y 5 条（tools/ci/a11ycommon/device-cases.txt）进合集；338 → 343。
-        self.assertEqual(len(names), 343)
+        # FU-HM-A11Y-FUNDS（#24 只加）：a11y 步 FUNDS 段 5 条（tools/ci/a11yfunds/device-cases.txt）进合集；343 → 348。
+        self.assertEqual(len(names), 348)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -327,8 +328,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 343)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 343)
+        self.assertEqual(validate(report(names)), 348)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 348)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -409,7 +410,8 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
         self.assertEqual(len(loginphone), 6)
-        self.assertEqual(len(a11y), 5)
+        # FU-HM-A11Y-FUNDS（#24 只加）：COMMON 5 + FUNDS 5。
+        self.assertEqual(len(a11y), 10)
         self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | a11y, every)
         self.assertEqual(loginphone & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar), set())
         # FU-HM-A11Y-COMMON（#24 只加）：a11y 与其余各步不相交。
@@ -808,6 +810,204 @@ run_device_tests core common/core core_test
                 print('REFERENCE_ONLY resource mutant killed: ' + bad)
                 dark.write_text(original)
             assert_resource_palette(self, root)
+
+
+# FU-HM-A11Y-FUNDS（#24 只加，补复核 S1 / S3-1）：verify.sh 登记自检。a11ycommon / a11yfunds 宿主步与 wallet 本机单测
+# 被摘掉（整步、某一行）、脱离 fail_fast 链、挪进条件块或函数、挪到 --fast 早退之后，都要红。放在 ds02 步里跑，
+# 不靠被守的步自己守自己（摘整步时被守的守卫也一起没了）。
+A11Y_HOST_STEPS = [
+    ('FU-HM-A11Y-COMMON 宿主检查', [
+        'python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" --self-test',
+        'python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py"',
+        'node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" --self-test',
+        'node "$ROOT/tools/ci/a11ycommon/run-logic.cjs"',
+        'node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs"',
+    ]),
+    ('FU-HM-A11Y-FUNDS 宿主检查', [
+        'python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" --self-test',
+        'python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py"',
+        'node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" --self-test',
+        'node "$ROOT/tools/ci/a11yfunds/run-logic.cjs"',
+        'node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs"',
+    ]),
+]
+WALLET_UNIT_TEST = 'run_unit_tests wallet features/wallet'
+FAST_EXIT = 'if [ "$FAST" -eq 1 ]; then'
+
+
+def verify_top_level(source):
+    """verify.sh 的顶层命令行 [(行号, 行)]：不在函数体、if / for / while / until / case 块、heredoc 里，不是注释。
+    结构对不上（块没闭合、多余闭合、heredoc 没结束）抛 ValueError（fail-closed）。"""
+    lines = source.split('\n')
+    out, stack, heredoc = [], [], None
+    for no, line in enumerate(lines, 1):
+        if heredoc is not None:
+            if line.strip() == heredoc:
+                heredoc = None
+            continue
+        if stack and stack[-1] == 'fn':
+            if line == '}':
+                stack.pop()
+            continue
+        if line[:1] in ('', ' ', '\t', '#'):
+            pass
+        elif re.match(r'[A-Za-z_][A-Za-z0-9_]*\(\) \{$', line):
+            if stack:
+                raise ValueError('第 %d 行：块里定义函数' % no)
+            stack.append('fn')
+            continue
+        else:
+            word = line.split()[0].rstrip(';')
+            single = re.search(r'(;|\s)(fi|done|esac)\s*$', line)
+            if word in ('if', 'for', 'while', 'until', 'case') and not single:
+                stack.append({'if': 'fi', 'case': 'esac'}.get(word, 'done'))
+            elif word in ('fi', 'done', 'esac'):
+                if not stack or stack[-1] != word:
+                    raise ValueError('第 %d 行：多余或错配的 %s' % (no, word))
+                stack.pop()
+            elif not stack:
+                out.append((no, line))
+        m = re.search(r"<<-?\s*['\"]?([A-Za-z_]+)['\"]?\s*$", line)
+        if m and not line.lstrip().startswith('#'):
+            heredoc = m.group(1)
+    if stack or heredoc is not None:
+        raise ValueError('文件结束时块 / heredoc 未闭合：%s %s' % (stack, heredoc))
+    return out
+
+
+def a11y_host_registration_violations(source):
+    try:
+        top = verify_top_level(source)
+    except ValueError as e:
+        return ['R0 verify.sh 结构无法解析（fail-closed）：%s' % e]
+    v = []
+    lines = source.split('\n')
+    fast = [no for no, line in enumerate(lines, 1) if line == FAST_EXIT]
+    if len(fast) != 1:
+        v.append('R0 verify.sh 应恰有一处 --fast 早退（%s），实际 %d 处' % (FAST_EXIT, len(fast)))
+    fast_no = fast[0] if fast else 0
+    exits = [no for no, line in top if re.match(r'(exit|return)\b', line)]
+    for title, cmds in A11Y_HOST_STEPS:
+        steps = [no for no, line in top if line == 'step "%s"' % title]
+        records = [no for no, line in top if line.startswith('record "%s" PASS ' % title)]
+        if len(steps) != 1 or len(records) != 1 or records[0] < steps[0]:
+            v.append('R1 verify 顶层缺「%s」步（step / record PASS 各恰一行且 record 在后；实际 step %s record %s）'
+                     % (title, steps, records))
+            continue
+        block = [(no, line) for no, line in top if steps[0] < no < records[0]]
+        cursor = steps[0]
+        for cmd in cmds:
+            chain = re.compile(re.escape(cmd) + r' \|\| fail_fast "[^"]+" "[^"]*"$')
+            hits = [no for no, line in block if line.split(' ||')[0].rstrip() == cmd]
+            good = [no for no, line in block if chain.match(line) and no > cursor]
+            if not hits:
+                v.append('R2 「%s」步缺命令：%s' % (title, cmd))
+            elif not good:
+                v.append('R3 「%s」步命令不在 fail_fast 链上或顺序不对：%s' % (title, cmd))
+            else:
+                cursor = good[0]
+        if fast_no and records[0] > fast_no:
+            v.append('R4 「%s」步须在 --fast 早退（第 %d 行）之前，fast 模式也要跑' % (title, fast_no))
+        if any(no < records[0] for no in exits):
+            v.append('R4 「%s」步之前有顶层 exit / return：%s' % (title, [no for no in exits if no < records[0]]))
+    order = [next((no for no, line in top if line == 'step "%s"' % t), 0) for t, _ in A11Y_HOST_STEPS]
+    if all(order) and order != sorted(order):
+        v.append('R1 FUNDS 宿主步须排在 COMMON 宿主步之后')
+    defs = [no for no, line in enumerate(lines, 1) if line == 'run_unit_tests() {']
+    body = source.split('\nrun_unit_tests() {\n', 1)[1].split('\n}\n', 1)[0] if len(defs) == 1 else ''
+    tail = [line.strip() for line in body.split('\n') if line.strip()][-1:]
+    if len(defs) != 1 or body.count('fail_fast "test $label"') < 2 or not tail or not tail[0].startswith('fail_fast "test $label"'):
+        v.append('R5 run_unit_tests 须恰定义一次，缺结果与未通过都走 fail_fast "test $label"（最后一句兜底）')
+    wallet = [no for no, line in top if line.rstrip() == WALLET_UNIT_TEST]
+    designsystem = [no for no, line in top if line.rstrip() == 'run_unit_tests designsystem common/designsystem']
+    if len(wallet) != 1:
+        v.append('R5 verify 顶层须恰一行 %s（实际 %d 行；注释掉、挂 || true、挪进条件块 / 函数都不算）' % (WALLET_UNIT_TEST, len(wallet)))
+    elif not defs or wallet[0] < defs[0] or (fast_no and wallet[0] < fast_no) or not designsystem or wallet[0] < designsystem[0]:
+        v.append('R5 %s 须在 run_unit_tests 定义、--fast 早退与 designsystem 单测之后（与其余本机单测同位）' % WALLET_UNIT_TEST)
+    elif any(no < wallet[0] for no in exits):
+        v.append('R5 %s 之前有顶层 exit / return' % WALLET_UNIT_TEST)
+    return v
+
+
+class VerifyA11yHostRegistration(unittest.TestCase):
+    """FU-HM-A11Y-FUNDS（#24 只加）：补复核 S1（a11yfunds 宿主步 + wallet 单测）与 S3-1（a11ycommon 宿主步）的登记自检。"""
+
+    def source(self):
+        return (Path(__file__).resolve().parents[3] / 'tools/ci/verify.sh').read_text(encoding='utf-8')
+
+    def test_verify_registers_a11y_host_steps_and_wallet_unit_test(self):
+        self.assertEqual(a11y_host_registration_violations(self.source()), [])
+
+    def test_registration_mutations_are_killed_and_benign_rewrites_pass(self):
+        source = self.source()
+        funds = 'python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" ||'
+        common = 'python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" ||'
+
+        def line_of(prefix):
+            hits = [line for line in source.split('\n') if line.startswith(prefix)]
+            self.assertEqual(len(hits), 1, prefix)
+            return hits[0] + '\n'
+
+        def step_block(title):
+            start = source.index('step "%s"\n' % title)
+            end = source.index('\n', source.index('record "%s" PASS ' % title)) + 1
+            return source[start:end]
+
+        def drop(text):
+            return lambda s: s.replace(text, '', 1)
+
+        def sub(old, new):
+            return lambda s: s.replace(old, new, 1)
+
+        def move_after_fast(text):
+            return lambda s: s.replace(text, '', 1).replace('\nrun_unit_tests generated common/generated\n',
+                                                            '\n' + text + 'run_unit_tests generated common/generated\n', 1)
+
+        wallet = WALLET_UNIT_TEST + '\n'
+        mutations = [
+            ('摘 a11yfunds 整步', drop(step_block('FU-HM-A11Y-FUNDS 宿主检查'))),
+            ('只摘 a11yfunds 本体行', drop(line_of(funds))),
+            ('摘 a11yfunds 自测行', drop(line_of('python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" --self-test'))),
+            ('摘 a11yfunds 逻辑行', drop(line_of('node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" ||'))),
+            ('摘 a11yfunds 逻辑自测行', drop(line_of('node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" --self-test'))),
+            ('摘 a11yfunds ArkTS 行', drop(line_of('node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs"'))),
+            ('a11yfunds 本体行注释掉', sub(line_of(funds), '# ' + line_of(funds))),
+            ('a11yfunds 本体行改 || true', sub(line_of(funds), funds.replace(' ||', ' || true\n'))),
+            ('a11yfunds 本体行 fail_fast 后挂 || true', sub(line_of(funds), line_of(funds).rstrip('\n') + ' || true\n')),
+            ('a11yfunds 本体行挪进 if false', sub(line_of(funds), 'if false; then\n' + line_of(funds) + 'fi\n')),
+            ('a11yfunds 本体行改 --help', sub(line_of(funds), line_of(funds).replace('.py" ||', '.py" --help ||'))),
+            ('a11yfunds 整步挪到 --fast 早退之后', move_after_fast(step_block('FU-HM-A11Y-FUNDS 宿主检查'))),
+            ('a11yfunds 步前插顶层 exit 0', sub('step "FU-HM-A11Y-FUNDS 宿主检查"\n', 'exit 0\nstep "FU-HM-A11Y-FUNDS 宿主检查"\n')),
+            ('a11yfunds 步排到 a11ycommon 之前', lambda s: s.replace(step_block('FU-HM-A11Y-FUNDS 宿主检查'), '', 1).replace(
+                step_block('FU-HM-A11Y-COMMON 宿主检查'), step_block('FU-HM-A11Y-FUNDS 宿主检查') + step_block('FU-HM-A11Y-COMMON 宿主检查'), 1)),
+            ('摘 wallet 本机单测', drop(wallet)),
+            ('wallet 单测注释掉', sub(wallet, '# ' + wallet)),
+            ('wallet 单测挂 || true', sub(wallet, WALLET_UNIT_TEST + ' || true\n')),
+            ('wallet 单测挪进 if 块', sub(wallet, 'if [ "$FAST" -eq 2 ]; then\n    ' + wallet + 'fi\n')),
+            ('wallet 单测挪到 --fast 早退之前', lambda s: s.replace(wallet, '', 1).replace(FAST_EXIT, wallet + FAST_EXIT, 1)),
+            ('run_unit_tests 失败不再 fail_fast', sub('    fail_fast "test $label"', '    record "test $label"')),
+            ('摘 a11ycommon 整步', drop(step_block('FU-HM-A11Y-COMMON 宿主检查'))),
+            ('只摘 a11ycommon 本体行', drop(line_of(common))),
+            ('摘 a11ycommon ArkTS 行', drop(line_of('node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs"'))),
+            ('a11ycommon 本体行改 || true', sub(line_of(common), common.replace(' ||', ' || true\n'))),
+            ('verify 块没闭合（fail-closed）', sub(FAST_EXIT + '\n', FAST_EXIT + '\nif true; then\n')),
+        ]
+        benign = [
+            ('改 fail_fast 文案', sub('"a11yfunds-host" "见上方违反项"', '"a11yfunds-host" "见上方违反项（AF1–AF7）"')),
+            ('步内加注释', sub('step "FU-HM-A11Y-FUNDS 宿主检查"\n', 'step "FU-HM-A11Y-FUNDS 宿主检查"\n# 注释\n')),
+            ('wallet 单测前加空行', sub(wallet, '\n' + wallet)),
+        ]
+        for name, mutate in mutations:
+            mutated = mutate(source)
+            self.assertNotEqual(mutated, source, name)
+            got = a11y_host_registration_violations(mutated)
+            self.assertTrue(got, '变异「%s」没被登记自检杀' % name)
+            print('KILLED verify 登记变异 %s ← %s' % (name, got[0]))
+        for name, mutate in benign:
+            mutated = mutate(source)
+            self.assertNotEqual(mutated, source, name)
+            self.assertEqual(a11y_host_registration_violations(mutated), [], '良性改写「%s」被误报' % name)
+            print('BENIGN verify 登记 %s：0 违反' % name)
 
 
 if __name__ == '__main__':
