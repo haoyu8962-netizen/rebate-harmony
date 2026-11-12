@@ -11,6 +11,8 @@
 // - pending（提交结果未知：断连）/ pending_busy（放弃得到 40901）/ pending_done（放弃得到 completed 成功）/ blocked（44001）/
 //   estimate_fail（带金额的 rules → 50001）/ slow_estimate（带金额的 rules 晚 3 秒）/ empty_records / payout_pending（保存结果未知）/
 //   payout_bank（已绑银行卡）。
+// - amount_rejected（FU-HM-A11Y-03 读屏走查）：带 token 的提交第 1 次 → 30303 below_min（金额类），之后每次 → 30303 daily_count
+//   （非金额类）；其余同缺省。
 // - 二次验证码：123456 成功；200020 → 20002；其余 20002。实名：身份证号末尾 406X → 30406，其余成功。
 import { ApiOutcome, ApiResult, TransportFailure, WalletContractPort } from 'core';
 import { FakeAnswer } from './DebugFakeSearch';
@@ -131,6 +133,8 @@ export class DebugFakeWallet implements WalletContractPort {
   private static laborSigned: boolean = false;
   private static payoutBound: boolean = true;
   private static submitted: FakeWithdrawal | null = null;
+  /** amount_rejected 场景已拒绝的带 token 提交次数。 */
+  private static amountRejects: number = 0;
 
   private static all(): FakeWithdrawal[] {
     const s: FakeWithdrawal | null = DebugFakeWallet.submitted;
@@ -247,6 +251,11 @@ export class DebugFakeWallet implements WalletContractPort {
     }
     if (scene === 'blocked') {
       return new FakeAnswer(44001, '{}', 400);
+    }
+    if (scene === 'amount_rejected') {
+      DebugFakeWallet.amountRejects++;
+      return new FakeAnswer(30303, DebugFakeWallet.amountRejects === 1 ? '{"reason":"below_min"}'
+        : '{"reason":"daily_count"}', 400);
     }
     let amount: number = 1000;
     try {

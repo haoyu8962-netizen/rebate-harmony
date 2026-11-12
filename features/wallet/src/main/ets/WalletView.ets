@@ -15,6 +15,8 @@ const HELP_ID_PREFIX: string = 'wallet_help_';
 const HELP_KEY_FROZEN: string = 'frozen';
 const HELP_KEY_ESTIMATED: string = 'estimated';
 const ID_HELP_PAUSED: string = 'wallet_help_pending_paused';
+/** 主卡眼睛按钮（FU-HM-A11Y-05：切换金额隐藏后焦点留在它上面）。 */
+const ID_AMOUNT_EYE: string = 'wallet_amount_eye';
 
 /** 钱包页的出口（entry 接 Router：页面按钮直接调这里，执行前复核页面仍在）。 */
 export class WalletPageConfig {
@@ -217,6 +219,7 @@ export struct WalletView {
       amountSpoken: CouliFormat.moneySpoken(this.fen((this.model.view as WalletRecord)['hero'])),
       amountHidden: this.maskUi.masked,
       eyeLabel: this.t(this.maskUi.masked ? 'amount_mask.show' : 'amount_mask.hide'),
+      eyeId: ID_AMOUNT_EYE,
       withdrawText: this.t('wallet.withdraw'),
       recordText: this.t('wallet.records'),
       items: this.heroItems(),
@@ -373,9 +376,11 @@ export struct WalletView {
                   }
                 })
               }
+              // FU-HM-A11Y-05：键里不含金额隐藏开关——切换只靠状态刷新（大数字、眼睛、数字格的 masked 都是 @Param，
+              // AmountGrid 的纵横排按 masked 重算），不重建主卡，焦点留在眼睛上。
               ForEach([this.model.version], (_v: number) => {
                 this.heroCard()
-              }, (v: number) => 'wallet_hero_' + v + '_' + this.maskUi.masked + '_' + this.model.withdrawAllowed)
+              }, (v: number) => 'wallet_hero_' + v + '_' + this.model.withdrawAllowed)
               if (this.reasonText().length > 0) {
                 WalletNoticeBar({ text: this.reasonText(), tone: 'info', barId: 'wallet_disabled_reason' })
               }

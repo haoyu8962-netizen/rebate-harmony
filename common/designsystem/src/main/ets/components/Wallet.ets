@@ -288,6 +288,8 @@ export struct AmountGrid {
           .attributeModifier(new CouliTextModifier(this.onBrand ? CouliTypography.footnote : CouliTypography.footnote,
             this.labelColor(item), this.onBrand ? CouliFontWeight.semibold : undefined))
           .flexShrink(1)
+          // FU-HM-A11Y-19：标签已在下方金额的读屏名里（「标签，金额」），这里不再单独读。
+          .accessibilityLevel('no')
         if (item.helpLabel.length > 0) {
           Button({ type: ButtonType.Normal, stateEffect: true }) {
             CouliIcon({ name: 'help', iconSize: 16, color: this.labelColor(item) })
@@ -305,7 +307,8 @@ export struct AmountGrid {
           })
         }
       }
-      .accessibilityGroup(item.helpLabel.length === 0)
+      // FU-HM-A11Y-19：无问号时整行（装饰图标 + 标签）不读；有问号时行本身照常，问号按钮单独可聚焦。
+      .accessibilityLevel(item.helpLabel.length === 0 ? 'no' : 'auto')
 
       Text(this.hides(item) ? PriceTerms.amountMask : item.value)
         .attributeModifier(new CouliTextModifier(this.large ? CouliTypography.title : CouliTypography.body,
@@ -372,6 +375,8 @@ export struct WalletHeroCard {
   @Param amountHidden: boolean = false;
   /** 眼睛按钮读屏名称（amount_mask.hide / amount_mask.show）。 */
   @Param eyeLabel: string = '';
+  /** 眼睛按钮 id（FU-HM-A11Y-05：切换金额隐藏后焦点留在它上面）；空串不挂 id。 */
+  @Param eyeId: string = '';
   @Param withdrawText: string = '';
   @Param recordText: string = '';
   @Param items: AmountGridItem[] = [];
@@ -398,6 +403,8 @@ export struct WalletHeroCard {
           Text(this.label)
             .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textInverse,
               CouliFontWeight.semibold))
+            // FU-HM-A11Y-19：标签已在大数字的读屏名里（「标签，金额」）。
+            .accessibilityLevel('no')
           Button({ type: ButtonType.Normal, stateEffect: true }) {
             CouliIcon({ name: this.amountHidden ? 'eye-off' : 'eye', iconSize: 20, color: CouliColors.textInverse })
           }
@@ -408,6 +415,7 @@ export struct WalletHeroCard {
           .accessibilityText(this.eyeLabel)
           .focusable(true)
           .focusBox(CouliFocus.box)
+          .id(this.eyeId.length > 0 ? this.eyeId : undefined)
           .onClick(() => {
             this.onToggleHidden();
           })
