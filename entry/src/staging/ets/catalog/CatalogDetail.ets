@@ -339,7 +339,7 @@ export struct CatalogDetail {
 
   /**
    * 活样例的外层容器常驻、id 只在挂载时给：if 直接控制组件本身，组件根节点的 transition（CouliMotion.appear）进出都生效；
-   * 卸载后容器 id 置空，设备用例按 id 判「真消失」。
+   * 卸载后容器 id 换成非空占位 id（catalog-live-off/…，不与任何被测 id 重名，D10-1279 ②），设备用例按被测 id 判「真消失」。
    */
   @Builder
   liveStates() {
@@ -350,7 +350,7 @@ export struct CatalogDetail {
         }
       }
       .width('100%')
-      .id(this.liveEmpty ? 'catalog-live/EmptyState' : '')
+      .id(this.liveEmpty ? 'catalog-live/EmptyState' : 'catalog-live-off/EmptyState')
     }
     if (this.component === 'ErrorState') {
       Column() {
@@ -368,7 +368,7 @@ export struct CatalogDetail {
         }
       }
       .width('100%')
-      .id(this.liveError ? 'catalog-live/ErrorState' : '')
+      .id(this.liveError ? 'catalog-live/ErrorState' : 'catalog-live-off/ErrorState')
     }
   }
 
