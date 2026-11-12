@@ -19,6 +19,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
   --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
   --set loginphone  绑定手机号 / 短信登录适配与出错读屏单独步（FU-HM-LOGIN-PHONE-LAYOUT 测试 v1：6 条 tools/ci/loginphone/device-cases.txt），且只能是这 6 条
+  --set a11y    FU-HM-A11Y 共用套件 HmA11yUi 单独步（COMMON 段 5 条 tools/ci/a11ycommon/device-cases.txt；其余三单集成时并入），且只能是这些
   --set l2      子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui（HM-L2-CARD 8 条 tools/ci/l2card/device-cases.txt + HM-L2-SKELETON 6 条
                 tools/ci/l2skeleton/device-cases.txt + HM-L2-BUTTON 7 条 + HM-L2-PRICE-TAG 5 条 + HM-L2-STATE 7 条），且只能是这 33 条；verify 不单列此步（⑩）
                 （HM-L2 批 1 集成：class=Ds02L2Ui 跑的是唯一 describe 里的全部段，所以 l2 = 四段并集 14 → 26）
@@ -27,6 +28,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set all     不分步时的合集（323 条 = 288 + CouliCard 渲染 2 + Ds02L2Ui 33，允许以后增补用例）；缺省
                 HM-L2-PRODUCT-CELL（#24 只加）：+ cell 段 9 条，合集 323 → 332（= 288 + CouliCard 渲染 2 + Ds02L2Ui 42）
                 FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：+ 单独步 loginphone 6 条（tools/ci/loginphone/device-cases.txt），合集 332 → 338
+                FU-HM-A11Y-COMMON（#24 只加）：+ 单独步 a11y 5 条（tools/ci/a11ycommon/device-cases.txt），合集 338 → 343
 """
 import collections
 import csv
@@ -44,7 +46,7 @@ FX25_DEVICE_CASES = [
     'E06_covered_host_tears_down_while_covered_and_shows_clean_new_document_after_pop',
     'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
 ]
-SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2', 'all')
+SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'a11y', 'l2', 'all')
 
 
 def hm07va_names():
@@ -92,6 +94,12 @@ def me12wc_names():
 def tabbar_names():
     """FU-HM-TAB-BAR：系统底栏的设备用例（名单与 TabBarShellUi.test.ets 的 TABBAR_DEVICE_CASES 一致）。"""
     return {line.strip() for line in (Path(__file__).parents[1] / 'tabbar/device-cases.txt').read_text().splitlines()
+            if line.strip() and not line.startswith('#')}
+
+
+def a11y_names():
+    """FU-HM-A11Y：共用套件 HmA11yUi 的设备用例（COMMON 段名单与 HmA11yUi.test.ets 的 A11Y_COMMON_DEVICE_CASES 一致；其余三单集成时各加一份名单）。"""
+    return {line.strip() for line in (Path(__file__).parents[1] / 'a11ycommon/device-cases.txt').read_text().splitlines()
             if line.strip() and not line.startswith('#')}
 
 
@@ -168,6 +176,8 @@ def expected_names(set_name='all'):
         return tabbar_names()
     if set_name == 'loginphone':
         return loginphone_names()
+    if set_name == 'a11y':
+        return a11y_names()
     if set_name == 'l2':
         return l2_names() | l2skel_names() | l2button_names() | l2price_names() | l2state_names() | l2cell_names()
     inventory = Path(__file__).parent / 'fixtures/inventory.tsv'
@@ -223,6 +233,7 @@ def expected_names(set_name='all'):
         names.update(me12wc_names())
         names.update(tabbar_names())
         names.update(loginphone_names())
+        names.update(a11y_names())
     return names
 
 
@@ -255,10 +266,10 @@ def validate(text, set_name='all'):
     ran = set(passed.keys()) | set(failed)
     if set_name == 'main':
         leaked = sorted(name for name in ran if name in hm07va_names() | hm07vb_names() | hm05r_names() | me12v_names()
-                        | me12wa_names() | me12wb_names() | me12wc_names() | tabbar_names() | loginphone_names())
+                        | me12wa_names() | me12wb_names() | me12wc_names() | tabbar_names() | loginphone_names() | a11y_names())
         if leaked:
             raise ValueError(f'entry_test(main) 混进了 HM-07v-a / HM-07v-b / HM-05r / APP-12v / APP-12w-a / APP-12w-b / APP-12w-c 单独步的用例（套件过滤失效）: {leaked}')
-    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2'):
+    if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'a11y', 'l2'):
         extra = sorted(ran - expected)
         if extra:
             raise ValueError(f'entry_test({set_name}) 跑了本步名单以外的用例（套件过滤失效）: {extra}')
@@ -276,7 +287,7 @@ if __name__ == '__main__':
         del args[at:at + 2]
     try:
         if len(args) != 1:
-            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|loginphone|l2|all]')
+            raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|loginphone|a11y|l2|all]')
         count = validate(Path(args[0]).read_text(), chosen)
         print(f'DS02_DEVICE_COMPLETE set={chosen} required={count} all_passed')
     except (ValueError, OSError) as error:

@@ -210,7 +210,7 @@ run_device_tests core common/core core_test
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||||all|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|'
-                                      'notClass=LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
+                                      'notClass=HmA11yUi,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
                                       'device-test-entry-hm07va',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vOverlayUi|hm07vb|'
@@ -229,7 +229,10 @@ run_device_tests core common/core core_test
                                       'device-test-entry-tabbar',
                                       # FU-HM-LOGIN-PHONE-LAYOUT 测试 v1（#24 只加）：第十步 loginphone，主步再排除 LoginPhoneUi（放在排除名单最前）。
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=LoginPhoneUi|loginphone|'
-                                      'device-test-entry-loginphone'])
+                                      'device-test-entry-loginphone',
+                                      # FU-HM-A11Y-COMMON 测试 v1（#24 只加）：第十一步 a11y，主步再排除 HmA11yUi（放在排除名单最前）。
+                                      'entry_test|' + tmp + '/Staging.hap|600000|1800|class=HmA11yUi|a11y|'
+                                      'device-test-entry-a11y'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 if probe == 'hm07vb-step-fails':
@@ -287,7 +290,8 @@ run_device_tests core common/core core_test
         # HM-L2 批 1 集成 2（FREEZE，D10-1177 ⑨）：STATE 段（Ds02L2UiState 7 条）叠在上面五单之后，合集 = 288 + CouliCard 渲染 2 + Ds02L2Ui 33 = 323。
         # HM-L2-PRODUCT-CELL（#24 只加）：cell 段 9 条（tools/ci/l2cell/device-cases.txt）叠在 STATE 段之后，目录不增行；合集 323 → 332。
         # FU-HM-LOGIN-PHONE-LAYOUT（#24 只加）：单独步 loginphone 6 条（tools/ci/loginphone/device-cases.txt）进合集；332 → 338。
-        self.assertEqual(len(names), 338)
+        # FU-HM-A11Y-COMMON（#24 只加）：单独步 a11y 5 条（tools/ci/a11ycommon/device-cases.txt）进合集；338 → 343。
+        self.assertEqual(len(names), 343)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -323,8 +327,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 338)
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 338)
+        self.assertEqual(validate(report(names)), 343)
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 343)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -372,6 +376,7 @@ run_device_tests core common/core core_test
         me12wc = expected_names('me12wc')
         tabbar = expected_names('tabbar')
         loginphone = expected_names('loginphone')
+        a11y = expected_names('a11y')
         l2 = expected_names('l2')
         self.assertEqual(len(main), 219)
         self.assertEqual(len(l2), 42)
@@ -404,8 +409,11 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
         self.assertEqual(len(loginphone), 6)
-        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone, every)
+        self.assertEqual(len(a11y), 5)
+        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | a11y, every)
         self.assertEqual(loginphone & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar), set())
+        # FU-HM-A11Y-COMMON（#24 只加）：a11y 与其余各步不相交。
+        self.assertEqual(a11y & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone), set())
         # HM-L2-CARD（#24 只加）：l2 是主步的子集（README ⑩ 不新增设备步），与 8 个单独步不相交，名单与套件导出常量一致。
         self.assertEqual(l2 - main, set())
         self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2, set())
