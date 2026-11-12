@@ -385,6 +385,7 @@ export {
   AgentDuplicatePolicy, ClientMsgId, AgentConsentPolicy
 } from './src/main/ets/agent/AgentPolicies';
 export { AgentDraftTexts } from './src/main/ets/agent/AgentDraftTexts';
+export { AgentReplyTag } from './src/main/ets/agent/AgentReplyTag';
 export {
   AgentHttpResult, AgentCall, AgentStreamSink, AgentStreamHandle, AgentContractPort, AgentConversationPort, AgentTimer,
   SystemAgentTimer, AgentStreamEventKind, AgentStreamEvent, StreamClient

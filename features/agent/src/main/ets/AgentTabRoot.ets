@@ -3,11 +3,11 @@ import {
   AgentRetryTap, AgentRunTicket, AgentSnapshot, AgentTurnView
 } from 'core';
 import {
-  CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliIcon,
+  CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn, CouliIcon,
   CouliInteraction, CouliLayout, CouliPasteButton, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography,
   EmptyState, ErrorState
 } from 'designsystem';
-import { AgentChipRow, AgentTurnItemView } from './AgentCards';
+import { AgentChipRow, AgentReportFocus, AgentReportIds, AgentTurnItemView } from './AgentCards';
 import { AgentConsentHost } from './AgentConsentDialog';
 import { AgentScreenModel, AgentScreenPort, AgentTurnItem } from './AgentScreenModel';
 
@@ -45,6 +45,12 @@ class ComposerState {
       String(this.ready)].join('|');
   }
 }
+
+/** 页面标题、输入框、举报半屏标题与补充说明的组件 id（FU-HM-A11Y-12 / 14 / 20）。 */
+const ID_TITLE: string = 'agent_title';
+const ID_INPUT: string = 'agent_input';
+const ID_REPORT_TITLE: string = 'agent_report_title';
+const ID_REPORT_SUPPLEMENT: string = 'agent_report_supplement';
 
 /** 离底部超过一屏高度的 1/4 视为「已上滑」（G30，代拟）：用列表最后一项是否可见近似。 */
 const BOTTOM_SLACK_ITEMS: number = 0;
@@ -177,7 +183,24 @@ export struct AgentTabRoot {
       return;
     }
     host.open(t, this.model.port, (): boolean => this.model.visible && !this.model.blocked
-      && this.model.port.consentBeforeOpen(t));
+      && this.model.port.consentBeforeOpen(t), (): string => this.consentReturnId());
+  }
+
+  /** 同意弹窗关闭后的焦点（FU-HM-A11Y-14）：输入框此刻在且可用回输入框，否则（未开放、已拒绝、禁发、额度用完、只读）回页面标题。 */
+  private consentReturnId(): string {
+    const s: AgentSnapshot = this.model.snapshot;
+    const usable: boolean = s.phase === AgentPhase.READY && !this.readonlyMode && !s.sendBlocked && !s.readOnly
+      && !s.quotaExhausted;
+    return usable ? ID_INPUT : ID_TITLE;
+  }
+
+  /** 举报半屏关闭后的焦点（FU-HM-A11Y-14）：回打开它的入口；读屏入口已随「已举报」消失时回该条「已举报」标签。 */
+  private reportReturnId(): string {
+    const key: string = AgentReportFocus.replyKey;
+    const turn: AgentTurnView | undefined = this.model.snapshot.turns.find((x: AgentTurnView): boolean =>
+      x.report !== null && x.report.ticket.messageId === key);
+    const reported: boolean = turn !== undefined && turn.report !== null && turn.report.reported;
+    return reported && AgentReportFocus.fromEntry ? AgentReportIds.reported(key) : AgentReportFocus.triggerId;
   }
 
   @Builder
@@ -188,6 +211,9 @@ export struct AgentTabRoot {
           .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
           .layoutWeight(1)
           .accessibilityLevel('yes')
+          .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+          .id(ID_TITLE)
+          .focusable(true)
         if (ready) {
           Row({ space: CouliSpacing.space1 }) {
             CouliIcon({ name: 'chat', iconSize: 18, color: CouliColors.textPrimary })
@@ -429,6 +455,8 @@ export struct AgentTabRoot {
         })
           .layoutWeight(1)
           .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
+          .id(ID_INPUT)
+          .accessibilityText(this.t('agent.draft.input_label'))
           .enabled(!quota && !disabled)
           .maxLength(1000)
           .onChange((value: string) => {
@@ -579,6 +607,9 @@ export struct AgentTabRoot {
         if (v !== null) {
           this.model.port.reportClose((v as AgentReportSheetView).ticket);
         }
+        const back: string = this.reportReturnId();
+        AgentReportFocus.forget();
+        CouliFocusReturn.to(this.getUIContext(), back);
       }
     })
   }
@@ -634,6 +665,13 @@ struct AgentReportSheetContent {
           Text(this.t('agent.draft.report.title'))
             .attributeModifier(new CouliTextModifier(CouliTypography.title, CouliColors.textPrimary))
             .accessibilityLevel('yes')
+            .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+            .id(ID_REPORT_TITLE)
+            .focusable(true)
+            .focusBox(CouliFocus.box)
+            .onAppear(() => {
+              CouliFocusReturn.to(this.getUIContext(), ID_REPORT_TITLE);
+            })
           Text(this.t('agent.draft.report.subtitle'))
             .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
           Text(this.view.quote)
@@ -654,6 +692,8 @@ struct AgentReportSheetContent {
           TextArea({ text: this.view.supplement, placeholder: this.t('agent.draft.report.supplement') })
             .width('100%')
             .height(88)
+            .id(ID_REPORT_SUPPLEMENT)
+            .accessibilityText(this.t('agent.draft.report.supplement'))
             .maxLength(this.view.supplementLimit)
             .enabled(!this.view.submitting)
             .onChange((value: string) => {

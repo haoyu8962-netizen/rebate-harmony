@@ -1,15 +1,49 @@
 import { LengthMetrics } from '@kit.ArkUI';
 import {
   AgentCardKind, AgentCardType, AgentCardView, AgentDraftTexts, AgentChipTap, AgentErrorView, AgentFeedbackView,
-  AgentProductView, AgentReportEntryView, AgentRetryMode, AgentTap, AgentTextBlock, AgentTextBlockKind, AgentTextSpan,
-  AgentTool, AgentTurnView, EarningsShape, EarningsView
+  AgentProductView, AgentReplyTag, AgentReportEntryView, AgentRetryMode, AgentTap, AgentTextBlock, AgentTextBlockKind,
+  AgentTextSpan, AgentTool, AgentTurnView, EarningsShape, EarningsView
 } from 'core';
 import {
   AiLabel, BuyButtonState, CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip, CouliChipTone, CouliColors, CouliFocus,
   CouliFontScale, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography, MatchBadge,
-  ProductCard, ProductCardData, ProductCardVariant, ProductGridLayout
+  PriceTerms, ProductCard, ProductCardData, ProductCardVariant, ProductGridLayout
 } from 'designsystem';
 import { AgentScreenPort } from './AgentScreenModel';
+
+/** 一条回复上的举报入口、「已举报」标签、回复气泡的组件 id（FU-HM-A11Y-14：每条回复唯一，举报半屏关闭后焦点回得去）。 */
+export class AgentReportIds {
+  static entry(replyKey: string): string {
+    return 'agent_report_a11y_entry_' + replyKey;
+  }
+
+  static reported(replyKey: string): string {
+    return 'agent_report_reported_' + replyKey;
+  }
+
+  /** 回复气泡用本条的列表键（每条都有、各不相同；没有举报入口的回复也不会撞 id）。 */
+  static bubble(turnKey: string): string {
+    return 'agent_reply_' + turnKey;
+  }
+}
+
+/** 举报半屏的触发处（读屏入口或长按的回复气泡）：打开时记下，半屏关闭时 AgentTabRoot 把焦点还回去。 */
+export class AgentReportFocus {
+  static triggerId: string = '';
+  static replyKey: string = '';
+  static fromEntry: boolean = false;
+
+  static remember(triggerId: string, replyKey: string, fromEntry: boolean): void {
+    AgentReportFocus.triggerId = triggerId;
+    AgentReportFocus.replyKey = replyKey;
+    AgentReportFocus.fromEntry = fromEntry;
+  }
+
+  /** 半屏关闭、焦点已还回去后清掉（下次打开重新记）。 */
+  static forget(): void {
+    AgentReportFocus.remember('', '', false);
+  }
+}
 
 @Builder
 function emptyContent() {
@@ -45,6 +79,7 @@ export struct AgentTextView {
           if (b.kind === AgentTextBlockKind.LIST_ITEM) {
             Text('•')
               .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
+              .accessibilityLevel('no')
           }
           Text() {
             ForEach(b.spans, (s: AgentTextSpan, j: number) => {
@@ -190,6 +225,14 @@ export struct AgentProductItem {
           variant: this.grid ? ProductCardVariant.GRID : ProductCardVariant.AI,
           // 网格项同样画购买按钮（R1-13：layout=grid 也要能直接购买，03 §7.4）。
           showBuy: true,
+          // FU-HM-A11Y-10：AI 卡整卡可点（信息区是按钮，读屏双击即打开）；外层不再挂裸 .onClick。
+          openable: true,
+          onOpen: () => {
+            const detail = this.item?.detail;
+            if (detail !== null && detail !== undefined) {
+              this.port?.tap(detail);
+            }
+          },
           onBuy: () => {
             const buy = this.item?.buy;
             if (buy !== null && buy !== undefined) {
@@ -199,12 +242,6 @@ export struct AgentProductItem {
         })
       }
       .width('100%')
-      .onClick(() => {
-        const detail = this.item?.detail;
-        if (detail !== null && detail !== undefined) {
-          this.port?.tap(detail);
-        }
-      })
       Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(CouliSpacing.space2), cross: LengthMetrics.vp(CouliSpacing.space1) } }) {
         if (this.matchText().length > 0) {
           MatchBadge({ text: this.matchText() })
@@ -531,11 +568,21 @@ export struct AgentFeedbackBar {
   @Param report: AgentReportEntryView | undefined = undefined;
   @Param port: AgentScreenPort | undefined = undefined;
   @Param disabled: boolean = false;
+  /** 行标识（本条回复正文前 12 字，FU-HM-A11Y-17）：拼在赞 / 踩 / 举报入口的读屏名后，空则不拼。 */
+  @Param replyTag: string = '';
   /** 读屏等价入口拿到键盘焦点（此时才画出来，免得焦点框落在看不见的地方）。 */
   @Local reportFocused: boolean = false;
 
   private t(key: string): string {
     return this.port?.text(key) ?? '';
+  }
+
+  private tagged(name: string): string {
+    return this.replyTag.length > 0 ? name + PriceTerms.comma + this.replyTag : name;
+  }
+
+  private replyKey(): string {
+    return this.report !== undefined ? this.report.ticket.messageId : '';
   }
 
   @Builder
@@ -550,7 +597,7 @@ export struct AgentFeedbackBar {
     .height(CouliInteraction.minTouchTarget)
     .backgroundColor(Color.Transparent)
     .enabled(this.feedback !== undefined && this.feedback.enabled && !this.disabled)
-    .accessibilityText(this.feedback !== undefined && this.feedback.selected === value ? selectedLabel : label)
+    .accessibilityText(this.tagged(this.feedback !== undefined && this.feedback.selected === value ? selectedLabel : label))
     .accessibilitySelected(this.feedback !== undefined && this.feedback.selected === value)
     .focusBox(CouliFocus.box)
     .onClick(() => {
@@ -569,6 +616,8 @@ export struct AgentFeedbackBar {
           .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2, top: 2, bottom: 2 })
           .backgroundColor(CouliColors.backgroundMuted)
           .borderRadius(CouliRadius.pill)
+          .id(AgentReportIds.reported(this.replyKey()))
+          .focusable(true)
       }
       if (this.feedback !== undefined) {
         this.thumb('up', 'thumb-up', this.t('agent.draft.feedback.up'), this.t('agent.draft.feedback.up_selected'))
@@ -587,9 +636,9 @@ export struct AgentFeedbackBar {
         .opacity(this.reportFocused ? 1 : 0)
         .hitTestBehavior(HitTestMode.None)
         .backgroundColor(this.reportFocused ? CouliColors.backgroundSurface : Color.Transparent)
-        .id('agent_report_a11y_entry')
+        .id(AgentReportIds.entry(this.replyKey()))
         .accessibilityLevel('yes')
-        .accessibilityText(this.t('agent.draft.report.more_entry'))
+        .accessibilityText(this.tagged(this.t('agent.draft.report.more_entry')))
         .focusable(true)
         .focusBox(CouliFocus.box)
         .onFocus(() => {
@@ -601,6 +650,7 @@ export struct AgentFeedbackBar {
         .onClick(() => {
           const r = this.report;
           if (r !== undefined) {
+            AgentReportFocus.remember(AgentReportIds.entry(this.replyKey()), this.replyKey(), true);
             this.port?.reportOpen(r.ticket);
           }
         })
@@ -620,6 +670,15 @@ export struct AgentTurnItemView {
   /** 消息内【重试】/【刷新】的禁用（R2-06：重连查询与刷新用读取闸门，同键重发与新消息用发送闸门；由页面按快照给）。 */
   @Param retryLimited: boolean = false;
   @Param actionLimited: boolean = false;
+
+  private replyKey(): string {
+    const r = this.turn?.report;
+    return r !== null && r !== undefined ? r.ticket.messageId : '';
+  }
+
+  private turnKey(): string {
+    return this.turn?.key ?? '';
+  }
 
   build() {
     if (this.turn !== undefined) {
@@ -699,7 +758,7 @@ export struct AgentTurnItemView {
               }
               AgentFeedbackBar({
                 feedback: this.turn.feedback ?? undefined, report: this.turn.report ?? undefined, port: this.port,
-                disabled: this.actionLimited
+                disabled: this.actionLimited, replyTag: AgentReplyTag.of(this.turn.blocks)
               })
             }
             .width('100%')
@@ -707,10 +766,13 @@ export struct AgentTurnItemView {
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
+        .id(AgentReportIds.bubble(this.turnKey()))
+        .focusable(true)
         .gesture(LongPressGesture({ repeat: false }).onAction(() => {
           // 长按回复气泡 → 举报（G29；与反馈同一显示条件，已举报的不再提供）。
           const r = this.turn?.report;
           if (r !== null && r !== undefined && !r.reported) {
+            AgentReportFocus.remember(AgentReportIds.bubble(this.turnKey()), this.replyKey(), false);
             this.port?.reportOpen(r.ticket);
           }
         }))
