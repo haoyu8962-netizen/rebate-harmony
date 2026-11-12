@@ -375,6 +375,17 @@ node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" || fail_fast "a11ycommon-logic" "
 node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs" || fail_fast "a11ycommon-arkts" "A11yCommon / HmA11yUi 与参照件 ArkTS 严格检查失败"
 record "FU-HM-A11Y-COMMON 宿主检查" PASS "复制读屏名带单号 / 问号回焦 / 确认弹窗返回可关且不新增资金动作 / me12wc 冻结（自测）/ 纯逻辑 / ArkTS"
 
+# FU-HM-A11Y-FUNDS（QA-12b FU-HM-A11Y-03 / 04 / 05 / 08 / 19；D10-1248 ④⑤⑥）：金额类提交错误关联金额框并只移读屏焦点、被拒输入不重建金额卡、
+# 小眼睛有 id 且切换后不重建（或回焦）、二次验证打开时读屏焦点进标题（验证码框仍拿键盘默认焦点）、金额格标签只读一次；资金页只动视图
+# （core / entry wallet 0 差异、资金调用集合不变）。先自测（参照件全过、变异逐个打红、良性改写不误报），金额类判定纯逻辑 node 执行，ArkTS 严格检查。
+step "FU-HM-A11Y-FUNDS 宿主检查"
+python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" --self-test || fail_fast "a11yfunds-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/a11yfunds/check_a11y_funds.py" || fail_fast "a11yfunds-host" "见上方违反项"
+node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" --self-test || fail_fast "a11yfunds-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/a11yfunds/run-logic.cjs" || fail_fast "a11yfunds-logic" "见上方用例"
+node "$ROOT/tools/ci/a11yfunds/check-arkts.cjs" || fail_fast "a11yfunds-arkts" "WithdrawA11y / HmA11yFundsCases 与参照件 ArkTS 严格检查失败"
+record "FU-HM-A11Y-FUNDS 宿主检查" PASS "金额错误关联与移焦 / 被拒不重建 / 小眼睛焦点 / 二次验证标题 / 标签只读一次 / 资金页只动视图（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -880,6 +891,8 @@ run_unit_tests() {
 run_unit_tests generated common/generated
 run_unit_tests core common/core
 run_unit_tests designsystem common/designsystem
+# FU-HM-A11Y-FUNDS（#24 只加）：features/wallet 本机单测（WithdrawA11y：金额类错误码判定，D10-1248 ④）。
+run_unit_tests wallet features/wallet
 # 格式向量的时区回归（BR-TEXT-11 固定 Asia/Shanghai，与设备时区无关）：Local Test 进程继承 TZ（已实测 getTimezoneOffset 随之变化）。
 run_unit_tests designsystem common/designsystem UTC
 run_unit_tests designsystem common/designsystem America/Los_Angeles
@@ -1079,6 +1092,8 @@ run_device_tests core common/core core_test
 #                 同样先卸载再装、从未同意隐私开始（游客登录页 → 微信第三方新号进绑定页）、各自 1800 秒
 #   entry-a11y    FU-HM-A11Y 共用套件 HmA11yUi（COMMON 段 5 条：订单复制读屏名带单号、钱包 / 提现问号回焦、登录 / 提现确认弹窗系统返回可关；
 #                 HOME-SEARCH / FUNDS / AGENT 段集成时加入）；同样先卸载再装、从未同意隐私开始（游客 → 会员）、各自 1800 秒
+#                 FU-HM-A11Y-FUNDS（#24 只加）：已并入 FUNDS 段 5 条（钱包标签只读一次、小眼睛焦点与排法、提现被拒输入不重建、二次验证键盘默认焦点、
+#                 金额类提交错误关联金额框），a11y 步 5 → 10 条；步数、超时、notClass 不变
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=HmA11yUi,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
