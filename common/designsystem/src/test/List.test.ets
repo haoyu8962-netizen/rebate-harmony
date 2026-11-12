@@ -28,6 +28,7 @@ import l2ButtonTest from './L2Button.test';
 import l2PriceTagTest from './L2PriceTag.test';
 import l2StateTest from './L2State.test';
 import l2ProductCellTest from './L2ProductCell.test';
+import a11yAgentCellLabelTest from './A11yAgentCellLabel.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -70,4 +71,6 @@ export default function testsuite() {
   l2StateTest();
   // HM-L2-PRODUCT-CELL：信息区整块读屏名（ProductCardA11y.cellLabel）与 U1 一行购买句式。
   l2ProductCellTest();
+  // FU-HM-A11Y-AGENT（测试 v2，Codex r1 S3）：不展示价格时读看得见的「预售」。
+  a11yAgentCellLabelTest();
 }

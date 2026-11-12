@@ -13,6 +13,11 @@ NATIVE/HM-L2-BUTTON/review-harmony-r1.md S3-1 与 tests-harmony-v3-handback.md�
   P2 不吞点击（书 §7，重要）：openable=false 时每个可达 CouliCard 的 kind 静态求值恰为 STATIC（求不出算红）；ProductCard.ets 全文件
      不出现 onClick / onTouch / 手势 / clickEffect / stateStyles / CouliPressable；页面（features/*/src/main、entry/src/main）调用
      ProductCard 不传 openable / onOpen（README ⑥ 页面零改动，3 处页面外层 .onClick 照旧，FLOW 单再切换）
+     FU-HM-A11Y-AGENT（#24 换判据，D10-1248 ⑦ / PRODUCT-CELL 评审 S3-2）：例外两条——信息组（accessibilityGroup + cellLabel）自身的 .onClick
+     只在 openable=true 时可达即放行（读屏双击信息组 = onOpen；openable=false 任一变体可达照旧红）；AgentCards.ets（Agent 无流程单）可传
+     openable / onOpen。
+     D10-1339 ①（点名）：第二条只放行 features/agent/src/main/ets/AgentCards.ets 里 struct AgentProductItem 的 ProductCard 调用点；
+     同文件别的 struct、别的页面（SearchView / HomeCards / …）传 openable / onOpen 照样红（自测里有这两种变异）。
   P3 预估返后：LIST / AI / GRID 可达界面无 EstNetLine、不读 estNet；LARGE 保留（归 HM-FLOW-DETAIL / U2）
   P4 读屏：LIST / AI / GRID 的 CouliCard 传 groupAccessibility: false；信息区 .accessibilityGroup(true) +
      .accessibilityText(ProductCardA11y.cellLabel(this.data))，标题 / PriceTag / RebateTag / 价格不可用 / priceBlock 都在组里
@@ -198,6 +203,7 @@ def render(violations):
 
 PC, SV, DL, ST, DC, VF = PRODUCT, SAMPLES, DS_LIST, SUITE, DEVICE_CASES, VERIFY
 PG = "features/demo/src/main/ets/pages/DemoListPage.ets"
+AG = "features/agent/src/main/ets/AgentCards.ets"  # D10-1339 ① 点名放行的调用点（参照件 fixtures/good 里有）
 LIST_SHELL = ("    CouliCard({\n      kind: this.cardKind(),\n      press: PressKind.BOUNCE,\n      groupAccessibility: false,\n"
               "      cardPadding: CouliSpacing.space3,\n")
 INFO_GROUP = ("      .alignItems(HorizontalAlign.Start)\n      .width('100%')\n      .accessibilityGroup(true)\n"
@@ -265,8 +271,8 @@ MUTATIONS = [
      "        this.tagRow()\n        this.gridInfo()\n        if (this.data.priceUnavailable) {\n          this.unavailableNote(CouliTypography.caption)\n        }\n", "P4-buy"),
     ("网格返利块组外仍读（返利读两遍）", PC, "          noteCloseText: this.data.disclaimerCloseText,\n          spoken: false\n",
      "          noteCloseText: this.data.disclaimerCloseText\n", "P4-rebate"),
-    ("删 ProductCardA11y.cellLabel", PC, "  static cellLabel(data: ProductCardData): string {\n    return ProductCardA11y.scrollTileLabel(data, null);\n  }\n",
-     "", "P4-fn"),
+    ("删 ProductCardA11y.cellLabel", PC, "  static cellLabel(data: ProductCardData): string {\n    // 预售：",
+     "  static cellLabelX(data: ProductCardData): string {\n    // 预售：", "P4-fn"),
     # P5
     ("整卡打开加触感（书 P6）", PC, "      onTap: () => {\n        this.onOpen();\n      }\n    }) {\n      this.listBody()",
      "      onTap: () => {\n        CouliHaptics.emit(1);\n        this.onOpen();\n      }\n    }) {\n      this.listBody()", "P5-haptics"),
@@ -287,6 +293,14 @@ MUTATIONS = [
      "ProductCard({ data: this.item, openable: true, onBuy: () => {", "P2-page"),
     ("页面给 ProductCard 接 onOpen", PG, "ProductCard({ data: this.item, onBuy: () => {",
      "ProductCard({ data: this.item, onOpen: () => {\n          this.opened++;\n        }, onBuy: () => {", "P2-page"),
+    # D10-1339 ①：放行点名到 AgentCards.ets 的 AgentProductItem 调用点
+    ("AgentCards.ets 里别的 struct 也传 openable: true", AG,
+     "ProductCard({ data: this.item, variant: ProductCardVariant.AI, onBuy: () => {",
+     "ProductCard({ data: this.item, variant: ProductCardVariant.AI, openable: true, onBuy: () => {", "P2-page"),
+    ("AgentCards.ets 里别的 struct 接 onOpen", AG,
+     "ProductCard({ data: this.item, variant: ProductCardVariant.AI, onBuy: () => {",
+     "ProductCard({ data: this.item, variant: ProductCardVariant.AI, onOpen: () => {\n        this.bought++;\n      }, onBuy: () => {", "P2-page"),
+    ("放行的调用点挪出 AgentProductItem（struct 改名）", AG, "export struct AgentProductItem {\n", "export struct AgentProductItemX {\n", "P2-page"),
     ("目录样例不传 openable", SV, "            openable: this.openable(),\n", "", "P8-catalog"),
     ("目录没有外层点击模拟", SV, "        .onClick(() => {\n          this.outers++;\n        })\n", "", "P8-catalog"),
     ("目录缺计数 id", SV, "        .id('catalog-events/ProductCard/' + this.variant + '/' + this.state)\n", "", "P8-catalog"),
