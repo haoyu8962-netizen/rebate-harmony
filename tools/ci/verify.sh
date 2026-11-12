@@ -363,6 +363,18 @@ node "$ROOT/tools/ci/loginphone/run-logic.cjs" || fail_fast "loginphone-logic" "
 node "$ROOT/tools/ci/loginphone/check-arkts.cjs" --real || fail_fast "loginphone-arkts" "LoginPhoneLayout / LoginPhoneUi 与参照件 ArkTS 严格检查失败"
 record "FU-HM-LOGIN-PHONE-LAYOUT 宿主检查" PASS "发码 / 重新获取系统按钮 / 可换行 / 手机号框随字号长 / 出错播报移焦关联 / 判据 1（自测）/ 纯逻辑 / ArkTS"
 
+# FU-HM-A11Y-COMMON（QA-12b FU-HM-A11Y-06 / 07 / 09，三端共性 ①③④；D10-1231 / D10-1248 ③⑧⑨ / D10-1275）：订单【复制】读屏名带本行完整单号
+# （copy_spoken「复制订单号 {no}」、copy_label「复制」）、问号说明弹窗关闭后焦点回问号（id 按条目、互不相同）、全仓 dismissOnMask=false 必配
+# backDismisses=true 且资金页返回只等同【知道了】/【取消】、me12wc 冻结件 0 差异（先自测：参照件全过、变异逐个打红、良性改写不误报）；
+# 复制读屏名纯逻辑 node 执行；测试与参照件 ArkTS 严格检查。
+step "FU-HM-A11Y-COMMON 宿主检查"
+python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" --self-test || fail_fast "a11ycommon-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/a11ycommon/check_a11y_common.py" || fail_fast "a11ycommon-host" "见上方违反项"
+node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" --self-test || fail_fast "a11ycommon-logic 自测" "见上方输出"
+node "$ROOT/tools/ci/a11ycommon/run-logic.cjs" || fail_fast "a11ycommon-logic" "见上方用例"
+node "$ROOT/tools/ci/a11ycommon/check-arkts.cjs" || fail_fast "a11ycommon-arkts" "A11yCommon / HmA11yUi 与参照件 ArkTS 严格检查失败"
+record "FU-HM-A11Y-COMMON 宿主检查" PASS "复制读屏名带单号 / 问号回焦 / 确认弹窗返回可关且不新增资金动作 / me12wc 冻结（自测）/ 纯逻辑 / ArkTS"
+
 # LINT-STYLE-harmony（D10-643 ④ / D10-734）：页面层（features/*/src/main、entry/src/main、entry/src/release）禁写死颜色 / 字号 /
 # 圆角 / 间距；基线 tools/ci/hardcoded-style-baseline.json 只减不增（超出失败，变少也失败须同步降基线）。
 # 先自测（合规参照件全过、各类错误实现逐个打红），再查本仓库。
@@ -1065,8 +1077,10 @@ run_device_tests core common/core core_test
 #   entry-tabbar  FU-HM-TAB-BAR 7 条（只跑 TabBarShellUi 套件：系统底栏节点、选中只跟 Router、首页常驻、材质、深浅色、G32、200%）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
 #   entry-loginphone  FU-HM-LOGIN-PHONE-LAYOUT 6 条（只跑 LoginPhoneUi 套件：登录出错关联输入框、手机号框随字号长、判据 1、倒计时 / 重新获取与绑定页发码是按钮且不截断）；
 #                 同样先卸载再装、从未同意隐私开始（游客登录页 → 微信第三方新号进绑定页）、各自 1800 秒
+#   entry-a11y    FU-HM-A11Y 共用套件 HmA11yUi（COMMON 段 5 条：订单复制读屏名带单号、钱包 / 提现问号回焦、登录 / 提现确认弹窗系统返回可关；
+#                 HOME-SEARCH / FUNDS / AGENT 段集成时加入）；同样先卸载再装、从未同意隐私开始（游客 → 会员）、各自 1800 秒
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=HmA11yUi,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -1085,6 +1099,8 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-tabbar class=TabBarShellUi tabbar
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-loginphone class=LoginPhoneUi loginphone
+COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-a11y class=HmA11yUi a11y
 # 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
 if [ -n "${DEVICE_FAILED:-}" ]; then
     echo "DEVICE_STEPS_FAILED${DEVICE_FAILED}"
