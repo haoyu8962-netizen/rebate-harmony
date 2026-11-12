@@ -1065,8 +1065,14 @@ run_device_tests core common/core core_test
 #   entry-tabbar  FU-HM-TAB-BAR 7 条（只跑 TabBarShellUi 套件：系统底栏节点、选中只跟 Router、首页常驻、材质、深浅色、G32、200%）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
 #   entry-loginphone  FU-HM-LOGIN-PHONE-LAYOUT 6 条（只跑 LoginPhoneUi 套件：登录出错关联输入框、手机号框随字号长、判据 1、倒计时 / 重新获取与绑定页发码是按钮且不截断）；
 #                 同样先卸载再装、从未同意隐私开始（游客登录页 → 微信第三方新号进绑定页）、各自 1800 秒
+#   entry-l2      HM-BATCH1-DEVFIX（编排 D10-1279 ③，照 entry-tabbar 先例单列）：L2 批 1 共用套件 Ds02L2Ui 42 条（card 8 + skel 6 + button 7 + price 5
+#                 + state 7 + cell 9，--set l2）从主步摘出、单独一步跑：主步在排除名单最前加 Ds02L2Ui（主步 219 → 177 条，门槛 1800 秒不调）；
+#                 本步必跑、不可跳过（与其它步一样无跳过开关，红即 DEVICE_STEPS_FAILED）；同样先卸载再装、从未同意隐私开始（段前准备点「不同意」进基本模式）。
+#                 超时 / 门槛 3600 秒（device-test.sh 对 --set l2 单列；其余各步仍 1800 秒）：设备子集实测（HM-L2-BATCH1/device-subset/result.md）
+#                 套件 2199 s，其中实际执行 ≈ 1146 s（去掉 cell 空耗 966 s、button 段前准备空转 87 s），补上未执行部分（button 段单跑 r2 实测 ≤ 603 s、
+#                 state 余量 ≈ 100 s、cell 02–09 按 cell_01 实测 142 s/条 × 8 ≈ 1136 s）上沿估 ≈ 2985 s，加约 20% 余量取 3600 s；单例仍 600000 ms。
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
-    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-hm07va class=Hm07vHomeUi hm07va
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
@@ -1085,6 +1091,8 @@ COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-tabbar class=TabBarShellUi tabbar
 COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 \
     run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-loginphone class=LoginPhoneUi loginphone
+COULI_HM_TEST_TOTAL_TIMEOUT=3600 COULI_HM_TEST_CASE_TIMEOUT=600000 \
+    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry-l2 class=Ds02L2Ui l2
 # 设备步汇总（FU-HM-DEVICE-FLAKE）：全部设备步跑完才判；任一步红 → 整体失败，汇总里逐步列出 PASS / FAIL（D10-642 ① 可据此核对）。
 if [ -n "${DEVICE_FAILED:-}" ]; then
     echo "DEVICE_STEPS_FAILED${DEVICE_FAILED}"

@@ -13,7 +13,9 @@
 #      与首跑日志的路径 / 文件名无关（复制、改名、软链、归档日志都不会让次数归零）；新一轮 verify 重建了包，键自然变了，首次复跑照常放行。
 #      开跑前写标记（中断也算用过）；拒跑行列出之前那次复跑的日志。
 # 条件 ②（套件与被测代码不在本单 diff）、③（上一版同套件全过）属于 D10-642 的人工 / 编排判断，本脚本不判。
-# 过滤与必跑名单从 verify.sh 的分派行读（同一来源）；超时同 verify（整步 1800 秒、单例 600 秒）。只复跑、不构建；须在宿主锁内调用。
+# 过滤与必跑名单从 verify.sh 的分派行读（同一来源）；超时同 verify（整步 1800 秒、单例 600 秒）。
+# HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ③）：整步超时也从 verify.sh 分派行的上一行（COULI_HM_TEST_TOTAL_TIMEOUT=…）读，与首跑同值
+# （entry-l2 为 3600 秒，其余各步仍 1800 秒）；读不出即用法错误。只复跑、不构建；须在宿主锁内调用。
 # 退出码：0 全过（RERUN_PASS）；1 仍红 / 拒跑 / 包不在；2 用法错误。
 set -euo pipefail
 
@@ -37,6 +39,9 @@ LINE="$(awk -v l="$LABEL" '$1 == "run_device_tests" && $2 == "entry" && $7 == l 
 FILTER="$(printf '%s\n' "$LINE" | awk '{ print $8 }')"
 SET="$(printf '%s\n' "$LINE" | awk '{ print $9 }')"
 [ -n "$FILTER" ] && [ -n "$SET" ] || { echo "设备步 ${LABEL} 的过滤 / 名单读不出：${LINE}" >&2; exit 2; }
+TOTAL="$(awk -v l="$LABEL" '$1 == "run_device_tests" && $2 == "entry" && $7 == l { print prev; exit } { prev = $0 }' "$ROOT/tools/ci/verify.sh" \
+    | sed -nE 's/^COULI_HM_TEST_TOTAL_TIMEOUT=([0-9]+) .*/\1/p')"
+[ -n "$TOTAL" ] || { echo "设备步 ${LABEL} 的整步超时读不出（分派行上一行应为 COULI_HM_TEST_TOTAL_TIMEOUT=…）" >&2; exit 2; }
 
 # ① 首跑只红这一步
 FAILED="$({ grep -E '^DEVICE_STEPS_FAILED( |$)' "$FIRST_LOG" || true; } | tail -1)"
@@ -74,7 +79,7 @@ echo "第 1 次复跑设备步 ${LABEL}（${FILTER}，名单 ${SET}）；首跑�
 echo "  同一个安装包：应用 ${NOW_APP}，测试包 ${NOW_TEST}（与首跑 DEVICE_HAP_SHA256 一致）"
 echo "  日志 ${LOG}；复跑标记 ${MARK}"
 code=0
-COULI_HM_TEST_TOTAL_TIMEOUT=1800 COULI_HM_TEST_CASE_TIMEOUT=600000 COULI_HM_TEST_FILTER="$FILTER" COULI_HM_DEVICE_SET="$SET" \
+COULI_HM_TEST_TOTAL_TIMEOUT="$TOTAL" COULI_HM_TEST_CASE_TIMEOUT=600000 COULI_HM_TEST_FILTER="$FILTER" COULI_HM_DEVICE_SET="$SET" \
     "$ROOT/tools/ci/device-test.sh" "$TEST_HAP" entry_test "$WORK" "$APP_HAP" >"$LOG" 2>&1 || code=$?
 cat "$LOG"
 pass="$({ grep -E '^DEVICE_TEST_PASS' "$LOG" || true; } | tail -1)"

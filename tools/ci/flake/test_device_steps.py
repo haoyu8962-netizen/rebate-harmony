@@ -12,8 +12,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-STEPS = ['entry', 'entry-hm07va', 'entry-hm07vb', 'entry-hm05r', 'entry-me12v', 'entry-me12wa', 'entry-me12wb', 'entry-me12wc', 'entry-tabbar', 'entry-loginphone']
-SETS = ['main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone']
+STEPS = ['entry', 'entry-hm07va', 'entry-hm07vb', 'entry-hm05r', 'entry-me12v', 'entry-me12wa', 'entry-me12wb', 'entry-me12wc', 'entry-tabbar', 'entry-loginphone', 'entry-l2']
+SETS = ['main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2']
+# HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：第十一个 entry 步 entry-l2（class=Ds02L2Ui），整步 3600 秒；其余各步 1800 秒。
+TOTALS = {'l2': '3600'}
 
 FAKE_DEVICE = '''#!/bin/bash
 set -eu
@@ -102,7 +104,7 @@ echo ALL_GREEN
         self.assertEqual([l.split()[1] for l in shas], ['step=core'] + ['step=' + x for x in STEPS])
         self.assertTrue(shas[0].split()[2] == 'app=none' and all(len(l.split()[3]) == len('test=') + 64 for l in shas))
         # 评审 r2 S2-A：每步的设施留痕计数进汇总（INFO，只打印）。
-        self.assertEqual(r.stdout.count('RECORD|flake-trace '), 11)
+        self.assertEqual(r.stdout.count('RECORD|flake-trace '), 12)
         self.assertIn('RECORD|flake-trace entry-hm07va|INFO', r.stdout)
 
     def test_one_red_step_does_not_stop_later_steps(self):
@@ -123,14 +125,14 @@ echo ALL_GREEN
     def test_several_red_and_core_red(self):
         r = self.run_probe({'FAIL_SETS': 'all hm07va me12wb'})
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(len(r.receipts), 11)
+        self.assertEqual(len(r.receipts), 12)
         self.assertIn('DEVICE_STEPS_FAILED core entry-hm07va entry-me12wb\n', r.stdout)
 
     def test_missing_pass_line_is_red(self):
         r = self.run_probe({'NO_REPORT_SET': 'me12v'})
         self.assertEqual(r.returncode, 1)
         self.assertIn('DEVICE_STEPS_FAILED entry-me12v\n', r.stdout)
-        self.assertEqual(len(r.receipts), 11)
+        self.assertEqual(len(r.receipts), 12)
 
     def test_no_device_fails_fast(self):
         for kind in ['1', 'lost', 'lostboot', 'boot']:
@@ -247,7 +249,7 @@ class RerunDeviceStep(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn('RERUN_PASS step=' + step + ' attempt=1（第 1 次复跑）same_package=yes', r.stdout)
             module, dset, flt, total = self.receipts.read_text().splitlines()[0].split('|')
-            self.assertEqual((module, dset, total), ('entry_test', s, '1800'))
+            self.assertEqual((module, dset, total), ('entry_test', s, TOTALS.get(s, '1800')))
             self.assertIn(' ' + step + ' ' + flt + ' ' + s + '\n', verify)
             marks = list((self.build / '.verify-out/rerun-marks').glob(step + '-*'))
             self.assertEqual(len(marks), 1)

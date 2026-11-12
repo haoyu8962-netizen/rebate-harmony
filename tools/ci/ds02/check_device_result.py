@@ -10,6 +10,8 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 HM-L2-STATE（#24 只加，README ⑩ 不新增设备步）：主步另跑 Ds02L2UiState 7 条，main 175 → 182 条
                 HM-L2 批 1 集成 2（D10-1177 ⑨ 整合重出）：五段叠加，main 203 + l2state 7 = 210 条（STATE 段并入 Ds02L2Ui 唯一 describe）
                 HM-L2-PRODUCT-CELL（#24 只加，README ⑩ 不新增设备步）：Ds02L2Ui 另加 cell 段 9 条（tools/ci/l2cell/device-cases.txt；目录不增行，render_all 条数不变），main 210 → 219 条
+                HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：Ds02L2Ui 42 条从主步摘出、单列设备步 entry-l2（--set l2 必跑），主步 notClass 加 Ds02L2Ui，
+                main 219 → 177 条（= DS-02 162 + F-X-05a 9 + F-X-25 6）；主步混进任一条 l2 用例即红（套件过滤失效）
   --set hm07va  首页视觉 a 段单独步：HM-07v-a 17 条（测试 v3 +2），且只能是这 17 条（套件过滤失效、混进别的套件都报红）
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
@@ -21,6 +23,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set loginphone  绑定手机号 / 短信登录适配与出错读屏单独步（FU-HM-LOGIN-PHONE-LAYOUT 测试 v1：6 条 tools/ci/loginphone/device-cases.txt），且只能是这 6 条
   --set l2      子集跑 COULI_HM_TEST_FILTER=class=Ds02L2Ui（HM-L2-CARD 8 条 tools/ci/l2card/device-cases.txt + HM-L2-SKELETON 6 条
                 tools/ci/l2skeleton/device-cases.txt + HM-L2-BUTTON 7 条 + HM-L2-PRICE-TAG 5 条 + HM-L2-STATE 7 条），且只能是这 33 条；verify 不单列此步（⑩）
+                （HM-BATCH1-DEVFIX，D10-1279 ③：verify 单列设备步 entry-l2 = class=Ds02L2Ui + --set l2，42 条必跑；上句「verify 不单列此步」自此作废）
                 （HM-L2 批 1 集成：class=Ds02L2Ui 跑的是唯一 describe 里的全部段，所以 l2 = 四段并集 14 → 26）
                 （HM-L2 批 1 集成 2：STATE 段并入唯一 describe，原 --set l2state 的子集过滤 class=Ds02L2UiState 不复存在，这 7 条 tools/ci/l2state/device-cases.txt 并入 l2，26 → 33）
                 （HM-L2-PRODUCT-CELL：cell 段 9 条 tools/ci/l2cell/device-cases.txt 同在唯一 describe，并入 l2，33 → 42）
@@ -223,6 +226,9 @@ def expected_names(set_name='all'):
         names.update(me12wc_names())
         names.update(tabbar_names())
         names.update(loginphone_names())
+    # HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：Ds02L2Ui 摘出主步、单列 entry-l2（--set l2 必跑这 42 条）；main 不再要求，all 照旧含。
+    if set_name == 'main':
+        names -= expected_names('l2')
     return names
 
 
@@ -255,7 +261,8 @@ def validate(text, set_name='all'):
     ran = set(passed.keys()) | set(failed)
     if set_name == 'main':
         leaked = sorted(name for name in ran if name in hm07va_names() | hm07vb_names() | hm05r_names() | me12v_names()
-                        | me12wa_names() | me12wb_names() | me12wc_names() | tabbar_names() | loginphone_names())
+                        | me12wa_names() | me12wb_names() | me12wc_names() | tabbar_names() | loginphone_names()
+                        | expected_names('l2'))  # HM-BATCH1-DEVFIX（D10-1279 ③）：主步混进 Ds02L2Ui 用例也红
         if leaked:
             raise ValueError(f'entry_test(main) 混进了 HM-07v-a / HM-07v-b / HM-05r / APP-12v / APP-12w-a / APP-12w-b / APP-12w-c 单独步的用例（套件过滤失效）: {leaked}')
     if set_name in ('hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'l2'):

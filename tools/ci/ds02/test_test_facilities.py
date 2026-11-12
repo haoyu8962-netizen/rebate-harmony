@@ -143,6 +143,8 @@ if [ "$PROBE" = me12wb-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12wb ]; 
 if [ "$PROBE" = me12wc-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = me12wc ]; then exit 1; fi
 # FU-HM-TAB-BAR 第九步（系统底栏）失败同样必须让 verify 失败。
 if [ "$PROBE" = tabbar-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = tabbar ]; then exit 1; fi
+# HM-BATCH1-DEVFIX（D10-1279 ③）第十一步（Ds02L2Ui 单列 entry-l2）失败同样必须让 verify 失败。
+if [ "$PROBE" = l2-step-fails ] && [ "${COULI_HM_DEVICE_SET:-}" = l2 ]; then exit 1; fi
 echo 'DEVICE_TEST_PASS simulated_only'
 ''')
             device.chmod(0o755)
@@ -192,7 +194,8 @@ run_device_tests() {''' + function + '''
 run_device_tests core common/core core_test
 ''' + entry_dispatch + '\n')
             for probe in ['ok', 'missing-hap', 'missing-compile', 'device-fails', 'hm07va-step-fails', 'hm07vb-step-fails',
-                          'hm05r-step-fails', 'me12v-step-fails', 'me12wa-step-fails', 'me12wb-step-fails', 'me12wc-step-fails', 'tabbar-step-fails']:
+                          'hm05r-step-fails', 'me12v-step-fails', 'me12wa-step-fails', 'me12wb-step-fails', 'me12wc-step-fails', 'tabbar-step-fails',
+                          'l2-step-fails']:
                 for receipt in ['build-receipts', 'device-receipts']:
                     (folder / receipt).unlink(missing_ok=True)
                 result = subprocess.run(['bash', str(script), tmp, probe], capture_output=True, text=True,
@@ -210,7 +213,8 @@ run_device_tests core common/core core_test
                     self.assertEqual((folder / 'device-receipts').read_text().splitlines(),
                                      ['core_test|||||all|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|'
-                                      'notClass=LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
+                                      # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换定位）：主步再排除 Ds02L2Ui（放在排除名单最前）。
+                                      'notClass=Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi|main|device-test',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vHomeUi|hm07va|'
                                       'device-test-entry-hm07va',
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=Hm07vOverlayUi|hm07vb|'
@@ -229,7 +233,10 @@ run_device_tests core common/core core_test
                                       'device-test-entry-tabbar',
                                       # FU-HM-LOGIN-PHONE-LAYOUT 测试 v1（#24 只加）：第十步 loginphone，主步再排除 LoginPhoneUi（放在排除名单最前）。
                                       'entry_test|' + tmp + '/Staging.hap|600000|1800|class=LoginPhoneUi|loginphone|'
-                                      'device-test-entry-loginphone'])
+                                      'device-test-entry-loginphone',
+                                      # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加）：第十一步 entry-l2，Ds02L2Ui 42 条，整步 3600 秒（实测加余量）。
+                                      'entry_test|' + tmp + '/Staging.hap|600000|3600|class=Ds02L2Ui|l2|'
+                                      'device-test-entry-l2'])
                 if probe == 'hm07va-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-hm07va', result.stdout)
                 if probe == 'hm07vb-step-fails':
@@ -246,6 +253,8 @@ run_device_tests core common/core core_test
                     self.assertIn('EXPECTED_FAILURE device-test entry-me12wc', result.stdout)
                 if probe == 'tabbar-step-fails':
                     self.assertIn('EXPECTED_FAILURE device-test entry-tabbar', result.stdout)
+                if probe == 'l2-step-fails':
+                    self.assertIn('EXPECTED_FAILURE device-test entry-l2', result.stdout)
                 print('REFERENCE_ONLY verify dispatch: ' + probe)
 
     def test_device_timeout_defaults_and_explicit_override(self):
@@ -373,14 +382,16 @@ run_device_tests core common/core core_test
         tabbar = expected_names('tabbar')
         loginphone = expected_names('loginphone')
         l2 = expected_names('l2')
-        self.assertEqual(len(main), 219)
+        # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换值）：Ds02L2Ui 42 条摘出主步、单列 entry-l2，main 219 → 177。
+        self.assertEqual(len(main), 177)
         self.assertEqual(len(l2), 42)
         # HM-L2-STATE（集成 2 换定位）：class=Ds02L2UiState 不复存在，l2state 7 条从 l2 里按前缀取（原 expected_names('l2state')）。
         l2state = {name for name in l2 if name.startswith('l2state_')}
         self.assertEqual(len(l2state), 7)
         # HM-L2-BUTTON：Ds02L2Ui 随主步跑（不新增设备步），7 条 l2button_ 只在 main，名单与套件 it() 一致（带 + mode 的按 light / dark 展开）。
         # HM-L2 批 1 集成（§收尾，换定位）：用例名原样挪进 L2BUTTON_DEVICE_CASES，按常量下标注册（同 L2SKEL），下标 0..n-1 各恰好一次。
-        l2button = {name for name in main if name.startswith('l2button_')}
+        # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换定位）：Ds02L2Ui 单列 entry-l2 后 l2button_ 只在 l2（不再在 main），从 l2 里取。
+        l2button = {name for name in l2 if name.startswith('l2button_')}
         self.assertEqual(len(l2button), 7)
         l2_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
         l2_declared = re.findall(r"'(l2button_\d\d_[a-z0-9_]+)'", l2_suite.split('L2BUTTON_DEVICE_CASES: string[] = [')[1].split('];')[0])
@@ -389,7 +400,7 @@ run_device_tests core common/core core_test
                                 for m in (['light', 'dark'] if n.endswith('_') else [''])), sorted(l2button))
         # HM-L2-PRICE-TAG：同一套件第二段，5 条 l2price_ 只在 main，名单与套件 it('l2price_…') 一致（带 + mode 的按 light / dark 展开）。
         # HM-L2 批 1 集成（§收尾，换定位）：用例名原样挪进 L2PRICE_DEVICE_CASES，按常量下标注册，下标 0..n-1 各恰好一次。
-        l2price = {name for name in main if name.startswith('l2price_')}
+        l2price = {name for name in l2 if name.startswith('l2price_')}  # HM-BATCH1-DEVFIX：同上，换定位到 l2
         self.assertEqual(len(l2price), 5)
         l2price_declared = re.findall(r"'(l2price_\d\d_[a-z0-9_]+)'", l2_suite.split('L2PRICE_DEVICE_CASES: string[] = [')[1].split('];')[0])
         self.assertEqual(sorted(int(i) for i in re.findall(r"\bit\(L2PRICE_DEVICE_CASES\[(\d+)\]", l2_suite)), list(range(len(l2price_declared))))
@@ -404,10 +415,12 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
         self.assertEqual(len(loginphone), 6)
-        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone, every)
-        self.assertEqual(loginphone & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar), set())
+        # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加一项）：各步并集再并 l2（单列 entry-l2）才等于合集。
+        self.assertEqual(main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | loginphone | l2, every)
+        self.assertEqual(loginphone & (main | hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar | l2), set())
         # HM-L2-CARD（#24 只加）：l2 是主步的子集（README ⑩ 不新增设备步），与 8 个单独步不相交，名单与套件导出常量一致。
-        self.assertEqual(l2 - main, set())
+        # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换值）：Ds02L2Ui 单列 entry-l2 后 l2 与主步不相交（原「l2 是主步的子集」随 ⑩ 作废）。
+        self.assertEqual(l2 & main, set())
         self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2, set())
         self.assertTrue(all(name.startswith('l2card_') or name.startswith('l2skel_') or name.startswith('l2button_') or name.startswith('l2price_')
                             or name.startswith('l2state_') or name.startswith('l2cell_') for name in l2))
@@ -428,7 +441,7 @@ run_device_tests core common/core core_test
         # HM-L2-PRODUCT-CELL（#24 只加）：cell 段同在唯一 describe 里，l2 = 六段按前缀分的并集；名单 = 套件导出常量，it 按常量下标 0..n-1 各一次。
         l2cell = {name for name in l2 if name.startswith('l2cell_')}
         self.assertEqual(len(l2cell), 9)
-        self.assertEqual(l2cell - main, set())
+        self.assertEqual(l2cell & main, set())  # HM-BATCH1-DEVFIX：同上，子集 → 不相交
         self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2cell, set())
         cell_const = l2_suite.split('L2CELL_DEVICE_CASES: string[] = [')[1].split('];')[0]
         self.assertEqual(sorted(re.findall(r"'(l2cell_\d\d_[a-z0-9_]+)'", cell_const)), sorted(l2cell))
@@ -441,7 +454,7 @@ run_device_tests core common/core core_test
         tabbar_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/TabBarShellUi.test.ets').read_text()
         self.assertEqual(sorted(re.findall(r"'(tabbar_\d\d_[a-z0-9_]+)'", tabbar_suite.split('];')[0])), sorted(tabbar))
         # HM-L2-STATE（README ⑩ 不新增设备步）：Ds02L2UiState 7 条属主步必跑（main 的子集），与各单独步不相交；名单与套件导出常量一致。
-        self.assertEqual(l2state - main, set())
+        self.assertEqual(l2state & main, set())  # HM-BATCH1-DEVFIX：同上，子集 → 不相交
         self.assertEqual((hm07va | hm07vb | hm05r | me12v | me12wa | me12wb | me12wc | tabbar) & l2state, set())
         self.assertTrue(all(name.startswith('l2state_') for name in l2state))
         l2state_suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
@@ -503,8 +516,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 219)
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 219)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 177)  # HM-BATCH1-DEVFIX：219 → 177（换值）
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 177)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
@@ -627,6 +640,10 @@ run_device_tests core common/core core_test
             'l2cell-failed': (report(sorted(l2), failed=sorted(l2cell)[0]), 'l2'),
             'l2cell-report-checked-as-main': (report(sorted(l2cell)), 'main'),
             'l2cell-report-checked-as-l2': (report(sorted(l2cell)), 'l2'),
+            # HM-BATCH1-DEVFIX（D10-1279 ③，#24 只加）：主步混进任一段的任一条 Ds02L2Ui 用例都红（notClass 失效）；主步 + l2 合报当 main 也红。
+            **{'main-with-l2-case-' + name: (report(sorted(main) + [name]), 'main') for name in sorted(l2)},
+            'main-plus-l2-checked-as-main': (report(sorted(main | l2)), 'main'),
+            'main-plus-l2-checked-as-l2': (report(sorted(main | l2)), 'l2'),
         }
         for reason, (text, chosen) in bad.items():
             with self.subTest(reason=reason), self.assertRaises(ValueError):
@@ -646,7 +663,11 @@ run_device_tests core common/core core_test
         L2StateSegment.l2StateSetup / l2StateLeave，段边界在 PRICE-TAG 之后的 state 段调用；L2STATE_DEVICE_CASES 全落 state 段；
         STATE 段函数在 PRICE-TAG 段之后注册。
         HM-L2-PRODUCT-CELL（#24 只加 cell 分支）：段前准备 = L2CellRig.enterCatalog()、段后复位 = drain + L2CellRig.leaveCatalog()（同 BUTTON / PRICE-TAG
-        段后复位口径）；L2CELL_DEVICE_CASES 全落 cell 段；cell 段函数在 STATE 段之后注册、恰一次。"""
+        段后复位口径）；L2CELL_DEVICE_CASES 全落 cell 段；cell 段函数在 STATE 段之后注册、恰一次。
+        HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ①）：⑤ 每段结束必须回到目录索引——段切换在「复位上一段」之后、「准备本段」之前无条件
+        await l2ReturnToIndex(previous)，describe afterAll 在复位最后一段之后 await l2ReturnToIndex(l2Segment)；l2ReturnToIndex 与段无关
+        （无分支）、走 L2ButtonRig.index（已在索引才提前返回，否则 pressBack 后再认 catalog-index，回不去以 node('catalog-index') 断言红）；
+        回索引失败不吞：记进 l2SegmentLeaveError，留到 afterAll 抛（同段后复位口径）。②里各段段后复位原文不动（只加步骤，不改原文）。"""
         suite = (Path(__file__).resolve().parents[3] / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
 
         def flat(text):
@@ -708,13 +729,42 @@ run_device_tests core common/core core_test
         # ③ 段切换：上一段复位 → 本段准备 → drain；准备失败的错误本段每条都抛；describe afterAll 复位最后一段。
         enter = block('async function l2EnterSegment(name: string): Promise<void>')
         steps = ['const next: string = l2SegmentOf(name);', 'if (next !== l2Segment) {', 'const previous: string = l2Segment;',
-                 'l2Segment = next;', 'l2SegmentSetupError = null;', 'await l2LeaveSegment(previous);', 'await l2SetupSegment(next);',
+                 'l2Segment = next;', 'l2SegmentSetupError = null;', 'await l2LeaveSegment(previous);',
+                 # HM-BATCH1-DEVFIX（D10-1279 ①，只加一步）：复位上一段之后、准备本段之前回目录索引。
+                 'await l2ReturnToIndex(previous);', 'await l2SetupSegment(next);',
                  'await drainUiTasks(driver);', 'l2SegmentSetupError = e as Error;',
                  '} if (l2SegmentSetupError !== null) { throw l2SegmentSetupError; }']
         at = [enter.find(step) for step in steps]
         self.assertTrue(all(i >= 0 for i in at) and at == sorted(at), dict(zip(steps, at)))
         self.assertTrue(enter.endswith('if (l2SegmentSetupError !== null) { throw l2SegmentSetupError; }'), enter[-120:])
         self.assertIn('await l2LeaveSegment(l2Segment);', block('async function l2FinishSegments(): Promise<void>'))
+        # ⑤ HM-BATCH1-DEVFIX（D10-1279 ①，只加）：每段结束必须回到目录索引。
+        self.assertEqual(block('async function l2ReturnToIndex(segment: string): Promise<void>'),
+                         "await runUiTask(driver, async (): Promise<void> => { await L2ButtonRig.index(); }); "
+                         "trace('L2_SEGMENT_AT_INDEX ' + segment);")
+        self.assertEqual(len(re.findall(r'\bl2ReturnToIndex\(', suite)), 3, '定义 1 + 段切换 1 + afterAll 1')
+        self.assertIn('try { await l2LeaveSegment(previous); } catch (e) { trace(\'L2_SEGMENT_LEAVE_FAILED \' + previous + \' \' + String(e)); '
+                      'if (l2SegmentLeaveError === null) { l2SegmentLeaveError = e as Error; } } '
+                      'try { await l2ReturnToIndex(previous); } catch (e) { trace(\'L2_SEGMENT_INDEX_FAILED \' + previous + \' \' + String(e)); '
+                      'if (l2SegmentLeaveError === null) { l2SegmentLeaveError = e as Error; } } '
+                      'try { await l2SetupSegment(next);', enter)
+        finish = block('async function l2FinishSegments(): Promise<void>')
+        self.assertEqual(finish, 'const earlier: Error | null = l2SegmentLeaveError; await l2LeaveSegment(l2Segment); '
+                                 'await l2ReturnToIndex(l2Segment); if (earlier !== null) { throw earlier; }')
+        self.assertEqual(block('    afterAll(async (): Promise<void> =>'), 'await l2FinishSegments();')
+        # L2ButtonRig.index：已在索引才提前返回；否则 pressBack 后等 catalog-index；5 轮都回不去以 node('catalog-index') 断言红。
+        button_rig = suite.split('class L2ButtonRig {', 1)[1].split('\nclass ', 1)[0]
+        index_head = '  static async index(): Promise<void> {'
+        self.assertEqual(button_rig.count(index_head), 1)
+        index_body = button_rig.split(index_head, 1)[1].split('\n  }\n', 1)[0]
+        self.assertEqual(flat(index_body),
+                         "for (let attempt: number = 0; attempt < 5; attempt++) { const found: Component = await driver.findComponent(ON.id('catalog-index')); "
+                         "if (found !== null && found !== undefined) { return; } await driver.pressBack(); await L2ButtonRig.idle(); "
+                         "const back: Component = await driver.waitForComponent(ON.id('catalog-index'), 3000); "
+                         "if (back !== null && back !== undefined) { return; } } await L2ButtonRig.node('catalog-index');")
+        # 每段都过 l2ReturnToIndex：非末段在段切换里（l2EnterSegment 对 L2_SEGMENTS 里任一相邻切换都走同一路径，无按段分支），
+        # 末段在 afterAll；l2EnterSegment 里 l2ReturnToIndex 不在任何 if (segment === …) 分支内。
+        self.assertNotIn("=== '", enter.split('await l2ReturnToIndex(previous);')[0].split('if (next !== l2Segment) {', 1)[1])
         # ④ 前缀：l2SegmentOf 只认 l2button_ / l2price_，其余归 card；与各段导出常量逐条一致，段次序 card → button → price。
         seg_of = block('function l2SegmentOf(name: string): string')
         rules = re.findall(r"if \(name\.startsWith\('([a-z0-9_]+)'\)\) \{ return '([a-z]+)'; \}", seg_of)
@@ -754,6 +804,114 @@ run_device_tests core common/core core_test
             self.assertEqual(segment_of(name), 'cell', name)
         self.assertEqual(len(re.findall(r'\bds02L2UiCellCases\(\);', suite)), 1)
         self.assertGreater(suite.index('\n    ds02L2UiCellCases();\n'), suite.index('\n    L2StateSegment.ds02L2UiStateCases();\n'))
+
+    def test_ds02_l2ui_each_case_runs_in_exactly_one_device_step(self):
+        """HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ③）：Ds02L2Ui 单列设备步 entry-l2，照 entry-tabbar 先例。钉住：
+        ① verify.sh 实际分派的 entry 设备步里，恰有一步会跑 Ds02L2Ui 套件（class= 含它，或 notClass= / 无过滤而不排除它），
+           就是 entry-l2 class=Ds02L2Ui l2，整步 3600 秒、单例 600000 ms，排在设备步汇总之前（必跑、不可跳过：分派行无条件、无跳过开关）；
+           主步 notClass 排除 Ds02L2Ui，主步 COULI_HM_TEST_TOTAL_TIMEOUT 仍 1800；
+        ② 套件里六段导出常量声明的每条用例（带 mode 的按 light / dark 展开）恰落在一个设备步的必跑名单里、且就是跑它的 entry-l2 那步；
+           不许两边都不在（l2 名单 == 套件全部用例），不许两边都在（main 不含任一条）；
+        ③ device-test.sh 对 --set l2 的门槛 3600 秒，其余步原 1800 秒门槛行仍在。"""
+        root = Path(__file__).resolve().parents[3]
+        verify = (root / 'tools/ci/verify.sh').read_text()
+        lines = verify.splitlines()
+        steps = []
+        for i, line in enumerate(lines):
+            if line.strip().startswith('run_device_tests entry '):
+                parts = line.split()
+                timeouts = dict(re.findall(r'(COULI_HM_TEST_(?:TOTAL|CASE)_TIMEOUT)=(\d+)', lines[i - 1]))
+                self.assertTrue(lines[i - 1].rstrip().endswith('\\'), lines[i - 1])
+                self.assertFalse(line.startswith(' ' * 5) or lines[i - 1].startswith(' '), '分派行不得包在条件 / 循环里：' + line)
+                steps.append((parts[-3], parts[-2], parts[-1], timeouts, i))
+
+        def runs_suite(flt, suite):
+            if not flt:
+                return True
+            kind, names = flt.split('=', 1)
+            return (suite in names.split(',')) == (kind == 'class')
+
+        runners = [step for step in steps if runs_suite(step[1], 'Ds02L2Ui')]
+        self.assertEqual([(label, flt, dset) for label, flt, dset, _, _ in runners], [('entry-l2', 'class=Ds02L2Ui', 'l2')])
+        self.assertEqual(runners[0][3], {'COULI_HM_TEST_TOTAL_TIMEOUT': '3600', 'COULI_HM_TEST_CASE_TIMEOUT': '600000'})
+        self.assertLess(runners[0][4], verify.index('if [ -n "${DEVICE_FAILED:-}" ]; then'))
+        main = [step for step in steps if step[0] == 'entry']
+        self.assertEqual(len(main), 1)
+        self.assertEqual((main[0][2], main[0][3]['COULI_HM_TEST_TOTAL_TIMEOUT']), ('main', '1800'))
+        self.assertTrue(main[0][1].startswith('notClass=') and 'Ds02L2Ui' in main[0][1].split('=', 1)[1].split(','))
+        self.assertEqual(len({step[0] for step in steps}), len(steps), '步骤名不重复')
+
+        suite = (root / 'entry/src/ohosTest/ets/test/Ds02L2Ui.test.ets').read_text()
+        self.assertEqual(len(re.findall(r"\bdescribe\('Ds02L2Ui',", suite)), 1)
+        declared = set()
+        for const in ('L2CARD_DEVICE_CASES', 'L2SKEL_DEVICE_CASES', 'L2BUTTON_DEVICE_CASES', 'L2PRICE_DEVICE_CASES',
+                      'L2STATE_DEVICE_CASES', 'L2CELL_DEVICE_CASES'):
+            names = re.findall(r"'(l2[a-z]+_[a-z0-9_]+)'", suite.split('export const %s: string[] = [' % const, 1)[1].split('];')[0])
+            self.assertTrue(names, const)
+            for name in names:
+                declared.update(name + mode for mode in (['light', 'dark'] if name.endswith('_') else ['']))
+        self.assertEqual(len(declared), 42)
+        lists = {dset: expected_names(dset) for _, _, dset, _, _ in steps}
+        self.assertEqual(lists['l2'], declared, '不许有用例两边都不在：l2 名单必须等于套件全部用例')
+        for name in sorted(declared):
+            homes = [label for label, _, dset, _, _ in steps if name in lists[dset]]
+            self.assertEqual(homes, ['entry-l2'], name)
+        # 合集里每一条都恰在一个分派步的名单里（各步两两不相交、并集 = all）。
+        every = expected_names('all')
+        for name in sorted(every):
+            self.assertEqual(sum(name in names for names in lists.values()), 1, name)
+        self.assertEqual(set().union(*lists.values()), every)
+        device = (root / 'tools/ci/device-test.sh').read_text()
+        gate = device.split('if [ "$MODULE" = entry_test ]; then\n    # 1800 秒门槛', 1)[1].split('\nfi\n', 1)[0]
+        self.assertIn('    if [ "$DEVICE_SET" = l2 ]; then\n        [ "$elapsed_seconds" -le 3600 ] || die', gate)
+        self.assertIn('    [ "$DEVICE_SET" = l2 ] || [ "$elapsed_seconds" -le 1800 ] || die', gate)
+        self.assertEqual(gate.count('-le '), 2)
+
+    def test_l2_state_live_sample_unmount_placeholder_id_not_a_tested_id(self):
+        """HM-BATCH1-DEVFIX（#24 只加，编排 D10-1279 ②）：STATE 目录活样例卸载时不再用 .id('')（设备上不清旧 id，30–33 判不了「真消失」，
+        HM-L2-BATCH1/device-subset/result.md §1.5 / §4.3），改用非空占位 id；占位 id 不得和任何被测 id 重名。约定（实现者照抄）：
+          EmptyState：.id(this.liveEmpty ? 'catalog-live/EmptyState' : 'catalog-live-off/EmptyState')
+          ErrorState：.id(this.liveError ? 'catalog-live/ErrorState' : 'catalog-live-off/ErrorState')
+        钉住：① 两处三元式恰各一处、占位字面量逐字等于约定（非空、两者不同、都不以被测前缀 catalog-live/ 开头）；liveStates 里不再有空 id；
+        ② 占位 id 不等于任何测试源码（entry / common / features 的 src/ohosTest、src/test 下全部 .ets）里的任一字符串字面量，
+           且占位前缀 catalog-live-off/ 不出现在任何测试源码里（拼接出来的被测 id 也撞不上）；
+        ③ 占位 id 在应用 / staging 源码里只出现这一处（不与其它节点 id 重名）。
+        产品文件未改前本条先红（CatalogDetail.ets 两行由 STATE 实现者改，只改 staging 目录样例，不进正式包）。"""
+        root = Path(__file__).resolve().parents[3]
+        detail = (root / 'entry/src/staging/ets/catalog/CatalogDetail.ets').read_text()
+        convention = {'EmptyState': ('liveEmpty', 'catalog-live-off/EmptyState'),
+                      'ErrorState': ('liveError', 'catalog-live-off/ErrorState')}
+        self.assertIn('  liveStates() {', detail)
+        live = detail.split('  liveStates() {', 1)[1].split('\n  @Builder', 1)[0]
+        placeholders = {}
+        for component, (flag, expected) in convention.items():
+            found = re.findall(r"\.id\(\s*this\.%s\s*\?\s*'catalog-live/%s'\s*:\s*'([^'\\]*)'\s*\)" % (flag, component), live)
+            self.assertEqual(len(found), 1, '%s 活样例外层容器的 id 三元式应恰一处：%r' % (component, found))
+            self.assertEqual(found[0], expected, '%s 卸载占位 id 应为约定的 %s，实际 %r' % (component, expected, found[0]))
+            placeholders[component] = found[0]
+        self.assertEqual(len(set(placeholders.values())), 2)
+        for value in placeholders.values():
+            self.assertTrue(value.strip() and not value.startswith('catalog-live/'), value)
+        self.assertIsNone(re.search(r"\.id\([^)]*''", live), 'liveStates 里仍有空 id')
+        tests = [f for top in ('entry', 'common', 'features') for f in sorted((root / top).rglob('*.ets'))
+                 if ('/src/ohosTest/' in f.as_posix() or '/src/test/' in f.as_posix())
+                 and not any(part in ('oh_modules', 'build', '.hvigor', 'node_modules') for part in f.parts)]
+        self.assertTrue(any(f.name == 'Ds02L2Ui.test.ets' for f in tests))
+        tested_ids = set()
+        for f in tests:
+            text = f.read_text()
+            tested_ids.update(re.findall(r"'([^'\\\n]*)'", text))
+            tested_ids.update(re.findall(r'"([^"\\\n]*)"', text))
+            self.assertFalse('catalog-live-off/' in text, f.relative_to(root).as_posix() + ' 引用了占位前缀 catalog-live-off/')
+        self.assertIn('catalog-live/EmptyState', tested_ids)
+        self.assertIn('catalog-live/ErrorState', tested_ids)
+        for value in placeholders.values():
+            self.assertNotIn(value, tested_ids)
+        app = [f for top in ('entry', 'common', 'features') for f in sorted((root / top).rglob('*.ets'))
+               if '/src/ohosTest/' not in f.as_posix() and '/src/test/' not in f.as_posix()
+               and not any(part in ('oh_modules', 'build', '.hvigor', 'node_modules') for part in f.parts)]
+        for value in placeholders.values():
+            self.assertEqual(sum(f.read_text().count("'" + value + "'") + f.read_text().count('"' + value + '"') for f in app), 1, value)
 
     def test_generator_check_covers_both_test_data_outputs(self):
         outputs = gen.build_outputs()
