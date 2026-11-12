@@ -19,6 +19,11 @@
 //      .accessibilityText(ProductCardA11y.cellLabel(this.data))（可经无参 this.m() 转一手）；标题、PriceTag、RebateTag、价格不可用提示都在
 //      这个组里；BuyButton 不在任何读屏组里；口径 i（DisclaimerFooter / gridInfo / 带 lines 的 GridRebateBlock）不在信息组里；
 //      组外的 GridRebateBlock 传 spoken: false（返利已在组读屏名里，不重读）。
+//      P4-nobutton（HM-BATCH1-DEVFIX swap3，编排 D10-1296，#24 只加）：信息组里不得有任何按钮 / 可点组件（不只购买按钮与口径 i；
+//      含与购买按钮同文字的非购买按钮、经 @Builder / 同文件 struct 间接放进去的）。组整体读一项，组内按钮读屏够不着，设备读屏
+//      项数判据看不出（swap2 §3.3 / 复核 S2-1），只能由宿主结构管。读屏口径（cellLabel、组的划分）不动。
+//      测试 v3（swap3 复核 S2-1，#24 只加）：可达遍历另展开 Repeat(...).each / .template 的子树与 @LocalBuilder 方法（原来只展开
+//      ForEach / LazyForEach 与 @Builder），经这两种 V2 写法塞进信息组的按钮 P4-nobutton / P4-buy 同样要红。
 //   P5 无触感；图片段（image 构建方法）与基线逐字节相同（批 2 PRODUCT-IMAGE 再动）。
 //   P7 隐私接线（BUTTON 评审 r1 S3-1，与 l2button B5-hidden 同口径、在新卡结构下再钉一次）：ProductCard.ets 里每个 BuyButton 的 rebate
 //      解析到未遮罩的 this.data.rebate、amountHidden 解析到 this.data.amountHidden；按钮 onTap 只回调 onBuy、不碰 onOpen。
@@ -316,6 +321,8 @@ function reach(owner, env) {
   const builders = new Map();
   for (const m of owner.members) {
     if (ts.isMethodDeclaration(m) && m.body && decorators(m).includes('Builder')) { builders.set(memberName(m), m); }
+    // HM-BATCH1-DEVFIX 测试 v3（swap3 复核 S2-1，#24 只加）：@LocalBuilder 方法（V2 常用写法）同 @Builder 跟进去。
+    if (ts.isMethodDeclaration(m) && m.body && decorators(m).includes('LocalBuilder')) { builders.set(memberName(m), m); }
   }
   function visitStatements(stmts, ctx, stack) {
     for (const s of stmts) { visitStatement(s, ctx, stack); }
@@ -367,6 +374,16 @@ function reach(owner, env) {
       }
       return;
     }
+    // HM-BATCH1-DEVFIX 测试 v3（swap3 复核 S2-1，#24 只加）：Repeat(...).each(fn) / .template(type, fn) 的子树照 ForEach 展开
+    // （箭头函数块体或表达式体都认）；其它链上调用（key / templateId / virtualScroll 等）不含子组件。
+    if (name === 'Repeat') {
+      for (const c of calls) {
+        const fn = c.name === 'each' ? c.args[0] : (c.name === 'template' ? c.args[1] : null);
+        if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) || !fn.body) { continue; }
+        if (ts.isBlock(fn.body)) { visitStatements(fn.body.statements, next, stack); } else { visitExpression(fn.body, next, stack); }
+      }
+      return;
+    }
     if (ts.isEtsComponentExpression(root) && root.body && ts.isBlock(root.body)) {
       visitStatements(root.body.statements, next, stack);
     }
@@ -411,6 +428,34 @@ const IMAGE_BASELINE = [
 const PRESS_ATTRS = ['onClick', 'onTouch', 'gesture', 'priorityGesture', 'parallelGesture', 'clickEffect', 'stateStyles', 'onHover'];
 const PRESS_IDS = ['TapGesture', 'LongPressGesture', 'PanGesture', 'SwipeGesture', 'PinchGesture', 'RotationGesture', 'GestureGroup',
   'CouliPressable'];
+
+// P4-nobutton（HM-BATCH1-DEVFIX swap3，编排 D10-1296，#24 只加）：信息组里的按钮 / 可点组件。
+// 名字以 Button（或 ButtonV2 等）结尾的组件一律算按钮（Button / BuyButton / CouliButton / CouliIconButton / TabSegmentButtonV2）；
+// 另列系统可点控件与 designsystem 里内含 Button / Toggle / Checkbox / onClick 的组件（61421dc 逐个 grep 核过）。
+const BUTTON_NAME = /Button(V\d+)?$/;
+const BUTTON_COMPS = ['Toggle', 'Checkbox', 'CheckboxGroup', 'Radio', 'Select', 'CouliPressable', 'DisclaimerFooter', 'CouliCheckbox',
+  'CouliCheckboxRow', 'CouliRadio', 'CouliSwitch', 'FilterChip', 'Segmented', 'ListRow', 'DisclosureRow', 'AmountGrid', 'WalletHeroCard',
+  'EntryGrid'];
+function isButtonName(name) { return BUTTON_NAME.test(name) || BUTTON_COMPS.includes(name); }
+/** 组件事件 e 是不是（或内含）按钮：返回命中的组件名，否则 null。同文件 struct / 顶层函数（全局 @Builder）按语法全扫（保守）；
+ *  GridRebateBlock 同 P4-buy 口径：lines 不是 [] 时内含口径 i 按钮。 */
+function buttonIn(sf, e, stack) {
+  if (isButtonName(e.name)) { return e.name; }
+  if (e.name === 'GridRebateBlock') {
+    const lines = property(e.args && e.args[0], 'lines');
+    return !lines || compact(lines.initializer) !== '[]' ? 'GridRebateBlock（带口径 i）' : null;
+  }
+  if (stack.includes(e.name)) { return null; }
+  const decl = sf.statements.find((s) => (ts.isStructDeclaration(s) || ts.isFunctionDeclaration(s)) && s.name && s.name.text === e.name);
+  if (!decl) { return null; }
+  for (const n of collect(decl, (x) => ts.isEtsComponentExpression(x) || (ts.isCallExpression(x) && ts.isIdentifier(x.expression)))) {
+    const name = componentName(n);
+    if (name === null) { continue; }
+    const hit = buttonIn(sf, { name: name, args: n.arguments || [] }, stack.concat([e.name]));
+    if (hit !== null) { return e.name + ' 内的 ' + hit; }
+  }
+  return null;
+}
 
 function checkProductCard() {
   const sf = parse(PRODUCT);
@@ -584,6 +629,15 @@ function checkProductCard() {
             if (!spoken || unwrap(spoken.initializer).kind !== ts.SyntaxKind.FalseKeyword) {
               report('P4-rebate', spoken || e.node, tag + '：信息组外的 GridRebateBlock 应传 spoken: false（返利已在信息区读屏名里，不重读）');
             }
+          }
+        }
+        // P4-nobutton（HM-BATCH1-DEVFIX swap3，编排 D10-1296，#24 只加）：信息区读屏组里不得有任何按钮 / 可点组件。
+        for (const e of events) {
+          if (e.kind !== 'comp' || !inCell(e)) { continue; }
+          const hit = buttonIn(sf, e, []);
+          if (hit !== null) {
+            report('P4-nobutton', e.node, tag + '：信息区读屏组里有按钮 / 可点组件 ' + hit + '（组合成一项，组内按钮读屏够不着、'
+              + '设备读屏项数也看不出；按钮一律放组外，D10-1296）');
           }
         }
       } else {

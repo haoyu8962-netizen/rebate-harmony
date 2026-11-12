@@ -31,6 +31,11 @@ NATIVE/HM-L2-BUTTON/review-harmony-r1.md S3-1 与 tests-harmony-v3-handback.md�
   HM-BATCH1-DEVFIX swap2（编排 D10-1286 ②，#24 只加）：--self-test 另跑 sim-reader.cjs——设备 l2cell_05 / 08 的读屏判定（真实
      Ds02L2Ui.test.ets 的 L2CellRig.reader / buttonUnits / assertReader 原文 + Hm07vHomeRig.announce）在合成组件树上原样全对：
      正例绿；卡里真多出一个 Button（含与购买按钮逐字相同的）必须红在指定失败码；把读法改回按文字归并等变异必须被打红。
+  HM-BATCH1-DEVFIX swap3（编排 D10-1296，#24 只加）：P4-nobutton 信息区读屏组里不得有任何按钮 / 可点组件（组内按钮被组吞掉，
+     设备读屏项数看不出，swap2 §3.3 / 复核 S2-1）；读屏口径不动。--self-test 另跑 NOBUTTON_MUTATIONS（塞按钮，含与购买按钮
+     同文字的非购买按钮，必须红）与 NOBUTTON_BENIGN（合法写法，必须全绿）。
+  HM-BATCH1-DEVFIX 测试 v3（swap3 复核 S2-1，#24 只加）：l2cell_ast.cjs 可达遍历另展开 Repeat(...).each / .template 与 @LocalBuilder；
+     NOBUTTON_MUTATIONS / NOBUTTON_BENIGN 各追加这两种写法（塞按钮必须红，含购买按钮经它们进组时原有 P4-buy 也红；合法写法全绿）。
 
 用法：
   python3 tools/ci/l2cell/check_l2_cell.py [--root <目录>]    检查（默认仓库根）
@@ -337,6 +342,128 @@ BENIGN = [
     ]),
 ]
 
+# HM-BATCH1-DEVFIX swap3（编排 D10-1296，#24 只加）：P4-nobutton 信息组内不得有按钮。上面 MUTATIONS / BENIGN 原样不动，另起两张表。
+# 变异（往信息组里塞按钮，必须被 P4-nobutton 打红）：（名字，[(文件，原串，新串)…]，应报的规则）；原串在参照件里必须唯一。
+GRID_PRICE = "          PriceTag({ content: this.data.price, tagSize: PriceTagSize.AI, presale: PresaleDisplay.EXTERNAL })\n"
+LIST_REBATE = "          RebateTag({ content: this.rebate(), tagSize: RebateTagSize.SMALL, inList: true })\n"
+BUY_LABEL = ("BuyButtonModel.stateLabel(this.data.buyState, this.data.buyBase, this.data.retryText, this.data.rebate, "
+             "this.data.amountHidden, this.context())")
+BUY_SPOKEN = "BuyButtonModel.spoken(this.data.buyBase, this.data.rebate, this.data.amountHidden, this.context())"
+GRID_TAIL = "@ComponentV2\nexport struct ProductCardGrid {"
+NOBUTTON_MUTATIONS = [
+    ("列表 / AI 信息组里塞「收藏」Button", [(PC, WIDE, "        Button('收藏')\n" + WIDE)], "P4-nobutton"),
+    ("信息组里塞与购买按钮逐字相同的系统 Button（读屏名也相同，非 BuyButton）", [
+        (PC, WIDE, "        Button(" + BUY_LABEL + ")\n          .accessibilityText(" + BUY_SPOKEN + ")\n" + WIDE)], "P4-nobutton"),
+    ("信息组里塞与购买按钮同文字的 CouliButton（非 BuyButton）", [
+        (PC, WIDE, "        CouliButton({ text: " + BUY_LABEL + ", accessibilityName: " + BUY_SPOKEN + " })\n" + WIDE)], "P4-nobutton"),
+    ("网格信息组里塞「分享」Button", [(PC, GRID_PRICE, GRID_PRICE + "          Button('分享')\n")], "P4-nobutton"),
+    ("购买按钮进网格信息组（P4-buy 之外 P4-nobutton 也要红）", [(PC, GRID_PRICE, GRID_PRICE + "          this.buyButton()\n")], "P4-nobutton"),
+    ("组内 @Builder（priceBlock）里塞 Button", [(PC, LIST_REBATE, LIST_REBATE + "          Button('收藏')\n")], "P4-nobutton"),
+    ("信息组里 ForEach 生成 Button", [
+        (PC, WIDE, "        ForEach(this.data.disclaimerLines, (line: string) => {\n          Button(line)\n"
+                   "        }, (line: string) => line)\n" + WIDE)], "P4-nobutton"),
+    ("Button 套在组内子容器（accessibilityGroup(false)）里", [
+        (PC, WIDE, "        Row() {\n          Button('收藏')\n        }\n        .accessibilityGroup(false)\n" + WIDE)], "P4-nobutton"),
+    ("信息组里塞按钮型 Toggle", [
+        (PC, WIDE, "        Toggle({ type: ToggleType.Button, isOn: false }) {\n          Text('收藏')\n        }\n" + WIDE)], "P4-nobutton"),
+    ("信息组里塞 CouliIconButton", [(PC, WIDE, "        CouliIconButton({ icon: 'star', accessibilityName: '收藏' })\n" + WIDE)], "P4-nobutton"),
+    ("信息组里塞同文件自定义组件（内含 Button）", [
+        (PC, WIDE, "        FavMark()\n" + WIDE),
+        (PC, GRID_TAIL, "@ComponentV2\nstruct FavMark {\n  build() {\n    Row() {\n      Button('收藏')\n    }\n  }\n}\n\n" + GRID_TAIL)],
+     "P4-nobutton"),
+    ("信息组里调同文件全局 @Builder（内含 Button）", [
+        (PC, WIDE, "        favMark()\n" + WIDE),
+        (PC, GRID_TAIL, "@Builder\nfunction favMark() {\n  Button('收藏')\n}\n\n" + GRID_TAIL)], "P4-nobutton"),
+]
+# HM-BATCH1-DEVFIX 测试 v3（swap3 复核 S2-1，#24 只加）：经 Repeat(...).each / .template 与 @LocalBuilder 塞进信息组的按钮（V2 写法），
+# P4-nobutton 必须红；购买按钮经同样写法进组，原有 P4-buy 也必须红。上面 NOBUTTON_MUTATIONS 原样不动，这里另起一张表接在后面。
+PRICE_BLOCK_HEAD = "  @Builder\n  priceBlock() {\n"
+REPEAT_EACH = ("        Repeat<string>(this.data.disclaimerLines)\n          .each((ri: RepeatItem<string>) => {\n            %s\n"
+               "          })\n")
+REPEAT_TEMPLATE = ("        Repeat<string>(this.data.disclaimerLines)\n          .each((ri: RepeatItem<string>) => {\n            Text(ri.item)\n"
+                   "          })\n          .template('fav', (ri: RepeatItem<string>) => {\n            %s\n          })\n"
+                   "          .templateId((line: string, index: number) => 'fav')\n")
+LOCAL_BUILDER = "  @LocalBuilder\n  favLocal() {\n    %s\n  }\n\n"
+NOBUTTON_MUTATIONS_V3 = [
+    ("信息组里 Repeat.each 生成 Button", [(PC, WIDE, REPEAT_EACH % "Button(ri.item)" + WIDE)], "P4-nobutton"),
+    ("信息组里 Repeat.template 生成 Button（each 只出 Text）", [(PC, WIDE, REPEAT_TEMPLATE % "Button(ri.item)" + WIDE)], "P4-nobutton"),
+    ("网格信息组里 Repeat.each 生成 CouliButton", [
+        (PC, GRID_PRICE, GRID_PRICE + REPEAT_EACH % "CouliButton({ text: ri.item })")], "P4-nobutton"),
+    ("信息组里调 @LocalBuilder（内含 Button）", [
+        (PC, WIDE, "        this.favLocal()\n" + WIDE),
+        (PC, PRICE_BLOCK_HEAD, LOCAL_BUILDER % "Button('收藏')" + PRICE_BLOCK_HEAD)], "P4-nobutton"),
+    ("组内 @Builder（priceBlock）里调 @LocalBuilder（内含 Button）", [
+        (PC, LIST_REBATE, LIST_REBATE + "          this.favLocal()\n"),
+        (PC, PRICE_BLOCK_HEAD, LOCAL_BUILDER % "Button('收藏')" + PRICE_BLOCK_HEAD)], "P4-nobutton"),
+    ("购买按钮经 Repeat.each 进信息组（P4-nobutton）", [(PC, WIDE, REPEAT_EACH % "this.buyButton()" + WIDE)], "P4-nobutton"),
+    ("购买按钮经 Repeat.each 进信息组（原有 P4-buy 也要红）", [(PC, WIDE, REPEAT_EACH % "this.buyButton()" + WIDE)], "P4-buy"),
+    ("购买按钮经 @LocalBuilder 进信息组（原有 P4-buy 也要红）", [
+        (PC, WIDE, "        this.favLocal()\n" + WIDE),
+        (PC, PRICE_BLOCK_HEAD, LOCAL_BUILDER % "this.buyButton()" + PRICE_BLOCK_HEAD)], "P4-buy"),
+]
+NOBUTTON_MUTATIONS += NOBUTTON_MUTATIONS_V3
+# 合法写法（P4-nobutton 不得误报，check() 必须全绿）。
+NOBUTTON_BENIGN = [
+    ("信息组里放与购买按钮同文字的 Text（不是按钮）", [
+        (PC, WIDE, "        Text(" + BUY_LABEL + ")\n" + WIDE)]),
+    ("信息组里放 CouliIcon（名字不以 Button 结尾、非可点）", [(PC, WIDE, "        CouliIcon({ name: 'clock', iconSize: 14 })\n" + WIDE)]),
+    ("信息组里读 disclaimerButtonLabel 文字（字段名含 Button，不是组件）", [
+        (PC, WIDE, "        Text(this.data.disclaimerButtonLabel)\n" + WIDE)]),
+    ("信息组里放同文件自定义组件（不含按钮）", [
+        (PC, WIDE, "        PlainMark()\n" + WIDE),
+        (PC, GRID_TAIL, "@ComponentV2\nstruct PlainMark {\n  build() {\n    Text('自营')\n  }\n}\n\n" + GRID_TAIL)]),
+    ("Button 在信息组外（底行购买按钮旁，读屏单独一项；设备读屏另判）", [
+        (PC, BUY_ROW, "        Button('分享')\n" + BUY_ROW)]),
+]
+# 测试 v3（S2-1，只加）：Repeat / @LocalBuilder 的合法写法不误报。
+NOBUTTON_BENIGN += [
+    ("信息组里 Repeat.each 只出 Text", [(PC, WIDE, REPEAT_EACH % "Text(ri.item)" + WIDE)]),
+    ("信息组里调 @LocalBuilder（只含 Text）", [
+        (PC, WIDE, "        this.favLocal()\n" + WIDE),
+        (PC, PRICE_BLOCK_HEAD, LOCAL_BUILDER % "Text('自营')" + PRICE_BLOCK_HEAD)]),
+    ("Repeat.each 生成的 Button 在信息组外（底行购买按钮旁）", [(PC, BUY_ROW, REPEAT_EACH % "Button(ri.item)" + BUY_ROW)]),
+    ("@LocalBuilder（内含 Button）只定义、不在信息组里调用", [
+        (PC, PRICE_BLOCK_HEAD, LOCAL_BUILDER % "Button('收藏')" + PRICE_BLOCK_HEAD)]),
+]
+
+
+def nobutton_self_test(tmp, failures):
+    """HM-BATCH1-DEVFIX swap3（D10-1296，只加）：P4-nobutton 变异逐个打红、合法写法全绿。"""
+    for idx, (name, edits, want) in enumerate(NOBUTTON_MUTATIONS):
+        root = os.path.join(tmp, "n%02d" % idx)
+        copy_good(root)
+        bad = [n for n in (apply(root, rel, old, new) for rel, old, new in edits) if n != 1]
+        if bad:
+            failures.append("P4-nobutton 变异「%s」的原串出现次数不对 %s（应 1 次）" % (name, bad))
+            shutil.rmtree(root)
+            continue
+        try:
+            rules = {v["rule"] for v in check(root)}
+        except Incomplete as e:
+            failures.append("P4-nobutton 变异「%s」解析不完整（变异写坏了，不算杀）：%s" % (name, e))
+            shutil.rmtree(root)
+            continue
+        if want not in rules:
+            failures.append("P4-nobutton 变异「%s」没被 %s 杀（实际 %s）" % (name, want, sorted(rules)))
+        shutil.rmtree(root)
+    for idx, (name, edits) in enumerate(NOBUTTON_BENIGN):
+        root = os.path.join(tmp, "nb%02d" % idx)
+        copy_good(root)
+        for rel, old, new in edits:
+            n = apply(root, rel, old, new)
+            if n != 1:
+                failures.append("P4-nobutton 合法写法「%s」的原串出现 %d 次（应 1 次）" % (name, n))
+        try:
+            got = check(root)
+        except Incomplete as e:
+            failures.append("P4-nobutton 合法写法「%s」解析不完整：%s" % (name, e))
+            got = []
+        if got:
+            failures.append("P4-nobutton 合法写法「%s」被误报：%s" % (name, [(v["rule"], v["msg"]) for v in got]))
+        shutil.rmtree(root)
+    return len(NOBUTTON_MUTATIONS) + len(NOBUTTON_BENIGN)
+
+
 # 交叉核对（S3-1「新卡结构下要继续红」）：把 l2button 的 check() 打在「l2button 参照树 + 本单参照 ProductCard（或其变异）」上。
 CROSS = [
     ("参照件（l2button B4 / B5 应全绿）", None, None, None),
@@ -493,9 +620,10 @@ def self_test():
         except Incomplete:
             pass
         cross = cross_check(tmp, failures)
+        nobutton = nobutton_self_test(tmp, failures)
     sim_failures, sim_total = sim_reader_mutants()
     failures += sim_failures
-    total = len(MUTATIONS) + len(BENIGN) + 3 + cross + sim_total
+    total = len(MUTATIONS) + len(BENIGN) + 3 + cross + sim_total + nobutton
     if failures:
         for f in failures:
             print("SELFTEST FAIL: %s" % f)
@@ -504,6 +632,8 @@ def self_test():
     print("L2CELL_SELFTEST 通过：参照件 1 + 变异 %d 全杀 + 良性改写 %d 全绿 + 语法错误 / 缺文件 fail-closed + l2button 交叉核对 %d"
           % (len(MUTATIONS), len(BENIGN), cross))
     print("L2CELL_SELFTEST 读屏判定离线合成树（sim-reader，D10-1286 ②）：原样全对 + 变异 %d 全红" % (sim_total - 1))
+    print("L2CELL_SELFTEST 信息组内不得有按钮（P4-nobutton，D10-1296）：变异 %d 全红 + 合法写法 %d 全绿"
+          % (len(NOBUTTON_MUTATIONS), len(NOBUTTON_BENIGN)))
     return 0
 
 
