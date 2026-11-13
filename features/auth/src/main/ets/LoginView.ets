@@ -419,9 +419,13 @@ export struct LoginView {
 
   /** 输入、粘贴和系统填充共用这一个入口；不在视图里调用 login 或重试。 */
   private inputCode(value: string): void {
+    const before: string = this.model.codeText;
     const pending: Promise<CodeSubmitResult> | null = this.pageFlow.code.input(value);
     this.model.codeText = this.pageFlow.code.code;
-    this.model.codeError = '';
+    // D10-1570：错误后程序清码会引起一次 onChange('')，那次不清错误；只有用户新的非空输入才清（重新发码在 pageAction 里清）。
+    if (this.model.codeText.length > 0 && this.model.codeText !== before) {
+      this.model.codeError = '';
+    }
     if (pending !== null) {
       this.model.submitting = true;
       this.showCodeResult(pending);

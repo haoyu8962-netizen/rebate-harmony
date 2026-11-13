@@ -397,6 +397,8 @@ export struct BindPhoneView {
     }
     switch (outcome.stateRaw) {
       case SmsCountdown.STATE_SENT:
+        // D10-1570：重新发码成功清掉旧的验证码错误（框下红字与读屏说明一起清）；手机号错误不动，失败分支不清。
+        this.model.codeError = '';
         // R2-04：当前有效请求的发送成功播报一次脱敏发送对象（换号、离页后的旧结果不播报）。
         this.announce(this.announcer.sendResult(outcome, this.model.phoneText));
         this.refreshTimers();

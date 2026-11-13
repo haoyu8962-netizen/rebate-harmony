@@ -526,8 +526,12 @@ export class BindPhoneForm {
     if (!this.live(b)) {
       return false;
     }
-    b.fields.codeText = this.codeRev.change(b.fields.codeText, CodeInput.sanitize(value));
-    b.fields.codeError = '';
+    const before: string = b.fields.codeText;
+    b.fields.codeText = this.codeRev.change(before, CodeInput.sanitize(value));
+    // D10-1570：页面清码引起的 onChange('') 不清错误；只有新的非空输入才清。
+    if (b.fields.codeText.length > 0 && b.fields.codeText !== before) {
+      b.fields.codeError = '';
+    }
     return true;
   }
 
