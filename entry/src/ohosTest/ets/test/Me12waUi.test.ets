@@ -167,8 +167,8 @@ async function errorRowUnderBox(id: string, text: string, what: string, dark: bo
   near(fontOf(t), 14, 0.5, 'ME12WA_ERROR_FONT ' + what + ' 字号 14');
   check(iconNodes(n).length >= 1 || iconNodes(await treeNode(ID_NICK_CARD)).length >= 2,
     'ME12WA_ERROR_ICON ' + what + ' 错误行要带警告图标（16）');
-  // 底色：错误行左侧 2vp 处是白卡底（不是 status.error.background 红底条）。
-  const bg: number[] = await colorIn(row, 2, hVp(row) / 2);
+  // 底色：错误行左侧 18vp 处（16vp 警告图标盒右缘与文字左内边距 20vp 的正中；#24 D10-1507，原 2vp 压在系统符号三角左边线上）是白卡底（不是 status.error.background 红底条）。
+  const bg: number[] = await colorIn(row, 18, hVp(row) / 2);
   colorNotNear(bg, 'status.error.background', dark, 6, what + ' 不得是红底提示条');
   colorNear(bg, 'background.surface', dark, 10, what + ' 行底 = 白卡底');
   return row;
