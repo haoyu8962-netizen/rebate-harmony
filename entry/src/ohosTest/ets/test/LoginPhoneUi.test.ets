@@ -10,7 +10,7 @@
 // 名字里的序号对应交回 §3 的条目，不是执行顺序。
 // 现树预期：01 红（固定 52vp 框高）、02 红（倒计时是光秃 Text、无 login_resend 按钮；320 + 200% 下被截）、03 红（发码是 Text 不是 Button、
 // 无按钮外观）、04 / 05 红（错误没关联到输入框）、06 绿（钉住判据 1）。
-import { describe, it } from '@ohos/hypium';
+import { describe, expect, it } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
 import {
   appTree, appUi, attr, capture, density, ensureFull, findById, hitRect, hm07vDriver, idle, launch, Launch, maybe, node, overlaps,
@@ -171,10 +171,29 @@ async function textFits(needle: string, inside: Rect, rightPx: number, scale: nu
     await fail('LOGINPHONE_TEXT_MISSING ' + what + ' 组件树里没有含「' + needle + '」的 Text');
     return;
   }
-  const content: string = attr(n, 'content');
+  let content: string = attr(n, 'content');
   const size: number = fontOf(n) * scale;
   await need(size > 0, 'LOGINPHONE_NO_FONT ' + what);
-  const c: Component = await node(ON.text(content), what + ' 文字');
+  // 倒计时文字每秒跳一次：组件树快照与 UiTest 全文查找之间若跨过跳秒，按最新快照的原文再找（有界 8 s，同 node 默认；判据与报错不变）。
+  // 截止在首次查找之前定；每轮在等待后、读树前、查找后都核截止，过了截止不再查找，直接走下面原报错断言。
+  const end: number = Date.now() + 8000;
+  let found: Component | null = await maybe(ON.text(content));
+  while (found === null && Date.now() < end) {
+    await hm07vDriver.delayMs(Math.min(200, Math.max(0, end - Date.now())));
+    if (Date.now() >= end) {
+      break;
+    }
+    const latest: Record<string, Object> | null = await textNodeContaining(needle);
+    if (latest !== null) {
+      content = attr(latest, 'content');
+    }
+    if (Date.now() >= end) {
+      break;
+    }
+    found = await maybe(ON.text(content));
+  }
+  expect(found !== null ? what + ' 文字' : 'HM07VA_MISSING ' + what + ' 文字').assertEqual(what + ' 文字');
+  const c: Component = found as Component;
   const r: Rect = await c.getBounds();
   const textW: number = await textWidthVp(content, size, weightOf(n), 0);
   const lines: number = Math.max(1, Math.ceil(textW / Math.max(1, wVpOf(r)) - 0.02));
@@ -384,8 +403,7 @@ export default function loginPhoneUiTest() {
     it('loginphone_05_login_code_error_shown_and_described_on_input', 0, async () => {
       await relaunchCold(defaultsDisplay());
       await toCodeStep();
-      const code: Component = await node(ON.id(ID_CODE), '验证码输入');
-      await code.inputText(BAD_CODE);
+      await typeInto(ID_CODE, BAD_CODE, '验证码输入');
       const err: Component | null = await maybe(ON.text(T_CODE_ERROR), 8000);
       await need(err !== null, 'LOGINPHONE_CODE_ERROR_NOT_SHOWN 验证码错没有出现「' + T_CODE_ERROR + '」');
       await need((await maybe(ON.id(ID_CODE))) !== null, 'LOGINPHONE_CODE_ERROR_LEFT 验证码错后离开了验证码步');
