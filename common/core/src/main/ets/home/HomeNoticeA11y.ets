@@ -2,6 +2,7 @@
 // README 待编排 ⑬（D10-1248）：不加键，名称 = 原名「关闭公告」+ 逗号 + 正文前 12 字（按码点），超长加省略。
 // Core 不依赖 DesignSystem，逗号写成与 PriceTerms.comma 同值的常量。
 import { HomeDraftTexts } from './HomeDraftTexts';
+import { CodePoints } from '../text/CodePoints';
 
 export class HomeNoticeA11y {
   /** 行摘要最多取正文前几个字（按码点，不劈开增补平面字符）。 */
@@ -14,7 +15,7 @@ export class HomeNoticeA11y {
   /** 「关闭公告，<正文前 12 字>[……]」；正文去首尾空白后为空时只读「关闭公告」。 */
   static closeLabel(text: string): string {
     const name: string = HomeDraftTexts.text('home.notice.close');
-    const cps: string[] = Array.from(text.trim());
+    const cps: string[] = CodePoints.split(text.trim());
     if (cps.length === 0) {
       return name;
     }
