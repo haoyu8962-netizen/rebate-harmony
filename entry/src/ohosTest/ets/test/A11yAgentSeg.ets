@@ -17,7 +17,7 @@ import { ON, Component, Driver, MatchPattern, Point, Rect } from '@kit.TestKit';
 import { KeyCode } from '@kit.InputKit';
 import { appTree, appUi, attr, hm07vDriver, idle, maybe, node, relaunchCold } from './Hm07vHomeRig';
 import { check, nodesOf, typeName } from './Hm07vOverlayRig';
-import { backToTabs, safeTexts, tabItem } from './Me12vRig';
+import { backToTabs, openMeTab, safeTexts, tabItem } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
 import { waitUntil } from './FlakeKit';
 
@@ -79,9 +79,78 @@ async function need(ok: boolean, what: string): Promise<void> {
   }
 }
 
+/**
+ * #24 D10-1634 ①：复位 App 进程里的 AI 同意状态（不靠用例顺序）。冷启动（relaunchCold）是同一个进程，`couli_debug_agent_consent` 只改
+ * 本机假服务，控制器里的「已拒绝」（CONSENT_DECLINED / REFUSED：【暂不使用】、系统返回或点遮罩关闭同意弹窗之后）清不掉，页面停在说明 +
+ * 【重新同意】。这里走产品自己的【重新同意】→ 勾选 →【同意并使用】把它复位成已同意（不用调试通道，不改产品代码）；同意弹窗残留开着时
+ * 同样勾选并同意。复位后切回「我的」，让本条随后的冷启动与点「AI 助手」和原来一样从别的 Tab 切过来。只是前置，不是判据；复位本身走不通
+ * 用 A11Y_AGENT_RESET_* 报红（与用例判据的码分开）。
+ */
+async function resetConsent(): Promise<void> {
+  await backToTabs();
+  await (await tabItem(T_AGENT_TAB)).click();
+  await idle();
+  await driver.delayMs(800);
+  if ((await maybe(ON.id(ID_AGREE), 300)) === null) {
+    const reagree: Component | null = await maybe(ON.id(ID_REAGREE), 1500);
+    if (reagree !== null) {
+      await reagree.click();
+      await idle();
+      await need((await maybe(ON.id(ID_AGREE), 6000)) !== null, 'A11Y_AGENT_RESET_NO_DIALOG 复位：【重新同意】没弹出同意弹窗');
+    }
+  }
+  if ((await maybe(ON.id(ID_AGREE), 300)) !== null) {
+    const box: Component = await node(ON.type('Checkbox'), '复位：同意勾选框');
+    if (!(await box.isChecked())) {
+      await box.click();
+      await idle();
+    }
+    await (await node(ON.id(ID_AGREE), '复位：【同意并使用】')).click();
+    await need(await gone(ID_AGREE, 4000), 'A11Y_AGENT_RESET_NOT_CLOSED 复位：【同意并使用】后同意弹窗没关');
+    await need(await gone(ID_REAGREE, 3000), 'A11Y_AGENT_RESET_STILL_DECLINED 复位：同意后页面仍是「已拒绝」（还有【重新同意】）');
+  }
+  await backToTabs();
+  await openMeTab();
+}
+
+/**
+ * #24 D10-1634 ①：失败路径（finally）收掉本段可能留下的弹层：同意弹窗、举报半屏、商品详情页（有界按返回，只是复位，不是判据）。
+ * 同意弹窗按返回关掉会让进程进入「已拒绝」，由下一条开头的 resetConsent 复位。
+ */
+async function closeAgentOverlays(): Promise<void> {
+  for (let i: number = 0; i < 4; i++) {
+    const open: boolean = (await maybe(ON.id(ID_AGREE), 300)) !== null || (await maybe(ON.id(ID_REPORT_SUBMIT), 200)) !== null
+      || (await maybe(ON.id(ID_DETAIL_BUY), 200)) !== null;
+    if (!open) {
+      return;
+    }
+    await driver.pressBack();
+    await driver.delayMs(600);
+  }
+}
+
+/**
+ * #24 D10-1634 ①：用例体包一层 finally（断言失败中止时也收掉弹层），判据不变。第三轮（只读复核 S2-1）：收尾自己 catch 住、只打日志，
+ * 不让收尾里的异常（应用崩溃、driver 出错等）盖掉用例的原始失败；用例本身通过而收尾出错时也只记日志（收尾不是判据）。
+ */
+function guarded(body: () => Promise<void>): () => Promise<void> {
+  return async (): Promise<void> => {
+    try {
+      await body();
+    } finally {
+      try {
+        await closeAgentOverlays();
+      } catch (e) {
+        console.info('A11Y_AGENT_NOTE 收尾 closeAgentOverlays 出错（不影响本条判定）：' + String((e as Error).message ?? e));
+      }
+    }
+  };
+}
+
 /** 会员 + 冷启动带 Agent 假服务参数 + 切到「AI 助手」。history 'none' = 空对话；send 非空 = 页签显示后发出这条。 */
 async function openAgent(fixture: string, consentGranted: boolean, history: string, send: string): Promise<void> {
   await ensureMember();
+  await resetConsent();
   await relaunchCold(base('').with('couli_debug_agent_fixture', fixture).with('couli_debug_agent_consent', consentGranted ? '0' : '1')
     .with('couli_debug_agent_history', history).with('couli_debug_agent_send', send).with('couli_debug_agent_result', ''));
   await backToTabs();
@@ -115,11 +184,6 @@ function byId(nodes: Record<string, Object>[], id: string): Record<string, Objec
   return nodes.find((n: Record<string, Object>): boolean => attr(n, 'id') === id) ?? null;
 }
 
-/** 组件树里的读屏角色：名字（button / title_bar，大小写、下划线不计）或枚举数值都认。 */
-function roleIs(n: Record<string, Object>, name: string, value: number): boolean {
-  const raw: string = attr(n, 'accessibilityRole');
-  return raw.toLowerCase().split('_').join('') === name || raw === String(value);
-}
 
 async function waitText(text: string, timeoutMs: number): Promise<boolean> {
   return waitUntil(driver, async (): Promise<boolean> => (await maybe(ON.text(text, MatchPattern.CONTAINS))) !== null, timeoutMs);
@@ -144,7 +208,7 @@ async function historyReady(): Promise<void> {
 /** FU-HM-A11Y-AGENT 的段（由 HmA11yUi 唯一的 describe 里调用一次）。 */
 export function a11yAgentCases(): void {
   // 01（FU-10 + S3-1 / S3-2）：AI 卡信息组是按钮、读屏名 = 可见内容（读「有券」、不读隐藏的「暂无返利」），点信息区进详情恰一次。
-  it(A11Y_AGENT_DEVICE_CASES[0], 0, async (): Promise<void> => {
+  it(A11Y_AGENT_DEVICE_CASES[0], 0, guarded(async (): Promise<void> => {
     await openAgent('normal', true, 'none', T_SEND);
     await need(await waitText(T_CARD1_TITLE, 10000), 'A11Y_AGENT_NO_CARD 假服务 normal 的商品卡「' + T_CARD1_TITLE + '」没出来');
     const groups: Record<string, Object>[] = (await treeNodes()).filter((n: Record<string, Object>): boolean =>
@@ -152,8 +216,9 @@ export function a11yAgentCases(): void {
     await need(groups.length === 1, 'A11Y_AGENT_CARD_GROUP 第 1 件商品应恰有一个信息组读屏项（实际 ' + groups.length + '）');
     if (groups.length === 1) {
       const g: Record<string, Object> = groups[0];
-      await need(roleIs(g, 'button', AccessibilityRoleType.BUTTON),
-        'A11Y_AGENT_CARD_ROLE AI 卡信息组应是按钮（可打开详情），实际 accessibilityRole=「' + attr(g, 'accessibilityRole') + '」');
+      // #24 D10-1639：原 A11Y_AGENT_CARD_ROLE（信息组 accessibilityRole = BUTTON）设备判据已删——设备组件树不导出 accessibilityRole
+      // （设备实测：Hm07vHomeUi.test.ets:255 探针 v2、Me12waRig.ets:568 同口径），读出恒为空串。信息组按钮角色由宿主
+      // tools/ci/a11yagent/check_a11y_agent.py AG1-role（ProductCard openable 信息组 BUTTON，含变异自测）钉住。
       const label: string = attr(g, 'accessibilityText');
       await need(label.indexOf(T_CARD1_TAG) > label.indexOf(T_CARD1_TITLE),
         'A11Y_AGENT_CARD_TAGS 信息组读屏名应读出可见的优惠标签「' + T_CARD1_TAG + '」（D10-1248 ⑦），实际「' + label + '」');
@@ -167,10 +232,10 @@ export function a11yAgentCases(): void {
     await driver.delayMs(1200);
     await need((await maybe(ON.id(ID_DETAIL_BUY), 800)) === null && (await maybe(ON.text(T_CARD1_TITLE, MatchPattern.CONTAINS), 3000)) !== null,
       'A11Y_AGENT_CARD_TWICE 返回一次没回到 AI 助手（详情页被推了不止一层：onOpen 触发了两次？）');
-  });
+  }));
 
   // 02（FU-12）：输入框读屏名固定（正常 / 额度用完两态相同），不等于任一占位。
-  it(A11Y_AGENT_DEVICE_CASES[1], 0, async (): Promise<void> => {
+  it(A11Y_AGENT_DEVICE_CASES[1], 0, guarded(async (): Promise<void> => {
     await openAgent('normal', true, 'none', '');
     const normal: Record<string, Object> | null = byId(await treeNodes(), ID_INPUT);
     await need(normal !== null, 'A11Y_AGENT_INPUT_ID 组件树里没有 ' + ID_INPUT);
@@ -183,18 +248,20 @@ export function a11yAgentCases(): void {
     const quota: Record<string, Object> | null = byId(await treeNodes(), ID_INPUT);
     const b: string = quota === null ? '' : attr(quota, 'accessibilityText');
     await need(b === a && b.length > 0, 'A11Y_AGENT_INPUT_LABEL_SWITCHES 额度用完时输入框读屏名「' + b + '」与正常态「' + a + '」不同（不得随配额切换）');
-  });
+  }));
 
   // 03（FU-14 / 18 / 20）：同意弹窗打开焦点进标题（TITLE_BAR），圆点对读屏隐藏；系统返回关闭后输入框已不在（拒绝态），焦点回页面标题；
   // 【重新同意】再开、勾选同意后关闭，焦点在输入框或页面标题（关闭那一刻输入框可用回输入框，否则回标题；书 §2.4）。
-  it(A11Y_AGENT_DEVICE_CASES[2], 0, async (): Promise<void> => {
+  it(A11Y_AGENT_DEVICE_CASES[2], 0, guarded(async (): Promise<void> => {
     await openAgent('normal', false, 'none', T_SEND);
     await need((await maybe(ON.id(ID_AGREE), 10000)) !== null, 'A11Y_AGENT_NO_CONSENT 未同意时发消息没有弹出 AI 同意弹窗');
     await need(await focusedWithin(ID_CONSENT_TITLE, 3000), 'A11Y_AGENT_CONSENT_FOCUS 同意弹窗打开后焦点不在标题 ' + ID_CONSENT_TITLE);
     const nodes: Record<string, Object>[] = await treeNodes();
     const title: Record<string, Object> | null = byId(nodes, ID_CONSENT_TITLE);
-    await need(title !== null && roleIs(title, 'titlebar', AccessibilityRoleType.TITLE_BAR),
-      'A11Y_AGENT_CONSENT_ROLE 同意弹窗标题应是 TITLE_BAR，实际「' + (title === null ? '（无节点）' : attr(title, 'accessibilityRole')) + '」');
+    // #24 D10-1639：原 A11Y_AGENT_CONSENT_ROLE（标题 accessibilityRole = TITLE_BAR）设备判据已删——设备组件树不导出 accessibilityRole
+    // （设备实测：Hm07vHomeUi.test.ets:255 探针 v2、Me12waRig.ets:568 同口径；本条首跑 aa:293 读出「」）。TITLE_BAR 由宿主
+    // tools/ci/a11yagent/check_a11y_agent.py AG4（AG4-title：页面 / 同意 / 举报标题 TITLE_BAR，含变异自测）钉住。标题节点在树里仍判。
+    await need(title !== null, 'A11Y_AGENT_CONSENT_TITLE_NODE 组件树里没有同意弹窗标题 ' + ID_CONSENT_TITLE);
     const bullets: Record<string, Object>[] = nodes.filter((n: Record<string, Object>): boolean =>
       typeName(n) === 'Text' && attr(n, 'content') === T_BULLET);
     await need(bullets.length >= 3, 'A11Y_AGENT_CONSENT_BULLETS 同意弹窗三行说明的圆点没找到（' + bullets.length + '）');
@@ -217,11 +284,11 @@ export function a11yAgentCases(): void {
     const back: boolean = await waitUntil(driver, async (): Promise<boolean> =>
       await focusedWithin(ID_INPUT, 0) || await focusedWithin(ID_TITLE, 0), 3000);
     await need(back, 'A11Y_AGENT_CONSENT_RETURN 同意后关闭，焦点既不在输入框也不在页面标题');
-  });
+  }));
 
   // 04（FU-12 / 14 / 20）：长按回复气泡打开举报半屏 → 焦点进标题（TITLE_BAR）、补充说明有读屏名；返回关闭 → 焦点回该条气泡。
   // 再用键盘走到第 2 条回复的读屏入口（hitTestBehavior None，触摸点不到）回车打开 → 选原因提交 → 入口随「已举报」消失，焦点落本条「已举报」。
-  it(A11Y_AGENT_DEVICE_CASES[3], 0, async (): Promise<void> => {
+  it(A11Y_AGENT_DEVICE_CASES[3], 0, guarded(async (): Promise<void> => {
     await openAgent('normal', true, 'active', '');
     await historyReady();
     const replyA: Component = await node(ON.text(T_REPLY_A, MatchPattern.CONTAINS), '第 1 条回复');
@@ -233,7 +300,10 @@ export function a11yAgentCases(): void {
     await need(await focusedWithin(ID_REPORT_TITLE, 3000), 'A11Y_AGENT_SHEET_FOCUS 举报半屏打开后焦点不在标题 ' + ID_REPORT_TITLE);
     const nodes: Record<string, Object>[] = await treeNodes();
     const title: Record<string, Object> | null = byId(nodes, ID_REPORT_TITLE);
-    await need(title !== null && roleIs(title, 'titlebar', AccessibilityRoleType.TITLE_BAR), 'A11Y_AGENT_SHEET_ROLE 举报标题应是 TITLE_BAR');
+    // #24 D10-1639：原 A11Y_AGENT_SHEET_ROLE（举报标题 accessibilityRole = TITLE_BAR）设备判据已删——设备组件树不导出 accessibilityRole
+    // （设备实测：Hm07vHomeUi.test.ets:255 探针 v2、Me12waRig.ets:568 同口径）。TITLE_BAR 由宿主
+    // tools/ci/a11yagent/check_a11y_agent.py AG4（AG4-title，含变异自测）钉住。标题节点在树里仍判。
+    await need(title !== null, 'A11Y_AGENT_SHEET_TITLE_NODE 组件树里没有举报半屏标题 ' + ID_REPORT_TITLE);
     const sup: Record<string, Object> | null = byId(nodes, ID_SUPPLEMENT);
     await need(sup !== null && attr(sup, 'accessibilityText') === T_SUPPLEMENT,
       'A11Y_AGENT_SUPPLEMENT_LABEL 补充说明读屏名应为「' + T_SUPPLEMENT + '」，实际「' + (sup === null ? '（无节点）' : attr(sup, 'accessibilityText')) + '」');
@@ -266,10 +336,10 @@ export function a11yAgentCases(): void {
     const key: string = entry.substring(ID_ENTRY_PREFIX.length);
     await need(gtext === T_REPORTED && gid.endsWith(key) && key.length > 0,
       'A11Y_AGENT_REPORTED_RETURN 读屏入口举报后入口消失，焦点应落到本条「' + T_REPORTED + '」（id 带回复键 ' + key + '），实际「' + gid + '」「' + gtext + '」');
-  });
+  }));
 
   // 05（FU-14 / 17 / 18）：两条回复的赞 / 踩 / 读屏举报入口读屏名 = 原名 + 「，」+ 本条摘要，两两不同；入口 id 每条唯一；消息里没有被读出的圆点。
-  it(A11Y_AGENT_DEVICE_CASES[4], 0, async (): Promise<void> => {
+  it(A11Y_AGENT_DEVICE_CASES[4], 0, guarded(async (): Promise<void> => {
     await openAgent('normal', true, 'active', '');
     await historyReady();
     const nodes: Record<string, Object>[] = await treeNodes();
@@ -293,6 +363,6 @@ export function a11yAgentCases(): void {
     const spoken: Record<string, Object>[] = nodes.filter((n: Record<string, Object>): boolean => typeName(n) === 'Text'
       && attr(n, 'content') === T_BULLET && attr(n, 'accessibilityLevel') !== 'no' && attr(n, 'accessibilityLevel') !== 'no-hide-descendants');
     await need(spoken.length === 0, 'A11Y_AGENT_BULLET_READ 页面上有 ' + spoken.length + ' 个圆点没对读屏隐藏（FU-18）');
-  });
+  }));
 }
 

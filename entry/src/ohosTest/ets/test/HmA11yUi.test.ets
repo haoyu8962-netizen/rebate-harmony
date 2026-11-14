@@ -13,8 +13,9 @@
 // 执行顺序 = 声明顺序（身份单向）：游客 05（登录 44001）→ 会员 01（订单）→ 02（钱包）→ 03（提现手续费）→ 04（提现风控 / 放弃）。
 // 现树预期：05 红（返回关不掉）、01 红（复制读屏名不带单号）、02 / 03 红（问号无 id / 焦点不回）、04 红（返回关不掉）。
 import { describe, it } from '@ohos/hypium';
-import { ON, On, Component, MatchPattern } from '@kit.TestKit';
-import { appTree, attr, ensureFull, findById, hm07vDriver, idle, launch, Launch, maybe, node } from './Hm07vHomeRig';
+import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
+import { KeyCode } from '@kit.InputKit';
+import { appTree, appUi, attr, ensureFull, findById, hm07vDriver, idle, launch, Launch, maybe, node } from './Hm07vHomeRig';
 import { check, GUEST, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts, tabItem, T_ORDERS_TAB } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
@@ -100,21 +101,89 @@ async function goneWithin(on: On, timeoutMs: number): Promise<boolean> {
   return waitUntil(hm07vDriver, async (): Promise<boolean> => (await maybe(on)) === null, timeoutMs);
 }
 
-/** 节点不在屏上时在页面 Scroll 里找。 */
+/** #24 D10-1634 第三轮：所有滑动找 / 回顶的上限（次数与总时长；远小于 Hypium 单例 600000 ms）。 */
+const SWIPE_STEPS: number = 8;
+const SWIPE_BUDGET_MS: number = 20000;
+const COLLECT_PAGES: number = 12;
+const COLLECT_BUDGET_MS: number = 45000;
+
+/**
+ * 节点不在屏上时在页面 Scroll 里找。#24 D10-1634 第三轮：原来用原生 Component.scrollSearch（不可取消、没有上限；同类的 scrollToTop
+ * 在 solo-run-20261114-161128 卡满 600000 ms，之后 18 条全被「uitest-api dose not allow calling concurrently」挡掉），改成有界滑动：
+ * 先往下翻、再往回翻，各至多 SWIPE_STEPS 次、合计至多 SWIPE_BUDGET_MS，每次 swipe 都是会返回的单步调用；超限报 A11Y_COMMON_REVEAL_BOUND。
+ */
 async function reveal(on: On, what: string): Promise<Component> {
   const found: Component | null = await maybe(on, 1500);
   if (found !== null) {
     return found;
   }
-  const scroll: Component | null = await maybe(ON.type('Scroll'));
+  const scroll: Component | null = await maybe(ON.type('Scroll'), 500);
   if (scroll !== null) {
-    const hit: Component | null = await scroll.scrollSearch(on);
-    if (hit !== null && hit !== undefined) {
+    const view: Rect = await scroll.getBounds();
+    const x: number = Math.floor((view.left + view.right) / 2);
+    const low: number = Math.floor(view.top + (view.bottom - view.top) * 0.75);
+    const high: number = Math.floor(view.top + (view.bottom - view.top) * 0.3);
+    const end: number = Date.now() + SWIPE_BUDGET_MS;
+    for (let i: number = 0; i < SWIPE_STEPS * 2 && Date.now() < end; i++) {
+      const forward: boolean = i < SWIPE_STEPS;
+      await hm07vDriver.swipe(x, forward ? low : high, x, forward ? high : low, 3000);
       await idle();
-      return hit;
+      const hit: Component | null = await maybe(on, 300);
+      if (hit !== null) {
+        return hit;
+      }
     }
   }
-  return node(on, what, 2000);
+  await fail('A11Y_COMMON_REVEAL_BOUND ' + what + ' 有界滑动（往返各 ≤ ' + SWIPE_STEPS + ' 次、≤ ' + SWIPE_BUDGET_MS +
+    ' ms）后仍不在屏上' + (scroll === null ? '（页面上没有 Scroll）' : ''));
+  return node(on, what, 500);
+}
+
+/** 屏上装着 cardId 那张卡的 List（订单列表没有挂 id：取外框包住该卡中心的那个 List；找不到为 null）。 */
+async function ordersList(cardId: string): Promise<Component | null> {
+  const card: Rect = await (await node(ON.id(cardId), '订单卡 ' + cardId)).getBounds();
+  const cx: number = (card.left + card.right) / 2;
+  const cy: number = (card.top + card.bottom) / 2;
+  const lists: Component[] = await hm07vDriver.findComponents(ON.type('List'));
+  let best: Component | null = null;
+  let bestArea: number = -1;
+  for (const l of lists) {
+    const r: Rect = await l.getBounds();
+    const area: number = (r.right - r.left) * (r.bottom - r.top);
+    if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom && area > 0 && (best === null || area < bestArea)) {
+      best = l;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+/**
+ * #24 D10-1634 第三轮：收集完往回滑到 cardId 那张卡完整露在列表视口里为止（替代原生 List.scrollToTop：订单列表外层是 Refresh，
+ * scrollToTop 在 solo-run-20261114-161128 一直不返回、卡满 600000 ms）。每步一次手指向下的 swipe，至多 SWIPE_STEPS 次、合计至多
+ * SWIPE_BUDGET_MS；先看再滑，卡已在视口里就一次也不滑。超限报 A11Y_COMMON_SCROLL_TOP_BOUND。
+ */
+async function listBackToCard(list: Component, cardId: string): Promise<void> {
+  const view: Rect = await list.getBounds();
+  const x: number = Math.floor((view.left + view.right) / 2);
+  const end: number = Date.now() + SWIPE_BUDGET_MS;
+  for (let i: number = 0; i <= SWIPE_STEPS && Date.now() < end; i++) {
+    const card: Component | null = await maybe(ON.id(cardId), 300);
+    if (card !== null) {
+      const r: Rect = await card.getBounds();
+      if (r.top >= view.top && r.bottom <= view.bottom && r.bottom > r.top) {
+        return;
+      }
+    }
+    if (i === SWIPE_STEPS) {
+      break;
+    }
+    await hm07vDriver.swipe(x, Math.floor(view.top + (view.bottom - view.top) * 0.3), x,
+      Math.floor(view.top + (view.bottom - view.top) * 0.75), 3000);
+    await idle();
+  }
+  await fail('A11Y_COMMON_SCROLL_TOP_BOUND 有界回滑（≤ ' + SWIPE_STEPS + ' 次、≤ ' + SWIPE_BUDGET_MS + ' ms）后订单卡 ' + cardId +
+    ' 仍没完整露在列表视口里');
 }
 
 /** 组件树里全部节点。 */
@@ -136,17 +205,34 @@ async function helpButtonId(label: string, what: string): Promise<string> {
 }
 
 /**
- * 问号 → 说明弹窗 →【知道了】→ 焦点回到这个问号（FU-HM-A11Y-06）。问号必须挂 id（否则回焦无落点），且关后 2 s 内它是焦点。
+ * #24 D10-1634 ④：键盘路径打开弹窗（模拟键盘用户）：先把键盘焦点移到触发控件（应用 UIContext 的 FocusController.requestFocus，与
+ * funds_03 / Me12wa 同写法），确认它确实拿到焦点，再按回车。触屏点 Button 不会让 Button 拿到键盘焦点，系统关弹窗时恢复的「原焦点」
+ * 可能盖掉 CouliFocusReturn 的回焦（rootcause §1 common_02–04），所以 isFocused 判回焦只放在键盘路径上；
+ * 触屏 + 读屏焦点回位（模拟器读不到读屏焦点，D10-1231）留开发验收录屏核。
+ */
+async function keyOpen(id: string, what: string): Promise<void> {
+  let err: string = '';
+  try {
+    (await appUi()).getFocusController().requestFocus(id);
+  } catch (e) {
+    err = String((e as Error).message ?? e);
+  }
+  await need(err.length === 0 && await focusedWithin(id, 1500), 'A11Y_COMMON_KEY_FOCUS ' + what + ' 键盘焦点移不到 ' + id + ' ' + err);
+  await hm07vDriver.triggerKey(KeyCode.KEYCODE_ENTER);
+  await idle();
+}
+
+/**
+ * 问号 → 说明弹窗 →【知道了】→ 焦点回到这个问号（FU-HM-A11Y-06）。#24 D10-1634 ④：问号用键盘路径打开（keyOpen）。问号必须挂 id（否则回焦无落点），且关后 2 s 内它是焦点。
  * 返回问号 id。
  */
 async function helpRoundTrip(label: string, what: string): Promise<string> {
   const id: string = await helpButtonId(label, what);
   await need(id.length > 0, 'A11Y_COMMON_HELP_NO_ID ' + what + ' 问号「' + label + '」没挂 id（说明弹窗关闭后焦点回不来）');
-  const btn: Component = await reveal(ON.id(id), what);
-  await btn.click();
-  await idle();
+  await reveal(ON.id(id), what);
+  await keyOpen(id, what + ' 问号');
   const ok: Component | null = await maybe(ON.text(T_OK), 4000);
-  await need(ok !== null, 'A11Y_COMMON_HELP_NO_DIALOG ' + what + ' 点问号没出说明弹窗');
+  await need(ok !== null, 'A11Y_COMMON_HELP_NO_DIALOG ' + what + ' 问号上按回车没出说明弹窗');
   await (ok as Component).click();
   await idle();
   await need(await goneWithin(ON.text(T_OK), 3000), 'A11Y_COMMON_HELP_NOT_CLOSED ' + what + ' 【知道了】后说明弹窗没关');
@@ -249,20 +335,44 @@ export function a11yCommonCases(): void {
     await (await tabItem(T_ORDERS_TAB)).click();
     await idle();
     await node(ON.id(ID_ORDERS_CARD_PREFIX + 'O-A'), '订单列表（自购）首卡', 8000);
-    const names: string[] = [];
-    for (const n of await allNodes()) {
-      const id: string = attr(n, 'id');
-      if (!id.startsWith(ID_ORDERS_CARD_PREFIX) || !id.endsWith('_copy')) { continue; }
-      const orderId: string = id.substring(ID_ORDERS_CARD_PREFIX.length, id.length - '_copy'.length);
-      const no: string | undefined = ORDER_NOS.get(orderId);
-      if (no === undefined) { continue; }
-      const spoken: string = attr(n, 'accessibilityText');
-      await need(spoken === T_COPY_SPOKEN_HEAD + ' ' + no, 'A11Y_COMMON_COPY_NAME ' + id + ' 读屏名「' + spoken + '」≠「' +
-        T_COPY_SPOKEN_HEAD + ' ' + no + '」（【复制】要读出本行完整单号）');
-      names.push(spoken);
+    // #24 D10-1634 ③：订单列表是 List + LazyForEach（OrderListView.ets:925），只构建屏上与少量缓存的卡；屏上有同步说明、开启通知卡时
+    // 首屏可能只露出 1 张。改成边滚动边收集：每屏从组件树收【复制】（按卡 id 去重），在列表里有界上滑，直到收齐或连续两屏没有新卡；
+    // 第三轮：至多 COLLECT_PAGES 屏、COLLECT_BUDGET_MS，超限报 A11Y_COMMON_SCROLL_BOUND；回顶不用 scrollToTop，用有界回滑 listBackToCard。
+    // 判据不变：至少 2 张卡的【复制】各带自己的完整单号、两两不同。
+    const list: Component | null = await ordersList(ID_ORDERS_CARD_PREFIX + 'O-A');
+    await need(list !== null, 'A11Y_COMMON_ORDER_LIST 找不到装着订单卡 O-A 的 List');
+    const seen: Map<string, string> = new Map<string, string>();
+    let still: number = 0;
+    let settled: boolean = false;
+    const collectEnd: number = Date.now() + COLLECT_BUDGET_MS;
+    for (let page: number = 0; page < COLLECT_PAGES && Date.now() < collectEnd; page++) {
+      const before: number = seen.size;
+      for (const n of await allNodes()) {
+        const id: string = attr(n, 'id');
+        if (!id.startsWith(ID_ORDERS_CARD_PREFIX) || !id.endsWith('_copy') || seen.has(id)) { continue; }
+        const orderId: string = id.substring(ID_ORDERS_CARD_PREFIX.length, id.length - '_copy'.length);
+        const no: string | undefined = ORDER_NOS.get(orderId);
+        if (no === undefined) { continue; }
+        const spoken: string = attr(n, 'accessibilityText');
+        await need(spoken === T_COPY_SPOKEN_HEAD + ' ' + no, 'A11Y_COMMON_COPY_NAME ' + id + ' 读屏名「' + spoken + '」≠「' +
+          T_COPY_SPOKEN_HEAD + ' ' + no + '」（【复制】要读出本行完整单号）');
+        seen.set(id, spoken);
+      }
+      still = seen.size === before ? still + 1 : 0;
+      if (seen.size >= ORDER_NOS.size || still >= 2) { settled = true; break; }
+      const view: Rect = await (list as Component).getBounds();
+      const x: number = Math.floor((view.left + view.right) / 2);
+      await hm07vDriver.swipe(x, Math.floor(view.top + (view.bottom - view.top) * 0.75), x,
+        Math.floor(view.top + (view.bottom - view.top) * 0.3), 3000);
+      await idle();
     }
-    await need(names.length >= 2, 'A11Y_COMMON_COPY_ROWS 列表里可复制卡的【复制】不足 2 个（找到 ' + names.length + '）');
+    const names: string[] = Array.from(seen.values());
+    console.info('A11Y_COMMON_NOTE 订单列表滚动收集到【复制】' + Array.from(seen.keys()).join(','));
+    await need(settled, 'A11Y_COMMON_SCROLL_BOUND 订单列表滚动收集超限（≤ ' + COLLECT_PAGES + ' 屏、≤ ' + COLLECT_BUDGET_MS +
+      ' ms）仍未收齐也未见到连续两屏无新卡（已收 ' + Array.from(seen.keys()).join(',') + '）');
+    await need(names.length >= 2, 'A11Y_COMMON_COPY_ROWS 列表里可复制卡的【复制】不足 2 个（滚动收集，找到 ' + names.length + '）');
     await need(new Set<string>(names).size === names.length, 'A11Y_COMMON_COPY_SAME 各卡【复制】读屏名有重复：' + names.join(' | '));
+    await listBackToCard(list as Component, ID_ORDERS_CARD_PREFIX + 'O-A');
     await (await node(ON.id(ID_ORDERS_CARD_PREFIX + 'O-A'), '订单卡 O-A')).click();
     await idle();
     await node(ON.id(ID_DETAIL_COPY), '订单详情【复制】', 8000);
@@ -276,6 +386,7 @@ export function a11yCommonCases(): void {
 
   // 共性 ③（FU-HM-A11Y-06）：钱包主卡「冻结中」问号、预估卡问号、暂停行问号：各自挂 id、互不相同，说明弹窗【知道了】后焦点回到点开它的那个问号。
   // 不切小眼睛（主卡 ForEach 键含 masked，FUNDS 单再核）。
+  // #24 D10-1634 ④：问号走键盘路径（焦点移到问号 → 回车打开 → 关后判焦点回问号）；触屏读屏焦点回位留开发验收录屏核。
   it('a11y_common_02_wallet_help_dialogs_return_focus_to_their_question_marks', 0, async () => {
     await ensureMember('');
     await openRoute('Wallet', '', ID_WALLET_WITHDRAW, '钱包（缺省场景）');
@@ -292,6 +403,7 @@ export function a11yCommonCases(): void {
   });
 
   // 共性 ③：提现页输入金额、估算出结果后「预计到账」问号挂 id（withdraw_help_fee_tax 或等价），说明弹窗关后焦点回它。
+  // #24 D10-1634 ④：问号走键盘路径（同 02）；触屏读屏焦点回位留开发验收录屏核。
   it('a11y_common_03_withdraw_fee_help_returns_focus_to_its_question_mark', 0, async () => {
     await ensureMember('');
     await openRoute('Withdraw', '', ID_SUBMIT, '提现页（缺省场景）');
@@ -303,13 +415,15 @@ export function a11yCommonCases(): void {
   // 共性 ④（FU-HM-A11Y-07，D10-1248 ③）：提现页风控弹窗（假服务 blocked：二次验证后 44001）按系统返回关闭 = 【知道了】：弹窗消失、仍在提现页、
   // 金额不变、焦点回【提交】；【放弃上一笔提现】确认（假服务 pending：提交结果未知）按系统返回关闭 = 【再想想】：弹窗消失、待确认卡仍在
   // （没有执行放弃）、焦点回【放弃上一笔】。
+  // #24 D10-1634 ④：【提交】与【放弃上一笔】走键盘路径（焦点移过去 → 回车打开 → 系统返回关闭后判焦点回位）；二次验证半屏里的输码与
+  // step_up_submit 仍是触屏（不是被判回焦的触发处）。触屏读屏焦点回位留开发验收录屏核。
   it('a11y_common_04_withdraw_risk_and_abandon_dialogs_close_on_back_without_fund_action', 0, async () => {
     await ensureMember('');
     // 风控
     await openRoute('Withdraw', 'blocked', ID_SUBMIT, '提现页（blocked）');
     const amount: string = await fillFive('提现页（blocked）');
-    await (await reveal(ON.id(ID_SUBMIT), '【提交】')).click();
-    await idle();
+    await reveal(ON.id(ID_SUBMIT), '【提交】');
+    await keyOpen(ID_SUBMIT, '风控：【提交】');
     const codeBox: Component | null = await maybe(ON.id(ID_STEP_UP_CODE), 8000);
     if (codeBox !== null) {
       await codeBox.inputText(STEP_UP_OK);
@@ -341,8 +455,7 @@ export function a11yCommonCases(): void {
       abandon = await reveal(ON.id(ID_ABANDON), '【放弃上一笔】');
     }
     await need(abandon !== null, 'A11Y_COMMON_NO_PENDING 提交结果未知后没有待确认卡【放弃上一笔】（假服务 pending）');
-    await (abandon as Component).click();
-    await idle();
+    await keyOpen(ID_ABANDON, '放弃确认：【放弃上一笔】');
     const confirm: Component | null = await maybe(ON.text(T_ABANDON_OK), 4000);
     await need(confirm !== null, 'A11Y_COMMON_NO_ABANDON_DIALOG 点【放弃上一笔】没弹二次确认');
     await hm07vDriver.pressBack();

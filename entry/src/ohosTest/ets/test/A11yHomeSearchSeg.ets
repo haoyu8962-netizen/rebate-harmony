@@ -35,6 +35,7 @@ import { ON, Component, Driver, MatchPattern } from '@kit.TestKit';
 import { runUiTask } from './Ds02UiSession';
 import { appTree, attr, ensureFull, findById, gone, hm07vDriver, idle, Launch, maybe, node } from './Hm07vHomeRig';
 import { check, GUEST, homeReady, nodesOf, openPopup } from './Hm07vOverlayRig';
+import { tabItem, T_HOME_TAB } from './Me12vRig';
 import { waitUntil } from './FlakeKit';
 
 /** 与 tools/ci/a11yhome/device-cases.txt 逐条一致（集成时并进 tools/ci/a11y/device-cases.txt）。声明顺序 = 执行顺序。 */
@@ -138,9 +139,28 @@ async function leaveSearch(): Promise<void> {
   }
 }
 
+/**
+ * #24 D10-1634 ①：显式回到底栏「首页」Tab。热启动不会把外壳切回首页（外壳保留已选 Tab，TabBarShellUi.test.ets:444 注释、AppShell.ets:212-216），
+ * 段前停在别的 Tab（例如 AGENT 段停在「AI 助手」）时 ensureFull 会找不到首页搜索入口。有界按返回退到带底栏的一级页再点「首页」；
+ * 应用还没起来（没有底栏）时什么都不做，交给 ensureFull 拉起后照原判据断言。只是前置，不是判据。
+ */
+async function toHomeTab(): Promise<void> {
+  for (let i: number = 0; i < 5; i++) {
+    if ((await maybe(ON.text(T_HOME_TAB), 800)) !== null && (await maybe(ON.id('login_phone'), 200)) === null) {
+      await (await tabItem(T_HOME_TAB)).click();
+      await idle();
+      await driver.delayMs(400);
+      return;
+    }
+    await driver.pressBack();
+    await driver.delayMs(600);
+  }
+}
+
 /** 游客完整功能首页（scene 场景），弹窗 / 半屏收起。 */
 async function homeAt(scene: string): Promise<void> {
   await leaveSearch();
+  await toHomeTab();
   await ensureFull(scene);
   await homeReady();
 }

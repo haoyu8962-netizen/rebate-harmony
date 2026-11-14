@@ -12,7 +12,7 @@
 // v1 先红预期（2a4b1c8）：04 红（标签 Text 仍可读）、03 红（眼睛无 id）、02 红（被拒后整卡重建、键盘焦点丢失）、05 绿（钉住验证码框键盘
 // 默认焦点）、01 红（假服务还没有 amount_rejected 场景：提交成功、没有金额类错误）。v2 没跑设备；对实现 r1 的预期见交回。
 import { it } from '@ohos/hypium';
-import { ON, On, Component } from '@kit.TestKit';
+import { ON, On, Component, Rect } from '@kit.TestKit';
 import { appTree, appUi, attr, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold } from './Hm07vHomeRig';
 import { check, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts } from './Me12vRig';
@@ -51,6 +51,9 @@ const ID_AMOUNT: string = 'withdraw_amount';
 const ID_BANNER: string = 'withdraw_banner';
 const ID_QUICK_500: string = 'withdraw_quick_500';
 const ID_QUICK_1000: string = 'withdraw_quick_1000';
+/** 快捷档位点下后金额框的字（WithdrawAmountInput.display：500 分 → 「5」、1000 分 → 「10」）。 */
+const QUICK_500_TEXT: string = '5';
+const QUICK_1000_TEXT: string = '10';
 const ID_STEP_UP_TITLE: string = 'step_up_title';
 const ID_STEP_UP_CODE: string = 'step_up_code';
 const ID_STEP_UP_SUBMIT: string = 'step_up_submit';
@@ -113,9 +116,38 @@ function readable(n: Record<string, Object>, hidden: boolean, out: Record<string
   for (const c of kidsOf(n)) { readable(c, hideKids, out); }
 }
 
-async function readableNodes(): Promise<Record<string, Object>[]> {
+/** 根到 id 节点的路径（含两端；找不到为空）。 */
+function pathTo(n: Record<string, Object>, id: string, path: Record<string, Object>[]): boolean {
+  path.push(n);
+  if (attr(n, 'id') === id) { return true; }
+  for (const c of kidsOf(n)) {
+    if (pathTo(c, id, path)) { return true; }
+  }
+  path.pop();
+  return false;
+}
+
+/**
+ * #24 D10-1634（funds_03 / funds_04）：钱包页范围内读屏可达的节点。钱包页从「我的」Tab 打开，Tab 根页仍挂在组件树里，「我的」余额卡的
+ * Text 读屏名也是「可提现余额，〈金额〉」（MeTabView.ets:623-627），整棵树数会数到 2 个。这里只数【提现】wallet_withdraw 所在的最近一层
+ * NavDestination 子树（祖先的 no-hide-descendants 照样算隐藏）；找不到钱包页就报 A11Y_FUNDS_WALLET_SCOPE，不退回整棵树。
+ */
+async function walletReadableNodes(): Promise<Record<string, Object>[]> {
+  const path: Record<string, Object>[] = [];
+  pathTo(await appTree(), ID_WALLET_WITHDRAW, path);
+  let at: number = -1;
+  for (let i: number = path.length - 1; i >= 0; i--) {
+    if (typeName(path[i]).indexOf('NavDestination') >= 0) { at = i; break; }
+  }
+  await need(at >= 0, 'A11Y_FUNDS_WALLET_SCOPE 组件树里找不到钱包页（' + ID_WALLET_WITHDRAW + ' 所在的 NavDestination；路径长 ' +
+    path.length + '）');
+  if (at < 0) { return []; }
+  let hidden: boolean = false;
+  for (let i: number = 0; i < at; i++) {
+    if (attr(path[i], 'accessibilityLevel') === 'no-hide-descendants') { hidden = true; }
+  }
   const out: Record<string, Object>[] = [];
-  readable(await appTree(), false, out);
+  readable(path[at], hidden, out);
   return out;
 }
 
@@ -131,9 +163,9 @@ function rectOf(n: Record<string, Object>): number[] {
   return nums === null || nums.length < 4 ? [] : [Number(nums[0]), Number(nums[1]), Number(nums[2]), Number(nums[3])];
 }
 
-/** 读屏名以 prefix 开头的读屏可达节点。 */
+/** 读屏名以 prefix 开头的读屏可达节点（只数钱包页范围，#24 D10-1634）。 */
 async function spokenStarting(prefix: string): Promise<Record<string, Object>[]> {
-  return (await readableNodes()).filter((n: Record<string, Object>): boolean => attr(n, 'accessibilityText').startsWith(prefix));
+  return (await walletReadableNodes()).filter((n: Record<string, Object>): boolean => attr(n, 'accessibilityText').startsWith(prefix));
 }
 
 /** 主卡数字格（冻结中 / 已提现）排法：row = 并排、stack = 上下、? = 找不到。 */
@@ -160,21 +192,40 @@ async function openRoute(route: string, scene: string, mask: string, readyId: st
   await idle();
 }
 
-/** 节点不在屏上时在页面 Scroll 里找。 */
+/** #24 D10-1634 第三轮：滑动找的上限（次数与总时长；远小于 Hypium 单例 600000 ms）。 */
+const SWIPE_STEPS: number = 8;
+const SWIPE_BUDGET_MS: number = 20000;
+
+/**
+ * 节点不在屏上时在页面 Scroll 里找。#24 D10-1634 第三轮：原来用原生 Component.scrollSearch（不可取消、没有上限；同类的 scrollToTop
+ * 在 solo-run-20261114-161128 卡满 600000 ms 后拖垮后续全部用例），改成有界滑动：先往下翻、再往回翻，各至多 SWIPE_STEPS 次、合计至多
+ * SWIPE_BUDGET_MS，每次 swipe 都是会返回的单步调用；超限报 A11Y_FUNDS_REVEAL_BOUND。
+ */
 async function reveal(on: On, what: string): Promise<Component> {
   const found: Component | null = await maybe(on, 1500);
   if (found !== null) {
     return found;
   }
-  const scroll: Component | null = await maybe(ON.type('Scroll'));
+  const scroll: Component | null = await maybe(ON.type('Scroll'), 500);
   if (scroll !== null) {
-    const hit: Component | null = await scroll.scrollSearch(on);
-    if (hit !== null && hit !== undefined) {
+    const view: Rect = await scroll.getBounds();
+    const x: number = Math.floor((view.left + view.right) / 2);
+    const low: number = Math.floor(view.top + (view.bottom - view.top) * 0.75);
+    const high: number = Math.floor(view.top + (view.bottom - view.top) * 0.3);
+    const end: number = Date.now() + SWIPE_BUDGET_MS;
+    for (let i: number = 0; i < SWIPE_STEPS * 2 && Date.now() < end; i++) {
+      const forward: boolean = i < SWIPE_STEPS;
+      await hm07vDriver.swipe(x, forward ? low : high, x, forward ? high : low, 3000);
       await idle();
-      return hit;
+      const hit: Component | null = await maybe(on, 300);
+      if (hit !== null) {
+        return hit;
+      }
     }
   }
-  return node(on, what, 2000);
+  await fail('A11Y_FUNDS_REVEAL_BOUND ' + what + ' 有界滑动（往返各 ≤ ' + SWIPE_STEPS + ' 次、≤ ' + SWIPE_BUDGET_MS +
+    ' ms）后仍不在屏上' + (scroll === null ? '（页面上没有 Scroll）' : ''));
+  return node(on, what, 500);
 }
 
 async function valueOf(id: string): Promise<string> {
@@ -187,7 +238,7 @@ async function valueOf(id: string): Promise<string> {
  * 不靠全页面任意位置的 ****（数字格的 **** 不能替主卡作证）。
  */
 async function heroAmount(what: string): Promise<string[]> {
-  const hits: Record<string, Object>[] = (await readableNodes()).filter((n: Record<string, Object>): boolean =>
+  const hits: Record<string, Object>[] = (await walletReadableNodes()).filter((n: Record<string, Object>): boolean =>
     typeName(n) === 'Text' && attr(n, 'accessibilityText').startsWith(T_WITHDRAWABLE + COMMA));
   await need(hits.length === 1, 'A11Y_FUNDS_HERO_AMOUNT_NODE ' + what + ' 主卡金额节点（读屏名以「' + T_WITHDRAWABLE + COMMA +
     '」开头的 Text）应恰 1 个，找到 ' + hits.length);
@@ -240,15 +291,20 @@ async function unmaskIfNeeded(): Promise<void> {
   }
 }
 
-/** 提现页：点快捷金额，等估算出结果（假服务 300 ms）。 */
-async function fillQuick(id: string, what: string): Promise<string> {
+/**
+ * 提现页：点快捷金额，等金额框变成这一档的金额（want，WithdrawAmountInput.display 写法：¥5 → 「5」、¥10 → 「10」），再等估算出结果
+ * （假服务 300 ms）。#24 D10-1634：原来只判「金额框非空」，上一步留下的 5 也能让它通过（funds_01 改 ¥10 没生效被漏检，rootcause §1）；
+ * 改判「变成目标值」。空框仍报 A11Y_FUNDS_NO_AMOUNT，非空但不是目标值报 A11Y_FUNDS_QUICK_NOT_APPLIED。
+ */
+async function fillQuick(id: string, want: string, what: string): Promise<string> {
   await (await reveal(ON.id(id), what + ' 快捷金额')).click();
   await idle();
-  await waitUntil(hm07vDriver, async (): Promise<boolean> => (await valueOf(ID_AMOUNT)).length > 0, 3000);
+  await waitUntil(hm07vDriver, async (): Promise<boolean> => (await valueOf(ID_AMOUNT)) === want, 3000);
   await hm07vDriver.delayMs(800);
   await idle();
   const v: string = await valueOf(ID_AMOUNT);
   await need(v.length > 0, 'A11Y_FUNDS_NO_AMOUNT ' + what + ' 点快捷金额后金额框为空');
+  await need(v === want, 'A11Y_FUNDS_QUICK_NOT_APPLIED ' + what + ' 点快捷金额后金额框应为「' + want + '」，实际「' + v + '」');
   return v;
 }
 
@@ -292,7 +348,7 @@ async function amountDescription(): Promise<string> {
 
 /** 标签只读一次：label 在读屏可达的 Text 上不出现；以「label，」开头的读屏名恰一处（不丢标签）。 */
 async function labelReadOnce(label: string, what: string): Promise<void> {
-  const nodes: Record<string, Object>[] = await readableNodes();
+  const nodes: Record<string, Object>[] = await walletReadableNodes();
   const plain: number = nodes.filter((n: Record<string, Object>): boolean => typeName(n) === 'Text' && attr(n, 'content') === label &&
     attr(n, 'accessibilityText').length === 0).length;
   await need(plain === 0, 'A11Y_FUNDS_LABEL_TWICE ' + what + ' 标签「' + label + '」的 Text 仍读屏可读（' + plain +
@@ -302,7 +358,7 @@ async function labelReadOnce(label: string, what: string): Promise<void> {
 }
 
 async function helpReadable(label: string, what: string): Promise<void> {
-  const ok: boolean = (await readableNodes()).some((n: Record<string, Object>): boolean => typeName(n) === 'Button' &&
+  const ok: boolean = (await walletReadableNodes()).some((n: Record<string, Object>): boolean => typeName(n) === 'Button' &&
     attr(n, 'accessibilityText') === label);
   await need(ok, 'A11Y_FUNDS_HELP_HIDDEN ' + what + ' 问号「' + label + '」不再读屏可读（有问号的格问号仍要单独可聚焦）');
 }
@@ -328,6 +384,37 @@ async function clickEye(): Promise<void> {
   await (c as Component).click();
   await idle();
   await hm07vDriver.delayMs(400);
+}
+
+/**
+ * #24 D10-1634 ①（funds_05）：开头显式清掉进程里记着的提现二次验证 token（不靠排在 common_04 之前）。
+ * token 只放内存（WalletPresentation.ets StepUpTokenCache），take() 不核销；只有提交成功（onSuccess）、得到 10003（on10003）或会话换代才丢。
+ * staging 源集里没有直接清它的调试参数（couli_debug_wallet_scene 只经 DebugFakeWallet.reset 复位假服务），所以用现成的假服务
+ * （DebugFakeWallet 缺省场景：带 token 提交 → 成功；不带 → 10003）走一次产品提交：
+ *   - 记着 token → 提交成功 → onSuccess 丢弃，页面换成提现记录（replaceTop，【提交】离开组件树）；
+ *   - 没记 token → 10003 → 弹二次验证半屏，点关闭（不输码，不产生新 token）。
+ * 两种结局之后进程里都没有提现 token；随后 openRoute 带缺省场景再拉起，DebugFakeWallet.reset 把假服务这笔记录复位。
+ * 只是前置，不是判据；10 s 内两种结局都没出现报 A11Y_FUNDS_TOKEN_RESET（与本条判据的码分开）。
+ * D10-1635 假服务改按业务摘要比对 token 后，「带旧 token 提交成功」一支会变成「弹出二次验证再关掉」，届时复核本函数（D10-1639）。
+ */
+async function clearWithdrawStepUpToken(): Promise<void> {
+  await openRoute('Withdraw', '', '0', ID_SUBMIT, '清 token：提现页（缺省场景）');
+  await fillQuick(ID_QUICK_500, QUICK_500_TEXT, '清 token：提现页 ¥5');
+  await (await reveal(ON.id(ID_SUBMIT), '清 token：【提交】')).click();
+  await idle();
+  await waitUntil(hm07vDriver, async (): Promise<boolean> => (await maybe(ON.id(ID_STEP_UP_CODE), 200)) !== null ||
+    findById(await appTree(), ID_SUBMIT) === null, 10000);
+  const stepUp: boolean = (await maybe(ON.id(ID_STEP_UP_CODE), 300)) !== null;
+  const left: boolean = !stepUp && findById(await appTree(), ID_SUBMIT) === null;
+  await need(stepUp || left, 'A11Y_FUNDS_TOKEN_RESET 清 token：提交后 10 s 内既没弹二次验证（无 token）也没离开提现页（带 token 成功）');
+  if (stepUp) {
+    await (await node(ON.id(ID_STEP_UP_CLOSE), '清 token：二次验证【关闭】')).click();
+    await idle();
+    await need(await waitUntil(hm07vDriver, async (): Promise<boolean> => (await maybe(ON.id(ID_STEP_UP_CODE), 200)) === null, 3000),
+      'A11Y_FUNDS_TOKEN_RESET 清 token：二次验证半屏关不掉');
+  }
+  console.info('A11Y_FUNDS_NOTE 清 token：' + (stepUp ? '原本没有 token（10003 → 关半屏）' : '带旧 token 提交成功（onSuccess 丢弃）'));
+  await backToTabs();
 }
 
 // ---------------------------------------------------------------- FUNDS 段
@@ -472,8 +559,9 @@ export function a11yFundsCases(): void {
   // FU-HM-A11Y-08：提现走到二次验证，标题 step_up_title 在且可聚焦；验证码框仍拿键盘默认焦点（读屏焦点落标题只能宿主 AF4 钉）。
   it('a11y_funds_05_step_up_title_present_code_keeps_keyboard_focus', 0, async () => {
     await ensureMember('');
+    await clearWithdrawStepUpToken();
     await openRoute('Withdraw', '', '0', ID_SUBMIT, '提现页（缺省场景）');
-    await fillQuick(ID_QUICK_500, '提现页 ¥5');
+    await fillQuick(ID_QUICK_500, QUICK_500_TEXT, '提现页 ¥5');
     await (await reveal(ON.id(ID_SUBMIT), '【提交】')).click();
     await idle();
     await need((await maybe(ON.id(ID_STEP_UP_CODE), 8000)) !== null, 'A11Y_FUNDS_NO_STEP_UP 提交后没出二次验证半屏（缺省场景无 token → 10003）');
@@ -497,7 +585,7 @@ export function a11yFundsCases(): void {
   it('a11y_funds_01_withdraw_amount_error_described_on_amount_field', 0, async () => {
     await ensureMember('');
     await openRoute('Withdraw', SCENE_AMOUNT_REJECTED, '0', ID_SUBMIT, '提现页（' + SCENE_AMOUNT_REJECTED + '）');
-    await fillQuick(ID_QUICK_500, '提现页 ¥5');
+    await fillQuick(ID_QUICK_500, QUICK_500_TEXT, '提现页 ¥5');
     await need(await submitAndWaitBanner('第 1 次'), 'A11Y_FUNDS_NO_AMOUNT_ERROR 提交后没出现错误 banner（假服务场景 ' +
       SCENE_AMOUNT_REJECTED + ' 未加？应回 30303 below_min）');
     await hm07vDriver.delayMs(500);
@@ -506,7 +594,7 @@ export function a11yFundsCases(): void {
     await need(desc.length > 0, 'A11Y_FUNDS_DESC_EMPTY 金额类提交错误后金额框没有读屏说明（banner：' + texts.join(' | ') + '）');
     await need(texts.some((x: string): boolean => x === desc || x.indexOf(desc) >= 0), 'A11Y_FUNDS_DESC_NOT_BANNER 金额框说明「' + desc +
       '」不是 banner 的错误文字（' + texts.join(' | ') + '）');
-    await fillQuick(ID_QUICK_1000, '改金额 ¥10');
+    await fillQuick(ID_QUICK_1000, QUICK_1000_TEXT, '改金额 ¥10');
     await need(await waitUntil(hm07vDriver, async (): Promise<boolean> => (await amountDescription()).length === 0, 3000),
       'A11Y_FUNDS_DESC_NOT_CLEARED 改了金额后金额框说明没清空（仍是「' + (await amountDescription()) + '」）');
     await need(await submitAndWaitBanner('第 2 次'), 'A11Y_FUNDS_NO_SECOND_ERROR 再提交没出现错误 banner（场景 ' + SCENE_AMOUNT_REJECTED +
