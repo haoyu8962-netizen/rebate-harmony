@@ -401,6 +401,8 @@ node "$ROOT/tools/ci/a11yagent/run-tap.cjs" || fail_fast "a11yagent-tap" "见上
 node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" || fail_fast "a11yagent-arkts" "A11yAgentReplyTag / A11yAgentCellLabel / A11yAgentSeg ArkTS 严格检查失败"
 node "$ROOT/tools/ci/a11yagent/check-arkts.cjs" --fixtures || fail_fast "a11yagent-arkts 参照件" "参照件 ArkTS 严格检查失败"
 record "FU-HM-A11Y-AGENT 宿主检查" PASS "商品卡读屏激活 / AI 卡 openable / 输入框标签 / 弹层标题移焦回焦 / 行标识 / 圆点（自测）/ 纯逻辑 / 点一次（执行级）/ ArkTS"
+python3 "$ROOT/tools/ci/rootshown/check_root_shown.py" --self-test || fail_fast "rootshown-host 自测" "见上方输出"
+python3 "$ROOT/tools/ci/rootshown/check_root_shown.py" || fail_fast "rootshown-host" "见上方违反项"
 
 # FU-HM-A11Y-HOME-SEARCH（FU-HM-A11Y-11 / 13 / 15 / 17 首页段；README ⑫ ⑬，D10-1248）：首页弹窗出现时读屏 + 键盘焦点到【关闭】、公告【关闭】读屏名带行标识、
 # 价格半屏焦点进标题 / 关闭回【价格】/ 校验错误播报并关联两个价格框、搜索框读屏名是标签不是占位（先自测：参照件全过、变异逐个打红、良性改写不误报）；
@@ -923,7 +925,17 @@ run_unit_tests designsystem common/designsystem
 run_unit_tests wallet features/wallet
 # 格式向量的时区回归（BR-TEXT-11 固定 Asia/Shanghai，与设备时区无关）：Local Test 进程继承 TZ（已实测 getTimezoneOffset 随之变化）。
 run_unit_tests designsystem common/designsystem UTC
+# FU-HM-VERIFY-COUNTS ②（D10-1675，只增）：第二次按时区跑前删 designsystem 测试输出目录，强制 hvigor 真重跑（不吃上一次的增量结果）；
+# 两次 Tests run 执行数必须相等，不等判 FAIL（时区让用例被跳过 / 少注册也会被看见）。
+DS_TZ_RESULT="$BUILD_DIR/common/designsystem/.test/default/intermediates/test/coverage_data/test_result.txt"
+DS_TZ_RUN_UTC="$({ LC_ALL=C grep -aE '^Tests run: [0-9]+,' "$DS_TZ_RESULT" || true; } | tail -1 | LC_ALL=C sed -E 's/^Tests run: ([0-9]+),.*/\1/')"
+rm -rf "${BUILD_DIR:?}/common/designsystem/.test"
 run_unit_tests designsystem common/designsystem America/Los_Angeles
+DS_TZ_RUN_LA="$({ LC_ALL=C grep -aE '^Tests run: [0-9]+,' "$DS_TZ_RESULT" || true; } | tail -1 | LC_ALL=C sed -E 's/^Tests run: ([0-9]+),.*/\1/')"
+step "designsystem 两时区执行数核对（UTC / America/Los_Angeles）"
+[[ "$DS_TZ_RUN_UTC" =~ ^[1-9][0-9]*$ ]] && [ "$DS_TZ_RUN_UTC" = "$DS_TZ_RUN_LA" ] \
+    || fail_fast "test designsystem 两时区执行数" "Tests run 不等或读不出：UTC=${DS_TZ_RUN_UTC:-无} America/Los_Angeles=${DS_TZ_RUN_LA:-无}"
+record "test designsystem 两时区执行数" PASS "UTC=${DS_TZ_RUN_UTC} America/Los_Angeles=${DS_TZ_RUN_LA}（第二次前已删 .test 强制重跑）"
 
 # ---------------------------------------------------------------- 7b. Release 制品扫描
 # FU-HM-DEVICE-FLAKE（D10-642 ①）：静态的制品扫描挪到设备步之前（只依赖第 6 步的制品），仍 fail-fast；设备步排在最后、跑完再汇总，

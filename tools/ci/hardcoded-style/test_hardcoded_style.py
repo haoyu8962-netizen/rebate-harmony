@@ -823,6 +823,31 @@ class VerifyStep(Base):
         '    run_device_tests entry entry entry_test staging "$OUT_DIR/Staging.hap" entry notClass=HmA11yUi,Ds02L2Ui,LoginPhoneUi,Hm07vHomeUi,Hm07vOverlayUi,Hm05rConsentUi,Me12vUi,Me12waUi,Me12wbUi,Me12wcUi,TabBarShellUi main',
     }
 
+    # FU-HM-ROOTSHOWN-CHAIN（编排 D10-1657，#24 只增 2 行）：rootshown 宿主检查接进必跑链，紧跟 FU-HM-A11Y-AGENT 宿主检查的 record 行之后。
+    # 只增：BASE_COMMIT、REWRITTEN_LINES（2 条）都不动；下面 test_rootshown_lines_added 钉这 2 行逐字、各恰一次、位置紧邻。
+    ROOTSHOWN_ANCHOR = 'record "FU-HM-A11Y-AGENT 宿主检查" PASS'
+    ROOTSHOWN_LINES = [
+        'python3 "$ROOT/tools/ci/rootshown/check_root_shown.py" --self-test || fail_fast "rootshown-host 自测" "见上方输出"',
+        'python3 "$ROOT/tools/ci/rootshown/check_root_shown.py" || fail_fast "rootshown-host" "见上方违反项"',
+    ]
+
+    # FU-NATIVE-SEG-LOCALE-FIXES / FU-HM-VERIFY-COUNTS ②（编排 D10-1685，#24 只增 10 行）：designsystem 第二次按时区跑前删 .test 强制重跑、核两次 Tests run 相等。
+    # 只增：BASE_COMMIT、REWRITTEN_LINES 都不动；下面 test_designsystem_tz_count_lines_added 钉这 10 行逐字、各恰一次、位置紧邻 UTC 那次运行。
+    DS_TZ_ANCHOR = 'run_unit_tests designsystem common/designsystem UTC'
+    DS_TZ_LA_LINE = 'run_unit_tests designsystem common/designsystem America/Los_Angeles'
+    DS_TZ_LINES = [
+        '# FU-HM-VERIFY-COUNTS ②（D10-1675，只增）：第二次按时区跑前删 designsystem 测试输出目录，强制 hvigor 真重跑（不吃上一次的增量结果）；',
+        '# 两次 Tests run 执行数必须相等，不等判 FAIL（时区让用例被跳过 / 少注册也会被看见）。',
+        'DS_TZ_RESULT="$BUILD_DIR/common/designsystem/.test/default/intermediates/test/coverage_data/test_result.txt"',
+        'DS_TZ_RUN_UTC="$({ LC_ALL=C grep -aE \'^Tests run: [0-9]+,\' "$DS_TZ_RESULT" || true; } | tail -1 | LC_ALL=C sed -E \'s/^Tests run: ([0-9]+),.*/\\1/\')"',
+        'rm -rf "${BUILD_DIR:?}/common/designsystem/.test"',
+        'DS_TZ_RUN_LA="$({ LC_ALL=C grep -aE \'^Tests run: [0-9]+,\' "$DS_TZ_RESULT" || true; } | tail -1 | LC_ALL=C sed -E \'s/^Tests run: ([0-9]+),.*/\\1/\')"',
+        'step "designsystem 两时区执行数核对（UTC / America/Los_Angeles）"',
+        '[[ "$DS_TZ_RUN_UTC" =~ ^[1-9][0-9]*$ ]] && [ "$DS_TZ_RUN_UTC" = "$DS_TZ_RUN_LA" ] \\',
+        '    || fail_fast "test designsystem 两时区执行数" "Tests run 不等或读不出：UTC=${DS_TZ_RUN_UTC:-无} America/Los_Angeles=${DS_TZ_RUN_LA:-无}"',
+        'record "test designsystem 两时区执行数" PASS "UTC=${DS_TZ_RUN_UTC} America/Los_Angeles=${DS_TZ_RUN_LA}（第二次前已删 .test 强制重跑）"',
+    ]
+
     def lines(self):
         old = subprocess.run(['git', '-C', str(ROOT), 'show', BASE_COMMIT + ':tools/ci/verify.sh'], capture_output=True)
         self.assertEqual(old.returncode, 0, old.stderr.decode('utf-8', 'replace'))
@@ -836,6 +861,25 @@ class VerifyStep(Base):
             if i < len(old) and line == old[i]:
                 i += 1
         self.assertEqual(i, len(old), 'verify.sh 现有行被删改或换序，第一处缺失：%r' % (old[i] if i < len(old) else None))
+
+    def test_rootshown_lines_added(self):
+        """D10-1657：verify.sh 相对冻结头只多这 2 行 rootshown 宿主检查（逐字、各恰一次、紧跟 a11yagent record 行）。"""
+        _, new = self.lines()
+        for line in self.ROOTSHOWN_LINES:
+            self.assertEqual(new.count(line), 1, 'verify.sh 里 rootshown 行应恰一次：%r' % line)
+        k = [i for i, l in enumerate(new) if l.startswith(self.ROOTSHOWN_ANCHOR)]
+        self.assertEqual(len(k), 1, '缺 FU-HM-A11Y-AGENT 宿主检查 record 行')
+        self.assertEqual(new[k[0] + 1:k[0] + 3], self.ROOTSHOWN_LINES, 'rootshown 两行应紧跟 a11yagent record 行')
+
+    def test_designsystem_tz_count_lines_added(self):
+        """D10-1685：verify.sh 相对冻结头多这 10 行（逐字、各恰一次）：UTC 行后紧跟前 5 行，再是原 America/Los_Angeles 行，再紧跟后 5 行。"""
+        _, new = self.lines()
+        for line in self.DS_TZ_LINES:
+            self.assertEqual(new.count(line), 1, 'verify.sh 里 designsystem 两时区核对行应恰一次：%r' % line)
+        k = [i for i, l in enumerate(new) if l == self.DS_TZ_ANCHOR]
+        self.assertEqual(len(k), 1, '缺 designsystem UTC 那次 run_unit_tests 行（或不止一处）')
+        self.assertEqual(new[k[0] + 1:k[0] + 12], self.DS_TZ_LINES[:5] + [self.DS_TZ_LA_LINE] + self.DS_TZ_LINES[5:],
+                         'designsystem 两时区核对 10 行应紧邻 UTC 那次运行（中间夹原 America/Los_Angeles 行）')
 
     def test_new_step_present_after_ds02_host(self):
         old, new = self.lines()

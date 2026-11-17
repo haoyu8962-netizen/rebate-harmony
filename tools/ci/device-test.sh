@@ -213,7 +213,9 @@ ds02_gone="$({ grep -o 'DS02_BEFOREALL_TRAIL container_gone=[0-9]*' "$TRACE" 2>/
 tail -50 "$TRACE" | sed 's/^/  trace: /' || true
 echo "FLAKE_TRACE self_heal=${self_heal:-0} capture_retake=${retake:-0} capture_invalid=${invalid:-0} ds02_container_gone=${ds02_gone:-0}（只打印，不参与判定；hilog 计数为下限）"
 with_timeout 60 "$HDC" -t "$DEVICE" uninstall "$BUNDLE" >/dev/null 2>&1 || true
-tr -d '\r' <"$RESULT" >"$RESULT.txt"
+# FU-NATIVE-SEG-LOCALE-FIXES（D10-1683 ②）：按字节去 \r。UTF-8 下 tr 遇截断汉字（失败 stream 行常见）报 Illegal byte sequence、退 1、
+# 输出截断，set -e 当场退出、逐例列表与汇总都不打印；LC_ALL=C 只改本命令的字符解释，判据不变。
+LC_ALL=C tr -d '\r' <"$RESULT" >"$RESULT.txt"
 mv "$RESULT.txt" "$RESULT"
 # 逐用例结果（Hypium：OHOS_REPORT_STATUS: test=<名> … OHOS_REPORT_STATUS_CODE: 0 通过 / -1 出错 / -2 断言失败）。
 python3 - "$RESULT" <<'PY' || true

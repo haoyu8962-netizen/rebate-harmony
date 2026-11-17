@@ -58,6 +58,10 @@ STRICT_FILES = [
     'entry/src/main/ets/clipboard/AppClipboard.ets', 'features/me/src/main/ets/MeKit.ets',
 ]
 APPEND_ONLY = [DRAFTS, CORE_INDEX]
+# FU-HM-ROOTSHOWN-CHAIN（编排 D10-1652；D10-1657 批准的 #24 换钉）：AppMe.ets 只改 onRootShown 接线（直接赋值包 previous → 按模块名
+# RootShownRegistry.ME 登记，重入分支同名重登）。G1 对该文件只多认这一个新 sha；逻辑基线 fixture 与 FIXTURE_SHA256 不动，
+# 该文件其余字节再变仍红。A1 仍判「我的」那一项回调体只调 tab().autoLoad()。
+STRICT_AMENDED = {APP_ME: '501a3e93c20fd9405827c977505ee605980027bbe038cfabc8a950e3e3b8490c'}
 # FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：designsystem 不再整树冻结，只守 fixture tree 里的清单文件（tools/ci/system-controls/frozen_deps.py 实算）。
 TREE_DIRS = []
 SKIP_PARTS = {'src/test', 'src/ohosTest', 'build', '.test', 'oh_modules', '.hvigor', '.preview', 'node_modules'}
@@ -223,7 +227,7 @@ def check_logic(root, logic):
         p = root / rel
         if not p.is_file():
             v.append('G1 逻辑文件缺失 ' + rel)
-        elif sha(p.read_bytes()) != want:
+        elif sha(p.read_bytes()) != want and sha(p.read_bytes()) != STRICT_AMENDED.get(rel):
             v.append('G1 逻辑文件被改 ' + rel + '（§3.1 合入前后 sha256 必须一致）')
     for rel, keys in sorted(logic['append_only'].items()):
         now = [line_key(l) for l in read(root, rel).split('\n')]
@@ -386,7 +390,9 @@ def check_static(root):
             v.append('S9 缺设备用例依赖的 id ' + did)
     # A1 H-M01：entry 三处自动入口只走 autoLoad；「我的」页不调 load()。
     app = strip_comments(read(root, APP_ME))
-    roots = re.search(r"ShellState\.onRootShown\s*=.*?if\s*\(destination\.route\s*===\s*'Me'\)\s*\{(.*?)\}", app, flags=re.S)
+    # FU-HM-ROOTSHOWN-CHAIN（编排 D10-1652）：onRootShown 改为按模块名登记（RootShownRegistry），不再直接赋值；判的仍是「我的」那一项的回调体。
+    roots = re.search(r"ShellState\.onRootShown\.register\(\s*RootShownRegistry\.ME\s*,.*?if\s*\(destination\.route\s*===\s*'Me'\)\s*\{(.*?)\}", app,
+                      flags=re.S)
     if not roots or squash(roots.group(1)) != 'this.tab().autoLoad();':
         v.append('A1 进入「我的」Tab（onRootShown）必须只调 tab().autoLoad()（受限会话不读）')
     for name in ['onAppForeground', 'navigationShown']:
@@ -581,8 +587,8 @@ def indent(text, n):
 
 
 REF_APP_ME = (
-    "    ShellState.onRootShown = (destination: RouteDestination): void => {\n      previous(destination);\n"
-    "      if (destination.route === 'Me') {\n        this.tab().autoLoad();\n      }\n    };\n"
+    "    ShellState.onRootShown.register(RootShownRegistry.ME, (destination: RouteDestination): void => {\n"
+    "      if (destination.route === 'Me') {\n        this.tab().autoLoad();\n      }\n    });\n"
     "  onAppForeground(): void {\n    if (v !== null) {\n      v();\n    } else if (x) {\n      this.tab().autoLoad();\n    }\n  }\n"
     "  navigationShown(names: string[]): void {\n    if (names.length === 0 && this.tabInstance !== null) {\n"
     "      this.tabInstance.autoLoad();\n    }\n  }\n")

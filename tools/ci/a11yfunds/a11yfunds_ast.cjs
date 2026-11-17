@@ -925,7 +925,9 @@ function checkEye() {
   if (!hero) { incomplete.push(DS_WALLET + '：找不到 struct WalletHeroCard'); return; }
   if (!view) { incomplete.push(WALLET + '：找不到 struct WalletView'); return; }
   const params = new Set(hero.members.filter((m) => ts.isPropertyDeclaration(m) && decorators(m).indexOf('Param') >= 0).map(memberName));
-  const eyes = components(hero).filter((c) => c.name === 'Button' &&
+  // FU-HM-ROOTSHOWN-CHAIN ②（编排 D10-1668 批，#24）：眼睛 / 问号改成不带子组件的 SymbolGlyph 叶子（带子组件的 Button 在设备上不可获焦），
+  // 这里 Button 与 SymbolGlyph 都认；其余判据不变。
+  const eyes = components(hero).filter((c) => (c.name === 'Button' || c.name === 'SymbolGlyph') &&
     attrCalls(c, 'onClick').some((k) => k.args[0] && compact(k.args[0]).indexOf('this.onToggleHidden(') >= 0));
   if (eyes.length !== 1) {
     report('AF3-eye', hero, '主卡眼睛按钮（onClick 调 onToggleHidden 的 Button）应恰一个，找到 ' + eyes.length + ' 个');
@@ -1163,7 +1165,7 @@ function checkLabels() {
     return all;
   };
   const cellAll = labelCase('AmountGrid 格', cell, 'item.label', 'item.value');
-  const helps = cellAll.filter((c) => c.name === 'Button' && attrCalls(c, 'accessibilityText').some((a) => a.args[0] && compact(a.args[0]) === 'item.helpLabel'));
+  const helps = cellAll.filter((c) => (c.name === 'Button' || c.name === 'SymbolGlyph') && attrCalls(c, 'accessibilityText').some((a) => a.args[0] && compact(a.args[0]) === 'item.helpLabel'));
   if (helps.length !== 1) {
     report('AF5-help', cell, 'AmountGrid 格的问号按钮（accessibilityText(item.helpLabel)）应恰一个，找到 ' + helps.length + ' 个');
   } else if (maybeHidden(helps[0], cellAll, table) || !attrCalls(helps[0], 'focusable').some((c) => c.args[0] && isTrueLiteral(c.args[0]))) {

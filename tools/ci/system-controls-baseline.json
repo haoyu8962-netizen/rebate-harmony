@@ -27,7 +27,7 @@
     "features/orders/src/main/ets/OrderListView.ets": 6,
     "features/orders/src/main/ets/OrderViewKit.ets": 1,
     "features/product/src/main/ets/ProductDetailView.ets": 3,
-    "features/search/src/main/ets/SearchView.ets": 6,
+    "features/search/src/main/ets/SearchView.ets": 5,
     "features/wallet/src/main/ets/PayoutAccountView.ets": 1,
     "features/wallet/src/main/ets/RealNameView.ets": 2,
     "features/wallet/src/main/ets/WalletViewKit.ets": 2,

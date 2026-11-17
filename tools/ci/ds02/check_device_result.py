@@ -310,7 +310,8 @@ if __name__ == '__main__':
     try:
         if len(args) != 1:
             raise ValueError('用法：check_device_result.py <aa-test 结果> [--set main|hm07va|hm07vb|hm05r|me12v|me12wa|me12wb|me12wc|tabbar|loginphone|a11y|l2|all]')
-        count = validate(Path(args[0]).read_text(), chosen)
+        # FU-NATIVE-SEG-LOCALE-FIXES（D10-1683 ②）：坏字节换成 U+FFFD 再判（与 fv.py _text 同读法）；名字对不上只会更严。
+        count = validate(Path(args[0]).read_text(encoding='utf-8', errors='replace'), chosen)
         print(f'DS02_DEVICE_COMPLETE set={chosen} required={count} all_passed')
     except (ValueError, OSError) as error:
         print(error, file=sys.stderr)

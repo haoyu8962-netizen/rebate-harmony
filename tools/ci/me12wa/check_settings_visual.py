@@ -238,6 +238,23 @@ def owner_component(src, literal):
     return found
 
 
+# FU-HM-ROOTSHOWN-CHAIN（编排 D10-1652；D10-1657 批准的 #24 换钉；me12v / me12wa / me12wb / me12wc 同一条）：AppMe.ets 只改 onRootShown 接线
+# （直接赋值包 previous → 按模块名 RootShownRegistry.ME 登记，重入分支同名重登）。G1 对该文件只多认这一个新 sha；基线 fixture 与其指纹不动，
+# 该文件其余字节再变仍红。
+STRICT_AMENDED = dict((rel, digest) for digest, rel in [
+    ('501a3e93c20fd9405827c977505ee605980027bbe038cfabc8a950e3e3b8490c', 'entry/src/main/ets/me/AppMe.ets'),
+])
+# FU-HM-ROOTSHOWN-CHAIN 第二部分（编排 D10-1668 批，#24）：二次验证关闭链与按页订阅改了下面这些冻结树里的文件，整树比对只对它们多认这一个新 sha。
+TREE_D10_1668 = dict((rel, digest) for digest, rel in [
+    ('1da3248a80ae1ce7dad3867af1c32f011a132977f159f4b51f46f5ab19892838', 'common/core/src/main/ets/wallet/WithdrawController.ets'),
+    ('dd650dd12e7fccb99f2084b70da8c8fa680e30c2d177e1f931a609b2ffc1fd2e', 'common/core/src/main/ets/wallet/PayoutAccountController.ets'),
+    ('89df0b97c0adfe35044df1c6b21c5381cba3ab6e3c27ea7cf3f325e0b499b8ee', 'common/core/src/main/ets/me/account/PhoneChangeController.ets'),
+    ('afc838a88059afa8e03d68175a8440a77d524ee9050b3bd561462fb3e2e258ed', 'common/core/src/main/ets/me/account/DeleteAccountController.ets'),
+    ('a837b1ff88b2583f9870bef8f24c4708a17863fbfa790c42ca36bb3df08dadeb', 'features/me/src/main/ets/PhoneChangeView.ets'),
+    ('97aaf68df3edc28a92d040b777d5e2cc465aa09338ff27b976bc6ed7a5d7b687', 'features/me/src/main/ets/DeleteAccountView.ets'),
+])
+
+
 # ---------------------------------------------------------------- 检查
 
 def check_logic(root, base):
@@ -246,7 +263,7 @@ def check_logic(root, base):
         p = root / rel
         if not p.is_file():
             v.append('G1 逻辑文件缺失 ' + rel)
-        elif sha(p.read_bytes()) != want:
+        elif sha(p.read_bytes()) != want and sha(p.read_bytes()) != STRICT_AMENDED.get(rel):
             v.append('G1 逻辑 / 边界文件被改 ' + rel + '（§3.1 合入前后 sha256 必须一致' +
                      ('；H-S01 MeKit 一字不动' if rel.endswith('MeKit.ets') else '') + '）')
     tree = {rel: s for s, rel in base['tree']}
@@ -262,7 +279,7 @@ def check_logic(root, base):
                     now[rel] = sha(p.read_bytes())
         want = {rel: s for rel, s in tree.items() if rel.startswith(top + '/')}
         for rel in sorted(set(want) | set(now)):
-            if want.get(rel) != now.get(rel):
+            if want.get(rel) != now.get(rel) and not (now.get(rel) is not None and now.get(rel) == TREE_D10_1668.get(rel)):
                 kind = '新增' if rel not in want else ('删除' if rel not in now else '改动')
                 hint = '（H-S01：设置私有件只放 SettingsParts.ets，MeKit 等不动）' if top == 'features/me' else ''
                 v.append('G1 ' + top + ' 有' + kind + '：' + rel + hint)

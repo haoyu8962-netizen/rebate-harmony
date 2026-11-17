@@ -39,7 +39,9 @@ const GATE_MODULE = './src/main/ets/logic/SkeletonGate';
 const STRUCTS = ['SkeletonBlock', 'SkeletonProductCard', 'SkeletonOrderCard', 'SkeletonWalletCard', 'SkeletonHost'];
 const SHAPES = ['SkeletonProductCard', 'SkeletonOrderCard', 'SkeletonWalletCard'];
 const INDEX_NEW = ['SkeletonOrderCard', 'SkeletonWalletCard', 'SkeletonHost', 'SkeletonGate'];
-const INDEX_OPTIONAL = ['SkeletonPhase', 'SkeletonClock', 'shimmerEnabled'];
+// FU-HM-ROOTSHOWN-CHAIN ②（编排 D10-1668 批，#24 只增）：可点图标改不带子组件的 SymbolGlyph 叶子，designsystem 多导出这两个名字。
+const INDEX_D10_1668 = ['couliSymbol', 'CouliGlyphTap'];
+const INDEX_OPTIONAL = ['SkeletonPhase', 'SkeletonClock', 'shimmerEnabled'].concat(INDEX_D10_1668);
 const LOGIC_NEW = ['SkeletonGate', 'SkeletonPhase', 'SkeletonClock', 'shimmerEnabled'];
 const V1 = ['Component', 'State', 'Prop', 'Link', 'Provide', 'Consume', 'ObjectLink', 'Observed', 'Watch', 'StorageLink', 'StorageProp',
   'LocalStorageLink', 'LocalStorageProp', 'Track'];

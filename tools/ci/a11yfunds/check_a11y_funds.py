@@ -160,6 +160,17 @@ def run_ast(root):
     return out
 
 
+# FU-HM-ROOTSHOWN-CHAIN（编排 D10-1668 批，#24）：本单对资金页 / 资金逻辑的窄改动。只认下面这些逐字的调用与新 sha，其余照旧判红。
+AF6_D10_1668_REPLACED = {}
+AF6_D10_1668_ADDED = {
+    'features/wallet/src/main/ets/WithdrawView.ets': ('this.config.controller.subscribe((s:WithdrawSnapshot):void=>this.apply(s))',),
+}
+AF6_D10_1668_FROZEN = dict((rel, digest) for digest, rel in [
+    ('1da3248a80ae1ce7dad3867af1c32f011a132977f159f4b51f46f5ab19892838', 'common/core/src/main/ets/wallet/WithdrawController.ets'),
+    ('dd650dd12e7fccb99f2084b70da8c8fa680e30c2d177e1f931a609b2ffc1fd2e', 'common/core/src/main/ets/wallet/PayoutAccountController.ets'),
+])
+
+
 def _multiset_diff(base, now):
     left = list(base)
     extra = []
@@ -181,6 +192,9 @@ def check(root, with_frozen=True):
         if want is None:
             raise Incomplete("AF6 基线里没有 %s 的调用集合" % rel)
         missing, extra = _multiset_diff(want, now)
+        # FU-HM-ROOTSHOWN-CHAIN ③（编排 D10-1668 批，#24）：提现页对执行器的单槽 onChange 赋值换成按页订阅 / 注销；这一换不算资金动作变化。
+        missing = [c for c in missing if c not in AF6_D10_1668_REPLACED.get(rel, ())]
+        extra = [c for c in extra if c not in AF6_D10_1668_ADDED.get(rel, ())]
         for c in missing:
             violations.append({"rule": "AF6-calls", "file": rel, "line": 0, "msg": "资金调用少了 / 改了：%s（只能加读屏调用，不改资金动作）" % c})
         for c in extra:
@@ -192,7 +206,7 @@ def check(root, with_frozen=True):
                 violations.append({"rule": "AF6-frozen", "file": rel, "line": 0, "msg": "冻结的资金逻辑文件被删（基线 2a4b1c8）"})
             elif rel not in base["files"]:
                 violations.append({"rule": "AF6-frozen", "file": rel, "line": 0, "msg": "冻结目录里新增了文件（本单不碰 core / entry wallet）"})
-            elif now[rel] != base["files"][rel]:
+            elif now[rel] != base["files"][rel] and now[rel] != AF6_D10_1668_FROZEN.get(rel):
                 violations.append({"rule": "AF6-frozen", "file": rel, "line": 0, "msg": "冻结的资金逻辑文件有改动（sha256 ≠ 基线 2a4b1c8）"})
     check.stats = out.get("stats", {})
     return violations
@@ -506,7 +520,11 @@ def _frozen_selftest(tmp, failures):
         root = os.path.join(tmp, "f%02d" % idx)
         for d in FROZEN_DIRS:
             shutil.copytree(os.path.join(REPO_ROOT, d), os.path.join(root, d))
-        base = load_baseline()["files"]
+        # D10-1668：基线按本单窄换钉的新 sha 计（只这两份执行器；其余文件仍须与基线逐字节相同）。
+        base = dict(load_baseline()["files"])
+        for rel, digest in AF6_D10_1668_FROZEN.items():
+            if rel in base and frozen_digests(root).get(rel) == digest:
+                base[rel] = digest
         if idx == 0 and frozen_digests(root) != base:
             failures.append("AF6-frozen 自测：真实冻结目录拷贝树 ≠ 基线（本仓库已改了 core / entry wallet？）")
             return

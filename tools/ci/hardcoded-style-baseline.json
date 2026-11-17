@@ -23,10 +23,9 @@
     "features/search/src/main/ets/SearchView.ets": 2,
     "features/wallet/src/main/ets/PayoutAccountView.ets": 3,
     "features/wallet/src/main/ets/RealNameView.ets": 2,
-    "features/wallet/src/main/ets/WalletView.ets": 4,
     "features/wallet/src/main/ets/WalletViewKit.ets": 1,
     "features/wallet/src/main/ets/WithdrawRecordsView.ets": 2,
-    "features/wallet/src/main/ets/WithdrawView.ets": 4,
+    "features/wallet/src/main/ets/WithdrawView.ets": 1,
     "features/web/src/main/ets/ExternalWebView.ets": 1,
     "features/web/src/main/ets/TrustedWebView.ets": 1
   }
