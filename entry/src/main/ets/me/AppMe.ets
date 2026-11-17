@@ -10,7 +10,8 @@ import {
   MeSession, MeTabController, MeTabSync, NicknameController, NotifyGuideBar, NotifySettingsController, PermissionStatusRaw,
   PermissionTypeRaw, PrivacyCenterController, PrivacyCenterPorts, PrivacyState, PrivacyWithdrawOutcomes, PushReportState,
   PushSessionTracker,
-  PushTokenReporter, PushTokenSource, ResetTipRunner, RiskNoticeController, Route10006, RouteDestination, RoutePolicy,
+  PushTokenReporter, PushTokenSource, ResetTipRunner, RiskNoticeController, RootShownRegistry, Route10006, RouteDestination,
+  RoutePolicy,
   RouteTable, SessionState, SettingsItems, TransportFailure, UpdateState, HomeVersionInfo
 } from 'core';
 import { CouliAnnounce, CouliDialog, CouliDialogOptions, CouliToast } from 'designsystem';
@@ -200,10 +201,24 @@ export class AppMe {
     this.ui = ui;
   }
 
+  /**
+   * 进入「我的」Tab 取一次 /v1/me（G36）。FU-HM-ROOTSHOWN-CHAIN（D10-1652）：按模块名登记（同名替换），不再包一层直接赋值——
+   * 订单、Agent 各自登记自己那一项，Ability 在同一进程里重建时谁先 compose 都不会把这一项冲掉。
+   */
+  private registerRootShown(): void {
+    ShellState.onRootShown.register(RootShownRegistry.ME, (destination: RouteDestination): void => {
+      if (destination.route === 'Me') {
+        this.tab().autoLoad();
+      }
+    });
+  }
+
   /** EntryAbility.onCreate（网络组合与 AppClientCore 之后、环境对账之前）。 */
   compose(context: common.UIAbilityContext): void {
     if (this.context !== null) {
       this.context = context;
+      // FU-HM-ROOTSHOWN-CHAIN：重建时按名重登（同名替换，不叠加）。
+      this.registerRootShown();
       return;
     }
     this.context = context;
@@ -238,14 +253,7 @@ export class AppMe {
     // F-X-08 ①（FU-HM-0719）：【确认撤回】/【重试】发起的撤回清理没确认删除落盘（本机偏好、草稿、凭据）也当场提示并给【重试】。
     AppPrivacy.withdrawCleanupFailed = (): void => this.withdrawOutcomes.cleanupFailed();
     AppRouting.shared.syncMe = (): void => this.sync();
-    // 进入「我的」Tab 取一次 /v1/me（G36）；保留 APP-08 已接的订单 Tab 回调。
-    const previous: (destination: RouteDestination) => void = ShellState.onRootShown;
-    ShellState.onRootShown = (destination: RouteDestination): void => {
-      previous(destination);
-      if (destination.route === 'Me') {
-        this.tab().autoLoad();
-      }
-    };
+    this.registerRootShown();
     const source: PushTokenSource = BuildVariant.pushTokenSource();
     this.pushSource = source;
     const reporter: PushTokenReporter =

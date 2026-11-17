@@ -153,3 +153,6 @@ export struct CouliIcon {
 /** GUIDE §4 图标外壳：viewBox 24、描边 1.75。 */
 const ICON_VIEWPORT: number = 24;
 const ICON_STROKE: number = 1.75;
+
+/** 通用名 → 系统符号的公开入口（FU-HM-ROOTSHOWN-CHAIN ②，D10-1668：可点图标改不带子组件的 SymbolGlyph 叶子时用；映射仍只在 couliSymbolOf）。 */
+export const couliSymbol: (name: string) => Resource | undefined = couliSymbolOf;

@@ -3,7 +3,7 @@ import {
   OrderDraftTexts, PendingTrackCard, PendingTrackController, PendingTrackPosition, PendingTrackSnapshot
 } from 'core';
 import {
-  CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFontWeight, CouliIcon,
+  CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFontWeight, CouliIcon, couliSymbol,
   CouliInteraction, CouliLayout, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography
 } from 'designsystem';
 
@@ -65,7 +65,14 @@ export struct PendingTrackArea {
           if (card.busy) {
             LoadingProgress().width(20).height(20).color(CouliColors.textSecondary)
           } else {
-            CouliIcon({ name: 'close', iconSize: 22, color: CouliColors.textSecondary })
+            // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+            SymbolGlyph(couliSymbol('close'))
+              .fontSize(22 + 'vp')
+              .fontColor([CouliColors.textSecondary])
+              .width(22)
+              .height(22)
+              .accessibilityLevel('no')
+              .focusable(true)
           }
         }
         .id('pending_track_close_' + card.platform)

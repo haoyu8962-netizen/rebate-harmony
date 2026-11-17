@@ -11,7 +11,8 @@ import {
   OrderListDeps, OrderListEntries, OrderPageRestorer, OrderPageStateKv, OrderPageStateStore, OrderPersistResult,
   FlushedPageStateKv, OrderPendingMark,
   OrderRecord, OrderSessionHub, OrderSessionReconciler, OrderStaleCache, OrderSyncResult, OrderTabCoordinator, SessionIdentity, PendingTrackController,
-  PendingTrackDeps, PendingTrackJumpWatcher, PendingTrackPosition, PermissionResult, RouteDestination, SearchApiPort, SessionState,
+  PendingTrackDeps, PendingTrackJumpWatcher, PendingTrackPosition, PermissionResult, RootShownRegistry, RouteDestination, SearchApiPort,
+  SessionState,
   TransportFailure
 } from 'core';
 import { CouliAnnounce, CouliToast } from 'designsystem';
@@ -181,8 +182,17 @@ export class AppOrders {
     this.ui = ui;
   }
 
-  /** EntryAbility.onCreate（网络组合与 AppClientCore 之后）。 */
+  /**
+   * EntryAbility.onCreate（网络组合与 AppClientCore 之后）。
+   * FU-HM-ROOTSHOWN-CHAIN（D10-1652）：重入保护——Ability 在同一进程里重建时再次 compose，只更新 context 并按名重登自己那一项
+   * （同名替换，不叠加、不冲掉「我的」/ Agent 的登记）；缓存、对账、列表控制器整个进程一份，不重建（与 AppMe / AppAgent 同口径）。
+   */
   compose(context: common.Context): void {
+    if (this.context !== null) {
+      this.context = context;
+      this.registerRootShown();
+      return;
+    }
     this.context = context;
     const store: FileOrderCacheStore = new FileOrderCacheStore(context.filesDir);
     // 缓存的获取时刻与展示的「现在」同一基准（服务端校准时钟，BR-TEXT-11）。
@@ -208,12 +218,17 @@ export class AppOrders {
     this.listInstance = new OrderListController(deps);
     this.hub.setList(this.listInstance);
     this.coordinator = new OrderTabCoordinator(reconciler, this.restorer, this.listInstance);
-    ShellState.onRootShown = (destination: RouteDestination): void => {
+    this.registerRootShown();
+    AppRouting.shared.syncOrders = (): void => this.sync();
+  }
+
+  /** 订单 Tab 第一次显示时才加载（按模块名登记，同名替换；FU-HM-ROOTSHOWN-CHAIN）。 */
+  private registerRootShown(): void {
+    ShellState.onRootShown.register(RootShownRegistry.ORDERS, (destination: RouteDestination): void => {
       if (destination.route === ORDER_LIST_ROUTE) {
         this.showTab(destination);
       }
-    };
-    AppRouting.shared.syncOrders = (): void => this.sync();
+    });
   }
 
   /** 恢复与对账共用的完整身份快照。 */

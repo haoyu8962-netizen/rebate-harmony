@@ -69,6 +69,9 @@ export struct PhoneChangeView {
   };
   private savedAvoid: KeyboardAvoidMode | null = null;
 
+  /** 执行器通知的按页订阅（FU-HM-ROOTSHOWN-CHAIN ③）：aboutToDisappear 注销。 */
+  private unsubscribeChange: (() => void) | null = null;
+
   aboutToAppear(): void {
     try {
       const ui: UIContext = this.getUIContext();
@@ -77,11 +80,13 @@ export struct PhoneChangeView {
     } catch (e) {
       this.savedAvoid = null;
     }
-    this.controller.onChange = (s: PhoneChangeSnapshot): void => this.apply(s);
+    this.unsubscribeChange = this.controller.subscribe((s: PhoneChangeSnapshot): void => this.apply(s));
     this.apply(this.controller.snapshot);
   }
 
   aboutToDisappear(): void {
+    this.unsubscribeChange?.();
+    this.unsubscribeChange = null;
     this.dropDialog();
     this.stepUpController?.close();
     this.stepUpController = null;
@@ -173,13 +178,14 @@ export struct PhoneChangeView {
       this.lastBlocked = blocked.seq;
       this.openBlocked(blocked);
     }
-    if (s.stepUpAction !== null && this.stepUpController === null) {
+    if (s.stepUpAction !== null && (this.stepUpController === null || !m.stepUp)) {
+      // 上一次的半屏还在收起途中（内容留到 onDisappear 才摘）时又要打开：先摘掉旧的再开新的。
+      this.releaseStepUp();
       this.stepUpController = this.controller.createStepUp();
       m.stepUp = this.stepUpController !== null;
-    } else if (s.stepUpAction === null && this.stepUpController !== null) {
-      this.stepUpController.close();
-      this.stepUpController = null;
-      m.stepUp = false;
+    } else if (s.stepUpAction === null && this.stepUpController !== null && m.stepUp) {
+      // 拿到 token（或别处结束了这次验证）：本页在同一调用栈里自己收起半屏（FU-HM-ROOTSHOWN-CHAIN ③）。
+      this.hideStepUp();
     }
     m.version = s.version * 1000 + s.pendingVersion;
   }
@@ -638,13 +644,33 @@ export struct PhoneChangeView {
     }
   }
 
+  /** 用户关闭（面板【关闭】、系统返回、onDisappear 兜底）：收起半屏并通知执行器放弃这次验证。 */
   private closeStepUp(): void {
+    this.hideStepUp();
+    this.controller.stepUpClosed();
+  }
+
+  /**
+   * 收起二次验证半屏分两步（FU-HM-ROOTSHOWN-CHAIN ③，D10-1668；与提现页同一写法，探针 2 probe2-run-20261114-193310 定位）：
+   * 第一步停面板计时、收起键盘、置 model.stepUp = false，面板内容留到 bindSheet onDisappear 再摘——同一帧先清空内容再置 false 时，
+   * token 路径下框架会留下空壳半屏挡住页面。
+   */
+  private hideStepUp(): void {
+    this.stepUpController?.close();
+    try {
+      this.getUIContext().getFocusController().clearFocus();
+    } catch (e) {
+      // 窗口不可用时忽略。
+    }
+    this.model.stepUp = false;
+  }
+
+  /** 第二步：半屏真正消失后摘内容。 */
+  private releaseStepUp(): void {
     if (this.stepUpController !== null) {
       this.stepUpController.close();
       this.stepUpController = null;
     }
-    this.model.stepUp = false;
-    this.controller.stepUpClosed();
   }
 
   build() {
@@ -678,6 +704,7 @@ export struct PhoneChangeView {
         if (this.model.stepUp) {
           this.closeStepUp();
         }
+        this.releaseStepUp();
         CouliFocusReturn.to(this.getUIContext(), this.snap.pending !== null ? 'phone_change_pending_confirm' : ID_SUBMIT);
       }
     })

@@ -15,6 +15,7 @@ import { PayoutAccountForm, PayoutPendingSummary, SensitiveOutcome } from './Wal
 import {
   FundPageLayout, PendingView, WalletLoadFailure, WalletMessage, WalletMessages, WalletSessionAware
 } from './WalletSession';
+import { PageListeners } from '../ui/PageListeners';
 
 type JSONValue = Object | null;
 
@@ -142,6 +143,15 @@ export class PayoutAccountController implements WalletSessionAware {
   private readonly unsubscribers: (() => void)[] = [];
   onChange: (snapshot: PayoutSnapshot) => void = (_s: PayoutSnapshot) => {
   };
+  /**
+   * 页面按页订阅（FU-HM-ROOTSHOWN-CHAIN ③，D10-1668）：页面 aboutToAppear 经 subscribe 订阅、aboutToDisappear 调返回的函数注销；
+   * 产品页面不再写 onChange（单槽，仅留给单测与无页面的调用方）。
+   */
+  private readonly pages: PageListeners<PayoutSnapshot> = new PageListeners<PayoutSnapshot>();
+
+  subscribe(listener: (snapshot: PayoutSnapshot) => void): () => void {
+    return this.pages.subscribe(listener);
+  }
   /** 保存成功（出栈回发起页）。 */
   onSaved: () => void = () => {
   };
@@ -1026,6 +1036,7 @@ export class PayoutAccountController implements WalletSessionAware {
     this.state = s;
     try {
       this.onChange(this.state);
+      this.pages.notify(this.state);
     } catch (e) {
       // 页面回调出错不影响执行器。
     }
@@ -1038,6 +1049,7 @@ export class PayoutAccountController implements WalletSessionAware {
     s.pendingVersion = this.flow.pendingVersion;
     try {
       this.onChange(s);
+      this.pages.notify(s);
     } catch (e) {
       // 页面回调出错不影响执行器。
     }

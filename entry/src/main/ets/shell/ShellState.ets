@@ -1,4 +1,4 @@
-import { RouteDestination, TabSwitchSignal, TabWillChangeRegistry } from 'core';
+import { RootShownRegistry, RouteDestination, TabSwitchSignal, TabWillChangeRegistry } from 'core';
 import { SHELL_TABS, ShellTab } from './TabRoots';
 
 /**
@@ -51,9 +51,10 @@ export class ShellState {
    * 直接进分享子 Tab）。参数为 Router 给的目的地（含已校验的路由参数）。
    * APP-12 R3-01：由 StackNavigator.tabRootShown 在本次导航的清栈、切 Tab 全部完成之后调（经 rootShown），不在 showRoot 里调——
    * 目标页此时发起的请求绑定的导航票据就是导航最终状态，合法的 10006 不会因捕获了导航中途的旧栈而被当成迟到。
+   * FU-HM-ROOTSHOWN-CHAIN（D10-1652）：与 onTabWillChange 同样按模块名登记（AppOrders → orders，AppMe → me，AppAgent → agent），
+   * Ability 在同一进程里重建时重新 compose 只替换自己那一项，互不覆盖；只读字段，不许直接赋值（宿主 tools/ci/rootshown 钉住）。
    */
-  static onRootShown: (destination: RouteDestination) => void = (_d: RouteDestination) => {
-  };
+  static readonly onRootShown: RootShownRegistry = new RootShownRegistry();
 
   /**
    * Router 打开了一个 Tab 根路由：切过去并记下只读标记（只识别与切换，不发「已显示」通知，R3-01）。不是 Tab 根路由时返回 false
@@ -79,10 +80,7 @@ export class ShellState {
     if (destination.route === null || ShellState.indexOf(destination.route) < 0) {
       return;
     }
-    try {
-      ShellState.onRootShown(destination);
-    } catch (e) {
-      // 监听方出错不影响切 Tab。
-    }
+    // 监听方出错不影响切 Tab（RootShownRegistry.dispatch 逐个隔离）。
+    ShellState.onRootShown.dispatch(destination);
   }
 }

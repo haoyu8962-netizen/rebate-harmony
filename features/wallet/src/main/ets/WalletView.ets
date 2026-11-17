@@ -3,7 +3,7 @@ import {
 } from 'core';
 import {
   AmountGrid, AmountGridItem, AmountTone, CouliAnnounce, CouliColors, CouliDialog, CouliDialogOptions, CouliFocus,
-  CouliFontWeight, CouliFormat, CouliIcon, CouliLayout, CouliRadius, CouliSpacing, CouliTextModifier, CouliToast,
+  CouliFontWeight, CouliFormat, CouliGlyphTap, couliSymbol, CouliLayout, CouliRadius, CouliSpacing, CouliTextModifier, CouliToast,
   CouliTypography, EntryGrid, EntryGridItem, ErrorState, NavBar, WalletHeroCard
 } from 'designsystem';
 import { DraftWalletTexts, fmt1, money, WalletMaskUi, WalletNoticeBar, WalletTexts } from './WalletViewKit';
@@ -267,13 +267,11 @@ export struct WalletView {
               money(this.fen((this.model.view as WalletRecord)['pausedLine']))))
             .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
             .flexShrink(1)
-          Button({ type: ButtonType.Normal, stateEffect: true }) {
-            CouliIcon({ name: 'help', iconSize: 16, color: CouliColors.textSecondary })
-          }
-          .width(48)
-          .height(48)
-          .margin({ top: -12, bottom: -12, left: -14, right: -14 })
-          .backgroundColor(Color.Transparent)
+          // FU-HM-ROOTSHOWN-CHAIN ②（D10-1668 / D10-1894）：不带子组件的 SymbolGlyph 叶子（原 Button(){CouliIcon} 在设备上不可获焦，键盘走焦与回焦落空）。
+          SymbolGlyph(couliSymbol('help'))
+          .attributeModifier(new CouliGlyphTap(16, CouliColors.textSecondary, -CouliSpacing.space3, -14, -CouliSpacing.space3, -14))
+          .accessibilityLevel('yes')
+          .accessibilityRole(AccessibilityRoleType.BUTTON)
           .accessibilityText(this.t('wallet.help.label.pending_paused'))
           .focusable(true)
           .focusBox(CouliFocus.box)

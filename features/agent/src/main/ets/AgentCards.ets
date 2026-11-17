@@ -6,7 +6,7 @@ import {
 } from 'core';
 import {
   AiLabel, BuyButtonState, CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip, CouliChipTone, CouliColors, CouliFocus,
-  CouliFontScale, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography, MatchBadge,
+  CouliFontScale, CouliIcon, couliSymbol, CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography, MatchBadge,
   PriceTerms, ProductCard, ProductCardData, ProductCardVariant, ProductGridLayout
 } from 'designsystem';
 import { AgentScreenPort } from './AgentScreenModel';
@@ -588,10 +588,15 @@ export struct AgentFeedbackBar {
   @Builder
   thumb(value: string, icon: string, label: string, selectedLabel: string) {
     Button({ type: ButtonType.Normal, stateEffect: true }) {
-      CouliIcon({
-        name: icon, iconSize: 20,
-        color: this.feedback !== undefined && this.feedback.selected === value ? CouliColors.brandPrimary : CouliColors.textSecondary
-      })
+      // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+      SymbolGlyph(couliSymbol(icon))
+        .fontSize(20 + 'vp')
+        .fontColor([this.feedback !== undefined && this.feedback.selected === value ? CouliColors.brandPrimary
+          : CouliColors.textSecondary])
+        .width(20)
+        .height(20)
+        .accessibilityLevel('no')
+        .focusable(true)
     }
     .width(CouliInteraction.minTouchTarget)
     .height(CouliInteraction.minTouchTarget)
@@ -630,6 +635,8 @@ export struct AgentFeedbackBar {
         Button({ type: ButtonType.Normal, stateEffect: false }) {
           Text(this.t('agent.draft.report.entry'))
             .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
+            // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)，同 CouliButton）：带子组件的 Button 只有子树里有可获焦叶子时才可获焦；内部 Text 可获焦后整按钮进焦点链。
+            .focusable(true)
         }
         .height(CouliInteraction.minTouchTarget)
         .position({ x: 0, y: 0 })

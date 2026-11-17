@@ -4,7 +4,7 @@ import {
 } from 'core';
 import {
   AmountGrid, CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip, CouliChipTone, CouliColors, CouliFocus,
-  CouliFontWeight, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing, CouliTextModifier,
+  CouliFontWeight, CouliGlyphTap, CouliIcon, couliSymbol, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing, CouliTextModifier,
   CouliTypography, EmptyState, ErrorState, NavBar, PlatformBadge, PriceTerms
 } from 'designsystem';
 import { RouteSpec } from 'generated';
@@ -263,14 +263,12 @@ export struct OrderDetailView {
             ? CouliColors.statusSuccessText : CouliColors.textPrimary, CouliFontWeight.semibold))
           .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
           .layoutWeight(1)
-        Button({ type: ButtonType.Normal, stateEffect: true }) {
-          CouliIcon({ name: this.config.mask.masked ? 'eye-off' : 'eye', iconSize: 22, color: CouliColors.textSecondary })
-        }
+        // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)，同钱包眼睛 D10-1668）：不带子组件的 SymbolGlyph 叶子（原 Button(){CouliIcon} 在设备上不可获焦，键盘走焦与回焦落空）。
+        SymbolGlyph(couliSymbol(this.config.mask.masked ? 'eye-off' : 'eye'))
+        .attributeModifier(new CouliGlyphTap(22, CouliColors.textSecondary, -CouliSpacing.space3, -CouliSpacing.space3, -CouliSpacing.space3, 0))
+        .accessibilityLevel('yes')
+        .accessibilityRole(AccessibilityRoleType.BUTTON)
         .id('order_detail_mask')
-        .width(CouliInteraction.minTouchTarget)
-        .height(CouliInteraction.minTouchTarget)
-        .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, right: -CouliSpacing.space3 })
-        .backgroundColor(Color.Transparent)
         .accessibilityText(this.t(this.config.mask.masked ? OrderKeys.MASK_SHOW : OrderKeys.MASK_HIDE))
         .focusable(true)
         .focusBox(CouliFocus.box)

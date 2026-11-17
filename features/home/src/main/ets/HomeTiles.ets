@@ -188,6 +188,8 @@ export struct HomeGuestValueCard {
         Text(HomeDraftTexts.text('home.guest_value.login'))
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.brandEmphasis,
             CouliFontWeight.semibold))
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)，同 CouliButton）：带子组件的 Button 只有子树里有可获焦叶子时才可获焦；内部 Text 可获焦后整按钮进焦点链。
+          .focusable(true)
       }
       .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
       .padding({ left: CouliSpacing.space3, right: CouliSpacing.space3 })

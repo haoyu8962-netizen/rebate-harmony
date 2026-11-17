@@ -4,7 +4,8 @@ import { CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliFocus } 
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliButton, CouliButtonVariant } from './Basics';
-import { CouliIcon } from './CouliIcon';
+import { CouliIcon, couliSymbol } from './CouliIcon';
+import { CouliGlyphTap } from './CouliGlyphTap';
 import { CouliFormat } from '../format/CouliFormat';
 import { rangeBreakable } from './Price';
 import { CouliTextModifier } from './CouliText';
@@ -291,20 +292,18 @@ export struct AmountGrid {
           // FU-HM-A11Y-19：标签已在下方金额的读屏名里（「标签，金额」），这里不再单独读。
           .accessibilityLevel('no')
         if (item.helpLabel.length > 0) {
-          Button({ type: ButtonType.Normal, stateEffect: true }) {
-            CouliIcon({ name: 'help', iconSize: 16, color: this.labelColor(item) })
-          }
-          .width(CouliInteraction.minTouchTarget)
-          .height(CouliInteraction.minTouchTarget)
-          .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, left: -14, right: -14 })
-          .backgroundColor(Color.Transparent)
-          .accessibilityText(item.helpLabel)
-          .focusable(true)
-          .focusBox(CouliFocus.box)
-          .id(this.helpIdPrefix.length > 0 && item.helpKey.length > 0 ? this.helpIdPrefix + item.helpKey : undefined)
-          .onClick(() => {
-            this.onHelp(index);
-          })
+          // FU-HM-ROOTSHOWN-CHAIN ②（D10-1668）：不带子组件的 SymbolGlyph 叶子（原 Button(){CouliIcon} 在设备上不可获焦，键盘走焦与回焦落空）。
+          SymbolGlyph(couliSymbol('help'))
+            .attributeModifier(new CouliGlyphTap(16, this.labelColor(item), -CouliSpacing.space3, -14, -CouliSpacing.space3, -14))
+            .accessibilityLevel('yes')
+            .accessibilityRole(AccessibilityRoleType.BUTTON)
+            .accessibilityText(item.helpLabel)
+            .focusable(true)
+            .focusBox(CouliFocus.box)
+            .id(this.helpIdPrefix.length > 0 && item.helpKey.length > 0 ? this.helpIdPrefix + item.helpKey : undefined)
+            .onClick(() => {
+              this.onHelp(index);
+            })
         }
       }
       // FU-HM-A11Y-19：无问号时整行（装饰图标 + 标签）不读；有问号时行本身照常，问号按钮单独可聚焦。
@@ -405,20 +404,18 @@ export struct WalletHeroCard {
               CouliFontWeight.semibold))
             // FU-HM-A11Y-19：标签已在大数字的读屏名里（「标签，金额」）。
             .accessibilityLevel('no')
-          Button({ type: ButtonType.Normal, stateEffect: true }) {
-            CouliIcon({ name: this.amountHidden ? 'eye-off' : 'eye', iconSize: 20, color: CouliColors.textInverse })
-          }
-          .width(CouliInteraction.minTouchTarget)
-          .height(CouliInteraction.minTouchTarget)
-          .margin({ top: -CouliSpacing.space3, bottom: -CouliSpacing.space3, left: -6 })
-          .backgroundColor(Color.Transparent)
-          .accessibilityText(this.eyeLabel)
-          .focusable(true)
-          .focusBox(CouliFocus.box)
-          .id(this.eyeId.length > 0 ? this.eyeId : undefined)
-          .onClick(() => {
-            this.onToggleHidden();
-          })
+          // FU-HM-ROOTSHOWN-CHAIN ②（D10-1668）：不带子组件的 SymbolGlyph 叶子（原 Button(){CouliIcon} 在设备上不可获焦，键盘走焦与回焦落空）。
+          SymbolGlyph(couliSymbol(this.amountHidden ? 'eye-off' : 'eye'))
+            .attributeModifier(new CouliGlyphTap(20, CouliColors.textInverse, -CouliSpacing.space3, 0, -CouliSpacing.space3, -6))
+            .accessibilityLevel('yes')
+            .accessibilityRole(AccessibilityRoleType.BUTTON)
+            .accessibilityText(this.eyeLabel)
+            .focusable(true)
+            .focusBox(CouliFocus.box)
+            .id(this.eyeId.length > 0 ? this.eyeId : undefined)
+            .onClick(() => {
+              this.onToggleHidden();
+            })
         }
         .flexGrow(1)
 

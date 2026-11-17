@@ -7,7 +7,7 @@ import {
 } from '../format/PriceModels';
 import { PriceTerms } from '../format/PriceTerms';
 import { CouliButton, CouliButtonSize, CouliButtonVariant, CouliChip } from './Basics';
-import { CouliIcon } from './CouliIcon';
+import { CouliIcon, couliSymbol } from './CouliIcon';
 import { DisclaimerNote } from './DisclaimerNote';
 import { CouliTextModifier, TABULAR_FEATURE } from './CouliText';
 
@@ -326,7 +326,14 @@ export struct DisclaimerFooter {
             .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textSecondary))
         }
         Button({ type: ButtonType.Normal, stateEffect: true }) {
-          CouliIcon({ name: 'info', iconSize: 16, color: CouliColors.textSecondary })
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+          SymbolGlyph(couliSymbol('info'))
+            .fontSize(16 + 'vp')
+            .fontColor([CouliColors.textSecondary])
+            .width(16)
+            .height(16)
+            .accessibilityLevel('no')
+            .focusable(true)
         }
         .width(CouliInteraction.minTouchTarget)
         .height(CouliInteraction.minTouchTarget)

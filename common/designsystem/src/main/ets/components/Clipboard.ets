@@ -2,7 +2,7 @@ import { CouliColors } from '../CouliColors';
 import { CouliFocus, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { PlatformBadge } from './Basics';
-import { CouliIcon } from './CouliIcon';
+import { CouliIcon, couliSymbol } from './CouliIcon';
 import { CouliTextModifier } from './CouliText';
 import { CouliFixedTap } from '../logic/CouliFixedTap';
 import { LARGE_TEXT_SCALE } from '../logic/TextScale';
@@ -360,6 +360,8 @@ export struct ClipboardPromptBar {
           .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
             this.disabled ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.semibold))
           .maxLines(1)
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)，同 CouliButton）：带子组件的 Button 只有子树里有可获焦叶子时才可获焦；内部 Text 可获焦后整按钮进焦点链。
+          .focusable(true)
       }
       .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
       .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
@@ -371,7 +373,14 @@ export struct ClipboardPromptBar {
       .id(this.barId + '_action')
       .onClick(CouliFixedTap.of(this.onAction, this.actionKey))
       Button({ type: ButtonType.Normal, stateEffect: true }) {
-        CouliIcon({ name: 'close', iconSize: 20, color: CouliColors.textSecondary })
+        // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+        SymbolGlyph(couliSymbol('close'))
+          .fontSize(20 + 'vp')
+          .fontColor([CouliColors.textSecondary])
+          .width(20)
+          .height(20)
+          .accessibilityLevel('no')
+          .focusable(true)
       }
       .width(CouliInteraction.minTouchTarget)
       .height(CouliInteraction.minTouchTarget)
@@ -498,6 +507,8 @@ export struct ClipboardNotice {
       Text(this.actionText)
         .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
           this.actionDisabled ? CouliColors.textSecondary : CouliColors.brandEmphasis, CouliFontWeight.semibold))
+        // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)，同 CouliButton）：带子组件的 Button 只有子树里有可获焦叶子时才可获焦；内部 Text 可获焦后整按钮进焦点链。
+        .focusable(true)
     }
     .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
     .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
@@ -549,7 +560,14 @@ export struct ClipboardNotice {
       })
       if (this.closeLabel.length > 0) {
         Button({ type: ButtonType.Normal, stateEffect: true }) {
-          CouliIcon({ name: 'close', iconSize: 18, color: CouliColors.textSecondary })
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+          SymbolGlyph(couliSymbol('close'))
+            .fontSize(18 + 'vp')
+            .fontColor([CouliColors.textSecondary])
+            .width(18)
+            .height(18)
+            .accessibilityLevel('no')
+            .focusable(true)
         }
         .width(CouliInteraction.minTouchTarget)
         .height(CouliInteraction.minTouchTarget)
@@ -604,7 +622,14 @@ export struct ClipboardNotice {
       .layoutWeight(1)
       if (this.closeLabel.length > 0) {
         Button({ type: ButtonType.Normal, stateEffect: true }) {
-          CouliIcon({ name: 'close', iconSize: 18, color: CouliColors.statusErrorText })
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+          SymbolGlyph(couliSymbol('close'))
+            .fontSize(18 + 'vp')
+            .fontColor([CouliColors.statusErrorText])
+            .width(18)
+            .height(18)
+            .accessibilityLevel('no')
+            .focusable(true)
         }
         .width(CouliInteraction.minTouchTarget)
         .height(CouliInteraction.minTouchTarget)

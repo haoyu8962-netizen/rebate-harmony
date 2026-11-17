@@ -6,7 +6,7 @@ import {
 import {
   CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogOptions,
   CouliFocus, CouliFocusReturn, CouliFontWeight, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliSpacing,
-  CouliTextModifier, CouliToast, CouliTypography, ErrorState, NavBar, PriceTerms
+  CouliTextModifier, CouliToast, CouliTypography, ErrorState, NavBar, PriceTerms, CouliGlyphTap, couliSymbol
 } from 'designsystem';
 import { WalletStepUpPanel, stepUpWillDismiss } from './StepUpSheet';
 import {
@@ -98,6 +98,8 @@ export struct WithdrawView {
   private lastPendingKey: string = '';
   /** 页面仍在（aboutToAppear 置 true、aboutToDisappear 置 false）：金额类错误的延时移焦执行前复核，离页后不发旧移焦请求。 */
   private alive: boolean = false;
+  /** 执行器通知的按页订阅（FU-HM-ROOTSHOWN-CHAIN ③）：aboutToDisappear 注销。 */
+  private unsubscribeChange: (() => void) | null = null;
   /** 金额类错误的延时移焦任务（-1 = 没有）：新错误前与离页时取消，过期任务不执行（FU-HM-A11Y-03）。 */
   private amountFocusTimer: number = -1;
 
@@ -111,12 +113,14 @@ export struct WithdrawView {
     } catch (e) {
       this.savedAvoidMode = null;
     }
-    this.config.controller.onChange = (s: WithdrawSnapshot): void => this.apply(s);
+    this.unsubscribeChange = this.config.controller.subscribe((s: WithdrawSnapshot): void => this.apply(s));
     this.apply(this.config.controller.snapshot);
   }
 
   aboutToDisappear(): void {
     this.alive = false;
+    this.unsubscribeChange?.();
+    this.unsubscribeChange = null;
     clearTimeout(this.amountFocusTimer);
     const saved: KeyboardAvoidMode | null = this.savedAvoidMode;
     if (saved !== null) {
@@ -218,16 +222,16 @@ export struct WithdrawView {
       // TODO(N-32)：「提现申请已提交，审核中」设计稿标「待商量」。
       CouliAnnounce.say(ui, this.t('withdraw.submitted_announce'));
     }
-    if (s.stepUpAction !== null && this.stepUpController === null) {
+    if (s.stepUpAction !== null && (this.stepUpController === null || !m.stepUp)) {
+      // 上一次的半屏还在收起途中（内容留到 onDisappear 才摘）时又要打开：先摘掉旧的再开新的。
+      this.releaseStepUp();
       this.stepUpController = c.createStepUp();
       m.stepUp = this.stepUpController !== null;
       // 半屏打开期间页面不避让键盘（NONE，由半屏自己按键盘高度布局，R1-11）；关闭后恢复 RESIZE。
       this.pageAvoid(false);
-    } else if (s.stepUpAction === null && this.stepUpController !== null) {
-      this.stepUpController.close();
-      this.stepUpController = null;
-      m.stepUp = false;
-      this.pageAvoid(true);
+    } else if (s.stepUpAction === null && this.stepUpController !== null && m.stepUp) {
+      // 拿到 token（或别处结束了这次验证）：本页在同一调用栈里自己收起半屏（FU-HM-ROOTSHOWN-CHAIN ③，探针 2）。
+      this.hideStepUp();
     }
   }
 
@@ -577,18 +581,16 @@ export struct WithdrawView {
             // 「计算中」不播报，只读结果。
             .accessibilityLevel(this.model.estimate === 'calculating' ? 'no' : 'auto')
           if (this.model.estimate !== 'calculating') {
-            Button({ type: ButtonType.Normal, stateEffect: true }) {
-              CouliIcon({ name: 'help', iconSize: 16, color: CouliColors.textSecondary })
-            }
-            .width(CouliInteraction.minTouchTarget)
-            .height(CouliInteraction.minTouchTarget)
-            .margin({ top: -12, bottom: -12, left: -12 })
-            .backgroundColor(Color.Transparent)
-            .accessibilityText(this.t('wallet.help.label.fee_tax'))
-            .focusable(true)
-            .focusBox(CouliFocus.box)
-            .id(ID_HELP_FEE_TAX)
-            .onClick(() => this.helpFeeTax())
+            // FU-HM-ROOTSHOWN-CHAIN ②（D10-1668）：不带子组件的 SymbolGlyph 叶子（原 Button(){CouliIcon} 在设备上不可获焦，回焦落空）。
+            SymbolGlyph(couliSymbol('help'))
+              .attributeModifier(new CouliGlyphTap(16, CouliColors.textSecondary, -12, 0, -12, -12))
+              .accessibilityLevel('yes')
+              .accessibilityRole(AccessibilityRoleType.BUTTON)
+              .accessibilityText(this.t('wallet.help.label.fee_tax'))
+              .focusable(true)
+              .focusBox(CouliFocus.box)
+              .id(ID_HELP_FEE_TAX)
+              .onClick(() => this.helpFeeTax())
           }
         }
         .width('100%')
@@ -713,14 +715,34 @@ export struct WithdrawView {
     }
   }
 
+  /** 用户关闭（面板【关闭】、系统返回、onDisappear 兜底）：收起半屏并通知执行器放弃这次验证。 */
   private closeStepUp(): void {
+    this.hideStepUp();
+    this.config.controller.stepUpClosed();
+  }
+
+  /**
+   * 收起二次验证半屏的第一步（FU-HM-ROOTSHOWN-CHAIN ③，探针 2 probe2-run-20261114-193310）：停掉面板计时、收起键盘、置
+   * model.stepUp = false；面板内容（stepUpController）留到 bindSheet onDisappear 再摘。原写法同一帧里先清空内容再置 false，token
+   * 路径（网络回调里、键盘开着）下框架留下一个空壳半屏挡住页面，直到按返回才 onDisappear。
+   */
+  private hideStepUp(): void {
+    this.stepUpController?.close();
+    try {
+      this.getUIContext().getFocusController().clearFocus();
+    } catch (e) {
+      // 窗口不可用时忽略。
+    }
+    this.model.stepUp = false;
+  }
+
+  /** 第二步：半屏真正消失后摘内容、恢复页面键盘避让。 */
+  private releaseStepUp(): void {
     if (this.stepUpController !== null) {
       this.stepUpController.close();
       this.stepUpController = null;
+      this.pageAvoid(true);
     }
-    this.model.stepUp = false;
-    this.pageAvoid(true);
-    this.config.controller.stepUpClosed();
   }
 
   /** 待确认卡与「别处在途」提示：独立于 rules 与收款账号的读取状态（rules 失败、加载中也显示，R1-02，共性第 2 条）。 */
@@ -888,6 +910,7 @@ export struct WithdrawView {
           if (this.model.stepUp) {
             this.closeStepUp();
           }
+          this.releaseStepUp();
           // 关闭后焦点回到【提交】（A11yFocusStepUp）。
           CouliFocusReturn.to(this.getUIContext(), ID_SUBMIT);
         }

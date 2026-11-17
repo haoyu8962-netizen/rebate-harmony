@@ -20,6 +20,7 @@ import {
   AccountClick, AccountDeps, AccountIdentity, AccountMessage, AccountMessages, AccountSessionAware, AccountSettle,
   KeyedDeadlines, PendingSettlement
 } from './AccountSession';
+import { PageListeners } from '../../ui/PageListeners';
 
 type JSONValue = Object | null;
 
@@ -143,6 +144,15 @@ export class PhoneChangeController implements AccountSessionAware {
   private deferredBlockedAt: DeferredResult | null = null;
   onChange: (snapshot: PhoneChangeSnapshot) => void = (_s: PhoneChangeSnapshot) => {
   };
+  /**
+   * 页面按页订阅（FU-HM-ROOTSHOWN-CHAIN ③，D10-1668）：页面 aboutToAppear 经 subscribe 订阅、aboutToDisappear 调返回的函数注销；
+   * 产品页面不再写 onChange（单槽，仅留给单测与无页面的调用方）。
+   */
+  private readonly pages: PageListeners<PhoneChangeSnapshot> = new PageListeners<PhoneChangeSnapshot>();
+
+  subscribe(listener: (snapshot: PhoneChangeSnapshot) => void): () => void {
+    return this.pages.subscribe(listener);
+  }
   /** 结果页【完成】：关掉本子页回 Settings 主页（唯一的设置页实例；页面接）。 */
   onFinished: (() => void) | null = null;
 
@@ -987,6 +997,7 @@ export class PhoneChangeController implements AccountSessionAware {
     this.leave();
     try {
       this.onChange(this.state);
+      this.pages.notify(this.state);
     } catch (e) {
       // 忽略。
     }
@@ -998,6 +1009,7 @@ export class PhoneChangeController implements AccountSessionAware {
     s.pendingVersion = this.flow.pendingVersion;
     try {
       this.onChange(s);
+      this.pages.notify(s);
     } catch (e) {
       // 忽略。
     }

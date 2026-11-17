@@ -203,8 +203,13 @@ export struct AgentTabRoot {
     return reported && AgentReportFocus.fromEntry ? AgentReportIds.reported(key) : AgentReportFocus.triggerId;
   }
 
+  /**
+   * 页头（FU-HM-ROOTSHOWN-CHAIN ②，rootcause-r3 agent_03）：标题 Text 不在按状态键的 ForEach 里，各 phase 之间是同一个节点——同意落地、
+   * 页面从「已拒绝」切到「就绪」时不随页头重建，关闭同意弹窗时回到标题上的焦点不丢（FU-HM-A11Y-14 / 书 §2.4，落点口径见宿主 AG4：
+   * 关闭那一刻输入框可用回输入框，否则回标题）。只有【新对话】要绑定当前页面票据，单独按状态键放在 ForEach 里。
+   */
   @Builder
-  header(page: AgentPageTicket, ready: boolean) {
+  header() {
     Column({ space: CouliSpacing.space1 }) {
       Row() {
         Text(this.t('agent.name'))
@@ -214,23 +219,10 @@ export struct AgentTabRoot {
           .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
           .id(ID_TITLE)
           .focusable(true)
-        if (ready) {
-          Row({ space: CouliSpacing.space1 }) {
-            CouliIcon({ name: 'chat', iconSize: 18, color: CouliColors.textPrimary })
-            Text(this.t('agent.draft.new_chat'))
-              .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
-          }
-          .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
-          .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2 })
-          .accessibilityGroup(true)
-          .accessibilityRole(AccessibilityRoleType.BUTTON)
-          .accessibilityText(this.t('agent.draft.new_chat'))
-          .focusable(true)
-          .focusBox(CouliFocus.box)
-          .onClick(() => {
-            this.model.port.newChat(page);
-          })
-        }
+        ForEach([new ComposerState(this.model.snapshot,
+          this.model.snapshot.phase === AgentPhase.READY && !this.readonlyMode)], (c: ComposerState) => {
+          this.newChat(c.page, c.ready)
+        }, (c: ComposerState) => 'header|' + c.key)
       }
       .width('100%')
       if (this.model.snapshot.filingText.length > 0) {
@@ -243,6 +235,28 @@ export struct AgentTabRoot {
     .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4, top: CouliSpacing.space2,
       bottom: CouliSpacing.space2 })
     .backgroundColor(CouliColors.backgroundSurface)
+  }
+
+  /** 页头【新对话】（只在就绪态显示；绑定当前页面票据）。 */
+  @Builder
+  newChat(page: AgentPageTicket, ready: boolean) {
+    if (ready) {
+      Row({ space: CouliSpacing.space1 }) {
+        CouliIcon({ name: 'chat', iconSize: 18, color: CouliColors.textPrimary })
+        Text(this.t('agent.draft.new_chat'))
+          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textPrimary))
+      }
+      .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+      .padding({ left: CouliSpacing.space2, right: CouliSpacing.space2 })
+      .accessibilityGroup(true)
+      .accessibilityRole(AccessibilityRoleType.BUTTON)
+      .accessibilityText(this.t('agent.draft.new_chat'))
+      .focusable(true)
+      .focusBox(CouliFocus.box)
+      .onClick(() => {
+        this.model.port.newChat(page);
+      })
+    }
   }
 
   @Builder
@@ -526,10 +540,7 @@ export struct AgentTabRoot {
 
   build() {
     Column() {
-      ForEach([new ComposerState(this.model.snapshot,
-        this.model.snapshot.phase === AgentPhase.READY && !this.readonlyMode)], (c: ComposerState) => {
-        this.header(c.page, c.ready)
-      }, (c: ComposerState) => 'header|' + c.key)
+      this.header()
       Column() {
         if (this.readonlyMode || this.model.snapshot.phase === AgentPhase.BLOCKED
           || this.model.snapshot.phase === AgentPhase.IDLE) {

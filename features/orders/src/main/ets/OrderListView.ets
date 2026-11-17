@@ -5,7 +5,7 @@ import {
 } from 'core';
 import {
   AmountGrid, CouliAnnounce, CouliButton, CouliButtonSize, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn,
-  CouliFontWeight, CouliFormat, CouliIcon, CouliInteraction, CouliLayout, CouliRadius, CouliSheetPanel, CouliSpacing,
+  CouliFontWeight, CouliFormat, CouliGlyphTap, CouliIcon, couliSymbol, CouliInteraction, CouliLayout, CouliRadius, CouliSheetPanel, CouliSpacing,
   CouliTextModifier, CouliTypography, EmptyState, ErrorState, PlatformBadge
 } from 'designsystem';
 import {
@@ -452,7 +452,14 @@ export struct OrderListView {
         })
       if (this.model.inputText.length > 0) {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
-          CouliIcon({ name: 'close', iconSize: 16, color: CouliColors.textSecondary })
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+          SymbolGlyph(couliSymbol('close'))
+            .fontSize(16 + 'vp')
+            .fontColor([CouliColors.textSecondary])
+            .width(16)
+            .height(16)
+            .accessibilityLevel('no')
+            .focusable(true)
         }
         .id('orders_search_clear')
         .width(CouliInteraction.minTouchTarget)
@@ -593,14 +600,13 @@ export struct OrderListView {
         })
       }
       .layoutWeight(1)
-      Button({ type: ButtonType.Normal, stateEffect: true }) {
-        CouliIcon({ name: this.config.mask.masked ? 'eye-off' : 'eye', iconSize: 22, color: CouliColors.textSecondary })
-      }
+      // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)，同钱包眼睛 D10-1668）：不带子组件的 SymbolGlyph 叶子（原 Button(){CouliIcon} 在设备上不可获焦，键盘走焦与回焦落空）。
+      SymbolGlyph(couliSymbol(this.config.mask.masked ? 'eye-off' : 'eye'))
+      .attributeModifier(new CouliGlyphTap(22, CouliColors.textSecondary))
+      .accessibilityLevel('yes')
+      .accessibilityRole(AccessibilityRoleType.BUTTON)
       .id('orders_mask')
-      .width(CouliInteraction.minTouchTarget)
-      .height(CouliInteraction.minTouchTarget)
       .flexShrink(0)
-      .backgroundColor(Color.Transparent)
       .accessibilityText(this.t(this.config.mask.masked ? OrderKeys.MASK_SHOW : OrderKeys.MASK_HIDE))
       .focusable(true)
       .focusBox(CouliFocus.box)

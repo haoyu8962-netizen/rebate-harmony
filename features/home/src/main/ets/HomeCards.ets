@@ -8,7 +8,7 @@ import {
   HomeProductRow, HomeTap
 } from 'core';
 import {
-  CouliColors, CouliFocus, CouliFocusReturn, CouliIcon, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier,
+  CouliColors, CouliFocus, CouliFocusReturn, CouliIcon, couliSymbol, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliTextModifier,
   CouliTypography, CouliFontWeight, PlatformIcon, PlatformIconSize, PlatformIconSource, ProductCard, ProductCardData,
   ProductCardMeasure, ProductCardVariant, ProductGridLayout, CouliFontScale
 } from 'designsystem';
@@ -671,7 +671,14 @@ export struct HomeNoticeCard {
       })
       if (row.close !== null) {
         Button({ type: ButtonType.Normal, stateEffect: true }) {
-          CouliIcon({ name: 'close', iconSize: 20, color: CouliColors.textSecondary })
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+          SymbolGlyph(couliSymbol('close'))
+            .fontSize(20 + 'vp')
+            .fontColor([CouliColors.textSecondary])
+            .width(20)
+            .height(20)
+            .accessibilityLevel('no')
+            .focusable(true)
         }
         .width(CouliInteraction.minTouchTarget)
         .height(CouliInteraction.minTouchTarget)
@@ -848,7 +855,14 @@ export struct HomePopupView {
       // 关闭（组件树在图片之前，读屏先读关闭；zIndex 叠在图片上）
       Button({ type: ButtonType.Normal, stateEffect: false }) {
         Stack() {
-          CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textPrimary })
+          // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+          SymbolGlyph(couliSymbol('close'))
+            .fontSize(24 + 'vp')
+            .fontColor([CouliColors.textPrimary])
+            .width(24)
+            .height(24)
+            .accessibilityLevel('no')
+            .focusable(true)
         }
         .width(HomePopupGeometry.CLOSE_VISUAL)
         .height(HomePopupGeometry.CLOSE_VISUAL)

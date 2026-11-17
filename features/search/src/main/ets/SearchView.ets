@@ -1,4 +1,5 @@
-import { LengthMetrics } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
+import { KeyboardAvoidMode, LengthMetrics, window } from '@kit.ArkUI';
 import {
   PURCHASE_NOT_LAUNCHED, PURCHASE_ON, ScrollKeeperHost, SearchController, SearchDraft, SearchErrorText, SearchLayout,
   SearchPageLife, SearchPageRecord, SearchPhase, SearchResultView, SearchRows, SearchScrollKeeper, SearchSnapshot,
@@ -8,7 +9,7 @@ import {
   CouliButton, CouliButtonSize, CouliLayout, CouliButtonVariant, CouliColors, CouliFocus, CouliFontWeight, CouliFormat, CouliIcon,
   CouliInteraction, CouliRadius, CouliSpacing, CouliTextModifier, CouliTypography, DisclaimerFooter, DisclaimerMode,
   EmptyState, ErrorState, ProductCard, ProductCardData, ProductCardKeys, ProductCardMapper, ProductCardTexts,
-  ProductCardVariant, SkeletonProductCard, CouliAnnounce, CouliFocusReturn, SearchDisclaimers
+  ProductCardVariant, SkeletonProductCard, CouliAnnounce, CouliFocusReturn, SearchDisclaimers, StepUpPanelFit, couliSymbol
 } from 'designsystem';
 
 /**
@@ -232,7 +233,11 @@ const ID_CLEAR: string = 'search_clear';
 const ID_SUBMIT: string = 'search_submit';
 const ID_FILTER_COUPON: string = 'search_filter_coupon';
 const ID_FILTER_PRICE: string = 'search_filter_price';
+/** 价格半屏三段之外的固定高（vp）：上下内边距（space4 × 2）+ 段间距（space4 × 2）。 */
+const PRICE_SHEET_CHROME: number = CouliSpacing.space4 * 4;
 const CHIP_HEIGHT: number = 36;
+/** 胶囊尾部符号的边长（vp；与原 CouliIcon iconSize 16 一致）。 */
+const CHIP_ICON_SIZE: number = 16;
 const ID_LOAD_MORE_RETRY: string = 'search_load_more_retry';
 /** 常驻说明区最多占结果区的比例（窄屏、200% 字号下句子多时区内滚动，不挤掉列表）。 */
 const DISCLAIMER_MAX_RATIO: number = 0.3;
@@ -316,6 +321,24 @@ export struct SearchView {
   private sheetFocus: number = 0;
   /** 页面是否被详情盖住（setCovered 记 true / false）：盖住算离页，期间半屏的进标题 / 回【价格】都不排。 */
   private sheetCovered: boolean = false;
+  /**
+   * 价格半屏按键盘自布局（FU-HM-ROOTSHOWN-CHAIN ①，D10-1668；照二次验证面板 R1-11 / StepUpPanel 的做法，探针 PROBE_HS04 证实原来键盘弹起时
+   * 【确定】落在键盘区里）：bindSheet 不避让键盘（SheetKeyboardAvoidMode.NONE），页面也不避让；订阅窗口 keyboardHeightChange，标题与底部
+   * 按钮行固定，只有中段（两个价格框与说明 / 错误）滚动，面板下方垫一块与键盘等高的占位，整个半屏贴在键盘上沿。单位 vp。
+   */
+  @Local priceKeyboardVp: number = 0;
+  @Local priceWindowVp: number = 0;
+  @Local priceTopInsetVp: number = 0;
+  @Local priceBottomInsetVp: number = 0;
+  @Local priceHeaderVp: number = 0;
+  @Local priceMiddleVp: number = 0;
+  @Local priceFooterVp: number = 0;
+  private priceWin: window.Window | null = null;
+  private priceSavedAvoid: KeyboardAvoidMode | null = null;
+  private readonly priceMiddleScroller: Scroller = new Scroller();
+  private readonly onPriceKeyboard: (height: number) => void = (height: number): void => {
+    this.priceKeyboardVp = height > 0 ? this.getUIContext().px2vp(height) : 0;
+  };
 
   aboutToAppear(): void {
     const life: SearchPageLife = this.config.life;
@@ -408,6 +431,81 @@ export struct SearchView {
   aboutToDisappear(): void {
     // onWillDisappear 已执行过时这里什么都不做（exit 只执行一次）；没走到 onWillDisappear 的销毁由这里兜底。
     this.config.life.exit();
+    this.detachPriceKeyboard();
+  }
+
+  /** 价格半屏打开：页面不避让键盘、取窗口高与上下安全区并订阅键盘高度（window API 7 / 9；取不到时按缺省最大高布局）。 */
+  private attachPriceKeyboard(): void {
+    const ui: UIContext = this.getUIContext();
+    try {
+      if (this.priceSavedAvoid === null) {
+        this.priceSavedAvoid = ui.getKeyboardAvoidMode();
+      }
+      ui.setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
+    } catch (e) {
+      // 窗口不可用时忽略。
+    }
+    if (this.priceWin !== null) {
+      return;
+    }
+    try {
+      const context: common.UIAbilityContext = ui.getHostContext() as common.UIAbilityContext;
+      window.getLastWindow(context).then((win: window.Window): void => {
+        try {
+          const rect: window.Rect = win.getWindowProperties().windowRect;
+          this.priceWindowVp = ui.px2vp(rect.height);
+          const sys: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+          this.priceTopInsetVp = ui.px2vp(sys.topRect.height);
+          const nav: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
+          this.priceBottomInsetVp = ui.px2vp(nav.bottomRect.height);
+          const kb: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);
+          this.onPriceKeyboard(kb.bottomRect.height);
+          win.on('keyboardHeightChange', this.onPriceKeyboard);
+          this.priceWin = win;
+        } catch (e) {
+          // 窗口属性取不到：按缺省最大高。
+        }
+      }).catch((): void => {
+        // 取不到窗口：按缺省最大高。
+      });
+    } catch (e) {
+      // 上下文不可用。
+    }
+  }
+
+  /** 价格半屏关闭 / 离页：退订键盘高度、恢复页面原来的键盘避让。 */
+  private detachPriceKeyboard(): void {
+    const win: window.Window | null = this.priceWin;
+    this.priceWin = null;
+    if (win !== null) {
+      try {
+        win.off('keyboardHeightChange', this.onPriceKeyboard);
+      } catch (e) {
+        // 窗口已销毁时忽略。
+      }
+    }
+    this.priceKeyboardVp = 0;
+    const saved: KeyboardAvoidMode | null = this.priceSavedAvoid;
+    this.priceSavedAvoid = null;
+    if (saved !== null) {
+      try {
+        this.getUIContext().setKeyboardAvoidMode(saved);
+      } catch (e) {
+        // 窗口已销毁时忽略。
+      }
+    }
+  }
+
+  /** 价格半屏最大高（vp）：窗口高减上安全区、顶部留白、键盘与下安全区（StepUpPanelFit 同一算式）。 */
+  private pricePanelMax(): number {
+    return StepUpPanelFit.maxPanel(this.priceWindowVp, this.priceTopInsetVp, this.priceBottomInsetVp, this.priceKeyboardVp);
+  }
+
+  /** 价格半屏中段高：标题与按钮行固定，只压缩中段（自然高未量到时先按两倍命中区）。 */
+  private priceMiddleHeight(): number {
+    const natural: number = this.priceMiddleVp > 0 ? this.priceMiddleVp : CouliInteraction.minTouchTarget * 2;
+    return StepUpPanelFit.middle(this.pricePanelMax(), this.priceHeaderVp, this.priceFooterVp, PRICE_SHEET_CHROME, natural,
+      CouliInteraction.minTouchTarget);
   }
 
   private t(key: string): string {
@@ -635,7 +733,14 @@ export struct SearchView {
   @Builder
   iconButton(icon: string, label: string, id: string, action: () => void) {
     Button({ type: ButtonType.Normal, stateEffect: true }) {
-      CouliIcon({ name: icon, iconSize: 24, color: CouliColors.textPrimary })
+      // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+      SymbolGlyph(couliSymbol(icon))
+        .fontSize(24 + 'vp')
+        .fontColor([CouliColors.textPrimary])
+        .width(24)
+        .height(24)
+        .accessibilityLevel('no')
+        .focusable(true)
     }
     .id(id)
     .width(CouliInteraction.minTouchTarget)
@@ -678,7 +783,14 @@ export struct SearchView {
           })
         if (this.model.inputText.length > 0) {
           Button({ type: ButtonType.Circle, stateEffect: true }) {
-            CouliIcon({ name: 'close', iconSize: 16, color: CouliColors.textSecondary })
+            // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+            SymbolGlyph(couliSymbol('close'))
+              .fontSize(16 + 'vp')
+              .fontColor([CouliColors.textSecondary])
+              .width(16)
+              .height(16)
+              .accessibilityLevel('no')
+              .focusable(true)
           }
           .id(ID_CLEAR)
           .width(CouliInteraction.minTouchTarget)
@@ -840,7 +952,13 @@ export struct SearchView {
       dragBar: true,
       backgroundColor: CouliColors.backgroundSurface,
       showClose: false,
+      // 半屏自己不避让键盘（FU-HM-ROOTSHOWN-CHAIN ①，同 R1-11）：priceSheet 按键盘后的可用高度布局。
+      keyboardAvoidMode: SheetKeyboardAvoidMode.NONE,
+      onAppear: () => {
+        this.attachPriceKeyboard();
+      },
       onDisappear: () => {
+        this.detachPriceKeyboard();
         this.model.sheetOpen = false;
         this.persist();
         CouliFocusReturn.cancel(this.sheetFocus);
@@ -869,65 +987,97 @@ export struct SearchView {
 
   @Builder
   priceSheet() {
-    Column({ space: CouliSpacing.space4 }) {
-      Text(this.t(SearchKeys.FILTER_PRICE))
-        .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
-          CouliFontWeight.semibold))
-        .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
-        .id('search_price_title')
-        .focusable(true)
-        .focusBox(CouliFocus.box)
-        .onAppear(() => {
-          CouliFocusReturn.cancel(this.sheetFocus);
-          this.sheetFocus = 0;
-          // 出现回调可能迟到于离页 / 被详情盖住：此时不再排进标题。
-          if (!this.config.life.alive || this.sheetCovered) {
-            return;
+    Column() {
+      Column({ space: CouliSpacing.space4 }) {
+        Text(this.t(SearchKeys.FILTER_PRICE))
+          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary,
+            CouliFontWeight.semibold))
+          .accessibilityRole(AccessibilityRoleType.TITLE_BAR)
+          .id('search_price_title')
+          .focusable(true)
+          .focusBox(CouliFocus.box)
+          .onAppear(() => {
+            CouliFocusReturn.cancel(this.sheetFocus);
+            this.sheetFocus = 0;
+            // 出现回调可能迟到于离页 / 被详情盖住：此时不再排进标题。
+            if (!this.config.life.alive || this.sheetCovered) {
+              return;
+            }
+            this.sheetFocus = CouliFocusReturn.to(this.getUIContext(), 'search_price_title');
+          })
+          .width('100%')
+          .onAreaChange((_old: Area, now: Area) => {
+            this.priceHeaderVp = now.height as number;
+          })
+        // 中段（两个价格框、说明 / 错误）：唯一可滚动的部分（键盘弹起、短视口、200% 字号时压缩）。
+        Scroll(this.priceMiddleScroller) {
+          Column({ space: CouliSpacing.space4 }) {
+            Row({ space: CouliSpacing.space2 }) {
+              this.priceInput(this.model.sheetMin, this.t(SearchKeys.SHEET_MIN), 'search_price_min', (v: string) => {
+                this.model.sheetMin = v;
+                this.persist();
+              })
+              Text('–').attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
+                .accessibilityLevel('no')
+              this.priceInput(this.model.sheetMax, this.t(SearchKeys.SHEET_MAX), 'search_price_max', (v: string) => {
+                this.model.sheetMax = v;
+                this.persist();
+              })
+            }
+            .width('100%')
+            Text(this.model.sheetError.length > 0 ? this.model.sheetError : this.t(SearchKeys.SHEET_NOTE))
+              .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
+                this.model.sheetError.length > 0 ? CouliColors.statusErrorText : CouliColors.textSecondary))
           }
-          this.sheetFocus = CouliFocusReturn.to(this.getUIContext(), 'search_price_title');
-        })
-      Row({ space: CouliSpacing.space2 }) {
-        this.priceInput(this.model.sheetMin, this.t(SearchKeys.SHEET_MIN), 'search_price_min', (v: string) => {
-          this.model.sheetMin = v;
-          this.persist();
-        })
-        Text('–').attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textSecondary))
-          .accessibilityLevel('no')
-        this.priceInput(this.model.sheetMax, this.t(SearchKeys.SHEET_MAX), 'search_price_max', (v: string) => {
-          this.model.sheetMax = v;
-          this.persist();
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .onAreaChange((_old: Area, now: Area) => {
+            this.priceMiddleVp = now.height as number;
+          })
+        }
+        .width('100%')
+        .height(this.priceMiddleHeight())
+        .align(Alignment.Top)
+        .scrollBar(BarState.Off)
+        .id('search_price_middle')
+        Row({ space: CouliSpacing.space3 }) {
+          CouliButton({
+            text: this.t(SearchKeys.SHEET_RESET),
+            variant: CouliButtonVariant.SECONDARY,
+            fullWidth: true,
+            buttonId: 'search_price_reset',
+            onTap: () => {
+              this.model.sheetMin = '';
+              this.model.sheetMax = '';
+              this.model.sheetError = '';
+            }
+          })
+            .layoutWeight(1)
+          CouliButton({
+            text: this.t(SearchKeys.SHEET_CONFIRM),
+            variant: CouliButtonVariant.PRIMARY,
+            fullWidth: true,
+            buttonId: 'search_price_confirm',
+            onTap: () => this.confirmSheet()
+          })
+            .layoutWeight(1)
+        }
+        .width('100%')
+        .id('search_price_actions')
+        .onAreaChange((_old: Area, now: Area) => {
+          this.priceFooterVp = now.height as number;
         })
       }
+      .alignItems(HorizontalAlign.Start)
+      .padding(CouliSpacing.space4)
       .width('100%')
-      Text(this.model.sheetError.length > 0 ? this.model.sheetError : this.t(SearchKeys.SHEET_NOTE))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
-          this.model.sheetError.length > 0 ? CouliColors.statusErrorText : CouliColors.textSecondary))
-      Row({ space: CouliSpacing.space3 }) {
-        CouliButton({
-          text: this.t(SearchKeys.SHEET_RESET),
-          variant: CouliButtonVariant.SECONDARY,
-          fullWidth: true,
-          buttonId: 'search_price_reset',
-          onTap: () => {
-            this.model.sheetMin = '';
-            this.model.sheetMax = '';
-            this.model.sheetError = '';
-          }
-        })
-          .layoutWeight(1)
-        CouliButton({
-          text: this.t(SearchKeys.SHEET_CONFIRM),
-          variant: CouliButtonVariant.PRIMARY,
-          fullWidth: true,
-          buttonId: 'search_price_confirm',
-          onTap: () => this.confirmSheet()
-        })
-          .layoutWeight(1)
-      }
-      .width('100%')
+      // 键盘占位：半屏整体贴在键盘上沿（键盘收起为 0）。
+      Column()
+        .width('100%')
+        .height(StepUpPanelFit.spacer(this.priceKeyboardVp))
+        .id('search_price_kb_spacer')
+        .accessibilityLevel('no')
     }
-    .alignItems(HorizontalAlign.Start)
-    .padding(CouliSpacing.space4)
     .width('100%')
   }
 
@@ -1178,7 +1328,14 @@ export struct SearchView {
         .id('search_trade_timeout_retry')
         .onClick(() => this.config.purchase.onRetryTimeout())
       Button({ type: ButtonType.Normal, stateEffect: true }) {
-        CouliIcon({ name: 'close', iconSize: 20, color: CouliColors.statusErrorText })
+        // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+        SymbolGlyph(couliSymbol('close'))
+          .fontSize(20 + 'vp')
+          .fontColor([CouliColors.statusErrorText])
+          .width(20)
+          .height(20)
+          .accessibilityLevel('no')
+          .focusable(true)
       }
       .width(CouliInteraction.minTouchTarget)
       .height(CouliInteraction.minTouchTarget)
@@ -1296,29 +1453,33 @@ struct SearchChip {
   };
 
   build() {
-    // 外层是 48 高的命中区（布局导出可核对，A11yHitSearch），里面是 36 高的视觉胶囊。
-    Column() {
-      Row({ space: CouliSpacing.space1 }) {
-        Text(this.label)
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
-            this.selected ? CouliColors.textLink : CouliColors.textPrimary,
-            this.selected ? CouliFontWeight.medium : undefined))
-          .maxLines(1)
-        if (this.trailing.length > 0) {
-          CouliIcon({ name: this.trailing, iconSize: 16,
-            color: this.selected ? CouliColors.textLink : CouliColors.textPrimary })
-        }
+    // FU-HM-ROOTSHOWN-CHAIN ②（D10-1668）：胶囊改成不带子组件的 Text 叶子（标签 Span + 尾部 SymbolSpan）。原写法是 Column{Row{Text,
+    // CouliIcon}} 加 focusable(true)，设备上容器没有可获焦子节点，框架判为不可获焦，价格半屏关闭后回焦【价格】落空（探针 1 / 2）。
+    // 视觉仍是 36 高的胶囊；上下外边距把布局高补回 48，responseRegion 给 48 高的命中区（A11yHitSearch）。
+    Text() {
+      Span(this.label)
+      if (this.trailing.length > 0 && couliSymbol(this.trailing) !== undefined) {
+        Span(' ')
+        SymbolSpan(couliSymbol(this.trailing))
+          .fontSize(CHIP_ICON_SIZE + 'vp')
+          .fontColor([this.selected ? CouliColors.textLink : CouliColors.textPrimary])
       }
-      .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
-      .constraintSize({ minHeight: CHIP_HEIGHT })
-      .borderRadius(CouliRadius.pill)
-      .backgroundColor(this.selected ? CouliColors.brandSubtle : CouliColors.backgroundSurface)
-      .border(this.selected ? { width: 0 } : { width: 1, color: CouliColors.borderSubtle })
     }
-    .justifyContent(FlexAlign.Center)
-    .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
+    .attributeModifier(new CouliTextModifier(CouliTypography.footnote,
+      this.selected ? CouliColors.textLink : CouliColors.textPrimary,
+      this.selected ? CouliFontWeight.medium : undefined))
+    .maxLines(1)
+    .padding({ left: CouliSpacing.space4, right: CouliSpacing.space4 })
+    .constraintSize({ minHeight: CHIP_HEIGHT, minWidth: CouliInteraction.minTouchTarget })
+    .margin({ top: (CouliInteraction.minTouchTarget - CHIP_HEIGHT) / 2, bottom: (CouliInteraction.minTouchTarget - CHIP_HEIGHT) / 2 })
+    .responseRegion({ x: 0, y: -(CouliInteraction.minTouchTarget - CHIP_HEIGHT) / 2, width: '100%',
+      height: CouliInteraction.minTouchTarget })
+    .borderRadius(CouliRadius.pill)
+    .backgroundColor(this.selected ? CouliColors.brandSubtle : CouliColors.backgroundSurface)
+    .border(this.selected ? { width: 0 } : { width: 1, color: CouliColors.borderSubtle })
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
     .id(this.chipId)
-    .accessibilityGroup(true)
+    .accessibilityRole(AccessibilityRoleType.BUTTON)
     .accessibilityText(this.label)
     .accessibilitySelected(this.selected)
     .focusable(true)

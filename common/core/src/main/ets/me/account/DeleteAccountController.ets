@@ -22,6 +22,7 @@ import {
   AccountClick, AccountDeps, AccountIdentity, AccountMessage, AccountMessages, AccountSessionAware, AccountSettle,
   PendingSettlement
 } from './AccountSession';
+import { PageListeners } from '../../ui/PageListeners';
 
 type JSONValue = Object | null;
 
@@ -111,6 +112,15 @@ export class DeleteAccountController implements AccountSessionAware {
   private cancelCheck: CancelCheck | null = null;
   onChange: (snapshot: DeletionSnapshot) => void = (_s: DeletionSnapshot) => {
   };
+  /**
+   * 页面按页订阅（FU-HM-ROOTSHOWN-CHAIN ③，D10-1668）：页面 aboutToAppear 经 subscribe 订阅、aboutToDisappear 调返回的函数注销；
+   * 产品页面不再写 onChange（单槽，仅留给单测与无页面的调用方）。
+   */
+  private readonly pages: PageListeners<DeletionSnapshot> = new PageListeners<DeletionSnapshot>();
+
+  subscribe(listener: (snapshot: DeletionSnapshot) => void): () => void {
+    return this.pages.subscribe(listener);
+  }
   /** 来源 settings 的撤回成功：出栈回 Settings 的唯一导航实例并轻提示（G18，APP-09 第 50 条）。页面接。 */
   exitToSettings: ((toast: AccountMessage) => void) | null = null;
   /** 来源 force_update 的申请 / 撤回成功：回到 ForceUpdate 并重取标签（03 §4.1，G18、G28）。页面接。 */
@@ -946,6 +956,7 @@ export class DeleteAccountController implements AccountSessionAware {
     this.parse = null;
     try {
       this.onChange(this.state);
+      this.pages.notify(this.state);
     } catch (e) {
       // 页面回调出错不影响执行器。
     }
@@ -959,6 +970,7 @@ export class DeleteAccountController implements AccountSessionAware {
     s.pendingVersion = this.flow.pendingVersion;
     try {
       this.onChange(s);
+      this.pages.notify(s);
     } catch (e) {
       // 页面回调出错不影响执行器。
     }

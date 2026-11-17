@@ -4,7 +4,7 @@ import { CouliColors } from '../CouliColors';
 import { CouliComponentMetrics, CouliInteraction, CouliRadius, CouliShadow, CouliSpacing, CouliFocus } from '../CouliMetrics';
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliButton, CouliButtonVariant } from './Basics';
-import { CouliIcon } from './CouliIcon';
+import { CouliIcon, couliSymbol } from './CouliIcon';
 import { CouliDialogLink, CouliLinkSegments, CouliTextSegment } from './CodeCells';
 import { CouliFixedTap } from '../logic/CouliFixedTap';
 import { CouliTextModifier } from './CouliText';
@@ -539,7 +539,14 @@ export struct CouliSheetPanel {
           })
       }
       Button({ type: ButtonType.Normal, stateEffect: true }) {
-        CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textPrimary })
+        // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+        SymbolGlyph(couliSymbol('close'))
+          .fontSize(24 + 'vp')
+          .fontColor([CouliColors.textPrimary])
+          .width(24)
+          .height(24)
+          .accessibilityLevel('no')
+          .focusable(true)
       }
       .width(CouliInteraction.minTouchTarget)
       .height(CouliInteraction.minTouchTarget)

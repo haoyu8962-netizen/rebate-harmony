@@ -206,6 +206,13 @@ function detailSample(key: string): Sample | null {
     s.image = SAMPLE_IMAGE;
     return s;
   }
+  if (key === 'demo-0001') {
+    // AI 助手 normal 场景第一张商品卡（AgentFixtures normal.ndjson 的 jd:demo-0001，编排 D10-1943 (a)）：AI 卡打开详情不带种子、必定请求
+    // 本接口，原来回 30143。金额照该卡：券前 6990、券 1000、券后 5990、预估返 200–200、预估返后 5790（sample 按券后 − 返利下限算出）。
+    const s: Sample = sample('demo-0001', '演示纯牛奶 250ml×24 盒（样例 1）', 6990, 1000, 200, 200, 'normal', false);
+    s.shop = '演示旗舰店';
+    return s;
+  }
   const all: Sample[] = firstPage().concat(secondPage()).concat(statePage('taobao'));
   for (const s of all) {
     if (s.key === key) {

@@ -4,7 +4,7 @@ import {
   withTrace6
 } from 'core';
 import {
-  CouliButton, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliFormat, CouliIcon,
+  CouliButton, CouliButtonVariant, CouliColors, CouliFocus, CouliFocusReturn, CouliFontWeight, CouliFormat, CouliIcon, couliSymbol,
   CouliInteraction, CouliLayout, CouliRadius, CouliShadow, CouliShadowMask, CouliSpacing, CouliTextModifier,
   CouliTypography, CouliFontScale, PriceConfirmLine, PriceConfirmText
 } from 'designsystem';
@@ -514,7 +514,14 @@ export struct TradeOverlay {
             .focusBox(CouliFocus.box)
             .onAppear(() => this.focusTitle('trade_sheet_title'))
           Button({ type: ButtonType.Normal, stateEffect: true }) {
-            CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textPrimary })
+            // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+            SymbolGlyph(couliSymbol('close'))
+              .fontSize(24 + 'vp')
+              .fontColor([CouliColors.textPrimary])
+              .width(24)
+              .height(24)
+              .accessibilityLevel('no')
+              .focusable(true)
           }
           .width(CouliInteraction.minTouchTarget)
           .height(CouliInteraction.minTouchTarget)
@@ -599,7 +606,14 @@ export struct TradeOverlay {
   @Builder
   closeButton() {
     Button({ type: ButtonType.Normal, stateEffect: true }) {
-      CouliIcon({ name: 'close', iconSize: 24, color: CouliColors.textSecondary })
+      // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+      SymbolGlyph(couliSymbol('close'))
+        .fontSize(24 + 'vp')
+        .fontColor([CouliColors.textSecondary])
+        .width(24)
+        .height(24)
+        .accessibilityLevel('no')
+        .focusable(true)
     }
     .width(CouliInteraction.minTouchTarget)
     .height(CouliInteraction.minTouchTarget)

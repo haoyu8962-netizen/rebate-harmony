@@ -442,3 +442,9 @@ export { OrderInputMirror, OrderListViewEvents } from './src/main/ets/orders/Ord
 // HM-13c：进程内待绑定码与邀请链接分流（解析端口等 G03 契约）。
 export { PendingInviteCode, PendingInviteRow } from './src/main/ets/invite/PendingInviteCode';
 export { InviteLinkInput, InviteLinkDecision, InviteLinkDispatcher, InviteLinkParser } from './src/main/ets/invite/InviteLinkDispatcher';
+
+// FU-HM-ROOTSHOWN-CHAIN（D10-1652）：Tab 根页「已显示」按模块名登记的监听表（替代 ShellState.onRootShown 直接赋值）。
+export { RootShownRegistry } from './src/main/ets/router/RootShownRegistry';
+
+// FU-HM-ROOTSHOWN-CHAIN ③（D10-1668）：执行器按页订阅的通知表（提现 / 收款账号 / 换号 / 注销页面不再覆盖单槽 onChange）。
+export { PageListeners } from './src/main/ets/ui/PageListeners';

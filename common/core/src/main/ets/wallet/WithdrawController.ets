@@ -19,6 +19,7 @@ import {
 import {
   FundPageLayout, PendingView, WalletLoadFailure, WalletMessage, WalletMessages, WalletSessionAware
 } from './WalletSession';
+import { PageListeners } from '../ui/PageListeners';
 
 type JSONValue = Object | null;
 
@@ -177,6 +178,15 @@ export class WithdrawController implements WalletSessionAware {
   replaceOwn: ((route: string, params: Record<string, Object>) => void) | null = null;
   onChange: (snapshot: WithdrawSnapshot) => void = (_s: WithdrawSnapshot) => {
   };
+  /**
+   * 页面按页订阅（FU-HM-ROOTSHOWN-CHAIN ③，D10-1668）：页面 aboutToAppear 经 subscribe 订阅、aboutToDisappear 调返回的函数注销；
+   * 产品页面不再写 onChange（单槽，仅留给单测与无页面的调用方）。
+   */
+  private readonly pages: PageListeners<WithdrawSnapshot> = new PageListeners<WithdrawSnapshot>();
+
+  subscribe(listener: (snapshot: WithdrawSnapshot) => void): () => void {
+    return this.pages.subscribe(listener);
+  }
   /**
    * 已输入金额变了（App 持久化：进程回收后按账号归属恢复，不恢复估算）。APP-09 共性第 59 条（S0）：同时给出本页表单固定的账号与
    * 归属键（页面构建时记下），App 按它们写入并在写前核对当前会话——不按执行时的当前账号保存。text 为空表示清除（任何归属都可清）。
@@ -1318,6 +1328,7 @@ export class WithdrawController implements WalletSessionAware {
     this.onInputChanged('', this.account, this.boundScope);
     try {
       this.onChange(this.state);
+      this.pages.notify(this.state);
     } catch (e) {
       // 页面回调出错不影响执行器。
     }
@@ -1352,6 +1363,7 @@ export class WithdrawController implements WalletSessionAware {
     s.pendingVersion = this.flow.pendingVersion;
     try {
       this.onChange(s);
+      this.pages.notify(s);
     } catch (e) {
       // 页面回调出错不影响执行器。
     }

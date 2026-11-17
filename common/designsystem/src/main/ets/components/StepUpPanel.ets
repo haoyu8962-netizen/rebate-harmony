@@ -5,7 +5,7 @@ import { CouliFocus, CouliInteraction, CouliRadius, CouliSpacing } from '../Coul
 import { CouliFontWeight, CouliTypography } from '../CouliTypography';
 import { CouliButton } from './Basics';
 import { CodeCellLayout } from './CodeCells';
-import { CouliIcon } from './CouliIcon';
+import { couliSymbol } from './CouliIcon';
 import { CouliTextModifier, TABULAR_FEATURE } from './CouliText';
 import { CouliFontScale } from './FontScale';
 import { CouliAnnounce } from './States';
@@ -339,7 +339,14 @@ export struct StepUpPanel {
                 }, STEP_UP_TITLE_FOCUS_DELAY_MS);
               })
             Button({ type: ButtonType.Normal, stateEffect: true }) {
-              CouliIcon({ name: 'close', iconSize: 22, color: CouliColors.textPrimary })
+              // FU-HM-ROOTSHOWN-CHAIN（D10-1943 (b)）：原 CouliIcon 根是 Stack（不可获焦），整按钮在设备上不可获焦；换成同尺寸、可获焦的 SymbolGlyph 叶子，外层 Button 不动。
+              SymbolGlyph(couliSymbol('close'))
+                .fontSize(22 + 'vp')
+                .fontColor([CouliColors.textPrimary])
+                .width(22)
+                .height(22)
+                .accessibilityLevel('no')
+                .focusable(true)
             }
             .width(CouliInteraction.minTouchTarget)
             .height(CouliInteraction.minTouchTarget)

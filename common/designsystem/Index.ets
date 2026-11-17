@@ -102,3 +102,7 @@ export { CouliPressable } from './src/main/ets/components/CouliPressable';
 export { PressKind } from './src/main/ets/logic/MotionPolicy';
 // HM-L2-CARD：卡片件（静态 / 可点，令牌白底、圆角、阴影；可点卡经 CouliPressable，读屏合为一项）。
 export { CouliCard, CouliCardKind } from './src/main/ets/components/CouliCard';
+
+// FU-HM-ROOTSHOWN-CHAIN ②（D10-1668）：可点图标的不带子组件写法（SymbolGlyph 叶子，设备上可获焦）。
+export { couliSymbol } from './src/main/ets/components/CouliIcon';
+export { CouliGlyphTap } from './src/main/ets/components/CouliGlyphTap';

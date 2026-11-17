@@ -143,6 +143,10 @@ export struct CouliButton {
           .textAlign(TextAlign.Center)
           .flexShrink(1)
           .id(this.textId.length > 0 ? this.textId : undefined)
+          // FU-HM-ROOTSHOWN-CHAIN ②（编排 D10-1668 / D10-1680 方案 (b)，探针 3 probe3-run-20261114-203528）：带子组件的系统 Button 在设备上
+          // 只有子树里有可获焦节点时才可获焦；内部 Text 可获焦后，requestFocus / 先 Tab / 触屏点都落在本按钮的焦点链上（Button#id → Row → Text），
+          // 提现【提交】等回焦（CouliFocusReturn）随之生效。结构不变（l2button B1、L2 textId 不受影响）；触屏点已能获焦，不需要 focusOnTouch。
+          .focusable(true)
       }
       .justifyContent(FlexAlign.Center)
     }

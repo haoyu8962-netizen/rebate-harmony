@@ -8,7 +8,7 @@ import {
   AppConfig, ClipboardController, ConfigStore, EnvironmentSource, PrivacyState, RetryAfterGate, RouteRequest, RouteSource,
   shanghaiIso, AgentAvailability, AgentCancelLedger, AgentGates, AgentOwnershipDecision, AgentOwnershipEvent,
   AgentOwnershipHandlers, AgentOwnershipStop, AgentReplyTicket, ApiAgentContractPort, SessionState, AgentIdentityChange,
-  AgentSyncAction, AgentSyncPolicy, AgentConsentLapse
+  AgentSyncAction, AgentSyncPolicy, AgentConsentLapse, RootShownRegistry
 } from 'core';
 import { CouliFormat, CouliToast, ProductCardData, ProductCardMapper, ProductCardTexts } from 'designsystem';
 import { AgentActions, AgentScreenModel, AgentScreenPort } from 'agent';
@@ -279,6 +279,15 @@ export class AppAgent {
       this.tabSelected = route === AGENT_ROUTE;
       this.visibilityChanged();
     });
+    // FU-HM-ROOTSHOWN-CHAIN（D10-1652）：与 onTabWillChange 同样按模块名登记、在重入判断之前（同名替换，重建时不叠加也不丢）。
+    ShellState.onRootShown.register(RootShownRegistry.AGENT, (destination: RouteDestination): void => {
+      if (destination.route === AGENT_ROUTE) {
+        this.tabSelected = true;
+        this.visibilityChanged();
+        // Debug / Staging 截图：启动参数给的一条消息（实现只在 staging 源码集，Release 为空实现，R1-11）。
+        AgentVariant.onAgentShown((): AgentController | null => this.current);
+      }
+    });
     if (this.composed) {
       return;
     }
@@ -324,16 +333,6 @@ export class AppAgent {
       this.handoff.clear();
       this.ownershipStop(AgentOwnershipEvent.ENV_SWITCH);
     });
-    const previous: (destination: RouteDestination) => void = ShellState.onRootShown;
-    ShellState.onRootShown = (destination: RouteDestination): void => {
-      previous(destination);
-      if (destination.route === AGENT_ROUTE) {
-        this.tabSelected = true;
-        this.visibilityChanged();
-        // Debug / Staging 截图：启动参数给的一条消息（实现只在 staging 源码集，Release 为空实现，R1-11）。
-        AgentVariant.onAgentShown((): AgentController | null => this.current);
-      }
-    };
     // 阻挡层（隐私弹窗、强更、更新提示、客服半屏、权限说明）出现或消失：同意弹窗按它收起 / 再显示（R1-10，APP-11 第 21、22 条）。
     this.unsubscribeOverlays = AppHome.shared.visibility.subscribe((): void => this.overlaysChanged());
     this.overlaysChanged();
