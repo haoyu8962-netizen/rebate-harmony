@@ -15,7 +15,7 @@ import { describe, it } from '@ohos/hypium';
 import { ON, Component, Point, Rect } from '@kit.TestKit';
 import {
   all, appTree, attr, capture, density, defaults, ensureBasic, ensureFull, ensureMemberHome, findById, hm07vDriver, idle, launch, Launch,
-  maybe, node, Pixels, relaunchCold, scrollTop, swipeUp, tap
+  maybe, node, Pixels, relaunchCold, scrollTop, swipeUp, tap, settledNode, settledTap
 } from './Hm07vHomeRig';
 import { argb, check, GUEST, maxDiff, meanRgb, nodesOf, rgbText, typeName } from './Hm07vOverlayRig';
 import { instanceId, logoutViaSettings, memberReady, openMeTab, ORDERS_CELLS, safeTexts, switchesTabOnce, T_ORDERS_TAB } from './Me12vRig';
@@ -182,10 +182,11 @@ async function tabsInstanceId(): Promise<string> {
 /** 基本模式点受限 Tab 后的隐私弹窗：一路拒绝。 */
 async function refuseConsent(what: string): Promise<void> {
   await node(ON.text('不同意'), what + ' 补同意弹窗', 6000);
-  await tap(ON.text('不同意'), what + '【不同意】');
+  // #24 + D10-1919 ③ a：隐私弹窗 / 二次说明弹窗落定后再点（点击次数不变）。
+  await settledTap(ON.text('不同意'), what + '【不同意】');
   const second: Component | null = await maybe(ON.text('仍不同意'), 2500);
   if (second !== null) {
-    await second.click();
+    await (await settledNode(ON.text('仍不同意'), what + '【仍不同意】')).click();
     await idle();
   }
   await hm07vDriver.delayMs(1000);

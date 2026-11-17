@@ -10,7 +10,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { ON, Component } from '@kit.TestKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { atLeast, hm07vDriver, idle, launch, maybe, node, tap } from './Hm07vHomeRig';
+import { atLeast, hm07vDriver, idle, launch, maybe, node, tap, settledTap } from './Hm07vHomeRig';
 import { check, CLIP_UNREC, NOTICE_ID, screenTexts } from './Hm07vOverlayRig';
 import {
   brandTrack, expectEq, foregroundRound, freshFull, guestLaunch, hitVp, noSheet, openSettings, probes, reports, ROW_ID, ROW_TITLE,
@@ -226,7 +226,8 @@ export default function hm05rConsentUiTest() {
       expect(await until((): boolean => stored('enabled') === 'off', 3000)).assertTrue();
       await launch(guestLaunch().with('couli_debug_open_route', 'PrivacyCenter'));
       await (await scrollTo('privacy_withdraw', '隐私中心【撤回同意】')).click();
-      await tap(ON.text('确认撤回'), '确认框【确认撤回】');
+      // #24 + D10-1919 ③ a：确认框落定后再点（点击次数不变；判据不变）。
+      await settledTap(ON.text('确认撤回'), '确认框【确认撤回】');
       await hm07vDriver.delayMs(2500);
       await idle();
       check((await maybe(ON.id('couli-basic-enable'), 6000)) !== null, 'HM05R_NOT_BASIC 撤回后应进入基本模式', await screenTexts());

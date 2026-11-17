@@ -13,8 +13,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
 import {
-  appTree, appUi, attr, capture, density, ensureFull, findById, hitRect, hm07vDriver, idle, launch, Launch, maybe, node, overlaps,
-  Pixels, relaunchCold, token, vp, windowLayoutWidth, windowWidthVp
+  appTree, appUi, attr, capture, density, ensureFull, findById, hitRect, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node,
+  overlaps, Pixels, relaunchCold, settledNode, token, vp, windowLayoutWidth, windowWidthVp
 } from './Hm07vHomeRig';
 import { check, GUEST, maxDiff, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, fontOf, openMeTab, safeTexts, tabItem, T_ORDERS_TAB, textWidthVp, weightOf } from './Me12vRig';
@@ -352,7 +352,8 @@ async function toCodeStep(): Promise<void> {
     if (found === null) {
       const sheet: Component | null = await maybe(ON.text(T_AGREE_SHEET));
       if (sheet !== null) {
-        await sheet.click();
+        // #24 + D10-1919 ③ a：「同意」半屏刚出现就点会落在入场 / 避让途中，改为落定后按落定位置点（点击次数不变）。
+        await (await settledNode(ON.text(T_AGREE_SHEET), '「' + T_AGREE_SHEET + '」')).click();
         await idle();
       } else {
         await hm07vDriver.delayMs(200);
@@ -403,7 +404,12 @@ export default function loginPhoneUiTest() {
     it('loginphone_05_login_code_error_shown_and_described_on_input', 0, async () => {
       await relaunchCold(defaultsDisplay());
       await toCodeStep();
-      await typeInto(ID_CODE, BAD_CODE, '验证码输入');
+      // #24 + D10-1919 ①：凡输验证码都走公共输码 inputCodeSettled（落定 → 重取 → 原样 clearText → inputText 一次 → 核对；登录码输满自动提交）。
+      // 原 typeInto 的「等值落到框里」3 s 等待不判红，这里换成同一辅助的核对：输错非空值报 LOGINPHONE_CODE_SETUP（前置）。下面判据原样。
+      // 第八轮复核 S2-2：补回原 typeInto 的首尾两步——先 reveal（框不在屏上就滚出来），输完 idle()（带 HM07VA_NOT_IDLE 8 s 检查点）。
+      await reveal(ON.id(ID_CODE), '验证码输入');
+      await inputCodeSettled(ID_CODE, BAD_CODE, 'LOGINPHONE_CODE_SETUP', '验证码输入', true, true);
+      await idle();
       const err: Component | null = await maybe(ON.text(T_CODE_ERROR), 8000);
       await need(err !== null, 'LOGINPHONE_CODE_ERROR_NOT_SHOWN 验证码错没有出现「' + T_CODE_ERROR + '」');
       await need((await maybe(ON.id(ID_CODE))) !== null, 'LOGINPHONE_CODE_ERROR_LEFT 验证码错后离开了验证码步');
@@ -527,7 +533,8 @@ export default function loginPhoneUiTest() {
       await idle();
       const sheet: Component | null = await maybe(ON.text(T_AGREE_LOGIN), 2000);
       if (sheet !== null) {
-        await sheet.click();
+        // #24 + D10-1919 ③ a：同上，协议半屏落定后再点（点击次数不变）。
+        await (await settledNode(ON.text(T_AGREE_LOGIN), '「' + T_AGREE_LOGIN + '」')).click();
         await idle();
       }
       const guide: Component | null = await maybe(ON.text(T_GO_BIND), 10000);

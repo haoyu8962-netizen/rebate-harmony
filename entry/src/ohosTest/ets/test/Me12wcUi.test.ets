@@ -23,7 +23,7 @@ import { describe, it } from '@ohos/hypium';
 import { ON, Component, Point, Rect } from '@kit.TestKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import {
-  appTree, appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node
+  appTree, appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, settledNode, settleWait
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, over, rgbText, typeName } from './Hm07vOverlayRig';
 import { backToTabs, isGuest, openMeTab, safeTexts } from './Me12vRig';
@@ -277,7 +277,8 @@ async function csOnce(linkId: string, backTo: string, what: string): Promise<voi
   check((await csTitle()) === T_CS_SHEET_TITLE, 'ME12WC_CS_TITLE ' + what + ' 半屏标题应「联系客服」，实际「' + (await csTitle()) + '」');
   const close: Component | null = await maybe(ON.id(ID_CS_SHEET_CLOSE), 1000);
   if (close !== null) {
-    await close.click();
+    // #24 + D10-1919 ③ a：客服半屏落定后再点关闭（点击次数不变）。
+    await (await settledNode(ON.id(ID_CS_SHEET_CLOSE), what + ' 客服半屏关闭')).click();
   } else {
     await hm07vDriver.pressBack();
   }
@@ -1070,6 +1071,8 @@ export default function me12wcUiTest(): void {
       // 点遮罩不关、不执行。
       await tapAt(await hitOf(ID_RISK_LOGOUT, '「退出登录」'), 'bottom');
       check(await dialogShown(), 'ME12WC_NO_LOGOUT_DIALOG（第三次）', await safeTexts());
+      // #24 + D10-1919 ③ a：确认框落定后再点遮罩（只是等待，判据不变）。
+      await settleWait(ON.text(T_LOGOUT_CONFIRM), '退出确认框（点遮罩前）');
       await tapScreen(0.5, 0.12);
       await hm07vDriver.delayMs(800);
       check(await dialogShown(500), 'ME12WC_LOGOUT_MASK 点遮罩不应关退出确认框');

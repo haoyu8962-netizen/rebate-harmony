@@ -10,7 +10,7 @@
 import { describe, it } from '@ohos/hypium';
 import { ON, Component, Rect } from '@kit.TestKit';
 import {
-  attr, density, hm07vDriver, idle, launch, Launch, maybe, node, overlaps, relaunchCold, tap, units,
+  attr, density, hm07vDriver, idle, launch, Launch, maybe, node, overlaps, relaunchCold, settledNode, tap, units,
   windowLayoutWidth
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, meanRgb, rgbText, typeName } from './Hm07vOverlayRig';
@@ -111,7 +111,8 @@ export default function me12vUiTest(): void {
       await launch(meLaunch(''));
       const agree: Component | null = await maybe(ON.text('同意'), 4000);
       check(agree !== null, 'ME12V_NOT_FRESH 设备步应从未同意隐私的全新安装开始（device-test.sh 先卸载重装）', await texts());
-      await (agree as Component).click();
+      // #24 + D10-1919 ③ a：首启隐私弹窗刚出现就点会落在入场动画途中，改为落定后按落定位置点（点击次数不变；判据不变）。
+      await (await settledNode(ON.text('同意'), '首启隐私【同意】')).click();
       await hm07vDriver.delayMs(1500);
       await idle();
       const before: number = getMeCount();

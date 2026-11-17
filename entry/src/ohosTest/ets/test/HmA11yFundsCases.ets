@@ -56,8 +56,15 @@ const QUICK_500_TEXT: string = '5';
 const QUICK_1000_TEXT: string = '10';
 const ID_STEP_UP_TITLE: string = 'step_up_title';
 const ID_STEP_UP_CODE: string = 'step_up_code';
-const ID_STEP_UP_SUBMIT: string = 'step_up_submit';
 const ID_STEP_UP_CLOSE: string = 'step_up_close';
+// #24 D10-1668：funds_05 改收款账号流程用到的现有 id（PayoutAccountView）与表单值（假服务只核非空）。
+const ID_PAYOUT_CHANGE: string = 'payout_change';
+const ID_PAYOUT_ALIPAY: string = 'payout_method_alipay';
+const ID_PAYOUT_LOGON: string = 'payout_alipay_logon_id';
+const ID_PAYOUT_PAYEE: string = 'payout_payee_name';
+const ID_PAYOUT_SAVE: string = 'payout_save';
+const PAYOUT_LOGON: string = 'zh@example.com';
+const PAYOUT_PAYEE: string = '张三';
 
 /**
  * 假服务场景（DebugFakeWallet，staging；本单实现方**只加**这一个场景，任务书 §3 设备 01）：带 token 的提交第 1 次 → 30303
@@ -67,8 +74,6 @@ const SCENE_AMOUNT_REJECTED: string = 'amount_rejected';
 /** 02：合法金额（两位小数，WalletPresentation.accept 接受）与随后尝试的被拒串（第三位小数）。 */
 const ACCEPTED: string = '12.34';
 const REJECTED: string = '12.345';
-/** 二次验证码 123456 成功（DebugFakeWallet）。 */
-const STEP_UP_OK: string = '123456';
 
 // ---------------------------------------------------------------- 小工具
 
@@ -273,11 +278,16 @@ async function heroRestored(hero: string[], before: string[], what: string): Pro
     hero[1] + '」');
 }
 
+// #24 D10-1668：问号 / 眼睛改成不带子组件的 SymbolGlyph（产品修设备上不可获焦），按类型找时 Button 与 SymbolGlyph 都认（定位用，判据不变）。
+function tappable(n: Record<string, Object>): boolean {
+  return typeName(n) === 'Button' || typeName(n) === 'SymbolGlyph';
+}
+
 /** 当前眼睛按钮的读屏名（找不到为空串）：按读屏名找，不靠 id（现树没有 id）。 */
 async function eyeLabel(): Promise<string> {
   for (const n of await allNodes()) {
     const t: string = attr(n, 'accessibilityText');
-    if (typeName(n) === 'Button' && (t === T_EYE_HIDE || t === T_EYE_SHOW)) { return t; }
+    if (tappable(n) && (t === T_EYE_HIDE || t === T_EYE_SHOW)) { return t; }
   }
   return '';
 }
@@ -308,21 +318,40 @@ async function fillQuick(id: string, want: string, what: string): Promise<string
   return v;
 }
 
-/** 【提交】→（二次验证就输 123456）→ 等提交结束（≤ 10 s 出现 banner 为止；返回是否出现）。 */
-async function submitAndWaitBanner(what: string): Promise<boolean> {
+/**
+ * #24 编排 D10-1668（按 D10-1665 新口径：提现不再需要二次验证）：【提交】→ 等提交结束（≤ 10 s 出现 banner 为止；返回是否出现），
+ * 不再输二次验证码（假服务 amount_rejected 首次提交即回 30303）。判据不变。
+ */
+async function submitDirectAndWaitBanner(what: string): Promise<boolean> {
   await (await reveal(ON.id(ID_SUBMIT), what + '【提交】')).click();
   await idle();
-  const code: Component | null = await maybe(ON.id(ID_STEP_UP_CODE), 6000);
-  if (code !== null) {
-    await code.inputText(STEP_UP_OK);
-    await idle();
-    const go: Component | null = await maybe(ON.id(ID_STEP_UP_SUBMIT), 1500);
-    if (go !== null && await go.isEnabled() && (await maybe(ON.id(ID_STEP_UP_CODE), 300)) !== null) {
-      await go.click();
-      await idle();
-    }
-  }
   return waitUntil(hm07vDriver, async (): Promise<boolean> => findById(await appTree(), ID_BANNER) !== null, 10000);
+}
+
+/**
+ * #24 D10-1668：funds_05 改到改收款账号流程（该流程仍需二次验证）。先开钱包页取实名状态（守卫按它放行 PayoutAccount，探针 2 前置同口径），
+ * 再热启动直达收款账号页 →【更换收款账号】→ 选支付宝、填账号与收款人 →【保存】（假服务不带 token → 10003 → 二次验证半屏）。
+ */
+async function openPayoutStepUp(): Promise<boolean> {
+  await openRoute('Wallet', '', '0', ID_WALLET_WITHDRAW, '收款账号前置：钱包（取实名状态）');
+  await hm07vDriver.delayMs(1500);
+  await openRoute('PayoutAccount', '', '0', ID_PAYOUT_CHANGE, '收款账号页（缺省场景，已绑支付宝）');
+  await (await reveal(ON.id(ID_PAYOUT_CHANGE), '【更换收款账号】')).click();
+  await idle();
+  const alipay: Component | null = await maybe(ON.id(ID_PAYOUT_ALIPAY), 3000);
+  if (alipay !== null) {
+    await alipay.click();
+    await idle();
+  }
+  for (const pair of [[ID_PAYOUT_LOGON, PAYOUT_LOGON], [ID_PAYOUT_PAYEE, PAYOUT_PAYEE]]) {
+    const box: Component = await reveal(ON.id(pair[0]), '收款账号表单 ' + pair[0]);
+    await box.clearText();
+    await box.inputText(pair[1]);
+    await idle();
+  }
+  await (await reveal(ON.id(ID_PAYOUT_SAVE), '【保存】')).click();
+  await idle();
+  return (await maybe(ON.id(ID_STEP_UP_CODE), 8000)) !== null;
 }
 
 /** banner 子树里的全部文字。 */
@@ -358,7 +387,7 @@ async function labelReadOnce(label: string, what: string): Promise<void> {
 }
 
 async function helpReadable(label: string, what: string): Promise<void> {
-  const ok: boolean = (await walletReadableNodes()).some((n: Record<string, Object>): boolean => typeName(n) === 'Button' &&
+  const ok: boolean = (await walletReadableNodes()).some((n: Record<string, Object>): boolean => tappable(n) &&
     attr(n, 'accessibilityText') === label);
   await need(ok, 'A11Y_FUNDS_HELP_HIDDEN ' + what + ' 问号「' + label + '」不再读屏可读（有问号的格问号仍要单独可聚焦）');
 }
@@ -384,37 +413,6 @@ async function clickEye(): Promise<void> {
   await (c as Component).click();
   await idle();
   await hm07vDriver.delayMs(400);
-}
-
-/**
- * #24 D10-1634 ①（funds_05）：开头显式清掉进程里记着的提现二次验证 token（不靠排在 common_04 之前）。
- * token 只放内存（WalletPresentation.ets StepUpTokenCache），take() 不核销；只有提交成功（onSuccess）、得到 10003（on10003）或会话换代才丢。
- * staging 源集里没有直接清它的调试参数（couli_debug_wallet_scene 只经 DebugFakeWallet.reset 复位假服务），所以用现成的假服务
- * （DebugFakeWallet 缺省场景：带 token 提交 → 成功；不带 → 10003）走一次产品提交：
- *   - 记着 token → 提交成功 → onSuccess 丢弃，页面换成提现记录（replaceTop，【提交】离开组件树）；
- *   - 没记 token → 10003 → 弹二次验证半屏，点关闭（不输码，不产生新 token）。
- * 两种结局之后进程里都没有提现 token；随后 openRoute 带缺省场景再拉起，DebugFakeWallet.reset 把假服务这笔记录复位。
- * 只是前置，不是判据；10 s 内两种结局都没出现报 A11Y_FUNDS_TOKEN_RESET（与本条判据的码分开）。
- * D10-1635 假服务改按业务摘要比对 token 后，「带旧 token 提交成功」一支会变成「弹出二次验证再关掉」，届时复核本函数（D10-1639）。
- */
-async function clearWithdrawStepUpToken(): Promise<void> {
-  await openRoute('Withdraw', '', '0', ID_SUBMIT, '清 token：提现页（缺省场景）');
-  await fillQuick(ID_QUICK_500, QUICK_500_TEXT, '清 token：提现页 ¥5');
-  await (await reveal(ON.id(ID_SUBMIT), '清 token：【提交】')).click();
-  await idle();
-  await waitUntil(hm07vDriver, async (): Promise<boolean> => (await maybe(ON.id(ID_STEP_UP_CODE), 200)) !== null ||
-    findById(await appTree(), ID_SUBMIT) === null, 10000);
-  const stepUp: boolean = (await maybe(ON.id(ID_STEP_UP_CODE), 300)) !== null;
-  const left: boolean = !stepUp && findById(await appTree(), ID_SUBMIT) === null;
-  await need(stepUp || left, 'A11Y_FUNDS_TOKEN_RESET 清 token：提交后 10 s 内既没弹二次验证（无 token）也没离开提现页（带 token 成功）');
-  if (stepUp) {
-    await (await node(ON.id(ID_STEP_UP_CLOSE), '清 token：二次验证【关闭】')).click();
-    await idle();
-    await need(await waitUntil(hm07vDriver, async (): Promise<boolean> => (await maybe(ON.id(ID_STEP_UP_CODE), 200)) === null, 3000),
-      'A11Y_FUNDS_TOKEN_RESET 清 token：二次验证半屏关不掉');
-  }
-  console.info('A11Y_FUNDS_NOTE 清 token：' + (stepUp ? '原本没有 token（10003 → 关半屏）' : '带旧 token 提交成功（onSuccess 丢弃）'));
-  await backToTabs();
 }
 
 // ---------------------------------------------------------------- FUNDS 段
@@ -556,15 +554,11 @@ export function a11yFundsCases(): void {
     await backToTabs();
   });
 
-  // FU-HM-A11Y-08：提现走到二次验证，标题 step_up_title 在且可聚焦；验证码框仍拿键盘默认焦点（读屏焦点落标题只能宿主 AF4 钉）。
+  // FU-HM-A11Y-08：走到二次验证，标题 step_up_title 在且可聚焦；验证码框仍拿键盘默认焦点（读屏焦点落标题只能宿主 AF4 钉）。
+  // #24 编排 D10-1668：按 D10-1665 新口径（提现不再需要二次验证），本条改到仍需二次验证的改收款账号流程上测同一组判据（用例名不变）。
   it('a11y_funds_05_step_up_title_present_code_keeps_keyboard_focus', 0, async () => {
     await ensureMember('');
-    await clearWithdrawStepUpToken();
-    await openRoute('Withdraw', '', '0', ID_SUBMIT, '提现页（缺省场景）');
-    await fillQuick(ID_QUICK_500, QUICK_500_TEXT, '提现页 ¥5');
-    await (await reveal(ON.id(ID_SUBMIT), '【提交】')).click();
-    await idle();
-    await need((await maybe(ON.id(ID_STEP_UP_CODE), 8000)) !== null, 'A11Y_FUNDS_NO_STEP_UP 提交后没出二次验证半屏（缺省场景无 token → 10003）');
+    await need(await openPayoutStepUp(), 'A11Y_FUNDS_NO_STEP_UP 改收款账号【保存】后没出二次验证半屏（缺省场景无 token → 10003）');
     await hm07vDriver.delayMs(800);
     const title: Record<string, Object> | null = findById(await appTree(), ID_STEP_UP_TITLE);
     await need(title !== null, 'A11Y_FUNDS_TITLE_MISSING 二次验证半屏没有标题 ' + ID_STEP_UP_TITLE);
@@ -580,13 +574,14 @@ export function a11yFundsCases(): void {
     await backToTabs();
   });
 
+  // #24 编排 D10-1668：按 D10-1665 新口径去掉输二次验证码那一步（假服务 amount_rejected 首次提交即回 30303），判据不变。
   // FU-HM-A11Y-03（D10-1248 ④）：假服务 amount_rejected：提交被拒 30303 below_min（金额类）→ 金额框读屏说明 = 错误文字（与 banner 同句）；
   // 改金额（点 ¥10）后说明清空；再提交得到 30303 daily_count（非金额类）→ banner 出现但金额框说明仍为空。
   it('a11y_funds_01_withdraw_amount_error_described_on_amount_field', 0, async () => {
     await ensureMember('');
     await openRoute('Withdraw', SCENE_AMOUNT_REJECTED, '0', ID_SUBMIT, '提现页（' + SCENE_AMOUNT_REJECTED + '）');
     await fillQuick(ID_QUICK_500, QUICK_500_TEXT, '提现页 ¥5');
-    await need(await submitAndWaitBanner('第 1 次'), 'A11Y_FUNDS_NO_AMOUNT_ERROR 提交后没出现错误 banner（假服务场景 ' +
+    await need(await submitDirectAndWaitBanner('第 1 次'), 'A11Y_FUNDS_NO_AMOUNT_ERROR 提交后没出现错误 banner（假服务场景 ' +
       SCENE_AMOUNT_REJECTED + ' 未加？应回 30303 below_min）');
     await hm07vDriver.delayMs(500);
     const texts: string[] = await bannerTexts();
@@ -597,7 +592,7 @@ export function a11yFundsCases(): void {
     await fillQuick(ID_QUICK_1000, QUICK_1000_TEXT, '改金额 ¥10');
     await need(await waitUntil(hm07vDriver, async (): Promise<boolean> => (await amountDescription()).length === 0, 3000),
       'A11Y_FUNDS_DESC_NOT_CLEARED 改了金额后金额框说明没清空（仍是「' + (await amountDescription()) + '」）');
-    await need(await submitAndWaitBanner('第 2 次'), 'A11Y_FUNDS_NO_SECOND_ERROR 再提交没出现错误 banner（场景 ' + SCENE_AMOUNT_REJECTED +
+    await need(await submitDirectAndWaitBanner('第 2 次'), 'A11Y_FUNDS_NO_SECOND_ERROR 再提交没出现错误 banner（场景 ' + SCENE_AMOUNT_REJECTED +
       ' 之后应回 30303 daily_count）');
     await hm07vDriver.delayMs(500);
     await need((await amountDescription()).length === 0, 'A11Y_FUNDS_DESC_NON_AMOUNT 非金额类错误（次数用完）也写进了金额框说明「' +

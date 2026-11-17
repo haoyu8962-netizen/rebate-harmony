@@ -15,7 +15,7 @@
 import { describe, it } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
 import { KeyCode } from '@kit.InputKit';
-import { appTree, appUi, attr, ensureFull, findById, hm07vDriver, idle, launch, Launch, maybe, node } from './Hm07vHomeRig';
+import { appTree, appUi, attr, ensureFull, findById, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node, settledNode } from './Hm07vHomeRig';
 import { check, GUEST, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts, tabItem, T_ORDERS_TAB } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
@@ -196,7 +196,8 @@ async function allNodes(): Promise<Record<string, Object>[]> {
 /** 读屏名为 label 的问号 Button 在组件树里挂的 id（空串 = 没挂）；组件树含屏外节点，按读屏名找，不靠屏上文字。 */
 async function helpButtonId(label: string, what: string): Promise<string> {
   for (const n of await allNodes()) {
-    if (typeName(n) === 'Button' && attr(n, 'accessibilityText') === label) {
+    // #24 D10-1668：问号改成不带子组件的 SymbolGlyph（产品修设备上不可获焦），Button 与 SymbolGlyph 都认（定位用，判据不变）。
+    if ((typeName(n) === 'Button' || typeName(n) === 'SymbolGlyph') && attr(n, 'accessibilityText') === label) {
       return attr(n, 'id');
     }
   }
@@ -210,12 +211,26 @@ async function helpButtonId(label: string, what: string): Promise<string> {
  * 可能盖掉 CouliFocusReturn 的回焦（rootcause §1 common_02–04），所以 isFocused 判回焦只放在键盘路径上；
  * 触屏 + 读屏焦点回位（模拟器读不到读屏焦点，D10-1231）留开发验收录屏核。
  */
+/*
+ * #24 D10-1866 ①（探针 5 结论 H1，FU-HM-ROOTSHOWN-CHAIN/probe5-run-20261116-215416/summary.txt key matrix）：原写法直接 requestFocus 再回车，
+ * 获焦后 isActive=false（没进走焦态），回车不转成点击——问号 SymbolGlyph、CouliButton、对照系统 Button 一律不触发（A 列全 N）；先
+ * FocusController.activate(true) 进走焦态再 requestFocus 再回车（D 列）全部触发，产品页 wallet_help_frozen / wallet_withdraw /
+ * withdraw_help_fee_tax 同样。真实键盘用户本来就是先按 Tab 进走焦态的，所以这里照探针 D 写法补上「先进走焦态」。只多一次 API 调用
+ * （activate 不是按键，不发 Tab、不移焦点），之后仍是原来的 requestFocus → 判获焦 → 恰一次回车；获焦判据（A11Y_COMMON_KEY_FOCUS）与
+ * 各调用处回车后的判据一字不动，不加「不按回车也算过」。
+ */
 async function keyOpen(id: string, what: string): Promise<void> {
   let err: string = '';
   try {
+    (await appUi()).getFocusController().activate(true);
+  } catch (e) {
+    err = 'activate: ' + String((e as Error).message ?? e);
+  }
+  await hm07vDriver.delayMs(200);
+  try {
     (await appUi()).getFocusController().requestFocus(id);
   } catch (e) {
-    err = String((e as Error).message ?? e);
+    err += String((e as Error).message ?? e);
   }
   await need(err.length === 0 && await focusedWithin(id, 1500), 'A11Y_COMMON_KEY_FOCUS ' + what + ' 键盘焦点移不到 ' + id + ' ' + err);
   await hm07vDriver.triggerKey(KeyCode.KEYCODE_ENTER);
@@ -233,7 +248,8 @@ async function helpRoundTrip(label: string, what: string): Promise<string> {
   await keyOpen(id, what + ' 问号');
   const ok: Component | null = await maybe(ON.text(T_OK), 4000);
   await need(ok !== null, 'A11Y_COMMON_HELP_NO_DIALOG ' + what + ' 问号上按回车没出说明弹窗');
-  await (ok as Component).click();
+  // #24 + D10-1919 ③ a：说明弹窗刚出现就点【知道了】会落在入场动画途中，改为落定后按落定位置点（点击次数不变，判据不变）。
+  await (await settledNode(ON.text(T_OK), what + ' 说明弹窗【知道了】')).click();
   await idle();
   await need(await goneWithin(ON.text(T_OK), 3000), 'A11Y_COMMON_HELP_NOT_CLOSED ' + what + ' 【知道了】后说明弹窗没关');
   await need(await focusedWithin(id, 2000), 'A11Y_COMMON_HELP_FOCUS_NOT_BACK ' + what + ' 说明弹窗关闭后焦点没回到问号 ' + id);
@@ -307,11 +323,17 @@ export function a11yCommonCases(): void {
       code = await maybe(ON.id(ID_CODE));
       if (code === null) {
         const sheet: Component | null = await maybe(ON.text(T_AGREE_SHEET));
-        if (sheet !== null) { await sheet.click(); await idle(); } else { await hm07vDriver.delayMs(200); }
+        // #24 + D10-1919 ③ a：「同意」半屏刚出现就点会落在入场 / 避让途中，改为落定后按落定位置点（点击次数不变）。
+        if (sheet !== null) {
+          await (await settledNode(ON.text(T_AGREE_SHEET), '「' + T_AGREE_SHEET + '」')).click();
+          await idle();
+        } else { await hm07vDriver.delayMs(200); }
       }
     }
     await need(code !== null, 'A11Y_COMMON_NO_CODE_STEP 没进验证码步');
-    await (code as Component).inputText(RISK_CODE);
+    // #24 + D10-1919 ①：验证码框出现后立刻 inputText 与 common_04 同类竞态，改走公共输码（登录码输满自动提交，autoSubmit = true）；
+    // 输错非空值报 A11Y_COMMON_LOGIN_CODE_SETUP（前置，不是被测项）。下面 NO_RISK_DIALOG 起的判据一字不动。
+    await inputCodeSettled(ID_CODE, RISK_CODE, 'A11Y_COMMON_LOGIN_CODE_SETUP', '登录验证码（common_05）', true);
     const dlg: Component | null = await maybe(ON.text(T_APPEAL), 8000);
     await need(dlg !== null, 'A11Y_COMMON_NO_RISK_DIALOG 验证码 ' + RISK_CODE + '（假服务 44001）没弹风控弹窗');
     await hm07vDriver.pressBack();
@@ -426,8 +448,12 @@ export function a11yCommonCases(): void {
     await keyOpen(ID_SUBMIT, '风控：【提交】');
     const codeBox: Component | null = await maybe(ON.id(ID_STEP_UP_CODE), 8000);
     if (codeBox !== null) {
-      await codeBox.inputText(STEP_UP_OK);
-      await idle();
+      // #24 + rootcause-r7 §1 + D10-1919 ①（common_04 红在 D 时序竞态）：r7 轮询在半屏挂上树后 19 ms 就拿到验证码框，inputText 按入场动画里、
+      // 键盘避让前的框中心 (658,2216) 点下去，落到刚弹出的系统数字键盘「1」键上，框里成了 112345，被报成被测项 NO_WITHDRAW_RISK。
+      // 改走公共输码 inputCodeSettled（Hm07vHomeRig）：输码前有界等半屏落定（bounds 连续两次相同），按落定后的位置重新取框，inputText 一次，
+      // idle 后读框里的值，恰为 STEP_UP_OK 才往下；不是就报单独的前置码 A11Y_COMMON_STEPUP_CODE_SETUP（带实际值），不再落到 NO_WITHDRAW_RISK。
+      // 按键 / 点击序列与原来相同（inputText 一次、step_up_submit 一次），不新增提交 / 放弃动作；下面的判据一字不动。
+      await inputCodeSettled(ID_STEP_UP_CODE, STEP_UP_OK, 'A11Y_COMMON_STEPUP_CODE_SETUP', '二次验证码（common_04）', false);
       const go: Component | null = await maybe(ON.id(ID_STEP_UP_SUBMIT), 1500);
       if (go !== null && await go.isEnabled() && (await maybe(ON.id(ID_STEP_UP_CODE), 300)) !== null) {
         await go.click();
@@ -467,8 +493,50 @@ export function a11yCommonCases(): void {
     await idle();
     await need((await maybe(ON.id(ID_ABANDON), 2000)) !== null, 'A11Y_COMMON_BACK_ABANDONED 按返回关放弃确认后待确认卡没了（返回执行了放弃？应等同【再想想】）');
     await need(await focusedWithin(ID_ABANDON, 2000), 'A11Y_COMMON_BACK_FOCUS 放弃确认返回关闭后焦点没回【放弃上一笔】');
+    // #24 D10-1894 裁定 1 ①②：以上是本条全部判据（原样）。下面是收尾，不是判据，见 cleanupPendingWithdrawal。
+    await cleanupPendingWithdrawal();
     await backToTabs();
   });
+}
+
+/**
+ * #24 D10-1894 裁定 1 ①②（rootcause-r6 §2 修法 1）：收尾，不是判据；打进程内假服务 pending 场景（DebugFakeWallet.abandon 回 abandoned、
+ * 不生成记录）。common_04 后半段在 pending 场景提交后客户端进入「结果未知」，未决键按账号存、不按时间过期（PendingKeyStore.ets:5-20），
+ * 场景切换只重置假服务、不清客户端未决键；不复位的话后面同账号打开提现页会显示待确认卡、金额框被禁用（r6 funds_02 / 01）。
+ * 这里只在 common_04 全部判据之后调一次：点【放弃上一笔】→ 二次确认【确定放弃】（WithdrawView.confirmAbandon → onPrimary →
+ * WithdrawController.abandon → SensitiveFlow.abandon → ApiClient.abandonPending → POST /v1/idempotency-keys/abandon → 进程内
+ * DebugFakeWallet.abandon；不发提现提交）→ 确认待确认卡已消失（屏上和组件树里都没有【放弃上一笔】）。任一步不成就报
+ * A11Y_COMMON_CLEANUP_PENDING_LEFT 红（与判据的码分开），不吞、不 try：污染在源头暴露，不留给后面的用例去红。
+ * 前后各打一行带时间的日志（A11Y_COMMON_CLEANUP_PENDING begin / abandon_tap / end），供单跑证据贴出复位那次放弃的时间点。
+ */
+async function cleanupPendingWithdrawal(): Promise<void> {
+  const stamp: () => string = (): string => 't=' + Date.now() + ' iso=' + new Date().toISOString();
+  console.info('A11Y_COMMON_CLEANUP_PENDING begin ' + stamp());
+  let why: string = '';
+  const abandon: Component | null = await maybe(ON.id(ID_ABANDON), 2000);
+  if (abandon === null) {
+    why = '屏上没有待确认卡【放弃上一笔】';
+  } else {
+    await abandon.click();
+    await idle();
+    const ok: Component | null = await maybe(ON.text(T_ABANDON_OK), 4000);
+    if (ok === null) {
+      why = '点【放弃上一笔】没弹二次确认【确定放弃】';
+    } else {
+      console.info('A11Y_COMMON_CLEANUP_PENDING abandon_tap ' + stamp());
+      // #24 + D10-1919 ③ a：二次确认框刚出现就点【确定放弃】会落在入场动画途中，改为落定后按落定位置点（仍只点这一次，收尾流程不变）。
+      await (await settledNode(ON.text(T_ABANDON_OK), '放弃二次确认【确定放弃】')).click();
+      await idle();
+      const cardGone: boolean = await waitUntil(hm07vDriver, async (): Promise<boolean> =>
+        (await maybe(ON.id(ID_ABANDON))) === null && findById(await appTree(), ID_ABANDON) === null, 8000, 300);
+      if (!cardGone) {
+        why = '【确定放弃】后 8 s 内待确认卡【放弃上一笔】仍在（屏上或组件树里）';
+      }
+    }
+  }
+  console.info('A11Y_COMMON_CLEANUP_PENDING end ' + stamp() + ' ok=' + (why.length === 0 ? 'true' : 'false ' + why));
+  await need(why.length === 0, 'A11Y_COMMON_CLEANUP_PENDING_LEFT 收尾复位（不是判据）没清掉提现未决键：' + why +
+    '（留着会让后面同账号的提现页显示待确认卡、金额框被禁用）');
 }
 
 // ---------------------------------------------------------------- 套件

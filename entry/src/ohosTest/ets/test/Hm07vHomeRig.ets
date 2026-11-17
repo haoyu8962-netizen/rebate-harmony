@@ -254,8 +254,9 @@ async function privacyPromptShown(): Promise<boolean> {
 export async function ensureBasic(scene: string): Promise<void> {
   await launch(Launch.of(scene));
   if (await privacyPromptShown()) {
-    await tap(ON.text('不同意'), '首启【不同意】');
-    await tap(ON.text('仍不同意'), '二次说明【仍不同意】');
+    // #24 + D10-1919 ③ a：首启隐私弹窗 / 二次说明弹窗刚出现就点会落在入场动画途中，改为落定后点（settledTap，点击次数不变）。
+    await settledTap(ON.text('不同意'), '首启【不同意】');
+    await settledTap(ON.text('仍不同意'), '二次说明【仍不同意】');
     await driver.delayMs(1500);
     await launch(Launch.of(scene));
   }
@@ -268,13 +269,14 @@ export async function ensureBasic(scene: string): Promise<void> {
 export async function ensureFull(scene: string): Promise<void> {
   await launch(Launch.of(scene));
   if (await privacyPromptShown()) {
-    await tap(ON.text('同意'), '隐私【同意】');
+    // #24 + D10-1919 ③ a：同上，隐私弹窗落定后点【同意】。
+    await settledTap(ON.text('同意'), '隐私【同意】');
   }
   const enable: Component | null = await maybe(ON.id('couli-basic-enable'), 1500);
   if (enable !== null) {
     await enable.click();
     await idle();
-    await tap(ON.text('同意'), '开启完整功能后【同意】');
+    await settledTap(ON.text('同意'), '开启完整功能后【同意】');
     await driver.delayMs(1500);
     await launch(Launch.of(scene));
   }
@@ -339,7 +341,8 @@ export async function loginOnLoginPage(): Promise<void> {
     if (found === null && !agreed) {
       const agree: Component | null = await maybe(ON.text('同意并获取验证码'));
       if (agree !== null) {
-        await agree.click();
+        // #24 + D10-1919 ③ a：「同意」半屏刚出现时还在入场 / 键盘避让，先等它落定再按落定后的位置点（settledNode），点击次数不变。
+        await (await settledNode(ON.text('同意并获取验证码'), '「同意并获取验证码」')).click();
         await idle();
         agreed = true;
         end = Date.now() + 10000;
@@ -351,8 +354,9 @@ export async function loginOnLoginPage(): Promise<void> {
   if (found === null) {
     expect('HM07VA_MISSING 验证码输入 ' + (await loginScene())).assertEqual('验证码输入');
   }
-  const code: Component = found as Component;
-  await code.inputText(MEMBER_CODE);
+  // #24 + rootcause-r7 §1 + D10-1919 ①：验证码框出现后系统数字键盘随默认焦点弹出、页面避让，原来立刻 inputText（同 r7 common_04 的竞态）。
+  // 改走公共输码 inputCodeSettled（落定 → 重取 → inputText 一次 → 核对；登录码输满自动提交，autoSubmit = true）。下面的登录完成判据原样。
+  await inputCodeSettled('login_code', MEMBER_CODE, 'HM07VA_CODE_SETUP', '登录验证码', true);
   await driver.delayMs(2500);
   await idle();
   // 登录成功后回到首页（Login 出栈）；新用户引导等不在老用户路径上。
@@ -376,6 +380,154 @@ async function settledEnabled(on: On, timeoutMs: number): Promise<void> {
       throw e as Error;
     }
   }, timeoutMs, 300);
+}
+
+// ---------------------------------------------------------------- 落定等待 / 公共输码 / 稳定后读树（#24 + rootcause-r7 + 编排 D10-1919）
+// 前七轮的红多是同一类：动作抢在半屏 / 弹层落定之前（r7 common_04 点到刚弹出的数字键盘）、读树抢在列表重建之前（r7 agent_01）。
+// 这里给所有套件共用的三件设施，都只是等待 / 前置，不作被测判定：
+//   · settleOn / settledNode：半屏 / 弹层里的控件出现后，先等界面空闲、再等它的 bounds 连续两次相同（有界），再按落定后的位置重新取节点；
+//   · inputCodeSettled：凡输验证码都走它——落定 → 重新取框 → inputText 一次 → 读框里的值核对，不对报调用方给的前置码（带实际值）；
+//   · settledTree：流式输出 / 列表刷新后读树——连续两次读到同一结构（类型#id#正文）才用，有界。
+// 上限都是几秒，远小于 Hypium 单例 600 s；到时没落定只记一行日志照旧往下（由各调用处原有判据或输码核对兜住），不跳过任何判据。
+
+/** 落定采样间隔与上限（ms）。 */
+export const SETTLE_GAP_MS: number = 400;
+export const SETTLE_MAX_MS: number = 4000;
+
+/** 界面空闲等待（不断言；与 idle() 不同，等不到也只返回 false，由调用处照旧往下）。 */
+async function quietly(timeoutMs: number): Promise<boolean> {
+  try {
+    return await driver.waitForIdle(200, timeoutMs);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * on 节点落定：先等界面空闲（≤ timeoutMs，不断言），再每 gapMs 重新查一次 on 并读 bounds（每次重查，不复用旧句柄），连续两次相同且非空
+ * 才算落定，合计 ≤ timeoutMs。返回一行说明（落定与否、采样次数、用时、bounds），只进日志，不是判据。
+ */
+export async function settleOn(on: On, timeoutMs: number = SETTLE_MAX_MS, gapMs: number = SETTLE_GAP_MS): Promise<string> {
+  const start: number = Date.now();
+  await quietly(timeoutMs);
+  const end: number = start + timeoutMs;
+  let prev: string = '';
+  let samples: number = 0;
+  for (;;) {
+    let now: string = '';
+    try {
+      const c: Component | null = await maybe(on);
+      if (c !== null) {
+        const r: Rect = await c.getBounds();
+        now = r.right > r.left && r.bottom > r.top ? '[' + [r.left, r.top, r.right, r.bottom].join(',') + ']' : '';
+      }
+    } catch (e) {
+      if (!isNoCandidates(e as Object)) { throw e as Error; }
+      now = '';
+    }
+    samples++;
+    if (now.length > 0 && now === prev) {
+      return 'settled=true 采样 ' + samples + ' 次 用时 ' + (Date.now() - start) + ' ms bounds ' + now;
+    }
+    prev = now;
+    if (Date.now() >= end) {
+      return 'settled=false（' + timeoutMs + ' ms 内两次采样没对上，照旧往下）采样 ' + samples + ' 次 用时 ' + (Date.now() - start) +
+        ' ms 最后 bounds ' + (now.length > 0 ? now : '（不在屏上或为空）');
+    }
+    await driver.delayMs(gapMs);
+  }
+}
+
+/** 半屏 / 弹层里的控件：等落定后按落定时的位置重新取（取不到照 node() 报 HM07VA_MISSING）。日志前缀 HM07VA_SETTLE。 */
+export async function settledNode(on: On, what: string, timeoutMs: number = SETTLE_MAX_MS): Promise<Component> {
+  await settleWait(on, what, timeoutMs);
+  return node(on, what, 1500);
+}
+
+/** 只等落定、不取节点（量尺寸 / 点遮罩 / 按坐标点之前用）。日志前缀 HM07VA_SETTLE。 */
+export async function settleWait(on: On, what: string, timeoutMs: number = SETTLE_MAX_MS): Promise<void> {
+  console.info('HM07VA_SETTLE ' + what + ' ' + (await settleOn(on, timeoutMs)));
+}
+
+/** tap() 的落定版：弹窗 / 半屏里的按钮先等出现（≤ 8 s，同 tap）再等落定，按落定后的位置点一次，再 idle。 */
+export async function settledTap(on: On, what: string): Promise<void> {
+  await node(on, what);
+  await (await settledNode(on, what)).click();
+  await idle();
+}
+
+/**
+ * 公共输码（D10-1919 ①：凡输验证码的用例都走这里）。落定 → 重新取框 → inputText(code) 恰一次 → 读框里的值：
+ *   · autoSubmit = false（二次验证 step_up_code：输满不自动提交，要点【确认】）：idle 后读，必须恰为 code，否则报 failCode 红（带实际值）；
+ *   · autoSubmit = true（登录 login_code：输满 6 位即自动提交，LoginView.inputCode）：输完立刻读（不 idle，赶在假服务 ≥ 300 ms 回包、
+ *     出错清码之前）；框里有非空值且不等于 code 就报 failCode 红；框已不在（已提交离开）或已被清空则记「无法核对」照旧往下，由调用处原有
+ *     判据（登录完成 / 风控弹窗）兜住——这里只多一道前置，不替代、不放松原判据。
+ * 不新增任何点击 / 提交 / 放弃动作：按键序列与原来的 inputText 一次相同，多的只是等待与只读调用。
+ */
+export async function inputCodeSettled(id: string, code: string, failCode: string, what: string, autoSubmit: boolean,
+  clearFirst: boolean = false): Promise<void> {
+  console.info('HM07VA_CODE_INPUT ' + what + ' 落定：' + (await settleOn(ON.id(id))));
+  const box: Component = await node(ON.id(id), what, 1500);
+  if (clearFirst) {
+    // 调用处原来就先 clearText 再输的（LoginPhoneUi.typeInto），照原样保留这一步，只是挪到落定之后。
+    await box.clearText();
+  }
+  await box.inputText(code);
+  if (!autoSubmit) {
+    await idle();
+  }
+  let present: boolean = false;
+  let typed: string = '';
+  try {
+    const now: Component | null = await maybe(ON.id(id));
+    present = now !== null;
+    typed = now === null ? '' : (await now.getText()).replace(/\s/g, '');
+  } catch (e) {
+    if (!isNoCandidates(e as Object)) { throw e as Error; }
+    present = false;
+  }
+  const checkable: boolean = !autoSubmit || (present && typed.length > 0);
+  console.info('HM07VA_CODE_INPUT ' + what + ' 输码后框里的值「' + typed + '」' + (present ? '' : '（框已不在）') +
+    (checkable ? '' : '；自动提交后已离开 / 已清码，无法核对，照旧由原判据兜住'));
+  expect(!checkable || typed === code ? what : failCode + ' ' + what + ' 输码后框里不是「' + code + '」（实际「' + typed +
+    '」）：测试端输码前置没成（不是被测项）').assertEqual(what);
+}
+
+/** 组件树结构签名（类型#id#正文，先序）：两次相同 = 这段时间里没有重建 / 增删节点。 */
+function treeSignature(n: Record<string, Object>, out: string[]): void {
+  out.push(typeOf(n) + '#' + attr(n, 'id') + '#' + attr(n, 'content'));
+  for (const child of childrenOf(n)) { treeSignature(child, out); }
+}
+
+/**
+ * 稳定后读树（D10-1919 ③ b）：先等界面空闲（不断言），再每 gapMs 读一次 appTree，连续两次结构签名相同才返回后一次的树；合计 ≤ timeoutMs，
+ * 到时返回最后一次读到的树并记一行日志（判据照旧用它判，不跳过）。where 只进日志（前缀 HM07VA_TREE）。
+ */
+export async function settledTree(where: string, timeoutMs: number = SETTLE_MAX_MS, gapMs: number = SETTLE_GAP_MS):
+  Promise<Record<string, Object>> {
+  const start: number = Date.now();
+  await quietly(timeoutMs);
+  const end: number = start + timeoutMs;
+  let prev: string = '';
+  let samples: number = 0;
+  for (;;) {
+    const tree: Record<string, Object> = await appTree();
+    const sig: string[] = [];
+    treeSignature(tree, sig);
+    const now: string = sig.join('|');
+    samples++;
+    if (now === prev) {
+      console.info('HM07VA_TREE ' + where + ' settled=true 采样 ' + samples + ' 次 用时 ' + (Date.now() - start) + ' ms 节点 ' + sig.length);
+      return tree;
+    }
+    prev = now;
+    if (Date.now() >= end) {
+      console.info('HM07VA_TREE ' + where + ' settled=false（' + timeoutMs + ' ms 内两次结构没对上，用最后一次）采样 ' + samples + ' 次 节点 ' +
+        sig.length);
+      return tree;
+    }
+    await driver.delayMs(gapMs);
+  }
 }
 
 /** 登录页现场（只用于失败信息）：手机号框文字、【获取验证码】是否在 / 可点 / 位置、同意半屏、屏上文字、前台窗口与最近截屏重拍。 */

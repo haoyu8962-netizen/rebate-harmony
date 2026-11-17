@@ -17,7 +17,7 @@ import {
   startTileFixture, capture, defaults, density, ensureBasic, ensureFull,
   ensureMemberHome, flatten, fullRect, fullRectOrNull, gone, GUEST_DESC, GUEST_LOGIN, hit48, hm07vDriver, launch, Launch, loginOnLoginPage,
   maybe, mediaRef, near, node, OLD_PASTE_SUBTITLE, OLD_PASTE_TITLE, overlaps, PASTE_HINT, patchShare, Pixels, rect,
-  relaunchCold, reveal, scrollTop, SEARCH_PLACEHOLDER, subtree, swipeDown, swipeUp, tap, token, units, vp, windowLayoutWidth,
+  relaunchCold, reveal, scrollTop, SEARCH_PLACEHOLDER, settledTap, subtree, swipeDown, swipeUp, tap, token, units, vp, windowLayoutWidth,
   windowWidthVp
 } from './Hm07vHomeRig';
 
@@ -210,7 +210,8 @@ export default function hm07vHomeUiTest() {
       await tap(ON.id('home_guest_value_login'), '【登录领返利】');
       await node(ON.text('同意'), '基本模式点登录先出隐私弹窗', 5000);
       check((await maybe(ON.id('login_phone'))) === null, '同意前不得直接进登录页');
-      await tap(ON.text('同意'), '隐私【同意】');
+      // #24 + D10-1919 ③ a：隐私弹窗刚出现就点会落在入场动画途中，改为落定后点（settledTap，点击次数不变；判据不变）。
+      await settledTap(ON.text('同意'), '隐私【同意】');
       await node(ON.id('login_phone'), '同意后恢复打开登录页', 8000);
       await driver.pressBack();
       await idleShort();

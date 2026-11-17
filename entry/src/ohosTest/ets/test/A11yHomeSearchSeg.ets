@@ -33,10 +33,12 @@
 import { it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Driver, MatchPattern } from '@kit.TestKit';
 import { runUiTask } from './Ds02UiSession';
-import { appTree, attr, ensureFull, findById, gone, hm07vDriver, idle, Launch, maybe, node } from './Hm07vHomeRig';
+import { appTree, attr, ensureFull, findById, gone, hm07vDriver, idle, Launch, maybe, node, settledNode } from './Hm07vHomeRig';
 import { check, GUEST, homeReady, nodesOf, openPopup } from './Hm07vOverlayRig';
 import { tabItem, T_HOME_TAB } from './Me12vRig';
 import { waitUntil } from './FlakeKit';
+// #24 D10-1898 ③：残留收尾计数的用例记名与固定格式日志，与 AGENT 段共用（只打日志，不是判据）。
+import { a11yCaseStart, a11yResidualCleanupLog, a11yResidualLeftBy } from './A11yAgentSeg';
 
 /** 与 tools/ci/a11yhome/device-cases.txt 逐条一致（集成时并进 tools/ci/a11y/device-cases.txt）。声明顺序 = 执行顺序。 */
 export const A11Y_HS_DEVICE_CASES: string[] = [
@@ -75,7 +77,8 @@ const T_SHEET_INVALID: string = '请输入 0.01–100000 元，最低价不能�
 const KEYWORD: string = '纸巾';
 
 function it(name: string, flags: number, body: () => Promise<void>): void {
-  hypiumIt(name, flags, async (): Promise<void> => { await runUiTask(driver, body); });
+  // #24 D10-1898 ③：用例开始时记名（供 A11Y_RESIDUAL_CLEANUP 的 case / left_by），用例体不变。
+  hypiumIt(name, flags, async (): Promise<void> => { a11yCaseStart(name); await runUiTask(driver, body); });
 }
 
 /** 等到 id 节点获键盘焦点（≤ timeoutMs）。 */
@@ -145,6 +148,10 @@ async function leaveSearch(): Promise<void> {
  * 应用还没起来（没有底栏）时什么都不做，交给 ensureFull 拉起后照原判据断言。只是前置，不是判据。
  */
 async function toHomeTab(): Promise<void> {
+  // #24 D10-1866 + rootcause-r6 §4（可选加固，只加不删、不改判据）：下面用「屏上有『首页』文字」判已在一级页，MEDIUM 半屏下面底栏还露着，
+  // 段前残留半屏（r6：agent_04 没关的举报半屏）时它认为已到、点「首页」被半屏吃掉，ensureFull 找不到首页搜索入口（hs 五条 HM07VA_MISSING）。
+  // 判之前先确认没有 SheetPage / Dialog，有就按系统返回关掉并记一行日志（见 dismissStrayOverlays）。
+  await dismissStrayOverlays();
   for (let i: number = 0; i < 5; i++) {
     if ((await maybe(ON.text(T_HOME_TAB), 800)) !== null && (await maybe(ON.id('login_phone'), 200)) === null) {
       await (await tabItem(T_HOME_TAB)).click();
@@ -154,6 +161,31 @@ async function toHomeTab(): Promise<void> {
     }
     await driver.pressBack();
     await driver.delayMs(600);
+  }
+}
+
+/**
+ * #24 D10-1866 + rootcause-r6 §4（可选加固）：回一级页前收掉残留的半屏 / 弹层。看到 SheetPage / Dialog 就按一次系统返回并记一行
+ * A11Y_HS_NOTE；有界：至多按 2 次（半屏上再叠一层弹窗时要两次），没看到一次都不按。隐私首启弹窗（有「同意」「不同意」）与 AI 同意弹窗
+ * （agent-consent-agree）不在这里收：返回会改隐私 / 同意状态，照旧交给 ensureFull / 原流程。只是前置，不是判据。
+ */
+async function dismissStrayOverlays(): Promise<void> {
+  // #24 D10-1898 ③：每次进来都记一次检查（不论有没有残留），见 A11yAgentSeg 的 a11yResidualLeftBy。
+  const leftBy: string = a11yResidualLeftBy();
+  for (let i: number = 0; i < 2; i++) {
+    if ((await maybe(ON.text('不同意'), 200)) !== null || (await maybe(ON.id('agent-consent-agree'), 200)) !== null) {
+      return;
+    }
+    const sheet: boolean = (await maybe(ON.type('SheetPage'), 200)) !== null;
+    const dialog: boolean = (await maybe(ON.type('Dialog'), 200)) !== null;
+    if (!sheet && !dialog) {
+      return;
+    }
+    console.info('A11Y_HS_NOTE toHomeTab 回一级页前发现残留' + (sheet ? '半屏' : '弹层') + '，按系统返回关掉（第 ' + (i + 1) + ' 次）');
+    // #24 D10-1898 ③：残留收尾计数行（固定格式，见 A11yAgentSeg 的 a11yResidualCleanupLog）；判据不变。
+    a11yResidualCleanupLog(sheet && dialog ? 'SheetPage+Dialog' : (sheet ? 'SheetPage' : 'Dialog'), leftBy, 'toHomeTab', i + 1);
+    await driver.pressBack();
+    await driver.delayMs(800);
   }
 }
 
@@ -196,9 +228,11 @@ async function backOutOfSheet(): Promise<boolean> {
 }
 
 async function typeInto(id: string, value: string, what: string): Promise<void> {
-  const c: Component = await node(ON.id(id), what);
+  // #24 + D10-1919 ③ a：价格半屏里的框——clearText 那一下会弹出键盘、半屏随之避让上移，原来紧接着按旧位置 inputText（与 r7 common_04
+  // 同类竞态）。改为：落定后取框 → clearText（原样）→ 键盘弹出后再等落定、按落定位置重新取框 → inputText（原样一次）→ idle。动作不增不减。
+  const c: Component = await settledNode(ON.id(id), what);
   await c.clearText();
-  await c.inputText(value);
+  await (await settledNode(ON.id(id), what)).inputText(value);
   await idle();
 }
 

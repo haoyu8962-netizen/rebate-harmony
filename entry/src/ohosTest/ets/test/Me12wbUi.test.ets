@@ -17,7 +17,10 @@
 // 两次短信登录间隔 ≥ 62 s（本套件只登录一次）；系统 Toast 点后立即找；取样点避开字形；reveal 目标不在屏上先回顶。
 import { describe, it } from '@ohos/hypium';
 import { ON, Component, Point, Rect } from '@kit.TestKit';
-import { appTree, appUi, attr, capture, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, Pixels, relaunchCold } from './Hm07vHomeRig';
+import {
+  appTree, appUi, attr, capture, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, Pixels, relaunchCold, settledNode,
+  settleWait
+} from './Hm07vHomeRig';
 import { argb, check, maxDiff, rgbText, typeName } from './Hm07vOverlayRig';
 import { backToTabs, clipCount, getMeCount, getMeDelta, openMeTab, safeTexts, T_HOME_TAB, tabItem } from './Me12vRig';
 import {
@@ -137,6 +140,8 @@ async function openWithdrawDialog(what: string): Promise<void> {
   const r: Rect = await reveal(ID_WITHDRAW, '【撤回同意】', ID_PRIVACY_SCROLL);
   await tapAt(r, 'bottom');
   check(await dialogShown(), 'ME12WB_NO_DIALOG ' + what + ' 点【撤回同意】没有出现确认框', await safeTexts());
+  // #24 + D10-1919 ③ a：确认框落定后再取色 / 量 / 点（原来只停 400 ms；只是等待，各调用处判据不变）。
+  await settleWait(ON.text(T_WITHDRAW_OK), '撤回确认框 ' + what);
   await hm07vDriver.delayMs(400);
 }
 
@@ -282,9 +287,10 @@ export default function me12wbUiTest(): void {
       await launch(base('').with('couli_debug_home_scene', 'golden:guest_v3'));
       const deny: Component | null = await maybe(ON.text(T_DENY), 4000);
       check(deny !== null, 'ME12WB_NOT_FRESH 设备步应从未同意隐私的全新安装开始（device-test.sh 先卸载重装）', await safeTexts());
-      await (deny as Component).click();
+      // #24 + D10-1919 ③ a：首启弹窗 / 二次说明弹窗落定后再点（点击次数不变；判据不变）。
+      await (await settledNode(ON.text(T_DENY), '首启【不同意】')).click();
       await idle();
-      await (await node(ON.text(T_STILL_DENY), '二次说明【仍不同意】')).click();
+      await (await settledNode(ON.text(T_STILL_DENY), '二次说明【仍不同意】', 8000)).click();
       await hm07vDriver.delayMs(1500);
       await idle();
       const me0: number = getMeCount();
@@ -337,7 +343,8 @@ export default function me12wbUiTest(): void {
       await tapAt(await hitOf(ID_ENABLE_FULL, '【开启完整功能】'), 'bottom');
       const agree: Component | null = await maybe(ON.text(T_PRIVACY_AGREE), 5000);
       check(agree !== null, 'ME12WB_ENABLE_FULL 点【开启完整功能】没有出现首启弹窗', await safeTexts());
-      await (agree as Component).click();
+      // #24 + D10-1919 ③ a：首启弹窗落定后再点（点击次数不变）。
+      await (await settledNode(ON.text(T_PRIVACY_AGREE), '首启【同意】')).click();
       await hm07vDriver.delayMs(1500);
       await idle();
       check((await maybe(ON.text(T_PRIVACY_AGREE), 1500)) === null, 'ME12WB_PRIVACY_TWICE 同意后首启弹窗仍在（弹了不止一次）');

@@ -17,7 +17,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
-  appTree, attr, density, findById, hm07vDriver, idle, Launch, launch, layoutSize, maybe, node, relaunchCold, units
+  appTree, attr, density, findById, hm07vDriver, idle, Launch, launch, layoutSize, maybe, node, relaunchCold, units, settledNode
 } from './Hm07vHomeRig';
 import { check, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, clipCount, hVp, isGuest, meDefaults, memberReady, openMeTab, safeTexts, smsLogin, wVp } from './Me12vRig';
@@ -227,7 +227,8 @@ export async function ensureFullFunction(): Promise<void> {
   for (let round: number = 0; round < 3; round++) {
     const agree: Component | null = await maybe(ON.text(T_PRIVACY_AGREE), 800);
     if (agree !== null) {
-      await agree.click();
+      // #24 + D10-1919 ③ a：首启隐私弹窗落定后再点（点击次数不变；只是前置）。
+      await (await settledNode(ON.text(T_PRIVACY_AGREE), '首启【同意】')).click();
       await hm07vDriver.delayMs(1500);
       await idle();
     }
@@ -241,7 +242,8 @@ export async function ensureFullFunction(): Promise<void> {
       await idle();
       const again: Component | null = await maybe(ON.text(T_PRIVACY_AGREE), 4000);
       if (again !== null) {
-        await again.click();
+        // #24 + D10-1919 ③ a：同上。
+        await (await settledNode(ON.text(T_PRIVACY_AGREE), '开启完整功能后【同意】')).click();
         await hm07vDriver.delayMs(1500);
         await idle();
       }

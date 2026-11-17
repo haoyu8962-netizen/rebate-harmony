@@ -11,7 +11,9 @@
 // 系统通知面板用后关掉；昵称第 4 次保存假服务恒 30415（本套件不做成功保存）。
 import { describe, it } from '@ohos/hypium';
 import { ON, Component, Rect } from '@kit.TestKit';
-import { appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, appTree } from './Hm07vHomeRig';
+import {
+  appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, appTree, settledNode, settleWait
+} from './Hm07vHomeRig';
 import { argb, check, maxDiff, rgbText, typeName, nodesOf } from './Hm07vOverlayRig';
 import { backToTabs, closeSystemPanels, getMeCount, getMeDelta, hVp, isGuest, openMeTab, safeTexts, systemNotifyPanel,
   T_APP_NAME, wVp } from './Me12vRig';
@@ -182,9 +184,10 @@ export default function me12waUiTest(): void {
       await launch(Launch.of('golden:guest_v3'));
       const deny: Component | null = await maybe(ON.text('不同意'), 4000);
       check(deny !== null, 'ME12WA_NOT_FRESH 设备步应从未同意隐私的全新安装开始（device-test.sh 先卸载重装）', await safeTexts());
-      await (deny as Component).click();
+      // #24 + D10-1919 ③ a：首启弹窗 / 二次说明弹窗落定后再点（点击次数不变；判据不变）。
+      await (await settledNode(ON.text('不同意'), '首启【不同意】')).click();
       await idle();
-      await (await node(ON.text('仍不同意'), '二次说明【仍不同意】')).click();
+      await (await settledNode(ON.text('仍不同意'), '二次说明【仍不同意】', 8000)).click();
       await hm07vDriver.delayMs(1500);
       await idle();
       check(getMeCount() === 0, 'ME12WA_COUNTER getMe 计数读不出或非 0：' + getMeCount());
@@ -217,7 +220,8 @@ export default function me12waUiTest(): void {
       await tapAt(enable, 'bottom');
       const agree: Component | null = await maybe(ON.text(T_PRIVACY_AGREE), 5000);
       check(agree !== null, 'ME12WA_ENABLE_FULL 点【开启完整功能】没有出现首启弹窗', await safeTexts());
-      await (agree as Component).click();
+      // #24 + D10-1919 ③ a：首启弹窗落定后再点（点击次数不变）。
+      await (await settledNode(ON.text(T_PRIVACY_AGREE), '首启【同意】')).click();
       await hm07vDriver.delayMs(1500);
       await idle();
       check((await maybe(ON.text(T_PRIVACY_AGREE), 1500)) === null, 'ME12WA_PRIVACY_TWICE 同意后首启弹窗仍在（弹了不止一次）');
@@ -455,6 +459,8 @@ export default function me12waUiTest(): void {
       check(await cacheValue() === v0, 'ME12WA_CANCEL_ACTED 【取消】后缓存值变了');
       await tapAt(await frame(ID_ROW_CLEAR, '清除缓存行'), 'top');
       check((await maybe(ON.text(T_CLEAR_OK), 3000)) !== null, 'ME12WA_NO_DIALOG 第二次');
+      // #24 + D10-1919 ③ a：确认框落定后再点遮罩（入场途中点遮罩可能还不响应；只是等待，判据不变）。
+      await settleWait(ON.text(T_CLEAR_OK), '清除缓存确认框（点遮罩前）');
       await tapScreen(0.5, 0.12);
       check(await goneText(T_CLEAR_OK, 2500), 'ME12WA_MASK 点遮罩没关清除缓存确认框');
       check(await cacheValue() === v0, 'ME12WA_MASK_ACTED 点遮罩后缓存值变了');

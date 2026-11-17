@@ -17,7 +17,7 @@ import { ON, Component, Rect } from '@kit.TestKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
-  BUNDLE, appTree, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold
+  BUNDLE, appTree, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold, settledNode
 } from './Hm07vHomeRig';
 import { argb, check, GUEST, maxDiff, meanRgb, rgbText, screenTexts } from './Hm07vOverlayRig';
 
@@ -173,7 +173,8 @@ export async function freshFull(l: Launch): Promise<void> {
   await launch(l);
   const agree: Component | null = await maybe(ON.text('同意'), 4000);
   check(agree !== null, 'HM05R_NOT_FRESH 设备步应从未同意隐私的全新安装开始（device-test.sh 先卸载重装）', await screenTexts());
-  await (agree as Component).click();
+  // #24 + D10-1919 ③ a：首启弹窗落定后再点（点击次数不变）。
+  await (await settledNode(ON.text('同意'), '首启【同意】')).click();
   await hm07vDriver.delayMs(1500);
   await idle();
   check((await maybe(ON.id('home_search_row'), 6000)) !== null, 'HM05R_NOT_HOME 同意后不在首页', await screenTexts());

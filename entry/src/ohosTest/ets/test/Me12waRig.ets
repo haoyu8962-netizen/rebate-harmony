@@ -13,7 +13,7 @@ import { UIAbility } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import {
   all, appTree, appUi, attr, density, findById, hm07vDriver, idle, Launch, launch, layoutSize, maybe, node, Pixels, capture,
-  relaunchCold, units, vp
+  relaunchCold, units, vp, settledNode, SETTLE_GAP_MS, SETTLE_MAX_MS
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, meanRgb, nodesOf, rgbText, typeName } from './Hm07vOverlayRig';
 import {
@@ -158,7 +158,8 @@ export async function ensureConsented(): Promise<void> {
   await launch(meDefaults(''));
   const agree: Component | null = await maybe(ON.text(T_PRIVACY_AGREE), 1500);
   if (agree !== null) {
-    await agree.click();
+    // #24 + D10-1919 ③ a：首启隐私弹窗落定后再点（点击次数不变；只是前置）。
+    await (await settledNode(ON.text(T_PRIVACY_AGREE), '首启【同意】')).click();
     await hm07vDriver.delayMs(1500);
     await idle();
   }
@@ -168,7 +169,8 @@ export async function ensureConsented(): Promise<void> {
     await idle();
     const again: Component | null = await maybe(ON.text(T_PRIVACY_AGREE), 4000);
     if (again !== null) {
-      await again.click();
+      // #24 + D10-1919 ③ a：同上。
+      await (await settledNode(ON.text(T_PRIVACY_AGREE), '开启完整功能后【同意】')).click();
       await hm07vDriver.delayMs(1500);
       await idle();
     }
@@ -443,7 +445,21 @@ export async function tapAt(r: Rect, side: string): Promise<void> {
 
 /** 文字所在按钮（包住该文字中心、面积最小的 Button）；同文字取最后出现的一个（确认框按钮与页面按钮同字时取确认框）。 */
 export async function buttonAroundLast(text: string): Promise<Rect | null> {
-  const labels: Component[] = await all(ON.text(text));
+  // #24 + D10-1919 ③ a：确认框按钮（Me12wa / wb / wc 共 16 处调用）在弹窗出现后马上量 / 点，可能落在缩放入场动画途中（尺寸偏小、位置在动）。
+  // 先等「最后出现的那个同字节点」bounds 连续两次相同（每 SETTLE_GAP_MS 一次，≤ SETTLE_MAX_MS），再照原样量。只是等待，判据（≥ 48、不重叠等）不动。
+  let labels: Component[] = await all(ON.text(text));
+  let prev: string = '';
+  const end: number = Date.now() + SETTLE_MAX_MS;
+  while (labels.length > 0 && Date.now() < end) {
+    const r0: Rect = await labels[labels.length - 1].getBounds();
+    const key: string = [r0.left, r0.top, r0.right, r0.bottom].join(',');
+    if (key === prev) {
+      break;
+    }
+    prev = key;
+    await hm07vDriver.delayMs(SETTLE_GAP_MS);
+    labels = await all(ON.text(text));
+  }
   if (labels.length === 0) {
     return null;
   }
