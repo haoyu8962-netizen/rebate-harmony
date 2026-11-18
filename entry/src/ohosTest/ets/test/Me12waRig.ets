@@ -13,7 +13,7 @@ import { UIAbility } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import {
   all, appTree, appUi, attr, density, findById, hm07vDriver, idle, Launch, launch, layoutSize, maybe, node, Pixels, capture,
-  relaunchCold, units, vp, settledNode, SETTLE_GAP_MS, SETTLE_MAX_MS
+  relaunchCold, units, vp, settledNode, SETTLE_GAP_MS, SETTLE_MAX_MS, freshRead, boundsFresh, nodeById
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, meanRgb, nodesOf, rgbText, typeName } from './Hm07vOverlayRig';
 import {
@@ -241,7 +241,7 @@ export async function reveal(id: string, what: string, scrollId: string = ID_SCR
     const x: number = Math.round(s.left + (s.right - s.left) * 0.08);
     const h: number = s.bottom - s.top;
     if (c !== null) {
-      const r: Rect = await c.getBounds();
+      const r: Rect = await boundsFresh(ON.id(id), what, id, c);
       const size: number[] | null = await layoutSize(id);
       const visible: number = Math.max(0, r.bottom - r.top);
       const need: number = size === null ? visible : Math.min(size[1], h);
@@ -292,7 +292,7 @@ export async function textFrame(text: string, what: string, within: string = '')
   const on: On = within.length > 0 ? ON.text(text).within(ON.id(within)) : ON.text(text);
   const c: Component | null = await maybe(on, 3000);
   check(c !== null, 'ME12WA_TEXT_MISSING ' + what + '「' + text + '」', await safeTexts());
-  return (c as Component).getBounds();
+  return boundsFresh(on, what, '', c as Component);
 }
 
 export function topGap(upper: Rect, lower: Rect): number {
@@ -320,7 +320,7 @@ export async function hit48(id: string, what: string): Promise<Rect> {
 
 export async function hitOf(id: string, what: string): Promise<Rect> {
   const f: Rect = await frame(id, what);
-  const n: Record<string, Object> | null = findById(await appTree(), id);
+  const n: Record<string, Object> | null = await nodeById(id, 'hitOf');
   check(n !== null, 'ME12WA_INSPECTOR_MISSING ' + what);
   const attrs: Object | undefined = (n as Record<string, Object>)['$attrs'];
   const raw: Object | undefined = attrs === undefined ? undefined : (attrs as Record<string, Object>)['responseRegion'];
@@ -392,7 +392,7 @@ export function regionOf(f: Rect, raw: Object | undefined): Rect {
  * 相对坐标（滚动后 $rect 绝对位置可能不更新，相对差不受影响，Hm07vHomeRig.layoutSize 注释）。找不到为 null。
  */
 export async function parentRightOffset(id: string): Promise<number | null> {
-  const tree: Record<string, Object> = await appTree();
+  const tree: Record<string, Object> = await appTree('parentRightOffset');
   const all: Record<string, Object>[] = [];
   nodesOf(tree, all);
   const rectOf = (n: Record<string, Object>): number[] | null => {
@@ -481,7 +481,7 @@ export async function buttonAroundLast(text: string): Promise<Rect | null> {
 // ---------------------------------------------------------------- 组件树
 
 export async function treeNode(id: string): Promise<Record<string, Object>> {
-  const n: Record<string, Object> | null = findById(await appTree(), id);
+  const n: Record<string, Object> | null = await nodeById(id, 'treeNode');
   check(n !== null, 'ME12WA_INSPECTOR_MISSING ' + id, await safeTexts());
   return n as Record<string, Object>;
 }
@@ -584,7 +584,7 @@ export function countContaining(us: string[], needle: string): number {
 /** 「按钮」：系统 Button，或可点且成组（组件树不导出 accessibilityRole，HM-07v 探针 v2 同口径）。 */
 export async function buttonLike(id: string, what: string): Promise<void> {
   const n: Record<string, Object> = await treeNode(id);
-  const clickable: boolean = await (await node(ON.id(id), what)).isClickable();
+  const clickable: boolean = await freshRead<boolean>((): Promise<Component> => node(ON.id(id), what), (c: Component): Promise<boolean> => c.isClickable(), what);
   check(typeName(n) === 'Button' || (clickable && attr(n, 'accessibilityGroup') === 'true'),
     'ME12WA_NOT_BUTTON ' + what + ' 不是按钮（系统 Button 或可点成组）', typeName(n) + '|' + attr(n, 'accessibilityGroup'));
 }

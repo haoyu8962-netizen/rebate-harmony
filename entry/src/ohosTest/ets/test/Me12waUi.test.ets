@@ -9,10 +9,10 @@
 // 用例共享一份安装、身份单向：基本模式（第 1 条）→ 同意隐私的游客（第 2 条）→ 会员（第 3–14 条）→ 设置页退出（第 15 条，最后）。
 // 设备坑（APP-12v 测试 v2 / v3）：每条先回一级页再直达设置；字号 / 宽度 / 深浅只经进程内冷重启生效；两次短信登录间隔 ≥ 62 s；
 // 系统通知面板用后关掉；昵称第 4 次保存假服务恒 30415（本套件不做成功保存）。
-import { describe, it } from '@ohos/hypium';
+import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Rect } from '@kit.TestKit';
 import {
-  appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, appTree, settledNode, settleWait
+  appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, appTree, settledNode, settleWait, freshRead, withRefind
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, rgbText, typeName, nodesOf } from './Hm07vOverlayRig';
 import { backToTabs, closeSystemPanels, getMeCount, getMeDelta, hVp, isGuest, openMeTab, safeTexts, systemNotifyPanel,
@@ -33,6 +33,11 @@ import {
   T_PRIVACY_ROW, T_PUSH_DENIED, T_RESET_TIP, T_RESET_TIP_DONE, T_SWITCH_OFF, T_SWITCH_ON, tapAt, tapScreen, textFrame,
   textNodes, textNodesContaining, textNotTruncated, TOL, topGap, topLine, treeNode, weightOf, writeCache
 } from './Me12waRig';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/me12wa/fixtures/device-cases.txt、ds02/check_device_result.py --set me12wa 一致（check_settings_visual.py C1 守）。 */
 export const ME12WA_DEVICE_CASES: string[] = [
@@ -257,7 +262,7 @@ export default function me12waUiTest(): void {
       near(card.right / density() - slotRight, 16, 1.5, 'ME12WA_CLIP_RIGHT 开关槽右缘（CouliSwitch Row 右内边距内）距卡边');
       check(toggle.right / density() <= slotRight + 0.5, 'ME12WA_CLIP_TOGGLE_OUT 系统开关越出开关槽右缘');
       // hm05r_03 四项（原样必过的同口径）：标题、默认开、命中 ≥ 47.5。
-      check(await (await node(ON.id(ID_CLIP_TOGGLE), '剪贴板开关')).isChecked(), 'ME12WA_CLIP_DEFAULT 默认开（D10-423）');
+      check(await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_CLIP_TOGGLE), '剪贴板开关'), (c: Component): Promise<boolean> => c.isChecked(), '剪贴板开关'), 'ME12WA_CLIP_DEFAULT 默认开（D10-423）');
       const th: Rect = await hitOf(ID_CLIP_TOGGLE, '剪贴板开关');
       const rh: Rect = await hitOf(ID_ROW_CLIPBOARD, '剪贴板行');
       check(Math.max(hVp(th), hVp(rh)) >= 47.5 && Math.max(wVp(th), wVp(rh)) >= 47.5, 'ME12WA_CLIP_HIT 剪贴板命中 ≥ 48');
@@ -364,11 +369,11 @@ export default function me12waUiTest(): void {
       const was: boolean = await t.isChecked();
       await t.click();
       await hm07vDriver.delayMs(600);
-      check((await (await node(ON.id(ID_CLIP_TOGGLE), '剪贴板开关')).isChecked()) === !was, 'ME12WA_CLIP_TOGGLE 点开关翻一次');
+      check((await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_CLIP_TOGGLE), '剪贴板开关'), (c: Component): Promise<boolean> => c.isChecked(), '剪贴板开关')) === !was, 'ME12WA_CLIP_TOGGLE 点开关翻一次');
       const title: Rect = await textFrame(T_CLIPBOARD_ROW, '剪贴板标题', ID_ROW_CLIPBOARD);
       await tapAt(title, 'left');
       await hm07vDriver.delayMs(600);
-      check((await (await node(ON.id(ID_CLIP_TOGGLE), '剪贴板开关')).isChecked()) === was, 'ME12WA_CLIP_ROW 点标题翻回');
+      check((await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_CLIP_TOGGLE), '剪贴板开关'), (c: Component): Promise<boolean> => c.isChecked(), '剪贴板开关')) === was, 'ME12WA_CLIP_ROW 点标题翻回');
     });
 
     it(ME12WA_DEVICE_CASES[4], 0, async (): Promise<void> => {
@@ -552,11 +557,11 @@ export default function me12waUiTest(): void {
       await hm07vDriver.delayMs(600);
       // H-S12：与字段错误同一位置、同一写法（图标 + 14 红字），不是红底条；只播报不移焦；外框不转红（fieldError=null）；【保存】不置灰。
       await errorRowUnderBox(ID_NICK_MESSAGE, T_ERR_30415, '30415 消息行', false);
-      check(!(await (await node(ON.id(ID_NICK_MESSAGE), '消息行')).isFocused()), 'ME12WA_30415_FOCUS 30415 只播报，焦点不移到消息行');
+      check(!(await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_NICK_MESSAGE), '消息行'), (c: Component): Promise<boolean> => c.isFocused(), '消息行')), 'ME12WA_30415_FOCUS 30415 只播报，焦点不移到消息行');
       check((await maybe(ON.id(ID_NICK_ERROR), 300)) === null, 'ME12WA_30415_FIELD 30415 不是字段错误');
       const box: Rect = await frame(ID_NICK_BOX, '昵称外框');
       check((await edgeRun(box, 'status.error.text', false, 40)) < 0.5, 'ME12WA_30415_BORDER 30415 外框不转红');
-      check(await (await node(ON.id(ID_NICK_SAVE), '【保存】')).isEnabled(), 'ME12WA_30415_SAVE 30415 不置灰【保存】（G-S10）');
+      check(await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_NICK_SAVE), '【保存】'), (c: Component): Promise<boolean> => c.isEnabled(), '【保存】'), 'ME12WA_30415_SAVE 30415 不置灰【保存】（G-S10）');
       const said: string[] = await heard(ID_NICK_SCROLL);
       check(countContaining(said, T_ERR_30415) === 1, 'ME12WA_30415_READER 消息句读屏一次', said.join(' | '));
       await closeSub();
@@ -570,7 +575,7 @@ export default function me12waUiTest(): void {
       await hideKeyboard();
       check((await maybe(ON.id(ID_NICK_LOCAL), 3000)) !== null, 'ME12WA_NO_LOCAL_HINT 超长没有本地提示', await safeTexts());
       await errorRowUnderBox(ID_NICK_LOCAL, T_NICK_TOO_LONG, '超长本地提示', false);
-      check(!(await (await node(ON.id(ID_NICK_SAVE), '【保存】')).isEnabled()), 'ME12WA_LOCAL_SAVE 超长时【保存】不可用');
+      check(!(await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_NICK_SAVE), '【保存】'), (c: Component): Promise<boolean> => c.isEnabled(), '【保存】')), 'ME12WA_LOCAL_SAVE 超长时【保存】不可用');
       // 字段错误 20001：图标 + 14 红字，在框下；焦点移到 nickname_error；外框 2vp status.error.text。
       await typeNickname(NICK_SENSITIVE_INPUT);
       await hideKeyboard();

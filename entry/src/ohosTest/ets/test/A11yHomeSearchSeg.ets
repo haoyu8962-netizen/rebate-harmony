@@ -33,7 +33,7 @@
 import { it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Driver, MatchPattern } from '@kit.TestKit';
 import { runUiTask } from './Ds02UiSession';
-import { appTree, attr, ensureFull, findById, gone, hm07vDriver, idle, Launch, maybe, node, settledNode } from './Hm07vHomeRig';
+import { appTree, attr, ensureFull, findById, gone, hm07vDriver, idle, Launch, maybe, node, settledNode, withRefind, readFresh } from './Hm07vHomeRig';
 import { check, GUEST, homeReady, nodesOf, openPopup } from './Hm07vOverlayRig';
 import { tabItem, T_HOME_TAB } from './Me12vRig';
 import { waitUntil } from './FlakeKit';
@@ -78,14 +78,15 @@ const KEYWORD: string = '纸巾';
 
 function it(name: string, flags: number, body: () => Promise<void>): void {
   // #24 D10-1898 ③：用例开始时记名（供 A11Y_RESIDUAL_CLEANUP 的 case / left_by），用例体不变。
-  hypiumIt(name, flags, async (): Promise<void> => { a11yCaseStart(name); await runUiTask(driver, body); });
+  // D10-2021：用例体经 withRefind 登记用例名、打开测试台 refind 层；用例体与判据不变。
+  hypiumIt(name, flags, async (): Promise<void> => { a11yCaseStart(name); await runUiTask(driver, withRefind(name, body)); });
 }
 
 /** 等到 id 节点获键盘焦点（≤ timeoutMs）。 */
 async function focusedWithin(id: string, timeoutMs: number): Promise<boolean> {
   for (let waited: number = 0; waited <= timeoutMs; waited += 250) {
     const c: Component | null = await maybe(ON.id(id));
-    if (c !== null && await c.isFocused()) {
+    if (c !== null && (await readFresh<boolean>(ON.id(id), id, id, (x: Component): Promise<boolean> => x.isFocused(), c)).v) {
       return true;
     }
     await driver.delayMs(250);

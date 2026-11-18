@@ -15,7 +15,9 @@
 import { it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, Driver, MatchPattern, Point, Rect } from '@kit.TestKit';
 import { KeyCode } from '@kit.InputKit';
-import { appTree, appUi, attr, hm07vDriver, idle, maybe, node, relaunchCold, settledNode, settledTree, settleOn } from './Hm07vHomeRig';
+import {
+  appTree, appUi, attr, boundsFresh, hm07vDriver, idle, maybe, node, relaunchCold, settledNode, settleOn, withRefind, readFresh, settleWait
+} from './Hm07vHomeRig';
 import { check, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, openMeTab, safeTexts, tabItem } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
@@ -128,11 +130,14 @@ export function a11yResidualCleanupLog(kind: string, leftBy: string, at: string,
   console.info('A11Y_RESIDUAL_CLEANUP case=' + a11yCaseNow + ' kind=' + kind + ' left_by=' + leftBy + ' at=' + at + ' press=' + press);
 }
 
-/** hypium it 包一层：用例开始时记名（供残留收尾日志）；用例体与判据不变（照 A11yHomeSearchSeg 的 it 包装写法）。 */
+/**
+ * hypium it 包一层：用例开始时记名（供残留收尾日志）；用例体与判据不变（照 A11yHomeSearchSeg 的 it 包装写法）。
+ * D10-2001：用例体再经 withRefind 登记用例名、打开测试台 refind 层（句柄失效有界重找，见 Hm07vHomeRig.measureFresh）。
+ */
 function it(name: string, flags: number, body: () => Promise<void>): void {
   hypiumIt(name, flags, async (): Promise<void> => {
     a11yCaseStart(name);
-    await body();
+    await withRefind(name, body)();
   });
 }
 
@@ -279,7 +284,7 @@ async function focusedWithin(id: string, timeoutMs: number): Promise<boolean> {
   const end: number = Date.now() + timeoutMs;
   for (;;) {
     const c: Component | null = await maybe(ON.id(id));
-    if (c !== null && await c.isFocused()) { return true; }
+    if (c !== null && (await readFresh<boolean>(ON.id(id), id, id, (x: Component): Promise<boolean> => x.isFocused(), c)).v) { return true; }
     if (Date.now() >= end) { return false; }
     await driver.delayMs(250);
   }
@@ -428,7 +433,9 @@ const ID_REPLY_BUBBLE_PREFIX: string = 'agent_reply_';
 async function noteDeepFocusInReply(read: FocusChainRead, fid: string, replyText: string, where: string): Promise<boolean> {
   const flat: Record<string, Object>[] = [];
   // D10-1919 ③ b：半屏关闭后列表会整表重建，找气泡用稳定后的树（settledTree）。
-  nodesOf(await settledTree(where + ' 回复气泡'), flat);
+  // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+  await settleWait(ON.text(replyText, MatchPattern.CONTAINS), where + ' 回复气泡');
+  nodesOf(await appTree('noteDeepFocusInReply'), flat);
   const bubbles: Record<string, Object>[] = flat.filter((n: Record<string, Object>): boolean => {
     if (!attr(n, 'id').startsWith(ID_REPLY_BUBBLE_PREFIX)) {
       return false;
@@ -605,7 +612,7 @@ async function revealUp(text: string): Promise<boolean> {
     if (list === null) {
       return false;
     }
-    const r: Rect = await list.getBounds();
+    const r: Rect = await boundsFresh(ON.type('List'), '对话列表 List', 'List', list);
     const x: number = Math.round((r.left + r.right) / 2);
     await driver.swipe(x, Math.round(r.top + (r.bottom - r.top) * 0.3), x, Math.round(r.top + (r.bottom - r.top) * 0.75), 1500);
     await idle();
@@ -794,10 +801,14 @@ export function a11yAgentCases(): void {
   it(A11Y_AGENT_DEVICE_CASES[3], 0, guarded(async (): Promise<void> => {
     await openAgent('normal-page-guide', true, 'unknown_card', T_SEND);
     await reportSceneReady();
+    // D10-1996：两条回复就绪后，先等列表重建落定，再滑动 / 取长按用的句柄。
+    // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+    await settleWait(ON.text(T4_SENT_REPLY, MatchPattern.CONTAINS), 'A11Y_AGENT 冷启举报场景');
     // #24：长按前先把第 1 条回复滑进屏幕（有界，见 revealUp）。D10-1866 ③：第 1 条回复改为新场景的 T4_HISTORY_REPLY（原 T_REPLY_A），判据不变。
     await need(await revealUp(T4_HISTORY_REPLY), 'A11Y_AGENT_REPLY_OFFSCREEN 有界上滑（≤ ' + REVEAL_STEPS + ' 次）后第 1 条回复「' + T4_HISTORY_REPLY + '」仍不在屏上');
     const replyA: Component = await node(ON.text(T4_HISTORY_REPLY, MatchPattern.CONTAINS), '第 1 条回复');
-    const ra: Rect = await replyA.getBounds();
+    // D10-2001：量边界走找控件 + 量边界一步（句柄失效按同一查找条件有界重找；无 id，日志里控件记 what）。
+    const ra: Rect = await boundsFresh(ON.text(T4_HISTORY_REPLY, MatchPattern.CONTAINS), '第 1 条回复', '', replyA);
     const press: Point = { x: Math.round((ra.left + ra.right) / 2), y: Math.round((ra.top + ra.bottom) / 2) };
     await driver.longClick(press.x, press.y);
     await idle();
@@ -835,7 +846,9 @@ export function a11yAgentCases(): void {
     // 键盘路径：读屏入口 id 每条唯一，取第 2 条回复的入口（组件树里在第 1 条之后）。
     // #24 + D10-1919 ③ b：半屏关闭会改快照（reportClose），消息列表随之整表重建（LazyForEach 键带 revision）；稳定后再读树（settledTree）。
     const settledNodes: Record<string, Object>[] = [];
-    nodesOf(await settledTree('agent_04 ENTRY_IDS'), settledNodes);
+    // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+    await settleWait(ON.text(T4_HISTORY_REPLY, MatchPattern.CONTAINS), 'agent_04 ENTRY_IDS');
+    nodesOf(await appTree('agent_04_ENTRY_IDS'), settledNodes);
     const entries: string[] = settledNodes.map((n: Record<string, Object>): string => attr(n, 'id'))
       .filter((id: string): boolean => id.startsWith(ID_ENTRY_PREFIX));
     await need(entries.length >= 2, 'A11Y_AGENT_ENTRY_IDS 两条回复应各有一个 ' + ID_ENTRY_PREFIX + '<回复键> 入口（实际 ' + JSON.stringify(entries) + '）');
@@ -885,7 +898,9 @@ export function a11yAgentCases(): void {
     await historyReady();
     // #24 + D10-1919 ③ b：历史回复按快照到达，每个快照整表重建；看到两条回复后稳定再读树（settledTree），下面判据原样。
     const nodes: Record<string, Object>[] = [];
-    nodesOf(await settledTree('agent_05 ROW'), nodes);
+    // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+    await settleWait(ON.text(T_REPLY_B, MatchPattern.CONTAINS), 'agent_05 ROW');
+    nodesOf(await appTree('agent_05_ROW'), nodes);
     const names = (head: string): string[] => nodes.map((n: Record<string, Object>): string => attr(n, 'accessibilityText'))
       .filter((t: string): boolean => t === head || t.startsWith(head + T_COMMA));
     for (const head of [T_UP, T_DOWN, T_MORE_ENTRY]) {

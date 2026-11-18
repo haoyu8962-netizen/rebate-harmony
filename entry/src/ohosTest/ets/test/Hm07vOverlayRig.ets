@@ -10,7 +10,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { EXPECTED_COLORS, ExpectedColor } from './Ds02Expected';
 import {
   appTree, appUi, attr, capture, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, Pixels, regionRect, scrollTop,
-  vp
+  vp, boundsFresh, nodeById
 } from './Hm07vHomeRig';
 
 export const GUEST: string = 'golden:guest_v3';
@@ -135,7 +135,7 @@ export function nodesOf(n: Record<string, Object>, out: Record<string, Object>[]
 
 /** 组件树里 id 节点的子树（找不到为 null，由用例判红）。 */
 export async function treeOf(id: string): Promise<Record<string, Object> | null> {
-  return findById(await appTree(), id);
+  return nodeById(id, 'treeOf');
 }
 
 /** 子树里读屏名或文字恰好为 label 的节点数（不含读屏隐藏的子树）。 */
@@ -317,7 +317,7 @@ export async function screenTexts(n: number = 10): Promise<string> {
  */
 export async function hitOfBounds(r: Rect): Promise<Rect> {
   const all: Record<string, Object>[] = [];
-  nodesOf(await appTree(), all);
+  nodesOf(await appTree('hitOfBounds'), all);
   for (const n of all) {
     if (typeName(n) !== 'Button') { continue; }
     const nums: RegExpMatchArray | null = String(n['$rect'] ?? '').match(/-?\d+(\.\d+)?/g);
@@ -335,7 +335,7 @@ export async function hitOfBounds(r: Rect): Promise<Rect> {
 export async function buttonAround(text: string): Promise<Rect | null> {
   const label: Component | null = await maybe(ON.text(text), 1500);
   if (label === null) { return null; }
-  const t: Rect = await label.getBounds();
+  const t: Rect = await boundsFresh(ON.text(text), text, '', label);
   const cx: number = (t.left + t.right) / 2;
   const cy: number = (t.top + t.bottom) / 2;
   let best: Rect | null = null;

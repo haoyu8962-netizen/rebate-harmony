@@ -15,11 +15,11 @@
 // （ensureConsented / ensureMember），中途红不连带后面；改过显示参数 / 配置场景 / 强更偏好的用例 finally 里冷启动复位。
 // 设备坑（12w-a 测试 v2 / v3、F-HM-85）：直达参数只在外壳就绪后生效（冷启动后再热启动直达）；同进程缓存（显示参数只经冷启动生效）；
 // 两次短信登录间隔 ≥ 62 s（本套件只登录一次）；系统 Toast 点后立即找；取样点避开字形；reveal 目标不在屏上先回顶。
-import { describe, it } from '@ohos/hypium';
+import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Point, Rect } from '@kit.TestKit';
 import {
   appTree, appUi, attr, capture, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, Pixels, relaunchCold, settledNode,
-  settleWait
+  settleWait, freshRead, withRefind
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, rgbText, typeName } from './Hm07vOverlayRig';
 import { backToTabs, clipCount, getMeCount, getMeDelta, openMeTab, safeTexts, T_HOME_TAB, tabItem } from './Me12vRig';
@@ -45,6 +45,11 @@ import {
   T_WITHDRAW_CANCEL, T_WITHDRAW_DESC, T_WITHDRAW_OK, T_WITHDRAW_TITLE, textIn, textNode, TOL, underlined, w, writeUpdateScenario
 } from './Me12wbRig';
 import { windowLayoutWidth } from './Hm07vHomeRig';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/me12wb/fixtures/device-cases.txt、ds02/check_device_result.py --set me12wb 一致（check_privacy_visual.py C1 守）。 */
 export const ME12WB_DEVICE_CASES: string[] = [
@@ -615,7 +620,7 @@ export default function me12wbUiTest(): void {
       const fxn: Record<string, Object> = await treeNode(ID_FILING_TEXT);
       check(attr(fxn, 'content') === T_FILING_FAKE, 'ME12WB_FILING_RAW 公示原样显示 agent.filing_text', attr(fxn, 'content'));
       near(fontOf(fxn), 14, 0.5, 'ME12WB_FILING_FONT 公示正文 14');
-      check(!(await (await node(ON.id(ID_FILING_TEXT), '公示正文')).isClickable()), 'ME12WB_FILING_CLICKABLE 公示正文不可点');
+      check(!(await freshRead<boolean>((): Promise<Component> => node(ON.id(ID_FILING_TEXT), '公示正文'), (c: Component): Promise<boolean> => c.isClickable(), '公示正文')), 'ME12WB_FILING_CLICKABLE 公示正文不可点');
       // P17：复制按钮带 20 复制图标（间 8）、次按钮、命中 48；说明居中、间 8；卡到按钮块间 16。
       const copy: Rect = await reveal(ID_COPY_DIAGNOSTICS, '【复制诊断信息】', ID_ABOUT_SCROLL);
       const fcNow: Rect = await box(ID_FILING_CARD, '公示卡');

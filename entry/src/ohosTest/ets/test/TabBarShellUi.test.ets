@@ -11,11 +11,11 @@
 // 测试 v2：只加前置 freshMemberHome（状态隔离），判据未动。
 // 测试 v3（评审 r1 S2-1、S3-3）：02 游客段前钉住「当前是游客」，残留会话先退出登录自愈并留痕，判据「游客点订单必须出登录页」不变；
 //   07 的栏高改量项节点（Tabs 外高被写死 48，原断言恒真），并加「200% 确实生效」的判据。判据只收紧。
-import { describe, it } from '@ohos/hypium';
+import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Point, Rect } from '@kit.TestKit';
 import {
-  all, appTree, attr, capture, density, defaults, ensureBasic, ensureFull, ensureMemberHome, findById, hm07vDriver, idle, launch, Launch,
-  maybe, node, Pixels, relaunchCold, scrollTop, swipeUp, tap, settledNode, settledTap
+  all, appTree, attr, boundsFresh, capture, density, defaults, ensureBasic, ensureFull, ensureMemberHome, findById, hm07vDriver, idle, launch,
+  Launch, maybe, node, Pixels, relaunchCold, scrollTop, swipeUp, tap, settledNode, settledTap, withRefind, freshRead
 } from './Hm07vHomeRig';
 import { argb, check, GUEST, maxDiff, meanRgb, nodesOf, rgbText, typeName } from './Hm07vOverlayRig';
 import { instanceId, logoutViaSettings, memberReady, openMeTab, ORDERS_CELLS, safeTexts, switchesTabOnce, T_ORDERS_TAB } from './Me12vRig';
@@ -30,6 +30,11 @@ export const TABBAR_DEVICE_CASES: string[] = [
   'tabbar_06_g32_search_entry_opens_search_keeps_selection_and_current_tap_forwards_once',
   'tabbar_07_font200_bar_height_min48_and_all_tabs_clickable'
 ];
+
+/** D10-2020：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 const T_HOME: string = '首页';
 const T_AGENT: string = 'AI 助手';
@@ -110,10 +115,16 @@ async function tabText(label: string): Promise<Component> {
   return node(ON.text(label), label);
 }
 
+/** D10-2020：底栏某项 Text 的外框——tabText 找到后量，句柄失效按同一条件（TabBar 内、同文字的 Text）有界重找（Hm07vHomeRig.measureFresh）。 */
+async function tabTextRect(label: string): Promise<Rect> {
+  return boundsFresh(ON.type('Text').text(label).within(ON.type('TabBar')), '底栏 Text「' + label + '」', 'tab_text_' + label,
+    await tabText(label));
+}
+
 /** 图标带：从底栏上沿到该项文字上沿、文字中心 ±24vp（新旧实现图标都在这里，不依赖 SymbolGlyph / Path 节点）。 */
 async function glyphBand(label: string): Promise<Rect> {
-  const t: Rect = await (await tabText(label)).getBounds();
-  const bar: Rect = await (await node(ON.type('TabBar'), '底栏')).getBounds();
+  const t: Rect = await tabTextRect(label);
+  const bar: Rect = await boundsFresh(ON.type('TabBar'), '底栏', 'TabBar');
   const cx: number = Math.round((t.left + t.right) / 2);
   const half: number = Math.round(24 * density());
   return { left: cx - half, right: cx + half, top: bar.top, bottom: t.top };
@@ -156,14 +167,14 @@ function inkOf(p: Pixels): number {
 
 /** 测试 v3：量底栏项节点的高（vp）。不量 Tabs：其外高被 .height(48) 写死，读出来恒为 48。 */
 async function tabItemHeightVp(): Promise<number> {
-  const r: Rect = await (await node(ON.id('couli-tab-home'), '底栏项 couli-tab-home')).getBounds();
+  const r: Rect = await boundsFresh(ON.id('couli-tab-home'), '底栏项 couli-tab-home', 'couli-tab-home');
   return (r.bottom - r.top) / density();
 }
 
 /** 底栏内 / 导航条区域（屏幕底）左侧空白处的取色点：左边 14vp 处，避开第 1 项图标与居中的导航条指示条；栏内点在底栏上沿下 6vp。 */
 async function barAndNavColors(): Promise<number[][]> {
   const d: number = density();
-  const bar: Rect = await (await node(ON.type('TabBar'), '底栏')).getBounds();
+  const bar: Rect = await boundsFresh(ON.type('TabBar'), '底栏', 'TabBar');
   const size: Point = await hm07vDriver.getDisplaySize();
   const x: number = Math.round(14 * d);
   const inside: number[] = await meanRgb(x, bar.top + Math.round(6 * d));
@@ -304,7 +315,8 @@ export default function tabBarShellUiTest(): void {
         }
       }
       check(anchor !== null, 'TABBAR_NO_ANCHOR 滚动后找不到唯一文字锚点', await safeTexts(20));
-      const top1: number = (await (anchor as Component).getBounds()).top;
+      const top1: number = (await boundsFresh(ON.text(text).within(ON.id(ID_HOME_LIST)), '滚动后锚点「' + text + '」', '',
+        anchor as Component)).top;
       const idBefore: string = instanceId(findById(await appTree(), ID_HOME_LIST) as Record<string, Object>);
       await tabClick(T_ME);
       await openMeTab();
@@ -313,7 +325,9 @@ export default function tabBarShellUiTest(): void {
       await hm07vDriver.delayMs(600);
       const again: Component | null = await maybe(ON.text(text).within(ON.id(ID_HOME_LIST)), 3000);
       check(again !== null, 'TABBAR_ANCHOR_GONE 切回后「' + text + '」不见了（滚动位置丢了）', await safeTexts(20));
-      const top2: number = (await (again as Component).getBounds()).top;
+      // D10-2020：切 Tab 回首页（根页重新显示）后量锚点走找控件 + 量边界一步（句柄失效有界重找）。
+      const top2: number = (await boundsFresh(ON.text(text).within(ON.id(ID_HOME_LIST)), '切回后锚点「' + text + '」', '',
+        again as Component)).top;
       check(Math.abs(top2 - top1) <= density(), 'TABBAR_SCROLL_LOST 切回后位置变了 ' + top1 + ' → ' + top2);
       const idAfter: string = instanceId(findById(await appTree(), ID_HOME_LIST) as Record<string, Object>);
       check(idBefore === idAfter, 'TABBAR_HOME_REBUILT 首页列表节点被重建（$ID ' + idBefore + ' → ' + idAfter + '）');
@@ -358,9 +372,9 @@ export default function tabBarShellUiTest(): void {
           const link: number[] = argb('text.link', dark);
           const brand: number[] = argb('brand.primary', dark);
           const secondary: number[] = argb('text.secondary', dark);
-          await assertInk(await (await tabText(T_ME)).getBounds(), link, 40, mode + ' 选中文字');
+          await assertInk(await tabTextRect(T_ME), link, 40, mode + ' 选中文字');
           await assertInk(await glyphBand(T_ME), brand, 60, mode + ' 选中图标');
-          await assertInk(await (await tabText(T_HOME)).getBounds(), secondary, 40, mode + ' 未选文字');
+          await assertInk(await tabTextRect(T_HOME), secondary, 40, mode + ' 未选文字');
           await assertInk(await glyphBand(T_HOME), secondary, 60, mode + ' 未选图标');
           check((await tabsInstanceId()) === id0, 'TABBAR_REBUILT ' + mode + ' 切换后 Tabs 被重建（页面重启）');
         }
@@ -396,7 +410,7 @@ export default function tabBarShellUiTest(): void {
       await node(ON.id('couli-tab-orders'), '订单项', 2000);
       const selectedItem: Component = await node(ON.id('couli-tab-orders'), '订单项');
       check(await selectedItem.isSelected(), 'TABBAR_ID_NOT_SELECTED couli-tab-orders 项节点应 isSelected');
-      check(!(await (await node(ON.id('couli-tab-home'), '首页项')).isSelected()), 'TABBAR_ID_ALSO_SELECTED couli-tab-home 不该 isSelected');
+      check(!(await freshRead<boolean>((): Promise<Component> => node(ON.id('couli-tab-home'), '首页项'), (c: Component): Promise<boolean> => c.isSelected(), '首页项')), 'TABBAR_ID_ALSO_SELECTED couli-tab-home 不该 isSelected');
       const band: Rect = await glyphBand(T_ORDERS);
       const after: Pixels = await capture(band);
       const brand: number[] = argb('brand.primary', false);
@@ -421,7 +435,8 @@ export default function tabBarShellUiTest(): void {
         await hm07vDriver.delayMs(800);
         const scaled: Component | null = await maybe(ON.text(probeText).within(ON.id(ID_HOME_LIST)), 3000);
         check(scaled !== null, 'TABBAR_200_NO_TEXT 200% 下首页找不到「' + probeText + '」', await safeTexts(20));
-        const rect200: Rect = await (scaled as Component).getBounds();
+        const rect200: Rect = await boundsFresh(ON.text(probeText).within(ON.id(ID_HOME_LIST)), '200% 首页文字「' + probeText + '」', '',
+          scaled as Component);
         const h100: number = rect100.bottom - rect100.top;
         const h200: number = rect200.bottom - rect200.top;
         const itemH200: number = await tabItemHeightVp();

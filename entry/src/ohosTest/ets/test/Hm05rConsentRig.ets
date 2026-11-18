@@ -17,7 +17,7 @@ import { ON, Component, Rect } from '@kit.TestKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
-  BUNDLE, appTree, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold, settledNode
+  BUNDLE, appTree, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold, settledNode, freshRead, nodeById
 } from './Hm07vHomeRig';
 import { argb, check, GUEST, maxDiff, meanRgb, rgbText, screenTexts } from './Hm07vOverlayRig';
 
@@ -190,7 +190,7 @@ export async function toggleOn(): Promise<boolean> {
  * 至少一个点与令牌色每通道差 ≤ 30。
  */
 export async function brandTrack(): Promise<string> {
-  const r: Rect = await (await node(ON.id(TOGGLE_ID), '剪贴板开关')).getBounds();
+  const r: Rect = await freshRead<Rect>((): Promise<Component> => node(ON.id(TOGGLE_ID), '剪贴板开关'), (c: Component): Promise<Rect> => c.getBounds(), '剪贴板开关');
   const want: number[] = argb('control.checked', false);
   const cy: number = Math.round((r.top + r.bottom) / 2);
   const w: number = r.right - r.left;
@@ -226,7 +226,7 @@ export function texts(n: Record<string, Object>, out: string[]): void {
 
 /** 组件树节点（id）；找不到报红。 */
 export async function treeNode(id: string): Promise<Record<string, Object>> {
-  const hit: Record<string, Object> | null = findById(await appTree(), id);
+  const hit: Record<string, Object> | null = await nodeById(id, 'treeNode');
   check(hit !== null, 'HM05R_INSPECTOR_MISSING ' + id);
   return hit as Record<string, Object>;
 }

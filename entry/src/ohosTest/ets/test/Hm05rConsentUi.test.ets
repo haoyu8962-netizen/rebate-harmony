@@ -7,15 +7,20 @@
 // 回执，自动任务读 staging 探测计数（设施说明见 Hm05rConsentRig.ets 头注释）。全程游客。生产默认不具备资格（D1：不声明 READ_PASTEBOARD），
 // 所以回前台的自动任务在设备上止于资格这一步（降级为 PasteButton、读取 0 次）；「读取 1 次、出商品卡」由 core Hm05rIntegration 的 C1 用例守。
 // 用例按顺序共享一份安装（状态单向）：首启 → 手动 → 设置（开 → 关 → 开）→ 四种旧状态迁移 → 撤回 / 重新同意。
-import { describe, it, expect } from '@ohos/hypium';
-import { ON, Component } from '@kit.TestKit';
+import { describe, it as hypiumIt, expect } from '@ohos/hypium';
+import { ON, Component, Rect } from '@kit.TestKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { atLeast, hm07vDriver, idle, launch, maybe, node, tap, settledTap } from './Hm07vHomeRig';
+import { atLeast, hm07vDriver, idle, launch, maybe, node, tap, settledTap, freshRead, withRefind, boundsFresh } from './Hm07vHomeRig';
 import { check, CLIP_UNREC, NOTICE_ID, screenTexts } from './Hm07vOverlayRig';
 import {
   brandTrack, expectEq, foregroundRound, freshFull, guestLaunch, hitVp, noSheet, openSettings, probes, reports, ROW_ID, ROW_TITLE,
   scrollTo, seedLegacy, stored, storedOn, texts, TOGGLE_ID, toggleOn, toHome, treeNode, until
 } from './Hm05rConsentRig';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/hm05r/fixtures/device-cases.txt、ds02/check_device_result.py --set hm05r 一致（check_hm05r.py C1 守）。 */
 export const HM05R_DEVICE_CASES: string[] = [
@@ -142,8 +147,8 @@ export default function hm05rConsentUiTest() {
       check(all.some((t: string): boolean => t.indexOf(ROW_TITLE) >= 0), 'HM05R_ROW_TITLE 开关行标题 / 读屏名', all.join('|'));
       expectEq('default on displayed', await toggle.isChecked(), true);
       expectEq('brand track', await brandTrack(), '');
-      const hit: number[] = hitVp(await toggle.getBounds());
-      const rowHit: number[] = hitVp(await (await node(ON.id(ROW_ID), '开关行')).getBounds());
+      const hit: number[] = hitVp(await boundsFresh(ON.id(TOGGLE_ID), '剪贴板开关', TOGGLE_ID, toggle));
+      const rowHit: number[] = hitVp(await freshRead<Rect>((): Promise<Component> => node(ON.id(ROW_ID), '开关行'), (c: Component): Promise<Rect> => c.getBounds(), '开关行'));
       atLeast(Math.max(hit[1], rowHit[1]), 47.5, '开关命中高 vp');
       atLeast(Math.max(hit[0], rowHit[0]), 47.5, '开关命中宽 vp');
     });

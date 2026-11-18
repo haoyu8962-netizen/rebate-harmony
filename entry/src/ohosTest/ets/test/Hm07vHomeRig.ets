@@ -68,10 +68,186 @@ export async function all(on: On): Promise<Component[]> {
   return found === null || found === undefined ? [] : found;
 }
 
-export async function rect(on: On, what: string): Promise<Rect> {
-  const r: Rect = await (await node(on, what)).getBounds();
+/** key：RIG_STALE_REFIND 行里的控件 id（调用方知道 id 时传；不传用 what）。判据与改前相同。 */
+export async function rect(on: On, what: string, key: string = ''): Promise<Rect> {
+  const r: Rect = await boundsFresh(on, what, key);
   expect(r.right > r.left && r.bottom > r.top ? what : 'HM07VA_EMPTY_BOUNDS ' + what).assertEqual(what);
   return r;
+}
+
+// ---------------------------------------------------------------- 找控件 + 量边界一步（D10-2001 refind 层）
+// me12v_11（rootcause-c2-me12v11-20261118.md）：node() 拿到 me_nickname 句柄后、紧接着 getBounds() 时，/v1/me 回包让身份卡整卡重建，
+// 句柄已失效。等待（settleMeRead / settledTree）只是概率性保护；这里给确定性的一层——把「找控件 + 量边界」做成一步：
+//   · 只吸收一种错：getBounds() 抛的正是 UiTest 句柄失效。识别沿用 FlakeKit.isNoCandidates（全仓既有口径，flake/run-logic.cjs 自测钉住）：
+//     报错串含 NoCandidates / does not exist on current UI / dose not exist on current UI。设备原文（C2 aa-entry-me12v.log）：
+//     「Widget: {…id; value:me_nickname…} dose not exist on current UI! Check if the UI has changed after you got the widget object(NoCandidates)」。
+//     「找不到控件」不是这条错：waitForComponent 返回 null，由 node() 报 HM07VA_MISSING 断言。
+//   · 吸收方式：按同一个 On 用 node() 重新找（同 8 s 上限）再量，最多 REFIND_MAX 次；每次打一行
+//     `FLKRIG RIG_STALE_REFIND <用例名> <控件 id> <第几次> · <what>`（FLKRIG 前缀让冻结的 device-test.sh 现有 hilog 抓取带进步骤日志，
+//     只是留痕、不判定）。重新找不到照报 HM07VA_MISSING 红；其它异常照抛；第 REFIND_MAX 次重找后仍失效，抛最后一次的原错（照样红）。
+//   · 只在用例经 withRefind 登记了名字时生效；未登记的套件 / 用例与改前逐字同一行为（失效即抛）。不改、不包、不重试任何判据。
+export const REFIND_MAX: number = 3;
+let refindCase: string = '';
+
+// ---------------------------------------------------------------- 留痕计数（评审 S2-1 / S2-2，只打日志、不判定）
+// 冻结的 device-test.sh 只把 hilog 里的 FLKRIG 行抓进 flake-trace.log，步骤日志只留最后 50 行。逐次取树行若都带 FLKRIG，会把 50 行挤满，
+// 整轮看不到 RIG_STALE_REFIND。所以：
+//   · 逐次取树 / 探针计时行 `RIG_APPTREE_MS … kind=tree|probe` 默认**不带** FLKRIG（只进 hilog；单跑从 hilog 全量读）；单次 > 2 s 的才带；
+//   · 每次 RIG_STALE_REFIND 照旧带 FLKRIG；
+//   · 每条登记用例结束时打一行 `FLKRIG RIG_CASE_SUM case=… trees= tree_ms= tree_max= probes= probe_ms= probe_max= over2= over3= refind=`，
+//     行尾附本进程累计 `run_*`。整轮只看每个步骤日志里**最后一行** RIG_CASE_SUM 的 run_* 就是该步全量计数（over2 / over3 含 tree 与
+//     probe 两类）。未登记时段（case=-）的计数记在 `-` 名下，下一条登记用例开头补打一行。
+const SLOW_MS: number = 2000;
+const VERY_SLOW_MS: number = 3000;
+
+class RigStats {
+  trees: number = 0;
+  treeMs: number = 0;
+  treeMax: number = 0;
+  probes: number = 0;
+  probeMs: number = 0;
+  probeMax: number = 0;
+  over2: number = 0;
+  over3: number = 0;
+  refinds: number = 0;
+  cases: number = 0;
+
+  add(kind: string, ms: number): void {
+    if (kind === 'probe') {
+      this.probes++;
+      this.probeMs += ms;
+      this.probeMax = Math.max(this.probeMax, ms);
+    } else {
+      this.trees++;
+      this.treeMs += ms;
+      this.treeMax = Math.max(this.treeMax, ms);
+    }
+    if (ms > SLOW_MS) { this.over2++; }
+    if (ms > VERY_SLOW_MS) { this.over3++; }
+  }
+
+  empty(): boolean {
+    return this.trees === 0 && this.probes === 0 && this.refinds === 0;
+  }
+
+  text(prefix: string): string {
+    return prefix + 'trees=' + this.trees + ' ' + prefix + 'tree_ms=' + this.treeMs + ' ' + prefix + 'tree_max=' + this.treeMax + ' ' +
+      prefix + 'probes=' + this.probes + ' ' + prefix + 'probe_ms=' + this.probeMs + ' ' + prefix + 'probe_max=' + this.probeMax + ' ' +
+      prefix + 'over2=' + this.over2 + ' ' + prefix + 'over3=' + this.over3 + ' ' + prefix + 'refind=' + this.refinds;
+  }
+}
+
+let caseStats: RigStats = new RigStats();
+const runStats: RigStats = new RigStats();
+
+/** 记一次取树 / 探针耗时（进本用例与本进程累计）；返回该次计时行该不该带 FLKRIG 前缀。 */
+function noteTiming(kind: string, ms: number): string {
+  caseStats.add(kind, ms);
+  runStats.add(kind, ms);
+  return ms > SLOW_MS ? 'FLKRIG ' : '';
+}
+
+function flushCaseSum(name: string): void {
+  try {
+    runStats.cases++;
+    console.info('FLKRIG RIG_CASE_SUM case=' + name + ' ' + caseStats.text('') + ' | ' + runStats.text('run_') + ' run_cases=' + runStats.cases);
+  } catch (e) {
+    // 只是日志。
+  }
+  caseStats = new RigStats();
+}
+
+/**
+ * 用例体包一层：登记用例名、打开 refind 层；用例结束（含抛错）打本用例留痕汇总并复位。用例体、判据、顺序不变。
+ * 评审 S3-5：复位只在 refindCase 仍是本用例时做（Hypium 单例超时后上一条的 finally 晚到，不把下一条的登记关掉）。
+ */
+export function withRefind(name: string, body: () => Promise<void>): () => Promise<void> {
+  return async (): Promise<void> => {
+    if (refindCase.length === 0 && !caseStats.empty()) {
+      flushCaseSum('-');
+    }
+    refindCase = name;
+    try {
+      await body();
+    } finally {
+      if (refindCase === name) {
+        flushCaseSum(name);
+        refindCase = '';
+      }
+    }
+  };
+}
+
+/** 量到的边界与量它用的句柄（重找过就是新句柄，调用方后续点击 / 再读用它）。 */
+export class Measured {
+  c: Component;
+  r: Rect;
+
+  constructor(c: Component, r: Rect) {
+    this.c = c;
+    this.r = r;
+  }
+}
+
+/**
+ * 找控件 + 读一次（D10-2021 扩面：边界之外也用于读属性，如 getText / isSelected / isFocused）。find 是调用方原来的找法（套件自己的
+ * node / maybe 包装也行；找不到时由它照原样报红），read 是原来那一次读；first 是调用方刚找到的句柄（不给就先 find()）。
+ * 失效判定、上限、留痕、只在 withRefind 登记后生效，均同上方说明。返回值里的 c 是最后读成功的句柄。
+ */
+export class Fresh<T> {
+  c: Component;
+  v: T;
+
+  constructor(c: Component, v: T) {
+    this.c = c;
+    this.v = v;
+  }
+}
+
+export async function readFreshBy<T>(find: () => Promise<Component>, read: (c: Component) => Promise<T>, what: string, key: string = '',
+  first: Component | null = null): Promise<Fresh<T>> {
+  let c: Component = first !== null ? first : await find();
+  for (let n: number = 1; ; n++) {
+    try {
+      return new Fresh<T>(c, await read(c));
+    } catch (e) {
+      if (refindCase.length === 0 || n > REFIND_MAX || !isNoCandidates(e as Object)) {
+        throw e as Error;
+      }
+      console.info('FLKRIG RIG_STALE_REFIND ' + refindCase + ' ' + (key.length > 0 ? key : what).replace(/\s+/g, '_') + ' ' + n +
+        ' · ' + what);
+      caseStats.refinds++;
+      runStats.refinds++;
+      c = await find();
+    }
+  }
+}
+
+/** readFreshBy 的简写：只要读到的值（套件里「(await 找法(…)).读法()」一行写法原样换成它，找法 / 读法不变）。 */
+export async function freshRead<T>(find: () => Promise<Component>, read: (c: Component) => Promise<T>, what: string): Promise<T> {
+  return (await readFreshBy<T>(find, read, what)).v;
+}
+
+/** readFreshBy 的常用形：按 On 用 node(on, what) 找（找不到报 HM07VA_MISSING）。 */
+export async function readFresh<T>(on: On, what: string, key: string, read: (c: Component) => Promise<T>,
+  first: Component | null = null): Promise<Fresh<T>> {
+  return readFreshBy<T>((): Promise<Component> => node(on, what), read, what, key, first);
+}
+
+/** 找控件 + 量边界（first 是调用方刚找到的句柄；不给就先 node(on, what) 找）。见上方说明。 */
+export async function measureFresh(on: On, what: string, key: string = '', first: Component | null = null): Promise<Measured> {
+  const f: Fresh<Rect> = await readFresh<Rect>(on, what, key, (c: Component): Promise<Rect> => c.getBounds(), first);
+  return new Measured(f.c, f.v);
+}
+
+/** 找控件 + 读文字（同 readFresh）。 */
+export async function textFresh(on: On, what: string, key: string = '', first: Component | null = null): Promise<string> {
+  return (await readFresh<string>(on, what, key, (c: Component): Promise<string> => c.getText(), first)).v;
+}
+
+/** 同 measureFresh，只要边界。 */
+export async function boundsFresh(on: On, what: string, key: string = '', first: Component | null = null): Promise<Rect> {
+  return (await measureFresh(on, what, key, first)).r;
 }
 
 export async function tap(on: On, what: string): Promise<void> {
@@ -117,7 +293,7 @@ export function overlaps(a: Rect, b: Rect): boolean {
 export async function hit48(on: On, what: string): Promise<Rect> {
   const c: Component = await node(on, what);
   expect((await c.isClickable()) ? what : 'HM07VA_NOT_CLICKABLE ' + what).assertEqual(what);
-  const r: Rect = await c.getBounds();
+  const r: Rect = await boundsFresh(on, what, '', c);
   const d: number = density();
   atLeast((r.right - r.left) / d, 47.5, what + ' 命中宽 vp');
   atLeast((r.bottom - r.top) / d, 47.5, what + ' 命中高 vp');
@@ -511,7 +687,7 @@ export async function settledTree(where: string, timeoutMs: number = SETTLE_MAX_
   let prev: string = '';
   let samples: number = 0;
   for (;;) {
-    const tree: Record<string, Object> = await appTree();
+    const tree: Record<string, Object> = await appTree('settledTree');
     const sig: string[] = [];
     treeSignature(tree, sig);
     const now: string = sig.join('|');
@@ -562,14 +738,14 @@ export async function homeList(): Promise<Component> {
 
 /** 在列表区内上滑一屏的 60%（不从固定搜索行上起手）。 */
 export async function swipeUp(): Promise<void> {
-  const r: Rect = await (await homeList()).getBounds();
+  const r: Rect = await boundsFresh(ON.id('home_list'), '首页列表 home_list', 'home_list');
   const x: number = Math.floor(r.left + (r.right - r.left) * 0.08);
   await driver.swipe(x, Math.floor(r.top + (r.bottom - r.top) * 0.8), x, Math.floor(r.top + (r.bottom - r.top) * 0.2), 900);
   await idle();
 }
 
 export async function swipeDown(): Promise<void> {
-  const r: Rect = await (await homeList()).getBounds();
+  const r: Rect = await boundsFresh(ON.id('home_list'), '首页列表 home_list', 'home_list');
   const x: number = Math.floor(r.left + (r.right - r.left) * 0.08);
   await driver.swipe(x, Math.floor(r.top + (r.bottom - r.top) * 0.2), x, Math.floor(r.top + (r.bottom - r.top) * 0.8), 900);
   await idle();
@@ -603,14 +779,15 @@ export async function reveal(id: string, what: string, upFirst: boolean = true):
   let damp: number = 1;
   for (const up of (upFirst ? [true, false] : [false, true])) {
     for (let step: number = 0; step < 24; step++) {
-      const list: Rect = await (await homeList()).getBounds();
+      const list: Rect = await boundsFresh(ON.id('home_list'), '首页列表 home_list', 'home_list');
       const found: Component | null = await maybe(ON.id(id));
       const size: number[] | null = found === null ? null : await layoutSize(id);
       if (found !== null && size !== null) {
-        const vis: Rect = await found.getBounds();
+        const m: Measured = await measureFresh(ON.id(id), what, id, found);
+        const vis: Rect = m.r;
         const visible: number = Math.max(0, vis.bottom - vis.top);
         const need: number = Math.min(size[1], list.bottom - list.top);
-        if (visible > 0 && visible >= need - d) { return found; }
+        if (visible > 0 && visible >= need - d) { return m.c; }
         const key: string = vis.top + ',' + vis.bottom;
         stuck = key === last ? stuck + 1 : 0;
         last = key;
@@ -641,7 +818,7 @@ export async function scrollTop(): Promise<void> {
 
 async function firstVisibleTop(): Promise<Rect | null> {
   const c: Component | null = await maybe(ON.id('home_section_icons'));
-  return c === null ? null : await c.getBounds();
+  return c === null ? null : await boundsFresh(ON.id('home_section_icons'), 'home_section_icons', 'home_section_icons', c);
 }
 
 // ---------------------------------------------------------------- 组件树与读屏单元（F-X-05a v2 规则）
@@ -684,23 +861,161 @@ export function flatten(n: Record<string, Object>, out: string[][]): void {
   for (const child of childrenOf(n)) { flatten(child, out); }
 }
 
-/** 应用主窗口的完整组件树（在该 UIContext 作用域里调 getInspectorTree；拿不到时退回 getFilteredInspectorTree）。 */
-export async function appTree(): Promise<Record<string, Object>> {
-  const win: window.Window = await appWindow();
-  const ui: UIContext = win.getUIContext();
-  let raw: Object = '';
+// ---------------------------------------------------------------- 取树计时（D10-2026 ①，只打日志、不改行为）
+// C4 appfreeze THREAD_BLOCK_6S 的主线程栈落在下面 appTree 的 getInspectorTree + JSON.parse（faultlog-20261118/）。每次取树打一行
+//   RIG_APPTREE_MS <总毫秒> kind=tree case=<用例名|-> block=<同步段毫秒> win=<取窗口毫秒> get=<getInspectorTree> fb=<退回 filtered>
+//   parse=<JSON.parse> chars=<原始串长度，非串为 -1> src=<scoped|filtered|object> seq=<本进程第几次> at=<tag:调用方帧>
+// block = get + fb + parse，是压在应用主线程上的同步部分（与 6 s 冻结阈值比）。节点数不在这里数，用 chars 代替。
+// 评审 S2-1：这行默认不带 FLKRIG（只进 hilog，单跑从 hilog 全量读）；单次 > 2 s 才带 FLKRIG 进 flake-trace / 步骤日志；
+// 次数与 > 2 s / > 3 s 计数另见每条用例结束时的 FLKRIG RIG_CASE_SUM（上方「留痕计数」）。
+// 判定、返回值、异常路径与改前逐字等价：计时与日志都在 finally 里，日志本身的任何异常都吞掉。
+let appTreeSeq: number = 0;
+
+// D10-2026 ②(4)：第一版在 finally（await 之后）才取栈，那时调用方的帧已不在同步栈上，三趟单跑 at 全是「?」。改为进 appTree、第一个 await
+// 之前就取栈；调用方另可传 tag（测试台的取树辅助函数都传了自己的名字），有 tag 用 tag、再附栈上第一帧。头两次另打一行原始栈样本
+// （RIG_APPTREE_STACK，≤ 400 字），设备上栈格式不认时据此再修。只是日志：任何异常都吞掉，返回 '?'。
+function appTreeCaller(): string {
   try {
-    ui.runScopedTask(() => {
-      raw = getInspectorTree();
-    });
+    const raw: string = new Error().stack ?? '';
+    const lines: string[] = raw.split('\n').map((l: string): string => l.trim()).filter((l: string): boolean => l.length > 0);
+    if (appTreeSeq < 2) {
+      console.info('RIG_APPTREE_STACK ' + lines.join(' | ').replace(/\s+/g, ' ').substring(0, 400));
+    }
+    let start: number = -1;
+    for (let i: number = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('appTree') >= 0) { start = i; }
+    }
+    const frames: string[] = [];
+    for (let i: number = start + 1; i < lines.length && frames.length < 2; i++) {
+      const l: string = lines[i].replace(/^at\s+/, '').replace(/^async\s+/, '');
+      if (start < 0 && i === 0 && l === lines[i] && l.indexOf('(') < 0) { continue; }
+      const name: string = l.split(/[\s(]/)[0];
+      const loc: RegExpMatchArray | null = l.match(/([\w.-]+\.(?:ets|ts|js)):(\d+)/);
+      frames.push(loc === null ? l.substring(0, 60) : name + '@' + loc[1] + ':' + loc[2]);
+    }
+    return frames.length > 0 ? frames.join(',').replace(/\s+/g, '_').substring(0, 160) : '?';
   } catch (e) {
-    raw = '';
+    return '?';
   }
-  if (typeof raw === 'string' && (raw as string).length === 0) {
-    raw = ui.getFilteredInspectorTree();
+}
+
+/** 应用主窗口的完整组件树（在该 UIContext 作用域里调 getInspectorTree；拿不到时退回 getFilteredInspectorTree）。 */
+export async function appTree(tag: string = ''): Promise<Record<string, Object>> {
+  const site: string = ((tag.length > 0 ? tag + ':' : '') + appTreeCaller()).replace(/\s+/g, '_');
+  const t0: number = Date.now();
+  let tw: number = t0;
+  let tg: number = t0;
+  let tf: number = t0;
+  let src: string = 'scoped';
+  let chars: number = -1;
+  try {
+    const win: window.Window = await appWindow();
+    const ui: UIContext = win.getUIContext();
+    tw = Date.now();
+    tg = tw;
+    tf = tw;
+    let raw: Object = '';
+    try {
+      ui.runScopedTask(() => {
+        raw = getInspectorTree();
+      });
+    } catch (e) {
+      raw = '';
+    }
+    tg = Date.now();
+    tf = tg;
+    if (typeof raw === 'string' && (raw as string).length === 0) {
+      raw = ui.getFilteredInspectorTree();
+      src = 'filtered';
+    }
+    tf = Date.now();
+    if (typeof raw === 'string') {
+      chars = (raw as string).length;
+    } else {
+      src = 'object';
+    }
+    const tree: Object = typeof raw === 'string' ? JSON.parse(raw as string) as Object : raw;
+    return tree as Record<string, Object>;
+  } finally {
+    try {
+      const t3: number = Date.now();
+      appTreeSeq++;
+      console.info(noteTiming('tree', t3 - t0) + 'RIG_APPTREE_MS ' + (t3 - t0) + ' kind=tree case=' + (refindCase.length > 0 ? refindCase : '-') + ' block=' + (t3 - tw) +
+        ' win=' + (tw - t0) + ' get=' + (tg - tw) + ' fb=' + (tf - tg) + ' parse=' + (t3 - tf) + ' chars=' + chars + ' src=' + src +
+        ' seq=' + appTreeSeq + ' at=' + site);
+    } catch (e) {
+      // 只是日志：任何异常都不影响取树结果与原有异常路径。
+    }
   }
-  const tree: Object = typeof raw === 'string' ? JSON.parse(raw as string) as Object : raw;
-  return tree as Record<string, Object>;
+}
+
+// ---------------------------------------------------------------- 按 id 取节点（D10-2026 ②(2) 的落脚点）
+// 只要某个 id 节点（及其子树）的读法都经 nodeById。SUBTREE_BY_ID = false 时与改前逐字同：findById(整树, id)。
+// 打算换成 UIContext.getFilteredInspectorTreeById(id, depth)（API 12 起，SDK 声明见 @ohos.arkui.UIContext.d.ts:4057-4071），但 SDK 只说
+// 「filtered attributes」，没说返回哪些属性、$rect / $ID / accessibility* 是否齐全、同 id 多节点时取哪一个——没在设备上核过「与整树里
+// 对应子树一致」之前不切换（D10-2026 ②(2)：不一致就保留整树）。这里先挂一个只打日志的探针：每个 id 本进程第一次读时，另取一次
+// ById 子树，与整树里的那个节点逐项比（$type / $ID / $rect / 读屏与正文属性 / 子节点数），打一行 RIG_SUBTREE_PROBE；不参与任何判定、
+// 异常全吞。单跑拿到「全部 same=yes」后再把 SUBTREE_BY_ID 改为 true（一行），并另报编排。
+export const SUBTREE_BY_ID: boolean = false;
+/**
+ * 探针开关（评审 S2-2）。默认 true：给新头上的 me12v / tabbar / a11y 单跑收 same 分布。出冻结头整轮之前按编排定：要么改 false（一行，
+ * 整轮不多跑这次调用），要么保留——保留时探针耗时也已计入 RIG_APPTREE_MS kind=probe 与 RIG_CASE_SUM 的 over2 / over3。
+ */
+export const SUBTREE_PROBE: boolean = false;
+const SUBTREE_DEPTH: number = 32;
+const PROBE_MAX: number = 60;
+const PROBE_ATTRS: string[] = ['id', 'content', 'accessibilityText', 'accessibilityDescription', 'accessibilityLevel',
+  'accessibilityGroup', 'responseRegion', 'fontSize', 'fontWeight'];
+const probedIds: Set<string> = new Set<string>();
+
+export async function nodeById(id: string, tag: string): Promise<Record<string, Object> | null> {
+  if (SUBTREE_BY_ID) {
+    const raw: string = (await appUi()).getFilteredInspectorTreeById(id, SUBTREE_DEPTH);
+    return raw.length > 0 ? findById(JSON.parse(raw) as Record<string, Object>, id) : null;
+  }
+  const whole: Record<string, Object> | null = findById(await appTree(tag), id);
+  await probeById(id, whole);
+  return whole;
+}
+
+/** 探针本体（只打日志）；整树取法另有出处的调用方（如 Me12vRig.treeNode）也可以调。 */
+export async function probeById(id: string, whole: Record<string, Object> | null): Promise<void> {
+  if (!SUBTREE_PROBE || probedIds.has(id) || probedIds.size >= PROBE_MAX) { return; }
+  probedIds.add(id);
+  try {
+    const ui: UIContext = await appUi();
+    const t0: number = Date.now();
+    let raw: string = '';
+    let hit: Record<string, Object> | null = null;
+    try {
+      raw = ui.getFilteredInspectorTreeById(id, SUBTREE_DEPTH);
+      hit = raw.length > 0 ? findById(JSON.parse(raw) as Record<string, Object>, id) : null;
+    } finally {
+      // 评审 S2-2：探针在主线程上的同步部分（ById 取子树 + 解析）计入取树门槛，单列 kind=probe。
+      const pms: number = Date.now() - t0;
+      console.info(noteTiming('probe', pms) + 'RIG_APPTREE_MS ' + pms + ' kind=probe case=' + (refindCase.length > 0 ? refindCase : '-') +
+        ' block=' + pms + ' chars=' + raw.length + ' src=byid id=' + id);
+    }
+    const ms: number = Date.now() - t0;
+    const diffs: string[] = [];
+    if (whole === null || hit === null) {
+      diffs.push('presence:' + (whole !== null) + '/' + (hit !== null));
+    } else {
+      for (const k of ['$type', '$ID', '$rect']) {
+        if (text(whole[k]) !== text(hit[k])) { diffs.push(k); }
+      }
+      for (const k of PROBE_ATTRS) {
+        if (attr(whole, k) !== attr(hit, k)) { diffs.push(k); }
+      }
+      const kw: number = childrenOf(whole).length;
+      const kh: number = childrenOf(hit).length;
+      if (kw !== kh) { diffs.push('kids:' + kw + '/' + kh); }
+    }
+    console.info('RIG_SUBTREE_PROBE id=' + id + ' same=' + (diffs.length === 0 ? 'yes' : 'no') + ' ms=' + ms + ' chars=' +
+      raw.length + ' case=' + (refindCase.length > 0 ? refindCase : '-') + ' diff=' + diffs.join(',').substring(0, 200));
+  } catch (e) {
+    console.info('RIG_SUBTREE_PROBE id=' + id + ' same=err ' + String(e).replace(/\s+/g, '_').substring(0, 160));
+  }
 }
 
 /** 应用主窗口的 UIContext（与页面同一个；量字宽等与首页同口径）。 */
@@ -713,7 +1028,16 @@ export async function appUi(): Promise<UIContext> {
  * 只取尺寸、不取位置：设备探针实测列表滚动后列表项内节点 $rect 的位置不随滚动更新（页脚 $rect.top 1275 而屏上 1850），尺寸一致。
  */
 export async function layoutSize(id: string): Promise<number[] | null> {
-  const n: Record<string, Object> | null = findById(await appTree(), id);
+  return layoutSizeOf(await nodeById(id, 'layoutSize'));
+}
+
+/** D10-2026 ②(3)：同一次检查里已经取过整树时，从那棵树里读尺寸（不再取第二棵）。读法与 layoutSize 相同。 */
+export function layoutSizeIn(tree: Record<string, Object>, id: string): number[] | null {
+  return layoutSizeOf(findById(tree, id));
+}
+
+/** layoutSize 原来的读法（$rect → [宽, 高]），搬出来给 layoutSize / layoutSizeIn 共用，一字未改。 */
+function layoutSizeOf(n: Record<string, Object> | null): number[] | null {
   if (n === null) { return null; }
   const nums: RegExpMatchArray | null = text(n['$rect']).match(/-?\d+(\.\d+)?/g);
   if (nums === null || nums.length < 4) { return null; }
@@ -729,12 +1053,13 @@ export async function layoutSize(id: string): Promise<number[] | null> {
 export async function fullRectOrNull(id: string): Promise<Rect | null> {
   const found: Component | null = await maybe(ON.id(id));
   if (found === null) { return null; }
-  const vis: Rect = await found.getBounds();
+  const vis: Rect = await boundsFresh(ON.id(id), id, id, found);
   if (vis.right <= vis.left || vis.bottom <= vis.top) { return null; }
   const size: number[] | null = await layoutSize(id);
   if (size === null || size[1] - (vis.bottom - vis.top) <= 1) { return vis; }
   const list: Component | null = await maybe(ON.id('home_list'));
-  const clippedTop: boolean = list !== null && vis.top <= (await list.getBounds()).top + 1;
+  const clippedTop: boolean = list !== null &&
+    vis.top <= (await boundsFresh(ON.id('home_list'), '首页列表 home_list', 'home_list', list)).top + 1;
   const r: Rect = clippedTop ? { left: vis.left, top: vis.bottom - size[1], right: vis.right, bottom: vis.bottom } :
     { left: vis.left, top: vis.top, right: vis.right, bottom: vis.top + size[1] };
   return r;
@@ -748,7 +1073,7 @@ export async function fullRect(id: string, what: string): Promise<Rect> {
 }
 
 export async function subtree(id: string): Promise<Record<string, Object>> {
-  const hit: Record<string, Object> | null = findById(await appTree(), id);
+  const hit: Record<string, Object> | null = await nodeById(id, 'subtree');
   expect(hit !== null ? id : 'HM07VA_INSPECTOR_MISSING ' + id).assertEqual(id);
   return hit as Record<string, Object>;
 }
@@ -797,7 +1122,7 @@ export function announce(n: Record<string, Object>, out: string[]): void {
  */
 export async function hitRect(id: string, what: string): Promise<Rect> {
   const frame: Rect = await rect(ON.id(id), what);
-  const n: Record<string, Object> | null = findById(await appTree(), id);
+  const n: Record<string, Object> | null = await nodeById(id, 'hitRect');
   expect(n !== null ? what : 'HM07VA_INSPECTOR_MISSING ' + what).assertEqual(what);
   const raw: Object | undefined = attrsOf(n as Record<string, Object>)['responseRegion'];
   return regionRect(frame, raw);
@@ -809,7 +1134,7 @@ export async function hitRects(ids: string[], what: string): Promise<Rect[]> {
   for (const id of ids) {
     frames.push(await rect(ON.id(id), what + ' ' + id));
   }
-  const tree: Record<string, Object> = await appTree();
+  const tree: Record<string, Object> = await appTree('hitRects');
   const out: Rect[] = [];
   for (let i: number = 0; i < ids.length; i++) {
     const n: Record<string, Object> | null = findById(tree, ids[i]);
@@ -821,7 +1146,7 @@ export async function hitRects(ids: string[], what: string): Promise<Rect[]> {
 
 /** 设施诊断：节点上名字含 region / response / hit 的属性原值（自检失败时写进报红信息）。 */
 export async function regionRaw(id: string): Promise<string> {
-  const n: Record<string, Object> | null = findById(await appTree(), id);
+  const n: Record<string, Object> | null = await nodeById(id, 'regionRaw');
   if (n === null) { return 'node-missing'; }
   const attrs: Record<string, Object> = attrsOf(n);
   const out: string[] = [];

@@ -224,7 +224,7 @@ export async function pageShown(scrollId: string, what: string, ms: number = 600
  */
 export async function leavePages(): Promise<void> {
   await launch(base(''));
-  const tree: Record<string, Object> = await appTree();
+  const tree: Record<string, Object> = await appTree('leavePages');
   const stuck: boolean = findById(tree, ID_RISK_SCROLL) !== null || findById(tree, ID_APPEAL_SCROLL) !== null ||
     findById(tree, ID_DELETION_SCROLL) !== null || (await maybe(ON.id(ID_CS_SHEET_TITLE), 300)) !== null;
   if (stuck) {
@@ -370,7 +370,7 @@ export function pathTo(n: Record<string, Object>, id: string): Record<string, Ob
 
 /** id 所在页面（最近的 NavDestination 祖先；没有则整棵树）。 */
 export async function pageOf(id: string): Promise<Record<string, Object>> {
-  const tree: Record<string, Object> = await appTree();
+  const tree: Record<string, Object> = await appTree('pageOf');
   const path: Record<string, Object>[] = pathTo(tree, id);
   check(path.length > 0, 'ME12WC_NO_NODE ' + id, await safeTexts());
   for (let i: number = path.length - 1; i >= 0; i--) {

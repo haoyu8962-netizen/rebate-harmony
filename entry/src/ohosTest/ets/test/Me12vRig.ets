@@ -12,9 +12,9 @@ import { abilityDelegatorRegistry } from '@kit.TestKit';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
-  all, appTree, appUi, attr, capture, density, findById, hitRect, hm07vDriver, idle, Launch, launch, layoutSize, loginOnLoginPage,
-  maybe, node, overlaps, Pixels, rect, vp,
-  windowLayoutWidth
+  all, appTree, appUi, attr, boundsFresh, capture, density, findById, hitRect, hm07vDriver, idle, Launch, launch, layoutSize, loginOnLoginPage,
+  maybe, Measured, measureFresh, node, overlaps, Pixels, rect, vp,
+  windowLayoutWidth, probeById, layoutSizeIn, settleWait
 } from './Hm07vHomeRig';
 import { argb, check, GUEST, maxDiff, nodesOf, screenTexts, typeName } from './Hm07vOverlayRig';
 import { scene } from './FlakeKit';
@@ -142,6 +142,26 @@ export async function getMeDelta(before: number, timeoutMs: number = 4000): Prom
   return getMeCount() - before;
 }
 
+/**
+ * D10-1996：进页读取后再量布局。before 在启动参数应用、登录完成后，点击「我的」之前取。
+ * 仅用于正常会员内容场景：假服务回包 300ms；≤4s 等计数至少 +1，保留 600ms 观察窗，再复用 ≤4s / 400ms 的树落定。
+ * 计数不可读或超时未 +1 只记日志后继续，不新增失败判定；不重试点击 / 读取、不改原来的视觉断言。
+ * 不用于 slow 骨架、整页错误或受限会话；settledTree 的有界超时日志与后续原判据保持原设施语义。
+ */
+export async function settleMeRead(before: number, what: string): Promise<void> {
+  const end: number = Date.now() + 4000;
+  let count: number = getMeCount();
+  while ((before < 0 || count < before + 1) && Date.now() < end) {
+    await hm07vDriver.delayMs(150);
+    count = getMeCount();
+  }
+  console.info('ME12V_READ_SETTLE ' + what + ' before=' + before + ' delta=' + (count - before) +
+    ' settled=' + (before >= 0 && count >= before + 1));
+  await hm07vDriver.delayMs(600);
+  // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+  await settleWait(ON.id(ID_IDENTITY), 'ME12V 进页读取后 ' + what);
+}
+
 /** 系统剪贴板变更计数（API 18，不需要读权限）；不可用为 -1。 */
 export function clipCount(): number {
   try {
@@ -225,7 +245,7 @@ export async function memberReady(what: string): Promise<void> {
   const end: number = Date.now() + 8000;
   let ready: boolean = false;
   while (!ready) {
-    ready = (await maybe(ON.id(ID_WITHDRAWABLE))) !== null || findById(await appTree(), ID_WITHDRAWABLE) !== null;
+    ready = (await maybe(ON.id(ID_WITHDRAWABLE))) !== null || findById(await appTree('memberReady'), ID_WITHDRAWABLE) !== null;
     if (ready || Date.now() >= end) {
       break;
     }
@@ -279,7 +299,7 @@ export async function opensExactlyOnce(id: string, what: string, side: string = 
 export async function navDepth(): Promise<string> {
   try {
     const out: Record<string, Object>[] = [];
-    nodesOf(await appTree(), out);
+    nodesOf(await appTree('navDepth'), out);
     return String(out.filter((n: Record<string, Object>): boolean => typeName(n) === 'NavDestination').length);
   } catch (e) {
     return '?';
@@ -297,9 +317,18 @@ async function isVisibleOnScreen(id: string): Promise<boolean> {
 
 // ---------------------------------------------------------------- 组件树
 
+/**
+ * D10-2026 ②(3)：treeNode 最近一次取的整棵树。同一次检查里紧接着要读同一棵树的（notTruncated 读 $rect 尺寸），复用这棵，不再取第二棵。
+ * 只在 treeNode 里赋值；用它的地方都紧跟在同一检查里的 treeNode 之后。
+ */
+let lastTreeNodeTree: Record<string, Object> | null = null;
+
 /** 组件树里 id 节点（找不到报红）。 */
 export async function treeNode(id: string): Promise<Record<string, Object>> {
-  const n: Record<string, Object> | null = findById(await appTree(), id);
+  const tree: Record<string, Object> = await appTree('treeNode');
+  lastTreeNodeTree = tree;
+  const n: Record<string, Object> | null = findById(tree, id);
+  await probeById(id, n);
   check(n !== null, 'ME12V_INSPECTOR_MISSING ' + id, await safeTexts());
   return n as Record<string, Object>;
 }
@@ -359,7 +388,7 @@ export function drawnIcons(n: Record<string, Object>): number {
  * 有自己的转圈），数整棵树会把别的页算进来。me_page 不在树上时报红（不当作 0）。
  */
 export async function spinners(): Promise<number> {
-  const page: Record<string, Object> | null = findById(await appTree(), ID_PAGE);
+  const page: Record<string, Object> | null = findById(await appTree('spinners'), ID_PAGE);
   check(page !== null, 'ME12V_INSPECTOR_MISSING ' + ID_PAGE + '（数转圈的范围）');
   return ofType(page as Record<string, Object>, 'LoadingProgress').length;
 }
@@ -423,7 +452,8 @@ export function disjoint(rects: Rect[], labels: string[], what: string): void {
 
 /** UiTest 组件框（外框）；不在屏上报红。 */
 export async function frame(id: string, what: string): Promise<Rect> {
-  return rect(ON.id(id), what);
+  // D10-2001：找控件 + 量边界一步（Hm07vHomeRig.measureFresh；句柄失效有界重找，判据不变）。
+  return rect(ON.id(id), what, id);
 }
 
 /** 在命中矩形内、视觉图标外的一点（距命中区上边 3vp、水平居中）真实点击。 */
@@ -538,7 +568,8 @@ export async function notTruncated(id: string, lineMul: number, scale: number, w
   }) as number);
   const r: Rect = await frame(id, what);
   // 测试 v2（开发轮第 11 条）：高度取组件树布局尺寸（$rect，不受滚动视口裁剪），UiTest getBounds 是被视口裁过的可见框。
-  const size2: number[] | null = await layoutSize(id);
+  // D10-2026 ②(3)：尺寸从本函数开头 treeNode(id) 取的同一棵树里读（同一检查只取一次整树），读法同 layoutSize。
+  const size2: number[] | null = lastTreeNodeTree !== null ? layoutSizeIn(lastTreeNodeTree, id) : await layoutSize(id);
   const heightVp: number = size2 === null ? hVp(r) : vp(size2[1]);
   const widthVp: number = size2 === null ? wVp(r) : vp(size2[0]);
   const lines: number = Math.max(1, Math.ceil(textW / Math.max(1, widthVp) - 0.02));
@@ -569,12 +600,13 @@ export async function revealMe(id: string, what: string): Promise<Component> {
     const h: number = s.bottom - s.top;
     let dir: number = 1;
     if (c !== null) {
-      const r: Rect = await c.getBounds();
+      const m: Measured = await measureFresh(ON.id(id), what, id, c);
+      const r: Rect = m.r;
       const size: number[] | null = await layoutSize(id);
       const visible: number = Math.max(0, r.bottom - r.top);
       const need: number = size === null ? visible : Math.min(size[1], h);
       if (visible > 0 && visible >= need - d) {
-        return c;
+        return m.c;
       }
       dir = visible > 0 && r.top <= s.top + d ? -1 : 1;
       const move: number = Math.min(0.4 * h, Math.max(16 * d, need - visible + 12 * d));
@@ -593,7 +625,7 @@ export async function revealMe(id: string, what: string): Promise<Component> {
 export async function meTop(): Promise<void> {
   for (let i: number = 0; i < 5; i++) {
     if ((await maybe(ON.id(ID_TITLE))) !== null && (await maybe(ON.id(ID_IDENTITY))) !== null) {
-      const r: Rect = await (await node(ON.id(ID_IDENTITY), '身份卡')).getBounds();
+      const r: Rect = await boundsFresh(ON.id(ID_IDENTITY), '身份卡', ID_IDENTITY);
       const s: Rect = await frame(ID_SCROLL, '「我的」滚动区');
       if (r.top >= s.top) {
         return;
@@ -733,7 +765,7 @@ export async function switchesTabOnce(id: string, tabLabel: string, what: string
 /** 组件树里底栏某项（accessibilityText = 标签、成组；同名取最后一个 = 底栏）。 */
 async function tabNode(label: string): Promise<Record<string, Object> | null> {
   const out: Record<string, Object>[] = [];
-  nodesOf(await appTree(), out);
+  nodesOf(await appTree('tabNode'), out);
   const hits: Record<string, Object>[] = out.filter((n: Record<string, Object>): boolean =>
     attr(n, 'accessibilityGroup') === 'true' && attr(n, 'accessibilityText') === label);
   return hits.length > 0 ? hits[hits.length - 1] : null;

@@ -12,10 +12,10 @@
 // --set a11y，先卸载重装、从未同意隐私的冷启动开始；主步 notClass 最前加 HmA11yUi。
 // 执行顺序 = 声明顺序（身份单向）：游客 05（登录 44001）→ 会员 01（订单）→ 02（钱包）→ 03（提现手续费）→ 04（提现风控 / 放弃）。
 // 现树预期：05 红（返回关不掉）、01 红（复制读屏名不带单号）、02 / 03 红（问号无 id / 焦点不回）、04 红（返回关不掉）。
-import { describe, it } from '@ohos/hypium';
+import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
 import { KeyCode } from '@kit.InputKit';
-import { appTree, appUi, attr, ensureFull, findById, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node, settledNode } from './Hm07vHomeRig';
+import { appTree, appUi, attr, ensureFull, findById, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node, settledNode, freshRead, withRefind, boundsFresh, readFresh } from './Hm07vHomeRig';
 import { check, GUEST, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts, tabItem, T_ORDERS_TAB } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
@@ -23,6 +23,11 @@ import { waitUntil } from './FlakeKit';
 import { a11yFundsCases } from './HmA11yFundsCases';
 import { a11yAgentCases } from './A11yAgentSeg';
 import { a11yHomeSearchCases } from './A11yHomeSearchSeg';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/a11ycommon/device-cases.txt、ds02/check_device_result.py --set a11y（#24）一致。 */
 export const A11Y_COMMON_DEVICE_CASES: string[] = [
@@ -90,7 +95,7 @@ async function focusedWithin(id: string, timeoutMs: number): Promise<boolean> {
   const end: number = Date.now() + timeoutMs;
   for (;;) {
     const c: Component | null = await maybe(ON.id(id));
-    if (c !== null && await c.isFocused()) { return true; }
+    if (c !== null && (await readFresh<boolean>(ON.id(id), id, id, (x: Component): Promise<boolean> => x.isFocused(), c)).v) { return true; }
     if (Date.now() >= end) { return false; }
     await hm07vDriver.delayMs(250);
   }
@@ -119,7 +124,7 @@ async function reveal(on: On, what: string): Promise<Component> {
   }
   const scroll: Component | null = await maybe(ON.type('Scroll'), 500);
   if (scroll !== null) {
-    const view: Rect = await scroll.getBounds();
+    const view: Rect = await boundsFresh(ON.type('Scroll'), '页面 Scroll', 'Scroll', scroll);
     const x: number = Math.floor((view.left + view.right) / 2);
     const low: number = Math.floor(view.top + (view.bottom - view.top) * 0.75);
     const high: number = Math.floor(view.top + (view.bottom - view.top) * 0.3);
@@ -141,7 +146,7 @@ async function reveal(on: On, what: string): Promise<Component> {
 
 /** 屏上装着 cardId 那张卡的 List（订单列表没有挂 id：取外框包住该卡中心的那个 List；找不到为 null）。 */
 async function ordersList(cardId: string): Promise<Component | null> {
-  const card: Rect = await (await node(ON.id(cardId), '订单卡 ' + cardId)).getBounds();
+  const card: Rect = await freshRead<Rect>((): Promise<Component> => node(ON.id(cardId), '订单卡 ' + cardId), (c: Component): Promise<Rect> => c.getBounds(), '订单卡 ' + cardId);
   const cx: number = (card.left + card.right) / 2;
   const cy: number = (card.top + card.bottom) / 2;
   const lists: Component[] = await hm07vDriver.findComponents(ON.type('List'));
@@ -170,7 +175,7 @@ async function listBackToCard(list: Component, cardId: string): Promise<void> {
   for (let i: number = 0; i <= SWIPE_STEPS && Date.now() < end; i++) {
     const card: Component | null = await maybe(ON.id(cardId), 300);
     if (card !== null) {
-      const r: Rect = await card.getBounds();
+      const r: Rect = await boundsFresh(ON.id(cardId), cardId, cardId, card);
       if (r.top >= view.top && r.bottom <= view.bottom && r.bottom > r.top) {
         return;
       }
@@ -259,7 +264,7 @@ async function helpRoundTrip(label: string, what: string): Promise<string> {
 /** 输入框当前值（去空白）。 */
 async function valueOf(id: string): Promise<string> {
   const c: Component | null = await maybe(ON.id(id));
-  return c === null ? '' : (await c.getText()).replace(/\s/g, '');
+  return c === null ? '' : (await readFresh<string>(ON.id(id), id, id, (x: Component): Promise<string> => x.getText(), c)).v.replace(/\s/g, '');
 }
 
 /** 停在会员一级页后热启动直达路由（钱包场景 scene；'' = 缺省）。 */

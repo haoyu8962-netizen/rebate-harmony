@@ -17,7 +17,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
-  appTree, attr, density, findById, hm07vDriver, idle, Launch, launch, layoutSize, maybe, node, relaunchCold, units, settledNode
+  appTree, attr, density, findById, hm07vDriver, idle, Launch, launch, layoutSize, maybe, node, relaunchCold, units, settledNode, boundsFresh, nodeById
 } from './Hm07vHomeRig';
 import { check, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, clipCount, hVp, isGuest, meDefaults, memberReady, openMeTab, safeTexts, smsLogin, wVp } from './Me12vRig';
@@ -414,7 +414,7 @@ export async function sizeVp(id: string): Promise<number[] | null> {
 
 /** 组件树里有没有该 id（不论在不在屏上）。 */
 export async function inTree(id: string): Promise<boolean> {
-  return findById(await appTree(), id) !== null;
+  return (await nodeById(id, 'inTree')) !== null;
 }
 
 /** 屏上或组件树里都没有该 id。 */
@@ -426,7 +426,7 @@ export async function absent(id: string): Promise<boolean> {
 export async function textIn(text: string, within: string, what: string): Promise<Rect> {
   const c: Component | null = await maybe(ON.text(text).within(ON.id(within)), 3000);
   check(c !== null, 'ME12WB_TEXT_MISSING ' + what + '「' + text + '」', await safeTexts());
-  return (c as Component).getBounds();
+  return boundsFresh(ON.text(text).within(ON.id(within)), what, '', c as Component);
 }
 
 /** 读屏单元（HM-07v 规则）去类型前缀、去空白。 */

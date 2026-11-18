@@ -19,11 +19,11 @@
 // finally 里冷启动复位（用例间不留状态）。
 // 设备坑（12w-a / 12w-b 测试 v2–v4、F-HM-85）：直达参数只在外壳就绪后生效（冷启动后再热启动直达）；同进程缓存（显示参数只经冷启动生效）；
 // 两次短信登录间隔 ≥ 62 s（本套件只登录一次）；系统面板用完就关；取样避开字形；reveal 目标不在屏上先回顶；位置稳定再点（settledHit）。
-import { describe, it } from '@ohos/hypium';
+import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Point, Rect } from '@kit.TestKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import {
-  appTree, appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, settledNode, settleWait
+  appTree, appUi, attr, density, findById, hm07vDriver, idle, launch, Launch, maybe, node, settledNode, settleWait, freshRead, withRefind, boundsFresh
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, over, rgbText, typeName } from './Hm07vOverlayRig';
 import { backToTabs, isGuest, openMeTab, safeTexts } from './Me12vRig';
@@ -51,6 +51,11 @@ import {
   T_REASON_BANNED, T_REASON_FROZEN, T_RISK_TITLE, T_STEP_PROCESSING, T_STEP_RESULT, T_STEP_SUBMITTED, T_TARGET, T_UNTIL, T_UNTIL_LABEL,
   T_UPHELD, T_WD_ROW, T_WITHDRAW_LABEL, T_WITHDRAW_OK, T_WITHDRAWALS, textsIn, TOL, treeRect
 } from './Me12wcRig';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/me12wc/fixtures/device-cases.txt、ds02/check_device_result.py --set me12wc 一致（check_risk_visual.py C1 守）。 */
 export const ME12WC_DEVICE_CASES: string[] = [
@@ -85,7 +90,7 @@ const INTERNAL: boolean = false;
 async function box(id: string, what: string): Promise<Rect> {
   const c: Component | null = await maybe(ON.id(id), 3000);
   check(c !== null, 'ME12WC_MISSING ' + what + '（' + id + '）', await safeTexts());
-  const r: Rect = await (c as Component).getBounds();
+  const r: Rect = await boundsFresh(ON.id(id), what, id, c as Component);
   check(r.right > r.left && r.bottom > r.top, 'ME12WC_EMPTY_BOUNDS ' + what);
   return r;
 }
@@ -322,7 +327,7 @@ async function hideKeyboard(scrollId: string): Promise<void> {
 }
 
 async function enabled(id: string): Promise<boolean> {
-  return (await node(ON.id(id), id)).isEnabled();
+  return freshRead<boolean>((): Promise<Component> => node(ON.id(id), id), (c: Component): Promise<boolean> => c.isEnabled(), id);
 }
 
 /** 卡片自上而下的顺序（屏上外框 top 递增；不在屏上的先 reveal）。 */
@@ -436,7 +441,7 @@ async function centerText(text: string, scrollId: string, what: string): Promise
       await hm07vDriver.delayMs(400);
       continue;
     }
-    const r: Rect = await (c as Component).getBounds();
+    const r: Rect = await boundsFresh(ON.text(text).within(ON.id(scrollId)), text, '', c as Component);
     if (r.top >= s.top + 8 * d && r.bottom <= s.bottom - 8 * d) {
       return;
     }
@@ -487,7 +492,8 @@ export default function me12wcUiTest(): void {
       // R1：块间 24（旧 12）：说明句底 → 信息卡顶；信息卡底 → 提示条顶。
       const desc: Component = await node(ON.text(T_FROZEN_DESC).within(ON.id(ID_RISK_SCROLL)), '冻结说明句');
       const card: Rect = await box(ID_RISK_CARD, '信息卡');
-      near((card.top - (await desc.getBounds()).bottom) / density(), 24, 1.5, 'ME12WC_BLOCK_GAP 头部 → 信息卡 24（旧 12）');
+      near((card.top - (await boundsFresh(ON.text(T_FROZEN_DESC).within(ON.id(ID_RISK_SCROLL)), '冻结说明句', '', desc)).bottom) / density(), 24,
+        1.5, 'ME12WC_BLOCK_GAP 头部 → 信息卡 24（旧 12）');
       // R3：行 ≥ 48 不撑大、14 / 14-500 右对齐、整行读一次。
       await infoRow(ID_RISK_REASON, T_REASON, T_REASON_FROZEN, '原因行');
       await infoRow(ID_RISK_UNTIL, T_UNTIL_LABEL, T_UNTIL, '预计恢复行（只格式化 frozen_until）');
@@ -630,9 +636,9 @@ export default function me12wcUiTest(): void {
       await (await node(ON.id(ID_APPEAL_SUBMIT), '【提交申诉】')).click();
       check((await delta(SUBMIT_COUNT_KEY, n0)) === 1, 'ME12WC_20001_ONCE 20001 提交一次');
       check((await maybe(ON.id(ID_FIELD_ERROR), 4000)) !== null, 'ME12WC_20001_FIELD 没有字段错误', await safeTexts());
-      check((await (await node(ON.id(ID_FIELD_ERROR), '字段错误')).getText()) === T_ERR_FIELD, 'ME12WC_20001_TEXT 字段错误文字');
+      check((await freshRead<string>((): Promise<Component> => node(ON.id(ID_FIELD_ERROR), '字段错误'), (c: Component): Promise<string> => c.getText(), '字段错误')) === T_ERR_FIELD, 'ME12WC_20001_TEXT 字段错误文字');
       check(attr(await treeNode(ID_FIELD_ERROR), 'focusable') !== 'false', 'ME12WC_20001_FOCUSABLE 字段错误可获焦（焦点目标，12w-a T7 同判据）');
-      const kept: string = await (await node(ON.id(ID_INPUT), '输入框')).getText();
+      const kept: string = await freshRead<string>((): Promise<Component> => node(ON.id(ID_INPUT), '输入框'), (c: Component): Promise<string> => c.getText(), '输入框');
       check(kept.indexOf(APPEAL_INPUT) >= 0, 'ME12WC_20001_KEEP 输入保留', kept);
       await noDeadline(ID_APPEAL_SCROLL, '20001');
       // 50001：错误条带 trace6。
@@ -679,7 +685,7 @@ export default function me12wcUiTest(): void {
       await reveal(ID_APPEAL_CS, '底部链接', ID_APPEAL_SCROLL);
       const foot: Component = await node(ON.text(T_FOOTER), '底部句');
       const link: Rect = await hit48(ID_APPEAL_CS, '底部「联系客服」');
-      const fr: Rect = await foot.getBounds();
+      const fr: Rect = await boundsFresh(ON.text(T_FOOTER), '底部句', '', foot);
       const scroll: Rect = await box(ID_APPEAL_SCROLL, '滚动区');
       near((Math.min(fr.left, link.left) + Math.max(fr.right, link.right)) / 2 / density(), cx(scroll), 3, 'ME12WC_FOOTER_CENTER 底部句 + 链接整体居中');
       await absentId(ID_BAR, '处理中无白底栏');
@@ -717,7 +723,7 @@ export default function me12wcUiTest(): void {
       check(meCount() === me0 && listCount() === list0 && submitCount() === sub0, 'ME12WC_REDLINE2_ZERO 【再次申诉】零请求（getMe ' +
         (meCount() - me0) + ' / listAppeals ' + (listCount() - list0) + ' / 提交 ' + (submitCount() - sub0) + '）');
       check((await maybe(ON.id(ID_INPUT), 2000)) !== null, 'ME12WC_REDLINE2_SUBMIT 回到提交版式', await safeTexts());
-      check((await (await node(ON.id(ID_INPUT), '输入框')).getText()).length === 0, 'ME12WC_REDLINE2_EMPTY 输入为空');
+      check((await freshRead<string>((): Promise<Component> => node(ON.id(ID_INPUT), '输入框'), (c: Component): Promise<string> => c.getText(), '输入框')).length === 0, 'ME12WC_REDLINE2_EMPTY 输入为空');
       check(!(await enabled(ID_APPEAL_SUBMIT)), 'ME12WC_REDLINE2_DISABLED 空输入不可提交');
     });
 
@@ -843,7 +849,7 @@ export default function me12wcUiTest(): void {
       await tapAt(await hitOf(ID_AGAIN, '【再次申诉】'), 'bottom');
       await hm07vDriver.delayMs(2000);
       check(listCount() === list0 && submitCount() === sub0 && meCount() === me0, 'ME12WC_REDLINE2_ZERO 【再次申诉】零请求（封禁组）');
-      check((await maybe(ON.id(ID_INPUT), 2000)) !== null && (await (await node(ON.id(ID_INPUT), '输入框')).getText()).length === 0,
+      check((await maybe(ON.id(ID_INPUT), 2000)) !== null && (await freshRead<string>((): Promise<Component> => node(ON.id(ID_INPUT), '输入框'), (c: Component): Promise<string> => c.getText(), '输入框')).length === 0,
         'ME12WC_REDLINE2_SUBMIT 回到提交版式且输入为空');
       await chip(ID_STATE_CHIP, 'status.error.background', true, false, '提交页当前状态胶囊（封禁 → error + 三角）');
     });
@@ -1021,7 +1027,8 @@ export default function me12wcUiTest(): void {
         await (await node(ON.id(ID_NICK_INPUT), '昵称输入框')).click();
         await hm07vDriver.delayMs(1200);
         const nc: Component | null = await maybe(ON.id(ID_NICK_SAVE), 800);
-        const lift: number = nc === null ? 0 : (nb.top - (await (nc as Component).getBounds()).top) / density();
+        const lift: number = nc === null ? 0 :
+          (nb.top - (await boundsFresh(ON.id(ID_NICK_SAVE), ID_NICK_SAVE, ID_NICK_SAVE, nc as Component)).top) / density();
         check(lift < 60, 'ME12WC_UPPER_LIFTED 上层页底栏被键盘顶起 ' + lift.toFixed(1) + 'vp（RESIZE 被带到上层页）');
         // 返回申诉页：收键盘、关昵称子页、关设置（最多 5 次返回，每次看申诉页是否已在顶）。
         for (let i: number = 0; i < 5 && (await maybe(ON.id(ID_APPEAL_SCROLL), 600)) === null; i++) {

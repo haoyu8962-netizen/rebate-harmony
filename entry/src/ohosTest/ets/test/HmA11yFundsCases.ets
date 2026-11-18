@@ -11,13 +11,18 @@
 // 执行顺序 = 声明顺序（全部会员身份）：04 标签只读一次 → 03 小眼睛 → 02 被拒输入 → 05 二次验证 → 01 金额类提交错误。
 // v1 先红预期（2a4b1c8）：04 红（标签 Text 仍可读）、03 红（眼睛无 id）、02 红（被拒后整卡重建、键盘焦点丢失）、05 绿（钉住验证码框键盘
 // 默认焦点）、01 红（假服务还没有 amount_rejected 场景：提交成功、没有金额类错误）。v2 没跑设备；对实现 r1 的预期见交回。
-import { it } from '@ohos/hypium';
+import { it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, Rect } from '@kit.TestKit';
-import { appTree, appUi, attr, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold } from './Hm07vHomeRig';
+import { appTree, appUi, attr, findById, hm07vDriver, idle, launch, Launch, maybe, node, relaunchCold, withRefind, readFresh, boundsFresh, settleWait } from './Hm07vHomeRig';
 import { check, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts } from './Me12vRig';
 import { base, ensureMember, restoreDefaults } from './Me12wbRig';
 import { waitUntil } from './FlakeKit';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/a11yfunds/device-cases.txt、ds02/check_device_result.py --set a11y（#24 并入）一致。 */
 export const A11Y_FUNDS_DEVICE_CASES: string[] = [
@@ -92,7 +97,7 @@ async function focusedWithin(id: string, timeoutMs: number): Promise<boolean> {
   const end: number = Date.now() + timeoutMs;
   for (;;) {
     const c: Component | null = await maybe(ON.id(id));
-    if (c !== null && await c.isFocused()) { return true; }
+    if (c !== null && (await readFresh<boolean>(ON.id(id), id, id, (x: Component): Promise<boolean> => x.isFocused(), c)).v) { return true; }
     if (Date.now() >= end) { return false; }
     await hm07vDriver.delayMs(250);
   }
@@ -175,8 +180,10 @@ async function spokenStarting(prefix: string): Promise<Record<string, Object>[]>
 
 /** 主卡数字格（冻结中 / 已提现）排法：row = 并排、stack = 上下、? = 找不到。 */
 async function heroGridLayout(): Promise<string> {
-  const a: Record<string, Object>[] = await spokenStarting(T_FROZEN + COMMA);
-  const b: Record<string, Object>[] = await spokenStarting(T_WITHDRAWN + COMMA);
+  // D10-2026 ②(3)：两组读屏名从同一次取到的钱包页读屏节点里筛（原来 spokenStarting 两次 = 取两次整树）；筛法与 spokenStarting 相同。
+  const scope: Record<string, Object>[] = await walletReadableNodes();
+  const a: Record<string, Object>[] = scope.filter((n: Record<string, Object>): boolean => attr(n, 'accessibilityText').startsWith(T_FROZEN + COMMA));
+  const b: Record<string, Object>[] = scope.filter((n: Record<string, Object>): boolean => attr(n, 'accessibilityText').startsWith(T_WITHDRAWN + COMMA));
   if (a.length === 0 || b.length === 0) { return '?'; }
   const ra: number[] = rectOf(a[0]);
   const rb: number[] = rectOf(b[0]);
@@ -213,7 +220,7 @@ async function reveal(on: On, what: string): Promise<Component> {
   }
   const scroll: Component | null = await maybe(ON.type('Scroll'), 500);
   if (scroll !== null) {
-    const view: Rect = await scroll.getBounds();
+    const view: Rect = await boundsFresh(ON.type('Scroll'), '页面 Scroll', 'Scroll', scroll);
     const x: number = Math.floor((view.left + view.right) / 2);
     const low: number = Math.floor(view.top + (view.bottom - view.top) * 0.75);
     const high: number = Math.floor(view.top + (view.bottom - view.top) * 0.3);
@@ -235,7 +242,7 @@ async function reveal(on: On, what: string): Promise<Component> {
 
 async function valueOf(id: string): Promise<string> {
   const c: Component | null = await maybe(ON.id(id));
-  return c === null ? '' : (await c.getText()).replace(/\s/g, '');
+  return c === null ? '' : (await readFresh<string>(ON.id(id), id, id, (x: Component): Promise<string> => x.getText(), c)).v.replace(/\s/g, '');
 }
 
 /**
@@ -500,6 +507,9 @@ export function a11yFundsCases(): void {
       await launch(big);
       await node(ON.id(ID_WALLET_WITHDRAW), '钱包（200%）', 8000);
       await idle();
+      // D10-1996：保留原内容就绪等待，读主卡排法 / 取眼睛句柄前补树落定。
+      // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+      await settleWait(ON.id(ID_EYE), 'A11Y_FUNDS 冷启 200% 钱包');
       await need((await heroGridLayout()) === 'stack', 'A11Y_FUNDS_GRID_200 200% 金额显示时主卡数字格应纵排');
       await clickEye();
       await need((await heroGridLayout()) === 'stack', 'A11Y_FUNDS_GRID_200 200% 切到隐藏后主卡数字格应仍纵排');

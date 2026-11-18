@@ -14,7 +14,7 @@ import { ON, Component, Driver, MatchPattern, Rect } from '@kit.TestKit';
 import { runUiTask } from './Ds02UiSession';
 import {
   a11yOf, atLeast, defaults, ensureFull, gone, hit48, hitRect, hm07vDriver, idle, Launch, maybe, near, node, overlaps,
-  launch, rect, relaunchCold, scrollTop, units, vp, windowWidthVp
+  launch, rect, relaunchCold, scrollTop, units, vp, windowWidthVp, withRefind, boundsFresh
 } from './Hm07vHomeRig';
 import {
   argb, box, buttonAround, hitOfBounds, homeReady, BUY, CARD_LIST_TITLE, check, CLIP_FAIL, CLIP_INVITE, CLIP_MULTI, CLIP_OFFLINE,
@@ -26,8 +26,9 @@ import {
 
 const driver: Driver = hm07vDriver;
 
+// D10-2020：用例体经 withRefind 登记用例名、打开测试台 refind 层（句柄失效有界重找，见 Hm07vHomeRig.measureFresh）；用例体与判据不变。
 function it(name: string, flags: number, body: () => Promise<void>): void {
-  hypiumIt(name, flags, async (): Promise<void> => { await runUiTask(driver, body); });
+  hypiumIt(name, flags, async (): Promise<void> => { await runUiTask(driver, withRefind(name, body)); });
 }
 
 const INVITE_FULL: string = '检测到好友邀请码 K7M3QX，绑定为邀请人？';
@@ -117,14 +118,15 @@ async function singleAndMultiSheet(): Promise<void> {
   const buy: Rect = await revealBuy();
   // 单张：无可见标题（「识别到的商品」只作读屏 / 焦点落点）、一张卡、一个【领券购买】、卡下一句价格口径。
   const title: Component | null = await maybe(ON.text(CARD_LIST_TITLE), 500);
-  const titleVisible: boolean = title !== null && ((await title.getBounds()).bottom - (await title.getBounds()).top) > 1;
+  const tr: Rect | null = title === null ? null : await boundsFresh(ON.text(CARD_LIST_TITLE), '识别卡标题', 'card_list_title', title);
+  const titleVisible: boolean = tr !== null && (tr.bottom - tr.top) > 1;
   check(!titleVisible, '单张识别卡不显示可见标题');
   check((await driver.findComponents(ON.text(BUY)) ?? []).length === 1, '单张只有一个【领券购买】');
   const buyHit: Rect = await hitOfBounds(buy);
   atLeast(vp(Math.min(buyHit.right - buyHit.left, buyHit.bottom - buyHit.top)), 47.5, '【领券购买】命中区 vp');
   const basis: Component | null = await maybe(ON.text('按单件计算', MatchPattern.CONTAINS), 1500);
   check(basis !== null, '卡下一句价格口径');
-  const br: Rect = await (basis as Component).getBounds();
+  const br: Rect = await boundsFresh(ON.text('按单件计算', MatchPattern.CONTAINS), '价格口径句', 'basis', basis as Component);
   check(br.top >= buy.bottom - 1, '口径句在卡（购买按钮）下方', box(br) + ' buy=' + box(buy));
   check((await driver.findComponents(ON.text('按单件计算', MatchPattern.CONTAINS)) ?? []).length === 1, '口径句只出一句');
   // 关闭：右上、命中 48、读屏「关闭」；关闭后半屏收起。
@@ -236,7 +238,7 @@ export default function hm07vOverlayUiTest() {
       const cls: Rect = await hit48(ON.id('clipboard_invite_prompt_close'), '邀请条关闭');
       check(!overlaps(act, cls), '【绑定】与关闭不重叠', box(act) + ' ' + box(cls));
       // 位置：搜索行下、价值卡上（a 段已定，b 段不得挪动）。
-      const b: Rect = await (bar as Component).getBounds();
+      const b: Rect = await boundsFresh(ON.id('clipboard_invite_prompt'), '邀请条', 'clipboard_invite_prompt', bar as Component);
       const search: Rect = await rect(ON.id('home_search_row'), '搜索行');
       const value: Rect = await rect(ON.id('home_guest_value'), '价值卡');
       check(search.bottom <= b.top && b.bottom <= value.top, '邀请条在搜索行下、价值卡上', box(search) + box(b) + box(value));
@@ -258,7 +260,7 @@ export default function hm07vOverlayUiTest() {
           .with('couli_debug_layout_width', '320'));
         const bar: Component | null = await maybe(ON.id('clipboard_invite_prompt'), 6000);
         check(bar !== null, '200% × 320 邀请条出现');
-        const b: Rect = await (bar as Component).getBounds();
+        const b: Rect = await boundsFresh(ON.id('clipboard_invite_prompt'), '邀请条', 'clipboard_invite_prompt', bar as Component);
         check(b.left >= 0 && vp(b.right) <= 320.5, '邀请条在 320 窗口内', box(b));
         const act: Rect = await hit48(ON.id('clipboard_invite_prompt_action'), '200% 【绑定】');
         const cls: Rect = await hit48(ON.id('clipboard_invite_prompt_close'), '200% 关闭');
@@ -310,7 +312,8 @@ export default function hm07vOverlayUiTest() {
         const bigHit: Rect = await hitOfBounds(big);
         atLeast(vp(Math.min(bigHit.right - bigHit.left, bigHit.bottom - bigHit.top)), 47.5, '200% 【领券购买】命中区 vp');
         const title: Component | null = await maybe(ON.text(CARD_LIST_TITLE), 500);
-        check(title === null || ((await title.getBounds()).bottom - (await title.getBounds()).top) <= 1, '200% 单张仍无可见标题');
+        const tr: Rect | null = title === null ? null : await boundsFresh(ON.text(CARD_LIST_TITLE), '识别卡标题', 'card_list_title', title);
+        check(tr === null || (tr.bottom - tr.top) <= 1, '200% 单张仍无可见标题');
         await hit48(ON.id('clipboard_card_list_close'), '200% 识别卡关闭');
         await (await node(ON.id('clipboard_card_list_close'), '识别卡关闭')).click();
       } finally {

@@ -10,15 +10,20 @@
 // 名字里的序号对应交回 §3 的条目，不是执行顺序。
 // 现树预期：01 红（固定 52vp 框高）、02 红（倒计时是光秃 Text、无 login_resend 按钮；320 + 200% 下被截）、03 红（发码是 Text 不是 Button、
 // 无按钮外观）、04 / 05 红（错误没关联到输入框）、06 绿（钉住判据 1）。
-import { describe, expect, it } from '@ohos/hypium';
+import { describe, expect, it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
 import {
   appTree, appUi, attr, capture, density, ensureFull, findById, hitRect, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node,
-  overlaps, Pixels, relaunchCold, settledNode, token, vp, windowLayoutWidth, windowWidthVp
+  overlaps, Pixels, relaunchCold, settledNode, token, vp, windowLayoutWidth, windowWidthVp, freshRead, withRefind, boundsFresh
 } from './Hm07vHomeRig';
 import { check, GUEST, maxDiff, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, fontOf, openMeTab, safeTexts, tabItem, T_ORDERS_TAB, textWidthVp, weightOf } from './Me12vRig';
 import { waitUntil } from './FlakeKit';
+
+/** D10-2021：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 与 tools/ci/loginphone/device-cases.txt、ds02/check_device_result.py --set loginphone（#24）一致。 */
 export const LOGINPHONE_DEVICE_CASES: string[] = [
@@ -383,8 +388,8 @@ export default function loginPhoneUiTest() {
       await idle();
       const err: Component | null = await maybe(ON.text(T_PHONE_INVALID), 5000);
       await need(err !== null, 'LOGINPHONE_PHONE_ERROR_NOT_SHOWN 手机号格式错没有出现「' + T_PHONE_INVALID + '」');
-      const input: Rect = await (await node(ON.id(ID_PHONE), '登录页手机号')).getBounds();
-      const er: Rect = await (err as Component).getBounds();
+      const input: Rect = await freshRead<Rect>((): Promise<Component> => node(ON.id(ID_PHONE), '登录页手机号'), (c: Component): Promise<Rect> => c.getBounds(), '登录页手机号');
+      const er: Rect = await boundsFresh(ON.text(T_PHONE_INVALID), '手机号格式错提示', '', err as Component);
       await need(er.top >= input.bottom - 2, 'LOGINPHONE_PHONE_ERROR_PLACE 错误提示 ' + box(er) + ' 不在手机号框 ' + box(input) + ' 下方');
       await need((await maybe(ON.id(ID_CODE))) === null, 'LOGINPHONE_PHONE_ERROR_STEP 号码不合法却进了验证码步');
       const n: Record<string, Object> | null = findById(await appTree(), ID_PHONE);
@@ -431,7 +436,7 @@ export default function loginPhoneUiTest() {
         await typeInto(ID_PHONE, PHONE, '登录页手机号');
         await dropFocus();
         const c: Component = await node(ON.id(ID_PHONE), '登录页手机号');
-        const r: Rect = await c.getBounds();
+        const r: Rect = await boundsFresh(ON.id(ID_PHONE), '登录页手机号', ID_PHONE, c);
         const n: Record<string, Object> | null = findById(await appTree(), ID_PHONE);
         await need(n !== null, 'LOGINPHONE_INSPECTOR_MISSING ' + ID_PHONE);
         const fontVp: number = fontOf(n as Record<string, Object>) * 2;
@@ -463,7 +468,7 @@ export default function loginPhoneUiTest() {
       await need((await c.getType()) === 'TextInput', 'LOGINPHONE_PHONE_NOT_TEXTINPUT 手机号框类型 ' + (await c.getType()));
       const n: Record<string, Object> | null = findById(await appTree(), ID_PHONE);
       const fontVp: number = n === null ? 0 : fontOf(n) * 2;
-      const r: Rect = await c.getBounds();
+      const r: Rect = await boundsFresh(ON.id(ID_PHONE), '登录页手机号', ID_PHONE, c);
       await need(hVpOf(r) < fontVp * 2 + 8, 'LOGINPHONE_PHONE_MULTILINE 手机号框高 ' + hVpOf(r).toFixed(1) + 'vp ≥ 两行（字号 ' +
         fontVp.toFixed(1) + '）');
       await toCodeStep();
@@ -474,7 +479,7 @@ export default function loginPhoneUiTest() {
       await need(wb.indexOf('BREAK_ALL') < 0 && wb.indexOf('HYPHENATION') < 0, 'LOGINPHONE_MASKED_BREAK_ALL 号码所在 Text wordBreak=' + wb);
       const size: number = fontOf(tn) * 2;
       const numW: number = await textWidthVp(MASKED, size, weightOf(tn), 0);
-      const tr: Rect = await (await node(ON.text(attr(tn, 'content')), '已发送至')).getBounds();
+      const tr: Rect = await freshRead<Rect>((): Promise<Component> => node(ON.text(attr(tn, 'content')), '已发送至'), (c: Component): Promise<Rect> => c.getBounds(), '已发送至');
       await need(numW <= wVpOf(tr) + 0.5, 'LOGINPHONE_MASKED_TOO_WIDE 号码宽 ' + numW.toFixed(1) + 'vp > 行宽 ' + wVpOf(tr).toFixed(1) +
         'vp（放不进一行就会在数字中间断）');
       await (await node(ON.id(ID_CLOSE), '验证码步返回')).click();
@@ -489,7 +494,7 @@ export default function loginPhoneUiTest() {
         await relaunchCold(display('2', '320', mode));
         await toCodeStep();
         const right: number = layoutRightPx('320');
-        const codeBox: Rect = await (await node(ON.id(ID_CODE), '验证码输入')).getBounds();
+        const codeBox: Rect = await freshRead<Rect>((): Promise<Component> => node(ON.id(ID_CODE), '验证码输入'), (c: Component): Promise<Rect> => c.getBounds(), '验证码输入');
         // 先量倒计时文字（现树：光秃 Text 被挤出右边界）
         const counting: Component | null = await maybe(ON.text(T_LOGIN_COUNTDOWN, MatchPattern.CONTAINS), 3000);
         await need(counting !== null, 'LOGINPHONE_NO_COUNTDOWN ' + mode + ' 验证码步没有「N ' + T_LOGIN_COUNTDOWN + '」');
@@ -497,7 +502,7 @@ export default function loginPhoneUiTest() {
         const content: Rect = { left: codeBox.left, top: 0, right: codeBox.right, bottom: 100000 };
         await textFits(T_LOGIN_COUNTDOWN, content, right, 2, mode + ' 倒计时（内容区）');
         const btn: Component = await isSystemButton(ID_RESEND, mode + ' 倒计时 / 重新获取');
-        const br: Rect = await btn.getBounds();
+        const br: Rect = await boundsFresh(ON.id(ID_RESEND), mode + ' 倒计时 / 重新获取', ID_RESEND, btn);
         await need(br.left >= codeBox.left - 2 && br.right <= codeBox.right + 2 && br.right <= right + 2,
           'LOGINPHONE_BUTTON_OUTSIDE ' + mode + ' 倒计时按钮 ' + box(br) + ' 越出内容区 ' + box(codeBox));
         await need(!(await btn.isEnabled()), 'LOGINPHONE_COUNTDOWN_ENABLED ' + mode + ' 倒计时中按钮可点');
@@ -510,7 +515,7 @@ export default function loginPhoneUiTest() {
           await need(back !== null, 'LOGINPHONE_NO_RESEND 倒计时 66 s 内没变成「' + T_RESEND + '」');
           await dropFocus();
           const rb: Component = await isSystemButton(ID_RESEND, '重新获取');
-          const rr: Rect = await rb.getBounds();
+          const rr: Rect = await boundsFresh(ON.id(ID_RESEND), '重新获取', ID_RESEND, rb);
           await need(await rb.isEnabled(), 'LOGINPHONE_RESEND_DISABLED 倒计时结束「重新获取」不可点');
           await textFits(T_RESEND, rr, right, 2, '重新获取');
           await looksLikeButton(rr, '重新获取按钮');
@@ -558,12 +563,13 @@ export default function loginPhoneUiTest() {
         await need((await phone.getType()) === 'TextInput', 'LOGINPHONE_PHONE_NOT_TEXTINPUT 绑定页手机号类型 ' + (await phone.getType()));
         const pn: Record<string, Object> | null = findById(await appTree(), ID_BIND_PHONE);
         const fontVp: number = pn === null ? 0 : fontOf(pn) * 2;
-        await need(hVpOf(await phone.getBounds()) < fontVp * 2 + 8, 'LOGINPHONE_PHONE_MULTILINE 绑定页手机号框超过一行');
+        await need(hVpOf(await boundsFresh(ON.id(ID_BIND_PHONE), '绑定页手机号', ID_BIND_PHONE, phone)) < fontVp * 2 + 8,
+          'LOGINPHONE_PHONE_MULTILINE 绑定页手机号框超过一行');
         await typeInto(ID_BIND_PHONE, PHONE, '绑定页手机号');
         await dropFocus();
         let send: Component = await isSystemButton(ID_BIND_SEND, mode + ' 发码');
-        let sr: Rect = await send.getBounds();
-        const codeR: Rect = await (await reveal(ON.id(ID_BIND_CODE), '绑定页验证码')).getBounds();
+        let sr: Rect = await boundsFresh(ON.id(ID_BIND_SEND), mode + ' 发码', ID_BIND_SEND, send);
+        const codeR: Rect = await boundsFresh(ON.id(ID_BIND_CODE), '绑定页验证码', ID_BIND_CODE, await reveal(ON.id(ID_BIND_CODE), '绑定页验证码'));
         await need(!overlaps(sr, codeR), 'LOGINPHONE_SEND_OVERLAPS_INPUT ' + mode + ' 发码按钮 ' + box(sr) + ' 压在验证码框 ' + box(codeR) + ' 上');
         await need(sr.right <= right + 2 && sr.left >= -1, 'LOGINPHONE_BUTTON_OUTSIDE ' + mode + ' 发码按钮 ' + box(sr) + ' 越出内容区');
         await hit48Of(ID_BIND_SEND, mode + ' 发码');
@@ -577,7 +583,7 @@ export default function loginPhoneUiTest() {
         await need(counting !== null, 'LOGINPHONE_NO_BIND_COUNTDOWN ' + mode + ' 发码后没有「N ' + T_BIND_COUNTDOWN + '」');
         await dropFocus();
         send = await isSystemButton(ID_BIND_SEND, mode + ' 倒计时');
-        sr = await send.getBounds();
+        sr = await boundsFresh(ON.id(ID_BIND_SEND), mode + ' 倒计时', ID_BIND_SEND, send);
         await need(!(await send.isEnabled()), 'LOGINPHONE_COUNTDOWN_ENABLED ' + mode + ' 绑定页倒计时中按钮可点');
         await need(sr.right <= right + 2 && !overlaps(sr, codeR), 'LOGINPHONE_BUTTON_OUTSIDE ' + mode + ' 倒计时按钮 ' + box(sr));
         await textFits(T_BIND_COUNTDOWN, sr, right, 2, mode + ' 绑定页倒计时');

@@ -7,11 +7,11 @@
 // 用例共享一份安装、身份单向：游客 → 会员（第 2–13 条）→ 设置页退出 → 受限会话（短信登录 deletion_only，最后一条，不再回退）。
 // staging 依赖（tests-harmony-handback.md §3.3，实现方补）：GET /v1/me 计数 me.get_count；me 场景 slow / refresh_fail / offline / long /
 // earnings（以及截图用的 new_user / negative / rate，本套件不用）。
-import { describe, it } from '@ohos/hypium';
+import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, Component, Rect } from '@kit.TestKit';
 import {
-  attr, density, hm07vDriver, idle, launch, Launch, maybe, node, overlaps, relaunchCold, settledNode, tap, units,
-  windowLayoutWidth
+  attr, boundsFresh, density, hm07vDriver, idle, launch, Launch, maybe, node, overlaps, relaunchCold, settledNode, tap, units,
+  windowLayoutWidth, withRefind
 } from './Hm07vHomeRig';
 import { argb, check, maxDiff, meanRgb, rgbText, typeName } from './Hm07vOverlayRig';
 import {
@@ -19,7 +19,7 @@ import {
   hVp, ID_BALANCE, ID_BELL, ID_CODE, ID_COPY, ID_ESTIMATED, ID_ESTIMATED_BLOCK, ID_GUEST_AVATAR, ID_GUEST_CARD, ID_GUIDE,
   ID_GUIDE_BODY, ID_GUIDE_CLOSE, ID_IDENTITY, ID_INVITER, ID_LOGIN, ID_MASK, ID_NICKNAME, ID_PAGE, ID_REFRESH_ERROR, ID_RETRY,
   ID_SCROLL, ID_SKELETON, ID_SKELETON_AVATAR, ID_TITLE, ID_WITHDRAW, ID_WITHDRAWABLE, ID_WITHDRAWABLE_LABEL, instanceId, isGuest, logoutViaSettings,
-  meDefaults, meLaunch, memberReady, MORE_CELLS, near, notTruncated, ofType, opensExactlyOnce, openMeTab, ORDERS_CELLS,
+  meDefaults, meLaunch, memberReady, settleMeRead, MORE_CELLS, near, notTruncated, ofType, opensExactlyOnce, openMeTab, ORDERS_CELLS,
   PROMO_CELLS, pullDown, reenterMe, revealMe, SKELETON_PARTS, spinners, squash, T_BELL, T_COPY_LABEL, T_ESTIMATED, T_GROUP_MORE,
   T_GROUP_ORDERS, T_GROUP_PROMO, T_GUEST_DESC, T_GUEST_TITLE, T_GUIDE, T_GUIDE_CLOSE, T_GUIDE_TAIL, T_HIDDEN, T_HIDE,
   T_INVITE_CODE, T_INVITE_LABEL, T_INVITER_BOUND, T_LOADING, T_LOGIN, T_MASK, T_SHOW, T_TITLE, T_WITHDRAW, T_WITHDRAWABLE,
@@ -43,6 +43,11 @@ export const ME12V_DEVICE_CASES: string[] = [
   'me12v_13_earnings_entry_visible_with_symbol_when_route_and_flag_and_opens_once',
   'me12v_14_restricted_session_skeleton_no_get_me_on_enter_foreground_and_return'
 ];
+
+/** D10-2001：hypium it 包一层，登记用例名并打开测试台 refind 层（Hm07vHomeRig.withRefind）；用例名、顺序、用例体与判据不变。 */
+function it(name: string, flags: number, body: () => Promise<void>): void {
+  hypiumIt(name, flags, withRefind(name, body));
+}
 
 /** 读屏单元去掉类型前缀（"Text=…" → "…"）并去空格。 */
 function plain(us: string[]): string[] {
@@ -78,16 +83,21 @@ async function pageUnits(): Promise<string[]> {
 }
 
 /** 会员身份就绪（游客则经【登录 / 注册】用假服务验证码登录，回到「我的」）。 */
-async function ensureMember(scene: string): Promise<void> {
+async function ensureMember(scene: string, settleRead: boolean = false): Promise<void> {
   await launch(meDefaults(scene));
   // 测试 v2（用例间不留状态）：前一条若停在子页（设备第三轮第 1 条红后停在设置页，连带后面全红），先退回带底栏的一级页。
   await backToTabs();
+  let before: number = settleRead ? getMeCount() : 0;
   await openMeTab();
   if (await isGuest()) {
     await tap(ON.id(ID_LOGIN), '【登录 / 注册】');
     await node(ON.id('login_phone'), '经 Router 打开登录页', 8000);
     await smsLogin();
+    before = settleRead ? getMeCount() : 0;
     await openMeTab();
+  }
+  if (settleRead) {
+    await settleMeRead(before, '会员前置');
   }
   await memberReady('会员内容');
   await meTop();
@@ -502,7 +512,7 @@ export default function me12vUiTest(): void {
 
     it(ME12V_DEVICE_CASES[8], 0, async (): Promise<void> => {
       try {
-        await ensureMember('');
+        await ensureMember('', true);
         // 测试 v2：进程内冷重启后执行器快照仍在（看不到「无内容的加载中」），改为退出再登录（会话换代清空快照）后读取走 slow 场景。
         await relogin('slow');
         check((await maybe(ON.id(ID_SKELETON), 1500)) !== null, 'ME12V_NO_SKELETON 加载中应显示骨架', await texts());
@@ -527,9 +537,11 @@ export default function me12vUiTest(): void {
 
     it(ME12V_DEVICE_CASES[9], 0, async (): Promise<void> => {
       try {
-        await ensureMember('');
+        await ensureMember('', true);
         await relaunchCold(meDefaults('refresh_fail'));
+        const enterBefore: number = getMeCount();
         await openMeTab();
+        await settleMeRead(enterBefore, 'refresh_fail 首次成功');
         await memberReady('refresh_fail 首次成功');
         let before: number = getMeCount();
         await pullDown();
@@ -560,11 +572,13 @@ export default function me12vUiTest(): void {
 
     it(ME12V_DEVICE_CASES[10], 0, async (): Promise<void> => {
       try {
-        await ensureMember('');
+        await ensureMember('', true);
         for (const width of [windowLayoutWidth(), '320']) {
           await relaunchCold(meLaunch('long').with('couli_debug_font_scale', '2').with('couli_debug_layout_width', width)
             .with('couli_debug_guide_bar', '1').with('couli_debug_color_mode', 'system'));
+          const enterBefore: number = getMeCount();
           await openMeTab();
+          await settleMeRead(enterBefore, '200% × ' + width);
           await memberReady('200% × ' + width);
           await meTop();
           const tag: string = ' @200%×' + width;
@@ -602,7 +616,7 @@ export default function me12vUiTest(): void {
             if (c === null) {
               continue;
             }
-            const r: Rect = await c.getBounds();
+            const r: Rect = await boundsFresh(ON.id(id), id, id, c);
             rects.push(r);
             if (Math.abs(r.top - r0.top) <= density()) {
               first++;
@@ -620,11 +634,13 @@ export default function me12vUiTest(): void {
 
     it(ME12V_DEVICE_CASES[11], 0, async (): Promise<void> => {
       try {
-        await ensureMember('');
+        await ensureMember('', true);
         // 测试 v2（设备第二至四轮诊断 D1–D6）：本套件此前已做过进程内冷重启（第 9–11 条），之后热启动带的 couli_debug_guide_bar 不再反映到
         // 「我的」页（热启动给 1 不出、给 0 不消，冷重启给 1 即出）；深色与引导条改为与第 11、13 条一样经 relaunchCold 带入，断言不变。
         await relaunchCold(meDefaults('').with('couli_debug_color_mode', 'dark').with('couli_debug_guide_bar', '1'));
+        const enterBefore: number = getMeCount();
         await openMeTab();
+        await settleMeRead(enterBefore, '深色');
         await memberReady('深色');
         await meTop();
         colorNear(await cornerColor(await frame(ID_IDENTITY, '身份卡'), 10), 'background.surface', true, 10, '深色身份卡');
@@ -653,9 +669,11 @@ export default function me12vUiTest(): void {
 
     it(ME12V_DEVICE_CASES[12], 0, async (): Promise<void> => {
       try {
-        await ensureMember('');
+        await ensureMember('', true);
         await relaunchCold(meDefaults('earnings').with('couli_debug_route_available', 'Earnings'));
+        const enterBefore: number = getMeCount();
         await openMeTab();
+        await settleMeRead(enterBefore, '收益看板');
         await memberReady('收益看板');
         const cell: Component = await revealMe('me_grid_Earnings', '收益看板格');
         check(cell !== null, 'ME12V_NO_EARNINGS');

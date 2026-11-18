@@ -18,13 +18,14 @@ import {
   ensureMemberHome, flatten, fullRect, fullRectOrNull, gone, GUEST_DESC, GUEST_LOGIN, hit48, hm07vDriver, launch, Launch, loginOnLoginPage,
   maybe, mediaRef, near, node, OLD_PASTE_SUBTITLE, OLD_PASTE_TITLE, overlaps, PASTE_HINT, patchShare, Pixels, rect,
   relaunchCold, reveal, scrollTop, SEARCH_PLACEHOLDER, settledTap, subtree, swipeDown, swipeUp, tap, token, units, vp, windowLayoutWidth,
-  windowWidthVp
+  windowWidthVp, withRefind, freshRead, boundsFresh, settleWait
 } from './Hm07vHomeRig';
 
 const driver: Driver = hm07vDriver;
 
+// D10-2001：用例体经 withRefind 登记用例名、打开测试台 refind 层（句柄失效有界重找，见 Hm07vHomeRig.measureFresh）；用例体与判据不变。
 function it(name: string, flags: number, body: () => Promise<void>): void {
-  hypiumIt(name, flags, async (): Promise<void> => { await runUiTask(driver, body); });
+  hypiumIt(name, flags, async (): Promise<void> => { await runUiTask(driver, withRefind(name, body)); });
 }
 
 const GUEST: string = 'golden:guest_v3';
@@ -256,7 +257,7 @@ export default function hm07vHomeUiTest() {
       // 组件树不导出 accessibilityRole（设备实测，探针 v2：只有 accessibilityLevel / Group / Text / Description 等键）；
       // 角色按「系统 Button，或可点且成组的读屏单元」判定，真机朗读角色另由 QA 抽查。
       const role: string[] = await a11yOf('home_guest_value_login');
-      const clickable: boolean = await (await node(ON.id('home_guest_value_login'), '【登录领返利】')).isClickable();
+      const clickable: boolean = await freshRead<boolean>((): Promise<Component> => node(ON.id('home_guest_value_login'), '【登录领返利】'), (c: Component): Promise<boolean> => c.isClickable(), '【登录领返利】');
       check(role[3] === 'Button' || (clickable && role[0] === 'true'), '【登录领返利】是按钮（系统 Button 或可点成组）', role.join('|'));
     });
 
@@ -272,7 +273,7 @@ export default function hm07vHomeUiTest() {
       await node(ON.text(SEARCH_PLACEHOLDER).within(ON.id('home_search_entry')), '首页搜索占位');
       const entryA11y: string[] = await a11yOf('home_search_entry');
       check(entryA11y[2] === SEARCH_PLACEHOLDER || entryA11y[2].indexOf(SEARCH_PLACEHOLDER) >= 0, '搜索入口读屏名=占位', entryA11y.join('|'));
-      const entryClickable: boolean = await (await node(ON.id('home_search_entry'), '搜索入口')).isClickable();
+      const entryClickable: boolean = await freshRead<boolean>((): Promise<Component> => node(ON.id('home_search_entry'), '搜索入口'), (c: Component): Promise<boolean> => c.isClickable(), '搜索入口');
       check(entryA11y[3] === 'Button' || (entryClickable && entryA11y[0] === 'true'), '搜索入口是按钮（系统 Button 或可点成组）',
         entryA11y.join('|'));
       await hit48(ON.id('home_search_entry'), '搜索入口');
@@ -348,7 +349,7 @@ export default function hm07vHomeUiTest() {
     it('hm07va_today_scroll_section_in_card_tiles_hide_title_and_read_merged_label', 0, async () => {
       await ensureFull(GUEST);
       const section: Component = await reveal('home_section_scroll', '今日精选段卡');
-      const card: Rect = await section.getBounds();
+      const card: Rect = await boundsFresh(ON.id('home_section_scroll'), '今日精选段卡', 'home_section_scroll', section);
       await node(ON.originalText('今日精选').within(ON.id('home_section_scroll')), '标题在卡内');
       const more: Rect = await hit48(ON.id('home_more_scroll'), '【更多 ›】');
       check(more.top >= card.top && more.right <= card.right + 1, '【更多 ›】在段卡内', [more.top, card.top, more.right, card.right].join(','));
@@ -448,6 +449,9 @@ export default function hm07vHomeUiTest() {
       const narrow: number = Math.max(240, Math.ceil(2 * lower + GRID_GAP_VP - 4 + PAGE_AND_CARD_INSET_VP));
       try {
         await relaunchCold(defaults(GUEST).with('couli_debug_layout_width', String(narrow)));
+        // D10-1996：沿用 launch 的假服务加载等待，取布局句柄前再等组件树落定。
+        // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+        await settleWait(ON.id('home_list'), 'HM07VA 冷启窄宽网格');
         await reveal('home_section_grid', '窄宽超市百货段卡');
         const nt: Rect[] = await firstTwoTiles('home_grid_tile_', '窄宽网格卡');
         const ng: Rect = await fullRect('home_section_grid', '窄宽超市百货段卡');
@@ -502,7 +506,7 @@ export default function hm07vHomeUiTest() {
       flatten(await subtree('home_disclaimer_footer'), nodes);
       const icons: string[][] = nodes.filter((n: string[]): boolean => ['Path', 'Shape', 'SymbolGlyph', 'Image', 'Button'].indexOf(n[0]) >= 0);
       check(icons.length === 0, '口径页脚无图标与按钮', icons.map((n: string[]): string => n[0]).join(','));
-      const f: Rect = await footer.getBounds();
+      const f: Rect = await boundsFresh(ON.id('home_disclaimer_footer'), '口径页脚', 'home_disclaimer_footer', footer);
       atLeast(await colorAt(f, vp(f.right - f.left) - 6, vp(f.bottom - f.top) - 4, 'background.canvas', false), 0.6, '页脚无卡底');
       // 页脚顶部 1vp 分隔线（border.subtle）：顶边 3vp 内存在非页面底色的横线。
       const top: number = await colorAt(f, vp(f.right - f.left) / 2, 0.5, 'background.canvas', false);
@@ -519,6 +523,8 @@ export default function hm07vHomeUiTest() {
             await launch(wide);
           } else {
             await relaunchCold(wide);
+            // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+            await settleWait(ON.id('home_list'), 'HM07VA 冷启 200% 首页 ' + width);
           }
           // 布局宽度真的生效：内容列（home_list）宽 = min(布局宽, 600)。（staging 的窄屏参数把根布局靠左收窄，不居中，设备实测；
           // 居中由内容列用例在窗口宽上判定。）
@@ -558,6 +564,8 @@ export default function hm07vHomeUiTest() {
       try {
         await ensureFull(GUEST);
         await relaunchCold(defaults(GUEST).with('couli_debug_layout_width', '320'));
+        // D10-2026 ②(1)：不再整树轮询（settledTree），改驱动侧轻量落定——目标控件边界连续两次采样相同（settleWait，上限 4 s，到时只记日志照旧往下）。
+        await settleWait(ON.id('home_list'), 'HM07VA 冷启 320 金刚区');
         const list: Rect = await fullRect('home_list', '320 首页列表');
         near(vp(list.right - list.left), 320, 1.5, '320 内容列宽 = 布局宽');
         await reveal('home_section_icons', '320 金刚区');
@@ -651,7 +659,7 @@ export default function hm07vHomeUiTest() {
         const pc: Rect = await hit48(ON.id('clipboard_share_prompt_close'), '提示条关闭');
         const value: Rect = await rect(ON.id('home_guest_value'), '价值卡');
         const search: Rect = await rect(ON.id('home_search_row'), '搜索行');
-        const p: Rect = await (prompt as Component).getBounds();
+        const p: Rect = await boundsFresh(ON.id('clipboard_share_prompt'), '分享提示条', 'clipboard_share_prompt', prompt as Component);
         check(search.bottom <= p.top && p.bottom <= value.top, '提示条在搜索行下、价值卡上');
         check(!overlaps(pc, await rect(ON.id('clipboard_share_prompt_action'), '提示条按钮')), '关闭与按钮命中区不重叠');
         await tap(ON.id('clipboard_share_prompt_close'), '关闭提示条');
