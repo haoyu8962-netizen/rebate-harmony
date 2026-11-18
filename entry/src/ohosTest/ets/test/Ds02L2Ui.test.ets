@@ -73,7 +73,7 @@ import { accessibility } from '@kit.AccessibilityKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { EXPECTED_COLORS, ExpectedColor } from './Ds02Expected';
 import { runUiTask, drainUiTasks, searchUiComponent } from './Ds02UiSession';
-import { announce, appTree, appUi, capture, density, findById, Pixels, share, token, freshRead, withRefind } from './Hm07vHomeRig';
+import { announce, appTree, appUi, capture, density, findById, Pixels, share, token } from './Hm07vHomeRig';
 import { captureChecked, isNoCandidates, scene, Shot, trace } from './FlakeKit';
 
 /** 与 tools/ci/l2card/device-cases.txt 一致（check_l2_card.py C7-cases）。后续 L2 单追加时各自另起常量。 */
@@ -98,8 +98,7 @@ const TOL: number = 8;
 
 function it(name: string, flags: number, body: () => Promise<void>): void {
   // HM-L2 批 1 集成：先过段边界（本段第一条前跑上一段段后复位 + 本段段前准备，见文件末），再照旧跑用例体。
-  // D10-2021：用例体经 withRefind 登记用例名、打开测试台 refind 层（找到即读的句柄失效有界重找）；段边界与用例体不变。
-  hypiumIt(name, flags, async (): Promise<void> => { await l2EnterSegment(name); await runUiTask(driver, withRefind(name, body)); });
+  hypiumIt(name, flags, async (): Promise<void> => { await l2EnterSegment(name); await runUiTask(driver, body); });
 }
 
 function check(ok: boolean, code: string): void {
@@ -461,7 +460,7 @@ async function whilePressed(at: Point, holdMs: number, readAtMs: number, during:
  */
 async function hold(variant: string, state: string, dark: boolean = false): Promise<Hold> {
   const r: Rect = await visible(sid(variant, state));
-  const card: Rect = await freshRead<Rect>((): Promise<Component> => node(cid(variant, state)), (c: Component): Promise<Rect> => c.getBounds(), cid(variant, state));
+  const card: Rect = await (await node(cid(variant, state))).getBounds();
   check(r.bottom > r.top, 'L2CARD_SAMPLE_EMPTY ' + variant + '/' + state);
   await driver.delayMs(400);
   const screen: Pixels = await capture(card);
@@ -618,7 +617,7 @@ export default function ds02L2UiTest() {
     // 书 §3 设备「目录 static / bounce / highlight × default / pressed / disabled 渲染」；README ⑨ L2 标记。
     it('l2card_01_catalog_kind_l2_and_ten_samples_render', 0, async (): Promise<void> => {
       await openCard();
-      const kind: string = await freshRead<string>((): Promise<Component> => node('catalog-kind/' + COMP), (c: Component): Promise<string> => c.getText(), 'catalog-kind/' + COMP);
+      const kind: string = await (await node('catalog-kind/' + COMP)).getText();
       check(kind === 'L2 业务组件', 'L2CARD_KIND 目录标记应为「L2 业务组件」，实际 ' + kind);
       const ids: string[] = [cid('list-group', 'default')];
       for (const v of CARD_VARIANTS) {
@@ -707,15 +706,15 @@ export default function ds02L2UiTest() {
       await setFont('100');
       for (const v of TAPPABLE) {
         await visible(cid(v, 'default'));
-        const base: string = await freshRead<string>((): Promise<Component> => node(eid(v, 'default')), (c: Component): Promise<string> => c.getText(), eid(v, 'default'));
+        const base: string = await (await node(eid(v, 'default'))).getText();
         await click(cid(v, 'default'));
         const want: string = String(Number(base) + 1);
         check((await textSoon(eid(v, 'default'), want, 3000)) === want, 'L2CARD_TAP_LOST ' + v + ' 可用卡点击计数应 +1');
         await visible(cid(v, 'disabled'));
-        const before: string = await freshRead<string>((): Promise<Component> => node(eid(v, 'disabled')), (c: Component): Promise<string> => c.getText(), eid(v, 'disabled'));
+        const before: string = await (await node(eid(v, 'disabled'))).getText();
         for (let i: number = 0; i < 3; i++) { await click(cid(v, 'disabled')); }
         await driver.delayMs(500);
-        const after: string = await freshRead<string>((): Promise<Component> => node(eid(v, 'disabled')), (c: Component): Promise<string> => c.getText(), eid(v, 'disabled'));
+        const after: string = await (await node(eid(v, 'disabled'))).getText();
         check(after === before, 'L2CARD_DISABLED_TAPPED ' + v + ' 禁用卡连点 3 次计数 ' + before + ' → ' + after);
         const h: Hold = await hold(v, 'disabled');
         const moved: number = changed(h.before, h.during);
@@ -725,10 +724,10 @@ export default function ds02L2UiTest() {
       }
       // 测试 v3：先把静态卡滑进可视区再读计数（r1 probe 红在 NODE_MISSING：读的时候静态卡已滑出可视区）。
       await visible(cid('static', 'default'));
-      const still: string = await freshRead<string>((): Promise<Component> => node(eid('static', 'default')), (c: Component): Promise<string> => c.getText(), eid('static', 'default'));
+      const still: string = await (await node(eid('static', 'default'))).getText();
       await click(cid('static', 'default'));
       await driver.delayMs(500);
-      check((await freshRead<string>((): Promise<Component> => node(eid('static', 'default')), (c: Component): Promise<string> => c.getText(), eid('static', 'default'))) === still, 'L2CARD_STATIC_TAPPED 静态卡不应有点击回调');
+      check((await (await node(eid('static', 'default'))).getText()) === still, 'L2CARD_STATIC_TAPPED 静态卡不应有点击回调');
     });
 
     // 书 §3「读屏：TAPPABLE 卡读屏一项」（F-HM-98 / S2-1）；静态卡不可点。
@@ -806,7 +805,7 @@ export default function ds02L2UiTest() {
       const items: Component[] = await driver.findComponents(ON.type('ListItem').within(scope));
       check(items !== null && items !== undefined && items.length >= 2, 'L2CARD_LIST_ITEMS 分组里应至少 2 个 ListItem');
       const g: Rect = await group.getBounds();
-      const list: Rect = await freshRead<Rect>((): Promise<Component> => node(cid('list-group', 'default')), (c: Component): Promise<Rect> => c.getBounds(), cid('list-group', 'default'));
+      const list: Rect = await (await node(cid('list-group', 'default'))).getBounds();
       // CARD 样式：分组在 List 内左右留白、不贴 List 边（系统卡片样式的外观；留白具体值随系统，这里只要 ≥ 4 vp，待设备实测）。
       const inset: number = 4 * density();
       check(g.left >= list.left + inset && g.right <= list.right - inset, 'L2CARD_GROUP_NOT_CARD 分组贴满 List 宽度，不像 CARD 样式');
@@ -1122,7 +1121,7 @@ export function l2SkeletonDeviceCases(): void {
       await skOpen(comp);
       await skTheme('light');
       await skFont('100');
-      const kind: string = await freshRead<string>((): Promise<Component> => skNode('catalog-kind/' + comp), (c: Component): Promise<string> => c.getText(), 'catalog-kind/' + comp);
+      const kind: string = await (await skNode('catalog-kind/' + comp)).getText();
       check(kind === 'L2 业务组件', 'L2SKEL_KIND ' + comp + ' 目录标记应为「L2 业务组件」，实际 ' + kind);
       for (const s of SK_SHAPES) {
         if (s[0] !== comp) { continue; }
@@ -1250,7 +1249,7 @@ export function l2SkeletonDeviceCases(): void {
         const s: string[] = shapes[i];
         const id: string = skCid(s[0], s[1], s[2]);
         const r: Rect = await skVisible(comp, id);
-        const box: Rect = await freshRead<Rect>((): Promise<Component> => skNode(skSid(s[0], s[1], s[2])), (c: Component): Promise<Rect> => c.getBounds(), skSid(s[0], s[1], s[2]));
+        const box: Rect = await (await skNode(skSid(s[0], s[1], s[2]))).getBounds();
         const w0: number = before[i].right - before[i].left;
         const h0: number = before[i].bottom - before[i].top;
         check(Math.abs((r.right - r.left) - w0) <= 2, 'L2SKEL_FONT200_WIDTH ' + id + ' 200% 卡宽 ' + (r.right - r.left) + ' ≠ ' + w0);
@@ -1404,7 +1403,7 @@ class L2ButtonRig {
     let last: string = '-';
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const found: Component = await L2ButtonRig.find(component, id);
-      const view: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node('catalog-cases/' + component), (c: Component): Promise<Rect> => c.getBounds(), 'catalog-cases/' + component);
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + component)).getBounds();
       const r: Rect = await found.getBounds();
       if (r.top > view.top && r.bottom < view.bottom && r.bottom > r.top) { return found; }
       const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
@@ -1471,7 +1470,7 @@ class L2ButtonRig {
   }
 
   static async count(component: string): Promise<number> {
-    const value: string = await freshRead<string>((): Promise<Component> => L2ButtonRig.node('catalog-events/' + component), (c: Component): Promise<string> => c.getText(), 'catalog-events/' + component);
+    const value: string = await (await L2ButtonRig.node('catalog-events/' + component)).getText();
     const n: number = Number(value);
     expect(Number.isInteger(n)).assertTrue();
     return n;
@@ -1719,7 +1718,7 @@ export function ds02L2UiButtonCases(): void {
         const button: Component = await L2ButtonRig.fullyVisible(COULI_BUTTON, L2ButtonRig.controlId(variants[i], 'default'));
         const outer: Rect = await button.getBounds();
         L2ButtonRig.assertTarget(outer, tag);
-        const inner: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node(L2ButtonRig.textId(variants[i], 'default')), (c: Component): Promise<Rect> => c.getBounds(), L2ButtonRig.textId(variants[i], 'default'));
+        const inner: Rect = await (await L2ButtonRig.node(L2ButtonRig.textId(variants[i], 'default'))).getBounds();
         L2ButtonRig.assertInside(inner, outer, tag);
         expect(tag + ' 文字放大 ' + ((inner.bottom - inner.top) > normal[i] * 1.5)).assertEqual(tag + ' 文字放大 true');
       }
@@ -2435,7 +2434,7 @@ async function textSoon(id: string, want: string, timeoutMs: number): Promise<st
 }
 
 async function count(): Promise<number> {
-  const text: string = await freshRead<string>((): Promise<Component> => node(EVENTS_ID), (c: Component): Promise<string> => c.getText(), EVENTS_ID);
+  const text: string = await (await node(EVENTS_ID)).getText();
   const value: number = Number(text);
   check(Number.isInteger(value) && value >= 0, EVENTS_ID + ' is not a count: ' + text);
   return value;
@@ -2496,7 +2495,7 @@ async function visibleSample(component: string, variant: string, state: string):
     if (found === null) {
       found = await searchUiComponent(driver, ON.id(listId), ON.id(id));
     }
-    const view: Rect = await freshRead<Rect>((): Promise<Component> => node(listId), (c: Component): Promise<Rect> => c.getBounds(), listId);
+    const view: Rect = await (await node(listId)).getBounds();
     const r: Rect = await (found as Component).getBounds();
     if (r.top > view.top && r.bottom < view.bottom && r.bottom > r.top) { return r; }
     const x: number = Math.floor(view.left + (view.right - view.left) * 0.02);
@@ -2525,7 +2524,7 @@ async function nodeVisible(component: string, variant: string, state: string, ta
     if (sample === null) {
       sample = await searchUiComponent(driver, ON.id(listId), ON.id(id));
     }
-    const view: Rect = await freshRead<Rect>((): Promise<Component> => node(listId), (c: Component): Promise<Rect> => c.getBounds(), listId);
+    const view: Rect = await (await node(listId)).getBounds();
     const box: Rect = await (sample as Component).getBounds();
     const hit: Component | null = await maybe(target);
     let r: Rect | null = null;
@@ -2818,14 +2817,14 @@ export function ds02L2UiStateCases(): void {
       await idle();
       check((await textSoon(EVENTS_ID, String(before + 1), 3000)) === String(before + 1), 'first retry tap not counted');
       check(await hasLoading(scope), 'after retry the button should show LoadingProgress');
-      check(!(await freshRead<boolean>((): Promise<Component> => node(DEFAULT_RETRY_ID), (c: Component): Promise<boolean> => c.isEnabled(), DEFAULT_RETRY_ID)), 'after retry the button should be disabled');
+      check(!(await (await node(DEFAULT_RETRY_ID)).isEnabled()), 'after retry the button should be disabled');
       for (let i: number = 0; i < 3; i++) {
         await (await node(DEFAULT_RETRY_ID)).click();
       }
       await countStays(before + 1, 'repeat taps while retrying');
       await click('catalog-state-settle/ErrorState');
       check(await absent(ON.type('LoadingProgress').within(scope), 3000), 'LoadingProgress should go away after settle');
-      check(await freshRead<boolean>((): Promise<Component> => node(DEFAULT_RETRY_ID), (c: Component): Promise<boolean> => c.isEnabled(), DEFAULT_RETRY_ID), 'retry should be enabled after settle');
+      check(await (await node(DEFAULT_RETRY_ID)).isEnabled(), 'retry should be enabled after settle');
       await (await node(DEFAULT_RETRY_ID)).click();
       await idle();
       check((await textSoon(EVENTS_ID, String(before + 2), 3000)) === String(before + 2), 'retry after settle not counted');
@@ -2920,7 +2919,7 @@ export function ds02L2UiStateCases(): void {
         const errScope: On = ON.id(sampleId('ErrorState', 'offline', 'default'));
         const errTitle100: Rect = await textRect(errScope, OFFLINE_TITLE);
         const errMessage100: Rect = await textRect(errScope, OFFLINE_MESSAGE);
-        const btn100: Rect = await freshRead<Rect>((): Promise<Component> => buttonIn(errScope), (c: Component): Promise<Rect> => c.getBounds(), 'buttonIn');
+        const btn100: Rect = await (await buttonIn(errScope)).getBounds();
         check((btn100.bottom - btn100.top) / density >= 47.5, 'retry hit height < 48vp at 100%');
         await setFont('200');
         // v4：同上，标题 / 正文 / 重试按钮各自整块可见时再量；errBox 取按钮整块可见时的样例框（按钮的框内判定原文不变）。
@@ -2929,7 +2928,7 @@ export function ds02L2UiStateCases(): void {
         const errMessage200: Rect[] = await textIn('ErrorState', 'offline', 'default', OFFLINE_MESSAGE);
         assertGrew(OFFLINE_MESSAGE, errMessage100, errMessage200[0], errMessage200[1]);
         const errBox: Rect = await nodeVisible('ErrorState', 'offline', 'default', ON.type('Button').within(errScope));
-        const btn200: Rect = await freshRead<Rect>((): Promise<Component> => buttonIn(errScope), (c: Component): Promise<Rect> => c.getBounds(), 'buttonIn');
+        const btn200: Rect = await (await buttonIn(errScope)).getBounds();
         check((btn200.bottom - btn200.top) / density >= 47.5, 'retry hit height < 48vp at 200%');
         check(btn200.bottom - btn200.top > btn100.bottom - btn100.top, 'retry button did not grow at 200%');
         check(btn200.left >= errBox.left - 2 && btn200.right <= errBox.right + 2 && btn200.bottom <= errBox.bottom + 2,
@@ -3051,7 +3050,7 @@ class L2CellRig {
     // HM-BATCH1-DEVFIX 测试 v3（子集 r3 cell_09，只改读法 + 取证）：回顶后核首张卡（清单第一个样例 search/single）在屏；
     // 不在就 trace L2CELL_TOP_MISS（带视口读数）并再 scrollToTop 一次。不断言（找卡照旧交给 card()）。
     if (!(await L2CellRig.onScreen(L2CellRig.controlId(CELL_VARIANTS[0], CELL_STATES[0])))) {
-      const view: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD), (c: Component): Promise<Rect> => c.getBounds(), 'catalog-cases/' + PRODUCT_CARD);
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
       trace('L2CELL_TOP_MISS ' + L2CellRig.controlId(CELL_VARIANTS[0], CELL_STATES[0]) + ' view=' + L2ButtonRig.box(view));
       await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).scrollToTop(10000);
       await L2ButtonRig.idle();
@@ -3062,7 +3061,7 @@ class L2CellRig {
   static async onScreen(id: string): Promise<boolean> {
     const near: Component = await driver.findComponent(ON.id(id));
     if (near === null || near === undefined) { return false; }
-    const view: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD), (c: Component): Promise<Rect> => c.getBounds(), 'catalog-cases/' + PRODUCT_CARD);
+    const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
     const r: Rect = await near.getBounds();
     const cx: number = (r.left + r.right) / 2;
     const cy: number = (r.top + r.bottom) / 2;
@@ -3102,7 +3101,7 @@ class L2CellRig {
     let before: string = '';
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
-      const view: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD), (c: Component): Promise<Rect> => c.getBounds(), 'catalog-cases/' + PRODUCT_CARD);
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
       const r: Rect = await found.getBounds();
       if (r.top > view.top && r.bottom < view.bottom && r.bottom > r.top) { return false; }
       if (r.top <= view.top && r.bottom >= view.bottom) {
@@ -3135,7 +3134,7 @@ class L2CellRig {
     const trail: string[] = [];
     for (let attempt: number = 0; attempt < 8; attempt++) {
       const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
-      const view: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD), (c: Component): Promise<Rect> => c.getBounds(), 'catalog-cases/' + PRODUCT_CARD);
+      const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
       const r: Rect = await found.getBounds();
       if (r.top > view.top && r.bottom > r.top) {
         check(r.right - r.left > 40 * density() && r.bottom - r.top > 40 * density(),
@@ -3160,7 +3159,7 @@ class L2CellRig {
   static async nextSegment(variant: string, state: string, segment: number): Promise<boolean> {
     const id: string = L2CellRig.controlId(variant, state);
     const found: Component = await L2ButtonRig.find(PRODUCT_CARD, id);
-    const view: Rect = await freshRead<Rect>((): Promise<Component> => L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD), (c: Component): Promise<Rect> => c.getBounds(), 'catalog-cases/' + PRODUCT_CARD);
+    const view: Rect = await (await L2ButtonRig.node('catalog-cases/' + PRODUCT_CARD)).getBounds();
     const r: Rect = await found.getBounds();
     if (r.bottom < view.bottom && r.bottom > r.top) {
       trace('L2CELL_TALL_SEGMENTS ' + id + ' n=' + (segment + 1));
@@ -3190,7 +3189,7 @@ class L2CellRig {
       trace('L2CELL_EVENTS_OFFSCREEN ' + L2CellRig.eventsId(variant, state));
       await L2ButtonRig.fullyVisible(PRODUCT_CARD, L2CellRig.eventsId(variant, state));
     }
-    const raw: string = await freshRead<string>((): Promise<Component> => L2ButtonRig.node(L2CellRig.eventsId(variant, state)), (c: Component): Promise<string> => c.getText(), L2CellRig.eventsId(variant, state));
+    const raw: string = await (await L2ButtonRig.node(L2CellRig.eventsId(variant, state))).getText();
     const m: RegExpMatchArray | null = raw.match(new RegExp('^(\\d+)\\|(\\d+)\\|(\\d+)$'));
     check(m !== null, 'L2CELL_EVENTS_FORMAT ' + variant + '/' + state + ' 计数应为「open|buy|outer」，实际 ' + raw);
     const g: RegExpMatchArray = m as RegExpMatchArray;
@@ -3364,7 +3363,7 @@ export function ds02L2UiCellCases(): void {
     it(L2CELL_DEVICE_CASES[0], 0, async (): Promise<void> => {
       await L2ButtonRig.open(PRODUCT_CARD);
       await L2CellRig.top();
-      const kind: string = await freshRead<string>((): Promise<Component> => L2ButtonRig.node('catalog-kind/' + PRODUCT_CARD), (c: Component): Promise<string> => c.getText(), 'catalog-kind/' + PRODUCT_CARD);
+      const kind: string = await (await L2ButtonRig.node('catalog-kind/' + PRODUCT_CARD)).getText();
       check(kind === 'L2 业务组件', 'L2CELL_KIND 目录标记应为「L2 业务组件」，实际 ' + kind);
       for (const v of CELL_VARIANTS) {
         for (const s of CELL_STATES) {
