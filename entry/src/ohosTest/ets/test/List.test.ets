@@ -15,6 +15,7 @@ import tabBarShellUiTest from './TabBarShellUi.test';
 import loginPhoneUiTest from './LoginPhoneUi.test';
 import hmA11yUiTest from './HmA11yUi.test';
 import ds02L2UiTest from './Ds02L2Ui.test';
+import lockHarmonySeg3FakeTest from './LockHarmonySeg3Fake.test';
 
 export default function testsuite() {
   ds02CatalogTest();
@@ -56,6 +57,8 @@ export default function testsuite() {
   // FU-HM-A11Y（#24 只加；README ⑪ / D10-1248）：四单共用设备套件 HmA11yUi（COMMON 首建，唯一 describe 里各单一个段函数）；verify 里单独一个设备步
   // entry-a11y（class=HmA11yUi，先卸载重装、从未同意隐私开始），其他步都不跑它。排在 a 段之前，保持 HM-07v-a C3「hm07vHomeUiTest 最后注册」不变。
   hmA11yUiTest();
+  // LOCK-harmony 段 3（D10-2135 ④）：假服务二次验证规则与 Release 槽位（不驱动 UI），随主 entry 步跑；排在 a 段之前，保持 C3。
+  lockHarmonySeg3FakeTest();
   // HM-07v-a：驱动真实应用，隐私状态单向（基本模式 → 完整功能 → 会员），必须排在最后。
   hm07vHomeUiTest();
 }

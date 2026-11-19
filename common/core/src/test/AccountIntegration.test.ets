@@ -338,10 +338,10 @@ export default function accountIntegrationTest() {
       expect(f.count('POST /v1/me/deletion')).assertEqual(0);
       const panel: StepUpController | null = await applyWithStepUp(c);
       expect(panel !== null).assertTrue();
-      // 面板按 account_deletion 向会话号码发码。
+      // 面板按 account_deletion 发码（不带号码）。
       const sms: string = f.last('POST /v1/auth/sms-codes').body ?? '';
       expect(sms.indexOf('"action":"account_deletion"') >= 0 && sms.indexOf('"purpose":"step_up"') >= 0).assertTrue();
-      expect(sms.indexOf(PHONE) >= 0).assertTrue();
+      expect(sms.indexOf(PHONE)).assertEqual(-1);
       expect(stateOf(c)).assertEqual(DeletionPresentation.COOLING);
       // 只有 1 个键、1 次业务受理：两次 POST 同一个 Idempotency-Key，第二次带 token。
       const posts: TransportRequest[] = f.requests('POST /v1/me/deletion');

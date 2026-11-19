@@ -390,8 +390,13 @@ export struct PhoneChangeView {
       Text(this.model.step1Sent ? this.t('phone_change.code_sent') : this.t('phone_change.current_hint'))
         .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textPrimary))
       if (!this.snap.phoneKnown) {
-        // G02（待补稿）：Release 取不到号码时不发码、不让用户另填。
-        MeNoticeBar({ text: this.t('step_up.no_phone'), tone: 'warning', barId: 'phone_change_no_phone' })
+        // G02（待补稿）：Release 取不到号码时不发码、不让用户另填。LOCK-harmony 段 3：确认没绑手机时改提示 BR-ID-08 原句
+        // （去绑定入口是上面的 phone_change_guide）。
+        MeNoticeBar({
+          text: this.t(this.snap.phoneUnbound ? 'step_up.no_available_method' : 'step_up.no_phone'),
+          tone: 'warning',
+          barId: 'phone_change_no_phone'
+        })
       }
       this.codeField(ID_STEP1_CODE, this.snap.phoneKnown, (v: string) => {
         this.controller.setStep1Code(b.version, v);

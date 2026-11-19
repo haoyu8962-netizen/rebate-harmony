@@ -25,6 +25,9 @@ import { ApiRequest, ApiResult, WalletApiPort, WalletController, WalletDeps } fr
 // 换家修复后窄修二（RC-01 / RC-02）新增用例所需。
 import { StepUpController } from '../../Index';
 
+/** LOCK-harmony 段 3（D10-2141 ①）：预置 payout_account_change 令牌的业务摘要键（StepUpBusinessSummary.key 格式），与随后保存的原体同一账号。 */
+const SUMMARY_KEY_LI: string = '{"alipay_logon_id":"li@example.com","payout_method":"alipay"}';
+
 const TRIGGER_SHOWN: string = 'shown';
 const TRIGGER_RETRY: string = 'retry';
 /** 有【重试】入口的页（实名页没有加载，只有 onShown）。劳务协议的【重试】是 controller.load()（LaborAgreementPage 的 onRetry）。 */
@@ -537,7 +540,7 @@ async function pendingRecovery(route: string, kind: string, mode: string): Promi
   const action: string = withdraw ? 'withdraw' : 'payout_account_change';
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse =>
     TransportResponse.failed(TransportFailure.DISCONNECT));
-  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   let key: string = '';
   if (withdraw) {
     const w0: WithdrawRoutePage = app.pages.withdraw();
@@ -586,7 +589,7 @@ async function pendingRecovery(route: string, kind: string, mode: string): Promi
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse => withdraw
     ? envelope(0, withdrawal('W10', 'PENDING_REVIEW', 500, '2026-10-12T10:30:00+08:00', ',"channel_order_id":null'))
     : envelope(0, ALIPAY));
-  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   const sent0: number = writes(p, method, path, null);
   const keyed0: number = writes(p, method, path, key);
   app.server.version = 2;
@@ -1012,7 +1015,7 @@ async function sensitiveInflight(route: string, kind: string, op: string): Promi
   const success: TransportResponse = withdraw
     ? envelope(0, withdrawal('W10', 'PENDING_REVIEW', 500, '2026-10-12T10:30:00+08:00', ',"channel_order_id":null'))
     : envelope(0, ALIPAY);
-  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   // 先建一笔结果未知的待确认（确认 / 放弃用）。
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse => op === 'submit' ? success
     : TransportResponse.failed(TransportFailure.DISCONNECT));
@@ -1171,7 +1174,7 @@ async function r3opRun(route: string, kind: string, op: string, mode: string, fa
   const success: TransportResponse = withdraw
     ? envelope(0, withdrawal('W10', 'PENDING_REVIEW', 500, '2026-10-12T10:30:00+08:00', ',"channel_order_id":null'))
     : envelope(0, ALIPAY);
-  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse => op !== 'submit'
     ? TransportResponse.failed(TransportFailure.DISCONNECT) : (failCode !== 0 ? envelope(failCode, '{}') : success));
   const c: FundCase = openCase(app, route);
@@ -1352,7 +1355,7 @@ async function r3opDroppedRefetch(route: string, kind: string): Promise<string> 
   const method: string = withdraw ? 'POST' : 'PUT';
   const path: string = withdraw ? '/v1/withdrawals' : '/v1/me/payout-account';
   const reads: string[] = withdraw ? ['getWithdrawRules', 'getPayoutAccount'] : ['getPayoutAccount'];
-  app.session.tokens.put(withdraw ? 'withdraw' : 'payout_account_change', A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(withdraw ? 'withdraw' : 'payout_account_change', A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse => TransportResponse.failed(TransportFailure.DISCONNECT));
   const c: FundCase = openCase(app, route);
   const wc: WithdrawController | null = withdraw ? (c.page as WithdrawRoutePage).controller : null;
@@ -1472,7 +1475,7 @@ async function r3op2HealedBeforePage(route: string, kind: string, op: string): P
   const success: TransportResponse = withdraw
     ? envelope(0, withdrawal('W10', 'PENDING_REVIEW', 500, '2026-10-12T10:30:00+08:00', ',"channel_order_id":null'))
     : envelope(0, ALIPAY);
-  app.session.tokens.put(withdraw ? 'withdraw' : 'payout_account_change', A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(withdraw ? 'withdraw' : 'payout_account_change', A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse => op === 'submit' ? success
     : TransportResponse.failed(TransportFailure.DISCONNECT));
   const wc: WithdrawController | null = withdraw ? new WithdrawController(d, (): void => {
@@ -1740,7 +1743,7 @@ async function r3op3SplitRead(route: string, kind: string, op: string): Promise<
   const success: TransportResponse = withdraw
     ? envelope(0, withdrawal('W10', 'PENDING_REVIEW', 500, '2026-10-12T10:30:00+08:00', ',"channel_order_id":null'))
     : envelope(0, ALIPAY);
-  app.session.tokens.put(withdraw ? 'withdraw' : 'payout_account_change', A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(withdraw ? 'withdraw' : 'payout_account_change', A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   const wc: WithdrawController | null = withdraw ? new WithdrawController(d, (): void => {
     app.sync();
   }) : null;
@@ -2059,7 +2062,7 @@ async function finalPendingOp(route: string, kind: string, op: string, outcome: 
   const action: string = withdraw ? 'withdraw' : 'payout_account_change';
   const dropped: TransportResponse = outcome === 'fail' ? envelope(50001, '{}')
     : TransportResponse.failed(TransportFailure.DISCONNECT);
-  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000);
+  app.session.tokens.put(action, A, 'fixture-step-token', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
   app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse =>
     TransportResponse.failed(TransportFailure.DISCONNECT));
   app.server.write('POST /v1/auth/sms-codes', (_r: TransportRequest): TransportResponse =>
@@ -2098,7 +2101,7 @@ async function finalPendingOp(route: string, kind: string, op: string, outcome: 
   let started: boolean;
   if (op === 'stepup') {
     // 二次验证续发：没有可用 token，确认先得到 10003 进入二次验证；验证通过后的续发（带 X-Step-Up-Token）挂起。
-    app.session.tokens.put(action, A, 'expired', p.rig.nowMillis - 1);
+    app.session.tokens.put(action, A, 'expired', p.rig.nowMillis - 1, '', withdraw ? null : SUMMARY_KEY_LI);
     app.server.write(holdKey, (r: TransportRequest): TransportResponse => header(r, 'X-Step-Up-Token') === undefined
       ? envelope(10003, '{}') : dropped);
     const asked: boolean = confirm();
@@ -2155,7 +2158,7 @@ async function finalPendingOp(route: string, kind: string, op: string, outcome: 
     why = 'pending card not shown for the stored record: ' + state;
   } else {
     // 按钮可再次操作：用户再点【确认上一笔】能发起（这是用户的新操作，不算自动重发）。
-    app.session.tokens.put(action, A, 'fixture-step-token-3', p.rig.nowMillis + 300000);
+    app.session.tokens.put(action, A, 'fixture-step-token-3', p.rig.nowMillis + 300000, '', withdraw ? null : SUMMARY_KEY_LI);
     app.server.write(method + ' ' + path, (_r: TransportRequest): TransportResponse =>
       TransportResponse.failed(TransportFailure.DISCONNECT));
     if (!confirm()) {

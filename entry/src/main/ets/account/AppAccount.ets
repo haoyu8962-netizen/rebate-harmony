@@ -90,8 +90,10 @@ export class AppAccount {
     d.account = (): string | null => AppMe.account();
     d.sessionScope = (): string => AppAccount.sessionScope();
     d.stepUpRestricted = (): boolean => AppAccount.sessionScope() === SessionScope.DELETION_ONLY;
-    // TODO(N-37) G02：本机没有保存当前账号的手机号；Release 不编造号码（不发码）。Debug 假服务用测试号码。
+    // 发码槽位（LOCK-harmony 段 3，D10-1658 ①）：只作重发计时的键、不上送；Release 有账号时为不含数字的占位，Debug 假服务用测试号码。
     d.stepUpPhone = (account: string): string | null => BuildVariant.stepUpPhone(account);
+    // Me.phone_bound（D10-1682 ②）：false 才拦换号、注销的发码（注销页另按 getMe 判，未知先重取）。
+    d.phoneBound = (): boolean | null => AppMe.shared.settingsPhoneBound();
     d.forceUpdate = (): void => AppUpdate.shared.onServerForced();
     d.open = (route: string, params: Record<string, Object>): void => {
       if (AppUpdate.shared.belowMin) {

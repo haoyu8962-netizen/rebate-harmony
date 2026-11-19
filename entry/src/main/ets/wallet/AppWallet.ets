@@ -367,8 +367,10 @@ export class AppWallet {
     // TODO(N-32) rule-gaps H05：privacy / agreement 的重新同意没有可供资金页调用的统一入口，只提示 error.10004。
     d.reconsent = (_type: string): void => {
     };
-    // TODO(N-32) G31 / rule-gaps H04：本机没有保存当前账号的手机号；Release 不编造号码（发码不发出）。Debug 假服务用测试号码。
+    // 发码槽位（LOCK-harmony 段 3，D10-1658 ①）：只作重发计时的键、不上送；Release 有账号时为不含数字的占位，Debug 假服务用测试号码。
     d.stepUpPhone = (account: string): string | null => BuildVariant.stepUpPhone(account);
+    // Me.phone_bound（D10-1682 ②）：false 才拦改收款的发码，提现不看它（D10-1667）。
+    d.phoneBound = (): boolean | null => AppMe.shared.settingsPhoneBound();
     d.appVersion = (): string => AppRouting.shared.appVersionName;
     d.earningsSince = (): string | null => {
       const spec: RouteSpec | undefined = RouteTable.spec('Earnings');

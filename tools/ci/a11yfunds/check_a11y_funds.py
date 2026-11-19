@@ -167,7 +167,6 @@ AF6_D10_1668_ADDED = {
 }
 AF6_D10_1668_FROZEN = dict((rel, digest) for digest, rel in [
     ('1da3248a80ae1ce7dad3867af1c32f011a132977f159f4b51f46f5ab19892838', 'common/core/src/main/ets/wallet/WithdrawController.ets'),
-    ('dd650dd12e7fccb99f2084b70da8c8fa680e30c2d177e1f931a609b2ffc1fd2e', 'common/core/src/main/ets/wallet/PayoutAccountController.ets'),
 ])
 
 

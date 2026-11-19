@@ -46,7 +46,7 @@
    "entry/src/main/ets/account/AccountPages.ets"
   ],
   [
-   "48bb90d5a3e28d3186b5fd2b36e9f513ceaf71f5be64c1df556cf139a4b46d50",
+   "99896bdc671cff7f5fc9aba1be6fd3ea23f827f76bae1e3d006b632e49c43d43",
    "entry/src/main/ets/account/AppAccount.ets"
   ],
   [
@@ -102,7 +102,7 @@
    "common/core/src/main/ets/me/account/AccountSensitiveFlow.ets"
   ],
   [
-   "d566cdadd434a9c5a11a61538159eda65d22f403695338e1329d6e39cafa4f7c",
+   "6e224346b39f2ef7468724d5d8e12d3e2607aa8f2a952c7592b8b2992d8a6798",
    "common/core/src/main/ets/me/account/AccountSession.ets"
   ],
   [
@@ -110,7 +110,7 @@
    "common/core/src/main/ets/me/account/DeleteAccountController.ets"
   ],
   [
-   "602d5bededbd1102892968a8d2c4524f587df2ad25e80536c8081bc8e3e8a17d",
+   "e3d17f93ffe37fd447f9a8b2faa0f9e36c7f2bfe81c4bb7e45627efe3c00bb70",
    "common/core/src/main/ets/me/account/PhoneChangeController.ets"
   ],
   [
@@ -122,7 +122,7 @@
    "common/core/src/main/ets/wallet/FundRoutePages.ets"
   ],
   [
-   "20cc63fa7ead5cbfbf36afa324d79f8619fc360f65c3848dfe42e5fe5598360c",
+   "02a2e773095ae3d901a97d12cbe4229af868ba30826e02e1f33b60f32f19ae4a",
    "common/core/src/main/ets/wallet/PayoutAccountController.ets"
   ],
   [
@@ -134,11 +134,11 @@
    "common/core/src/main/ets/wallet/RealNameRemote.ets"
   ],
   [
-   "8cc8c1c9a085e43ef371c0e49a24dcb7f0451b44ff5c738cf990f6ff715432c1",
+   "64bcb04d4a7d82d1a17bd30744478e9a3b46961ff092e6465e679116e20f7494",
    "common/core/src/main/ets/wallet/SensitiveFlow.ets"
   ],
   [
-   "7c980fad76c5b21a9eb269d3d1765e92f31c1fc12a69a24ae36f0d4b5c942aa8",
+   "02a019e7320184330a1a64d69e0464bfe50efd17f964f97f5f21163666b2c610",
    "common/core/src/main/ets/wallet/WalletController.ets"
   ],
   [
@@ -150,7 +150,7 @@
    "common/core/src/main/ets/wallet/WalletJson.ets"
   ],
   [
-   "9bb4d9e185f1a2864b23351b92fb0f89e44d11e05c683ade704f73152aca0f75",
+   "e7963f8fba6d24a8915be7d2882af360e23ed1ca2cbbcb1ecb799290454bea14",
    "common/core/src/main/ets/wallet/WalletPresentation.ets"
   ],
   [
@@ -174,7 +174,7 @@
    "common/core/src/main/ets/wallet/WithdrawRecordsController.ets"
   ],
   [
-   "4edd3a61cac99b2c07d86c9563fca7c989a4e1ec1a53bd21f70a7b89338459c0",
+   "20741a21e3970f5bb1822c86ebac40742d7d978076797ac6a38438b3228ae7a3",
    "entry/src/main/ets/wallet/AppWallet.ets"
   ],
   [
@@ -234,7 +234,7 @@
    "features/me/src/main/ets/MeTabView.ets"
   ],
   [
-   "7e12ddc57fed2941cd8d32e75a0080d8f605ab28374834cd43cf21bc4be81964",
+   "f584a8de74f79123d3659afa11a551885f1681203bf2d465ec8cced80c84c6c5",
    "features/me/src/main/ets/PhoneChangeView.ets"
   ],
   [

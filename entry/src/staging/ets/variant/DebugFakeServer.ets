@@ -147,14 +147,20 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
     // APP-13a：注销与换手机号的接口最先答（负余额摘要、未绑手机的 getMe 只在对应场景接管）。
     // HM-05r：剪贴板自动识别的设备级同意记录（type=clipboard_auto_import）最先答，写设备用例读的回执（2026-10-30 起客户端不再发，
     // 回执用来断言「始终为 0」）
-    const search: FakeAnswer | null = DebugFakeClipboard.answerConsent(request.url, request.method, request.body,
+    // LOCK-harmony 段 3：钱包假服务另拿 Authorization（step_up 发码要会话）、本次请求账号的 phone_bound（按同一分派取 getMe）与
+    // Idempotency-Key（保存收款同键重放回原结果）。
+    const auth: string | undefined = request.headers[NetworkHeaders.AUTHORIZATION];
+    const answered: FakeAnswer | null = DebugFakeClipboard.answerConsent(request.url, request.method, request.body,
       request.headers[NetworkHeaders.SIGN]) ?? DebugFakeAccount.answer(request.url, request.method, request.body,
       request.headers[NetworkHeaders.AUTHORIZATION], request.headers[NetworkHeaders.STEP_UP_TOKEN])
       ?? DebugFakeMe.answer(request.url, request.method, request.body)
       ?? DebugFakeWallet.answer(request.url, request.method, request.body,
-      request.headers[NetworkHeaders.STEP_UP_TOKEN]) ?? DebugFakeOrders.answer(request.url, request.method, request.body)
+      request.headers[NetworkHeaders.STEP_UP_TOKEN], auth, (): boolean | null => DebugFakeServer.fakePhoneBound(auth),
+      request.headers[NetworkHeaders.IDEMPOTENCY_KEY])
+      ?? DebugFakeOrders.answer(request.url, request.method, request.body)
       ?? DebugFakeTrade.answer(request.url, request.method,
       request.headers[NetworkHeaders.AUTHORIZATION] !== undefined) ?? this.searchAnswer(request.url, request.body);
+    const search: FakeAnswer | null = DebugFakeServer.withMaskedPhone(request.url, request.method, answered);
     const delay: number = search === null ? 400 : search.delayMillis;
     return new Promise<TransportResponse>((resolve: (r: TransportResponse) => void) => {
       const timer: number = setTimeout(() => {
@@ -339,6 +345,41 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
       default:
         return DebugFakeServer.envelope(20002, '{}');
     }
+  }
+
+  /**
+   * 本次请求账号的 getMe phone_bound（LOCK-harmony 段 3，只给 step_up 发码用）：账号假服务的 unbound 场景为 false（getMe 只读、不改状态），
+   * 其余假服务的 getMe 都是已绑手机（true）。
+   */
+  private static fakePhoneBound(auth: string | undefined): boolean | null {
+    const me: FakeAnswer | null = DebugFakeAccount.answer('/v1/me', 'GET', null, auth, undefined);
+    if (me === null) {
+      return true;
+    }
+    const data: Record<string, Object> = DebugFakeServer.parse(me.data);
+    const bound: Object | undefined = data['phone_bound'];
+    return typeof bound === 'boolean' ? bound as boolean : null;
+  }
+
+  /**
+   * GET /v1/me 的成功应答补 masked_phone（LOCK-harmony 段 3，锁 d47f660e5 Me.masked_phone）：phone_bound=true 为测试号脱敏 138****5678，
+   * false 为 null；已有 masked_phone、phone_bound 不是布尔（坏数据场景）或不是 getMe 的都原样。在分派之后统一补，各假服务的 getMe 不改。
+   */
+  private static withMaskedPhone(url: string, method: string, answer: FakeAnswer | null): FakeAnswer | null {
+    if (answer === null || answer.code !== 0 || method !== 'GET' || !url.split('?')[0].endsWith('/v1/me')) {
+      return answer;
+    }
+    const parsed: Record<string, Object> = DebugFakeServer.parse(answer.data);
+    const bound: Object | undefined = parsed['phone_bound'];
+    if (typeof bound !== 'boolean' || Object.keys(parsed).indexOf('masked_phone') >= 0) {
+      return answer;
+    }
+    const data: Record<string, Object | null> = {};
+    for (const k of Object.keys(parsed)) {
+      data[k] = parsed[k];
+    }
+    data['masked_phone'] = (bound as boolean) ? '138****5678' : null;
+    return new FakeAnswer(answer.code, JSON.stringify(data), answer.delayMillis, answer.retryAfter);
   }
 
   private static envelope(code: number, data: string, retryAfter: string | null = null): TransportResponse {

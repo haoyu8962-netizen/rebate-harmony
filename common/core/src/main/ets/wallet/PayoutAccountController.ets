@@ -9,9 +9,10 @@ import { FundIdentityRecovery } from './FundIdentityRecovery';
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { DeferredResult, PageNavGate, PendingClick, SensitiveFlow, SensitiveStep } from './SensitiveFlow';
 import { StepUpController } from '../stepup/StepUpController';
+import { RoutePolicy } from '../router/RoutePolicy';
 import { WalletDeps } from './WalletController';
 import { WalletJson, WalletRecord } from './WalletJson';
-import { PayoutAccountForm, PayoutPendingSummary, SensitiveOutcome } from './WalletPresentation';
+import { PayoutAccountForm, PayoutPendingSummary, SensitiveOutcome, StepUpBusinessSummary } from './WalletPresentation';
 import {
   FundPageLayout, PendingView, WalletLoadFailure, WalletMessage, WalletMessages, WalletSessionAware
 } from './WalletSession';
@@ -737,9 +738,15 @@ export class PayoutAccountController implements WalletSessionAware {
     if (!this.owns() || this.state.stepUpAction === null || account === null) {
       return null;
     }
+    // LOCK-harmony 段 3（D10-1635 ②、D10-1667 第 3 条）：验证带业务摘要，取自拿到令牌后要发出的原体——首次保存（及其原键重放）=
+    // lastBody（PayoutAccountForm.body 的 body）；确认上一笔 = 未决记录原体。不用脱敏展示摘要（lastSummary / PayoutPendingSummary）。
+    const key: string | null = this.stepUpKey;
+    const summary: StepUpBusinessSummary | null = this.stepUpPhase === SensitiveOutcome.SUBMIT
+      ? StepUpBusinessSummary.of(PayoutAccountController.STEP_UP_ACTION, this.lastBody)
+      : (key === null ? null : this.flow.pendingStepUpSummary(key));
     // 共性第 60 条：面板沿用本页表单（保存 / 确认）的身份——账号、归属键、钱包会话世代原样交给面板，不在面板里重读执行时会话。
     const c: StepUpController = new StepUpController(this.d, PayoutAccountController.STEP_UP_ACTION, account,
-      this.boundScope, this.state.sessionEpoch);
+      this.boundScope, this.state.sessionEpoch, summary);
     c.onToken = (token: string): void => this.afterStepUp(token);
     return c;
   }
@@ -857,6 +864,14 @@ export class PayoutAccountController implements WalletSessionAware {
         s.banner = msg;
         break;
       case SensitiveOutcome.STEP_UP:
+        if (this.d.phoneBound() === false) {
+          // LOCK-harmony 段 3（D10-1659 S2-4、D10-2141）：本账号确认没绑手机——面板照开，但不发码、提示 BR-ID-08 原句（StepUpController
+          // noPhone / phoneUnbound）；本页另给现有的「去绑定手机号」手动入口（openGuide → BindPhone，同 10005 被拦下时的入口），
+          // 关掉面板后仍在。输入保留，不自动跳转、不自动重提。
+          s.banner = WalletMessages.of(StepUpController.UNBOUND_TEXT_KEY);
+          s.guideRoute = RoutePolicy.BIND_PHONE;
+          s.guideTextKey = PayoutAccountController.guideText(RoutePolicy.BIND_PHONE);
+        }
         this.stepUpPhase = step.phase === SensitiveOutcome.SUBMIT ? SensitiveOutcome.SUBMIT : SensitiveOutcome.CONFIRM;
         this.stepUpKey = step.key;
         s.phase = PayoutPhase.STEP_UP;

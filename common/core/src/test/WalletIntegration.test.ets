@@ -19,6 +19,10 @@ import { RouteSpec } from 'generated';
 import { Deferred, envelope, flush, header, Rig } from './NetworkTestRig';
 import { ParamStack, TAB_ROOTS } from './OrderIntegration.test';
 
+/** LOCK-harmony 段 3（D10-2141 ①）：预置 payout_account_change 令牌的业务摘要键（StepUpBusinessSummary.key 格式），与随后保存的原体同一账号。 */
+const SUMMARY_KEY_ZS: string = '{"alipay_logon_id":"zhangsan@example.com","payout_method":"alipay"}';
+const SUMMARY_KEY_P138: string = '{"alipay_logon_id":"13800135678","payout_method":"alipay"}';
+
 export const NOW: number = Date.parse('2026-10-12T10:30:00+08:00');
 export const TEST_PHONE: string = '13800005678';
 
@@ -535,11 +539,11 @@ export default function walletIntegrationTest() {
       const firstKey: string | undefined = header(f.last('POST /v1/withdrawals'), 'Idempotency-Key');
       expect(firstKey !== undefined).assertTrue();
       const s: StepUpController = await passStepUp(c);
-      // 发码：本机号码、purpose=step_up、action=withdraw
+      // 发码：purpose=step_up、action=withdraw（不带号码）
       const sms: Record<string, Object> = JSON.parse(f.last('/v1/auth/sms-codes').body ?? '{}') as Record<string, Object>;
       expect(sms['purpose'] as string).assertEqual('step_up');
       expect(sms['action'] as string).assertEqual('withdraw');
-      expect(sms['phone'] as string).assertEqual(TEST_PHONE);
+      expect(sms['phone'] === undefined).assertTrue();
       expect(s.open).assertFalse();
       // 拿到 token 后沿用原键重放 1 次，带 X-Step-Up-Token，不进请求体
       expect(f.count('POST /v1/withdrawals')).assertEqual(2);
@@ -938,7 +942,7 @@ export default function walletIntegrationTest() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => TransportResponse.failed(TransportFailure.DISCONNECT));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_ZS);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -965,7 +969,7 @@ export default function walletIntegrationTest() {
     it('AC_S2_21_payout_30304_opens_realname_keeps_form_and_field_errors', 0, async () => {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(30304, '{}'));
       f.router.open(RouteRequest.of('PayoutAccount', RouteSource.IN_APP));
       f.session.sync();
@@ -982,14 +986,14 @@ export default function walletIntegrationTest() {
       // 20001（card_no）在卡号旁提示
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(20001, '{"fields":["alipay_logon_id"],'
         + '"reason":"phone_invalid"}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       p.save();
       await settle();
       expect(p.snapshot.fieldErrors.get('alipay_logon_id')?.textKey as string).assertEqual('error.20001.phone_invalid');
       // 30303 change_limit：页内提示
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(30303,
         '{"reason":"payout_account_change_limit"}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       p.save();
       await settle();
       expect(p.snapshot.banner?.textKey as string).assertEqual('error.30303.payout_account_change_limit');

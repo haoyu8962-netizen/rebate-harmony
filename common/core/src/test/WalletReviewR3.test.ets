@@ -11,6 +11,10 @@ import {
   NOW, openWithdraw, passStepUp, queryOfReq, settle, summaryJson, WalletFixture, withdrawal
 } from './WalletIntegration.test';
 
+/** LOCK-harmony 段 3（D10-2141 ①）：预置 payout_account_change 令牌的业务摘要键（StepUpBusinessSummary.key 格式），与随后保存的原体同一账号。 */
+const SUMMARY_KEY_P138: string = '{"alipay_logon_id":"13800135678","payout_method":"alipay"}';
+const SUMMARY_KEY_CARD: string = '{"card_no":"6222 0000 0000 0009","payout_method":"bank_card"}';
+
 function advance(f: WalletFixture, ms: number): void {
   f.nowMs += ms;
   f.rig.nowMillis = f.nowMs;
@@ -113,7 +117,7 @@ export default function walletReviewR3Test() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(20001, '{"fields":["payout_method"]}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_CARD);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -140,7 +144,7 @@ export default function walletReviewR3Test() {
       expect(PayoutAccountForm.visibleFields('bank_card').indexOf('payout_method') >= 0).assertTrue();
       // 字段错误不落在当前方式可见的字段上（银行卡方式下报 alipay_logon_id）：没有可见位置 → 错误条说明原因
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(20001, '{"fields":["alipay_logon_id"]}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_CARD);
       expect(p.save()).assertTrue();
       await settle();
       expect(p.snapshot.banner !== null).assertTrue();
@@ -243,7 +247,7 @@ export default function walletReviewR3Test() {
       expect(p.snapshot.phase).assertEqual(PayoutPhase.FORM);
       // 44001：本页发起了导航（打开实名页）后到达 → 不弹窗；回到本页再弹，已填内容保留
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => null);
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       expect(p.save()).assertTrue();
       await settle();
       p.openRealName();

@@ -465,6 +465,8 @@ export class AccountDeps implements StepUpDeps {
   /** 会话作用域：full / deletion_only（没有会话为 full）。 */
   sessionScope: () => string = () => 'full';
   stepUpPhone: (account: string) => string | null = (_a: string) => null;
+  /** 本账号是否绑定了手机号（Me.phone_bound；未知为 null）：false 才拦换号、注销的发码（LOCK-harmony 段 3，见 StepUpDeps）。 */
+  phoneBound: () => boolean | null = () => null;
   stepUpRestricted: () => boolean = () => false;
   forceUpdate: () => void = () => {
   };

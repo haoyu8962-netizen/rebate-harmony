@@ -290,6 +290,12 @@ export class ApiRequest {
    * 满足五类条件的声明请求不等刷新屏障（D10-2108 Q2、D10-1658 ④）。
    */
   sendsWhenIdentityUnknown: boolean = false;
+  /**
+   * 「必须有本人会话」（LOCK-harmony 段 3；03 §4.2 第四条、D10-1703 末句，同安卓 ApiCall.requiresSession、iOS 段 2 S2-1）。缺省 false。
+   * 只给二次验证面板的 step_up 发码（x-auth=optional）：组好的请求没有本人令牌（确认游客、没有会话）时本地拒 session_unreadable、零写出，
+   * 不匿名发出；身份未知照段 2 口径拒（打开了它的请求不算五类声明，sendsWhenIdentityUnknown 不起作用）。有令牌时照常带令牌发。
+   */
+  requiresSession: boolean = false;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -1952,7 +1958,7 @@ export class ApiClient {
    * （换号新号发码同为 purpose=bind，但调用点不声明，照拒，D10-1860）。
    */
   static declaredForUnknownIdentity(op: ApiOperation, request: ApiRequest): boolean {
-    if (!request.sendsWhenIdentityUnknown || op.auth !== 'optional') {
+    if (!request.sendsWhenIdentityUnknown || request.requiresSession || op.auth !== 'optional') {
       return false;
     }
     if (op.operationId === 'getConfig' || op.operationId === 'ingestEvents') {
@@ -2130,6 +2136,12 @@ export class ApiClient {
     if (op.auth !== 'none' && read.identityUnknown && !ApiClient.declaredForUnknownIdentity(op, request)) {
       // 身份未知（会话此刻读不出，或读得出却没有 access_token；03 §4.2、D10-1931 ②）：需要会话的接口与未声明的 optional 不当成游客
       // 匿名发出（APP-03b session_unreadable，三端统一裁定）；只有五类声明照发、不带令牌（上面 decide 已按没有令牌组头）。
+      return Prepared.reject(LocalRejectReason.SESSION_UNREADABLE);
+    }
+    if (request.requiresSession && op.auth !== 'none'
+      && (accessToken === null || !decision.has(NetworkHeaders.AUTHORIZATION))) {
+      // LOCK-harmony 段 3（03 §4.2 第四条、D10-1703 末句；同 iOS readyMismatch 的 requiresSession 分支）：必须带本人令牌发出的调用
+      // （step_up 发码）组不出 Authorization（确认游客、没有会话）→ 本地拒、零写出，不当成游客匿名发出。
       return Prepared.reject(LocalRejectReason.SESSION_UNREADABLE);
     }
     if (scope === SessionScope.DELETION_ONLY && !ApiClient.restrictedBodyAllowed(op.operationId, request.body)) {
@@ -2606,6 +2618,9 @@ export class ApiClient {
     copy.summary = request.summary;
     copy.fromProductCard = request.fromProductCard;
     copy.ifNoneMatch = request.ifNoneMatch;
+    // LOCK-harmony 段 3（评审 S3-3）：刷新 / 重新注册后的重放沿用调用点的会话开关。
+    copy.requiresSession = request.requiresSession;
+    copy.sendsWhenIdentityUnknown = request.sendsWhenIdentityUnknown;
     return copy;
   }
 

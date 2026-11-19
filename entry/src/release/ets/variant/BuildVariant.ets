@@ -94,9 +94,12 @@ export class BuildVariant {
     return null;
   }
 
-  /** 二次验证发码的号码（G31）：本机没有保存当前账号的手机号，不编造（TODO(N-32)：契约确认由服务端按令牌取号或 /v1/me 下发）。 */
-  static stepUpPhone(_account: string): string | null {
-    return null;
+  /**
+   * 二次验证发码的槽位（LOCK-harmony 段 3，D10-1658 ①，同安卓 "bound"）：服务端按本人令牌发到账号绑定的手机，发码体不带号码；本机没有
+   * 保存手机号、不编造。有账号时给不含数字的占位，只作 SmsResendClock 的键、不上送；没有账号为 null。
+   */
+  static stepUpPhone(account: string): string | null {
+    return account.length > 0 ? 'bound' : null;
   }
 
   /**

@@ -87,6 +87,25 @@ const FOREIGN_SUITES = new Map([
     // F-X-25 t4（评审新 r1 NR1-01，合并门槛）：旧文档 beacon / keepalive 的迟到 Set-Cookie。
     'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
   ] }],
+  // LOCK-harmony 段 3（#24 只加，D10-2135 ④ / D10-2141 ④）：假服务设备用例，import core 与 staging / release 变体，走惰性桩；
+  // 名单与 check_device_result.py 的 LOCKHM_SEG3_FAKE_CASES 一致（test_test_facilities.py 守）。
+  [path.join(testRoot, 'LockHarmonySeg3Fake.test.ets'), { task: 'LOCK-harmony-seg3', names: [
+    's3f_1_step_up_sms_with_phone_20001_fields_phone',
+    's3f_2_step_up_sms_without_authorization_10001',
+    's3f_3_step_up_sms_phone_unbound_20001_fields_code',
+    's3f_4_step_up_sms_member_bound_without_phone_succeeds',
+    's3f_5_verify_payout_missing_or_malformed_summary_20001_fields_summary',
+    's3f_6_verify_payout_with_valid_summary_issues_token',
+    's3f_7_verify_other_actions_with_summary_20001_without_ok',
+    's3f_8_save_payout_body_must_match_claim_mismatch_10003_not_consumed',
+    's3f_9_save_payout_bank_card_matches_and_withdraw_token_rejected',
+    's3f_10_save_payout_without_token_10003',
+    's3f_11_withdraw_without_token_10003_with_withdraw_token_ok',
+    's3f_12_get_me_masked_phone_bound_and_unbound',
+    's3f_14_save_payout_success_consumes_token_new_key_same_token_10003',
+    's3f_13_release_step_up_slot_is_digitless_placeholder_when_account_present',
+    's3f_15_staging_step_up_slot_bound_when_fake_off_test_phone_when_fake_on',
+  ] }],
 ]);
 const foreignCases = [];
 const foreignHooks = [];
@@ -286,8 +305,9 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   load(path.join(testRoot, 'List.test.ets')).default();
   // HM-07v-a 测试 v2：check_device_result 的合集把 F-X-25 6 条也列为设备必跑（FX25_DEVICE_CASES）；这里比的是严格加载器注册名，
   // F-X-25 走上方 FOREIGN_SUITES 固定名单（与 FX25_DEVICE_CASES 一致由 test_test_facilities.py 守），所以从合集里减掉再比。
+  // LOCK-harmony 段 3 的 LockHarmonySeg3Fake 15 条同理（LOCKHM_SEG3_FAKE_CASES），一并减掉。
   const expected = JSON.parse(execFileSync('python3', ['-c',
-    'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names, FX25_DEVICE_CASES; print(json.dumps(sorted(expected_names() - set(FX25_DEVICE_CASES))))', __dirname], { encoding: 'utf8' }));
+    'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names, FX25_DEVICE_CASES, LOCKHM_SEG3_FAKE_CASES; print(json.dumps(sorted(expected_names() - set(FX25_DEVICE_CASES) - set(LOCKHM_SEG3_FAKE_CASES))))', __dirname], { encoding: 'utf8' }));
   checkRegistration(cases.map(test => test.name), foreignCases, expected);
   console.log('REFERENCE_ONLY registration: all ' + expected.length + ' required cases registered exactly once');
   console.log('REFERENCE_ONLY registration: other registered suites ' + [...FOREIGN_SUITES.values()]

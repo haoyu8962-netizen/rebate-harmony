@@ -45,6 +45,8 @@ export class WalletDeps implements StepUpDeps {
   };
   /** 二次验证发码用的手机号（G31：本机有当前账号且绑定了账号归属的规范化号码才给，否则 null）。 */
   stepUpPhone: (account: string) => string | null = (_a: string) => null;
+  /** 本账号是否绑定了手机号（Me.phone_bound；未知为 null）：false 才拦改收款的发码，提现不看它（LOCK-harmony 段 3，见 StepUpDeps）。 */
+  phoneBound: () => boolean | null = () => null;
   /** 受限会话（deletion_only）：钱包页在受限会话里不可达（Router 只放行强更四个次要入口），恒为 false。 */
   stepUpRestricted: () => boolean = () => false;
   /** 本端版本号（收益看板入口，G20）。 */

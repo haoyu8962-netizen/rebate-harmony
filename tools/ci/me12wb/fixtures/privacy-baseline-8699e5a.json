@@ -91,7 +91,7 @@
    "common/core/src/main/ets/me/account/AccountSensitiveFlow.ets"
   ],
   [
-   "d566cdadd434a9c5a11a61538159eda65d22f403695338e1329d6e39cafa4f7c",
+   "6e224346b39f2ef7468724d5d8e12d3e2607aa8f2a952c7592b8b2992d8a6798",
    "common/core/src/main/ets/me/account/AccountSession.ets"
   ],
   [
@@ -99,7 +99,7 @@
    "common/core/src/main/ets/me/account/DeleteAccountController.ets"
   ],
   [
-   "602d5bededbd1102892968a8d2c4524f587df2ad25e80536c8081bc8e3e8a17d",
+   "e3d17f93ffe37fd447f9a8b2faa0f9e36c7f2bfe81c4bb7e45627efe3c00bb70",
    "common/core/src/main/ets/me/account/PhoneChangeController.ets"
   ],
   [
@@ -235,7 +235,7 @@
    "features/me/src/main/ets/MeTabView.ets"
   ],
   [
-   "7e12ddc57fed2941cd8d32e75a0080d8f605ab28374834cd43cf21bc4be81964",
+   "f584a8de74f79123d3659afa11a551885f1681203bf2d465ec8cced80c84c6c5",
    "features/me/src/main/ets/PhoneChangeView.ets"
   ],
   [
@@ -1174,9 +1174,12 @@
    "0c99e08918795d32",
    "55f684ac5e331e9b",
    "e3b0c44298fc1c14",
-   "2b744d9a2e43f061",
-   "8e781cc2e4a692dc",
-   "3dbf52b2fd6d729a",
+   "e27a87f133293309",
+   "be36a0eddce6f791",
+   "2dbc0f04ef72f395",
+   "552e8731ac6f747f",
+   "fa9d92a9ffcf05f8",
+   "b72ee4fafe58bf0d",
    "737db166c79ae98e",
    "e3b0c44298fc1c14",
    "3d9d0dde70e564f3",

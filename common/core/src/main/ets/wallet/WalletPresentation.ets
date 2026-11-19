@@ -561,9 +561,76 @@ export class SensitiveOutcome {
 }
 
 /**
+ * 改收款二次验证的业务摘要（LOCK-harmony 段 3；D10-1635 ②、D10-1667 第 3 条；契约 StepUpBySmsRequest.summary 的 StepUpSummaryAlipay /
+ * StepUpSummaryBankCard）。只从将要 PUT 的原请求体取：首次保存 = PayoutAccountForm.body(form) 的 body，确认上一笔 = 未决记录原体；
+ * 不用本机脱敏的展示摘要（PayoutPendingSummary）。账号原样（PayoutAccountForm 只去了首尾空白），客户端不再规范化、不算指纹；不带收款人
+ * 姓名与开户行。只有 payout_account_change 有摘要；withdraw / phone_change / account_deletion 为 null（D10-1667）。
+ * - body：随 POST /v1/auth/step-up 上送的 summary 对象：{payout_method: alipay, alipay_logon_id} 或 {payout_method: bank_card, card_no}。
+ * - key：令牌缓存（StepUpTokenCache）的摘要键，只在内存里严格相等比对。格式 = 按键名字典序排列的 JSON 文本（JSON.stringify 转义）：
+ *   支付宝 {"alipay_logon_id":"<原样账号>","payout_method":"alipay"}；银行卡 {"card_no":"<原样卡号>","payout_method":"bank_card"}。
+ */
+export class StepUpBusinessSummary {
+  static readonly PAYOUT_ACTION: string = 'payout_account_change';
+  readonly method: string;
+  /** 账号字段名：alipay_logon_id 或 card_no。 */
+  readonly field: string;
+  readonly value: string;
+
+  constructor(method: string, field: string, value: string) {
+    this.method = method;
+    this.field = field;
+    this.value = value;
+  }
+
+  /** 上送的 summary 对象。 */
+  get body(): Record<string, Object> {
+    const out: Record<string, Object> = {};
+    out['payout_method'] = this.method;
+    out[this.field] = this.value;
+    return out;
+  }
+
+  /** 令牌缓存的摘要键（见类注释；alipay_logon_id / card_no 都排在 payout_method 前）。 */
+  get key(): string {
+    const out: Record<string, Object> = {};
+    out[this.field] = this.value;
+    out['payout_method'] = this.method;
+    return JSON.stringify(out);
+  }
+
+  /**
+   * 按 action 与将要发出的原请求体（JSON 文本）取摘要：不是 payout_account_change、体为空或解析不了、方式不是 alipay / bank_card、
+   * 账号字段不是非空字符串 → null。
+   */
+  static of(action: string, body: string | null): StepUpBusinessSummary | null {
+    if (action !== StepUpBusinessSummary.PAYOUT_ACTION || body === null) {
+      return null;
+    }
+    let record: WalletRecord | null = null;
+    try {
+      record = WalletJson.objectOf(JSON.parse(body) as Object);
+    } catch (e) {
+      record = null;
+    }
+    if (record === null) {
+      return null;
+    }
+    const method: string | null = str(record, 'payout_method');
+    const field: string | null = method === 'alipay' ? 'alipay_logon_id' : (method === 'bank_card' ? 'card_no' : null);
+    if (method === null || field === null) {
+      return null;
+    }
+    const value: string | null = str(record, field);
+    return value === null || value.length === 0 ? null : new StepUpBusinessSummary(method, field, value);
+  }
+}
+
+/**
  * 二次验证 token 的复用条件（APP-09 G17；APP-13a G23）：只放内存，按账号与 action 隔离；本机时钟早于 expire_at 才带上。
  * binding（APP-13a）：放入时绑定打开面板的会话归属（含登录序号、会话世代；账号页另含会话作用域 full / deletion_only）。取用时给了
  * binding 就要求一致（作用域从 deletion_only 变 full、会话换代后不复用）；钱包的旧调用不给 binding，口径与原来相同。
+ * summary（LOCK-harmony 段 3，同安卓 FU-AND-STEPUP-SUMMARY）：调用方算好的业务摘要键（StepUpBusinessSummary.key），null = 不带摘要。
+ * 放入与取用两边严格相等才复用，null 与非 null 也算不同；withdraw、phone_change、account_deletion 两边都是 null，行为照旧。
  */
 export class StepUpTokenCache {
   private readonly tokens: Map<string, StepUpEntry> = new Map<string, StepUpEntry>();
@@ -577,17 +644,22 @@ export class StepUpTokenCache {
     return this.gen;
   }
 
-  put(action: string, account: string, token: string, expireAtMs: number, binding: string = ''): void {
-    this.tokens.set(action, new StepUpEntry(account, token, expireAtMs, binding));
+  put(action: string, account: string, token: string, expireAtMs: number, binding: string = '',
+    summary: string | null = null): void {
+    this.tokens.set(action, new StepUpEntry(account, token, expireAtMs, binding, summary));
   }
 
-  /** 不核销服务端 token；不满足条件为 null。 */
-  take(action: string, account: string, nowMs: number, binding: string | null = null): string | null {
+  /** 不核销服务端 token；不满足条件为 null。summary 与放入时的不严格相等（含 null 对非 null）不复用。 */
+  take(action: string, account: string, nowMs: number, binding: string | null = null,
+    summary: string | null = null): string | null {
     const e: StepUpEntry | undefined = this.tokens.get(action);
     if (e === undefined || e.account !== account || nowMs >= e.expireAtMs) {
       return null;
     }
     if (binding !== null && e.binding !== binding) {
+      return null;
+    }
+    if (e.summary !== summary) {
       return null;
     }
     return e.token;
@@ -624,12 +696,15 @@ class StepUpEntry {
   readonly token: string;
   readonly expireAtMs: number;
   readonly binding: string;
+  /** 业务摘要键（LOCK-harmony 段 3）；null = 不带摘要。 */
+  readonly summary: string | null;
 
-  constructor(account: string, token: string, expireAtMs: number, binding: string) {
+  constructor(account: string, token: string, expireAtMs: number, binding: string, summary: string | null) {
     this.account = account;
     this.token = token;
     this.expireAtMs = expireAtMs;
     this.binding = binding;
+    this.summary = summary;
   }
 }
 

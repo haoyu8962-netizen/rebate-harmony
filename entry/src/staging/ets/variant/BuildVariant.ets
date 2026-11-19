@@ -241,9 +241,12 @@ export class BuildVariant {
   private static readonly fakeWallet: WalletContractPort = new GatedWalletContractPort(new DebugFakeWallet(),
     DebugFakeServer.mockGate);
 
-  /** 二次验证发码的号码（G31）：本机假服务打开时用测试号码；没打开时与 Release 一样取不到（不编造号码）。 */
-  static stepUpPhone(_account: string): string | null {
-    return DebugFakeServer.mockGate() ? DEBUG_STEP_UP_PHONE : null;
+  /**
+   * 二次验证发码的槽位（LOCK-harmony 段 3，D10-1658 ①、D10-2141 ⑤）：只作重发计时的键、不上送。本机假服务打开时用测试号码；没打开时与
+   * Release 同口径——有账号给不含数字的占位 'bound'，没有账号为 null。
+   */
+  static stepUpPhone(account: string): string | null {
+    return DebugFakeServer.mockGate() ? DEBUG_STEP_UP_PHONE : (account.length > 0 ? 'bound' : null);
   }
 
   private static readonly fakeMe: MeContractPort = new GatedMeContractPort(new DebugFakeMe(), DebugFakeServer.mockGate);

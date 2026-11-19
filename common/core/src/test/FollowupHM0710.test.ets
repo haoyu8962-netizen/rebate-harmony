@@ -19,6 +19,11 @@ import {
 import { detail, OrderFixture, order, page, pending, rec } from './OrderIntegration.test';
 import { card, FAR_FUTURE, Fixture, openOk, settle as settlePurchase } from './OpenPurchaseIntegration.test';
 
+/** LOCK-harmony 段 3（D10-2141 ①）：预置 payout_account_change 令牌的业务摘要键（StepUpBusinessSummary.key 格式），与随后保存的原体同一账号。 */
+const SUMMARY_KEY_P138: string = '{"alipay_logon_id":"13800135678","payout_method":"alipay"}';
+const SUMMARY_KEY_P139: string = '{"alipay_logon_id":"13900000001","payout_method":"alipay"}';
+const SUMMARY_KEY_CARD: string = '{"card_no":"6222 0000 0000 0009","payout_method":"bank_card"}';
+
 const CREATED: string = '2026-10-12T10:30:00+08:00';
 
 function count(names: string[], name: string): number {
@@ -141,7 +146,7 @@ export default function followupHM0710Test() {
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(20001,
         '{"fields":["alipay_logon_id","card_no"]}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_CARD);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -159,7 +164,7 @@ export default function followupHM0710Test() {
       expect(PayoutAccountForm.errorFocusId('card_no', 'bank_card')).assertEqual('payout_card_no');
       // 只有隐藏字段：错误条出现，可见出错字段为 null → 焦点目标是错误条
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(20001, '{"fields":["alipay_logon_id"]}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_CARD);
       expect(p.save()).assertTrue();
       await settle();
       expect(p.snapshot.banner !== null).assertTrue();
@@ -205,7 +210,7 @@ export default function followupHM0710Test() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => null);
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -335,7 +340,7 @@ export default function followupHM0710Test() {
       // 保存新账号 Y 成功
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{"payout_method":"alipay",'
         + '"masked_account":"139****0001","masked_payee_name":"**四","change_remaining_this_month":1}'));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P139);
       p.setField('alipay_logon_id', '13900000001');
       p.setField('payee_name', '测试四');
       expect(p.save()).assertTrue();
@@ -561,7 +566,7 @@ export default function followupHM0710Test() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => TransportResponse.failed(TransportFailure.DISCONNECT));
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -618,7 +623,7 @@ export default function followupHM0710Test() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => null);
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -654,7 +659,7 @@ export default function followupHM0710Test() {
       const g: WalletFixture = new WalletFixture();
       g.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       g.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => envelope(30304, '{}'));
-      g.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      g.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       g.session.sync();
       const q: PayoutAccountController = new PayoutAccountController(g.deps());
       q.onShown();
@@ -893,7 +898,7 @@ export default function followupHM0710Test() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => null);
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -910,7 +915,7 @@ export default function followupHM0710Test() {
       const v1: number = p.snapshot.version;
       expect(p.snapshot.guideRoute as string).assertEqual('RealName');
       // 再保存一次，迟到的 10004（劳务协议）→ 目标换成 LaborAgreement、版本前进
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       expect(p.save()).assertTrue();
       await settle();
       p.onHidden();
@@ -975,7 +980,7 @@ export default function followupHM0710Test() {
       const contract: CountingContract = new CountingContract();
       f.contract = contract;
       f.session.tokens.put('withdraw', 'user-1', 'fixture-step-token', NOW + 300000);
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_P138);
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       const c: WithdrawController = await openWithdraw(f);
       c.fillQuick(1000, c.snapshot.version);

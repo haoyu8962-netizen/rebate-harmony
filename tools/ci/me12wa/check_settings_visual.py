@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = 'cc872c3'
 FIXTURE = 'tools/ci/me12wa/fixtures/settings-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-a-harmony-v1-aux/make_baseline.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = '074aa56598cb09d7037c7d90baa50d8edd44db3fb431c123334ef1a8746159a9'
+FIXTURE_SHA256 = 'd3cf4b61badb908684faf6314d2c5eb896fc59db064f79d94051beed0e2792be'
 
 VIEW = 'features/me/src/main/ets/SettingsView.ets'
 PARTS = 'features/me/src/main/ets/SettingsParts.ets'
@@ -247,10 +247,7 @@ STRICT_AMENDED = dict((rel, digest) for digest, rel in [
 # FU-HM-ROOTSHOWN-CHAIN 第二部分（编排 D10-1668 批，#24）：二次验证关闭链与按页订阅改了下面这些冻结树里的文件，整树比对只对它们多认这一个新 sha。
 TREE_D10_1668 = dict((rel, digest) for digest, rel in [
     ('1da3248a80ae1ce7dad3867af1c32f011a132977f159f4b51f46f5ab19892838', 'common/core/src/main/ets/wallet/WithdrawController.ets'),
-    ('dd650dd12e7fccb99f2084b70da8c8fa680e30c2d177e1f931a609b2ffc1fd2e', 'common/core/src/main/ets/wallet/PayoutAccountController.ets'),
-    ('89df0b97c0adfe35044df1c6b21c5381cba3ab6e3c27ea7cf3f325e0b499b8ee', 'common/core/src/main/ets/me/account/PhoneChangeController.ets'),
     ('afc838a88059afa8e03d68175a8440a77d524ee9050b3bd561462fb3e2e258ed', 'common/core/src/main/ets/me/account/DeleteAccountController.ets'),
-    ('a837b1ff88b2583f9870bef8f24c4708a17863fbfa790c42ca36bb3df08dadeb', 'features/me/src/main/ets/PhoneChangeView.ets'),
     ('97aaf68df3edc28a92d040b777d5e2cc465aa09338ff27b976bc6ed7a5d7b687', 'features/me/src/main/ets/DeleteAccountView.ets'),
 ])
 

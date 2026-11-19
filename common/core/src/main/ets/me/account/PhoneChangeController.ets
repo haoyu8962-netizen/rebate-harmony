@@ -9,6 +9,7 @@
 import { PhoneNumber } from '../../login/LoginFlow';
 import { ApiRequest, ApiResult } from '../../network/ApiClient';
 import { RetryAfterGate } from '../../network/RetryAfterGate';
+import { RoutePolicy } from '../../router/RoutePolicy';
 import { StepUpController, StepUpSnapshot } from '../../stepup/StepUpController';
 import { DeferredResult, PageNavGate } from '../../wallet/SensitiveFlow';
 import { WalletJson } from '../../wallet/WalletJson';
@@ -69,6 +70,11 @@ export class PhoneChangeSnapshot {
   step: string = PhoneChangeStep.STEP1;
   /** 本机取得到绑定账号归属的号码（G02）：取不到时第 1 步置灰。 */
   phoneKnown: boolean = false;
+  /**
+   * 本账号确认没绑手机（Me.phone_bound=false，LOCK-harmony 段 3）：第 1 步置灰（phoneKnown 同为 false），提示 BR-ID-08 原句
+   * （step_up.no_available_method），并给去绑定入口（guideRoute = BindPhone）。
+   */
+  phoneUnbound: boolean = false;
   /** 第 1 步（二次验证执行器的快照：已发送、倒计时、验证码、错误、限流）。 */
   step1: StepUpSnapshot = new StepUpSnapshot();
   newPhone: string = '';
@@ -164,7 +170,15 @@ export class PhoneChangeController implements AccountSessionAware {
     this.flow = new AccountSensitiveFlow(deps, AccountSensitiveFlow.PHONE, deps.session.phoneGate,
       this.identity.account, this.identity.key);
     const account: string | null = this.identity.account;
-    this.state.phoneKnown = account !== null && deps.stepUpPhone(account) !== null;
+    // LOCK-harmony 段 3（D10-1682 ②、D10-1659 S2-4 / S2-5）：有发码槽位，且 phone_bound 不是 false（未知照发、由服务端兜）。
+    this.state.phoneKnown = account !== null && deps.stepUpPhone(account) !== null && deps.phoneBound() !== false;
+    if (account !== null && deps.phoneBound() === false) {
+      // 确认没绑手机：第 1 步不发码，提示 BR-ID-08 原句（phoneUnbound），并给本页现有的引导入口（error.10005「请先绑定手机号」→ BindPhone，
+      // openGuide 手动打开，D10-1659 S2-4、D10-2141）。
+      this.state.phoneUnbound = true;
+      this.state.guideRoute = RoutePolicy.BIND_PHONE;
+      this.state.guideCode = 10005;
+    }
     const refresh: () => void = (): void => {
       if (this.alive) {
         this.emit();

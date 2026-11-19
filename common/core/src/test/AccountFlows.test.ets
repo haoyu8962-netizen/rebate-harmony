@@ -27,7 +27,7 @@ export default function accountFlowsTest() {
       expect(p.snapshot.phoneKnown).assertTrue();
       const step1Sms: string = f.requests('POST /v1/auth/sms-codes')[0].body ?? '';
       expect(step1Sms.indexOf('"purpose":"step_up"') >= 0 && step1Sms.indexOf('"action":"phone_change"') >= 0).assertTrue();
-      expect(step1Sms.indexOf(PHONE) >= 0).assertTrue();
+      expect(step1Sms.indexOf(PHONE)).assertEqual(-1);
       expect(p.snapshot.step).assertEqual(PhoneChangeStep.STEP2);
       await fillStep2(f, p, '  ' + NEW_PHONE + '  ');
       const bindSms: string = f.last('POST /v1/auth/sms-codes').body ?? '';

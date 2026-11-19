@@ -12,6 +12,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 HM-L2-PRODUCT-CELL（#24 只加，README ⑩ 不新增设备步）：Ds02L2Ui 另加 cell 段 9 条（tools/ci/l2cell/device-cases.txt；目录不增行，render_all 条数不变），main 210 → 219 条
                 HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：Ds02L2Ui 42 条从主步摘出、单列设备步 entry-l2（--set l2 必跑），主步 notClass 加 Ds02L2Ui，
                 main 219 → 177 条（= DS-02 162 + F-X-05a 9 + F-X-25 6）；主步混进任一条 l2 用例即红（套件过滤失效）
+                LOCK-harmony 段 3（#24 只加，D10-2135 ④ / D10-2141 ④）：+ LockHarmonySeg3Fake 15 条（LOCKHM_SEG3_FAKE_CASES），main 177 → 192 条
   --set hm07va  首页视觉 a 段单独步：HM-07v-a 17 条（测试 v3 +2），且只能是这 17 条（套件过滤失效、混进别的套件都报红）
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
@@ -40,6 +41,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 main 177、l2 42、a11y 10，合集 348（l2 改单列只换步、不改合集）
                 HM-BATCH1-FREEZE 集成 2（#24 只加）：+ a11y 步 AGENT 段 5 条（tools/ci/a11yagent/device-cases.txt），a11y 10 → 15，合集 348 → 353
                 HM-BATCH1-FREEZE 集成 3（#24 只加）：+ a11y 步 HOME-SEARCH 段 5 条（tools/ci/a11yhome/device-cases.txt），a11y 15 → 20，合集 353 → 358
+                LOCK-harmony 段 3（#24 只加）：+ 主步 LockHarmonySeg3Fake 15 条，main 177 → 192，合集 358 → 373
 """
 import collections
 import csv
@@ -56,6 +58,25 @@ FX25_DEVICE_CASES = [
     'E05_R3_04_production_sandbox_owner_mismatch_cleans_before_first_trusted_load',
     'E06_covered_host_tears_down_while_covered_and_shows_clean_new_document_after_pop',
     'E07_NR1_01_old_document_beacon_and_keepalive_late_set_cookie_never_reaches_new_account',
+]
+# LOCK-harmony 段 3（#24 只加，编排 D10-2135 ④ / D10-2141 ④）：假服务设备用例（LockHarmonySeg3Fake，在 entry List 登记、随主步跑）；
+# 与 ds02/check-ui-facilities.cjs 的 FOREIGN_SUITES 名单一致，test_test_facilities.py 守。
+LOCKHM_SEG3_FAKE_CASES = [
+    's3f_1_step_up_sms_with_phone_20001_fields_phone',
+    's3f_2_step_up_sms_without_authorization_10001',
+    's3f_3_step_up_sms_phone_unbound_20001_fields_code',
+    's3f_4_step_up_sms_member_bound_without_phone_succeeds',
+    's3f_5_verify_payout_missing_or_malformed_summary_20001_fields_summary',
+    's3f_6_verify_payout_with_valid_summary_issues_token',
+    's3f_7_verify_other_actions_with_summary_20001_without_ok',
+    's3f_8_save_payout_body_must_match_claim_mismatch_10003_not_consumed',
+    's3f_9_save_payout_bank_card_matches_and_withdraw_token_rejected',
+    's3f_10_save_payout_without_token_10003',
+    's3f_11_withdraw_without_token_10003_with_withdraw_token_ok',
+    's3f_12_get_me_masked_phone_bound_and_unbound',
+    's3f_14_save_payout_success_consumes_token_new_key_same_token_10003',
+    's3f_13_release_step_up_slot_is_digitless_placeholder_when_account_present',
+    's3f_15_staging_step_up_slot_bound_when_fake_off_test_phone_when_fake_on',
 ]
 SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'a11y', 'l2', 'all')
 
@@ -229,6 +250,8 @@ def expected_names(set_name='all'):
                  if line.strip() and not line.startswith('#'))
     # F-X-25：此前只按 check-ui-facilities.cjs 核对注册名，设备结果里未逐条要求；拆步后 main 名单把这 6 条也列为必跑（只加不减）。
     names.update(FX25_DEVICE_CASES)
+    # LOCK-harmony 段 3（#24 只加，D10-2135 ④）：LockHarmonySeg3Fake 15 条随主步跑，main / all 都列为必跑。
+    names.update(LOCKHM_SEG3_FAKE_CASES)
     # HM-L2-CARD（#24 只加；README ⑩：Ds02L2Ui 在主 entry 步跑，不新增设备步）：main / all 都列为必跑。
     names.update(l2_names())
     # HM-L2-SKELETON（#24 只加）：同一套件的 L2SKEL 段 6 条，main / all 同样列为必跑。

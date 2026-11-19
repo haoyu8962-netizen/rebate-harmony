@@ -11,7 +11,7 @@ from unittest.mock import patch
 import test_host as host_tests
 from test_host import assert_resource_palette, assert_resource_free_logic, ROOT, palette, argb
 import gen
-from check_device_result import expected_names, validate, FX25_DEVICE_CASES
+from check_device_result import expected_names, validate, FX25_DEVICE_CASES, LOCKHM_SEG3_FAKE_CASES
 
 
 class ResourceAssertionStrength(unittest.TestCase):
@@ -305,7 +305,8 @@ run_device_tests core common/core core_test
         # FU-HM-A11Y-FUNDS（#24 只加）：a11y 步 FUNDS 段 5 条（tools/ci/a11yfunds/device-cases.txt）进合集；343 → 348。
         # HM-BATCH1-FREEZE 集成 2（#24 只加）：a11y 步 AGENT 段 5 条（tools/ci/a11yagent/device-cases.txt）进合集；348 → 353。
         # HM-BATCH1-FREEZE 集成 3（#24 只加）：a11y 步 HOME-SEARCH 段 5 条（tools/ci/a11yhome/device-cases.txt）进合集；353 → 358。
-        self.assertEqual(len(names), 358)
+        # LOCK-harmony 段 3（#24 只加，D10-2135 ④ / D10-2141 ④）：主步 LockHarmonySeg3Fake 15 条进合集；358 → 373。
+        self.assertEqual(len(names), 373)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -341,8 +342,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 358)  # HM-BATCH1-FREEZE 集成 2：348 → 353；集成 3：353 → 358（同上）
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 358)
+        self.assertEqual(validate(report(names)), 373)  # HM-BATCH1-FREEZE 集成 2：348 → 353；集成 3：353 → 358；LOCK-harmony 段 3：358 → 373（同上）
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 373)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -351,7 +352,7 @@ run_device_tests core common/core core_test
                         or name.startswith('l2button_') or name.startswith('l2price_')
                         or name.startswith('l2state_')
                         or name.startswith('l2cell_')
-                        or name in FX25_DEVICE_CASES]:
+                        or name in FX25_DEVICE_CASES or name in LOCKHM_SEG3_FAKE_CASES]:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 validate(report([name for name in names if name != missing]))
         # 12 个变体/主题任意漏一个都必须报红，旧聚合名不能抵账。
@@ -393,7 +394,8 @@ run_device_tests core common/core core_test
         a11y = expected_names('a11y')
         l2 = expected_names('l2')
         # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换值）：Ds02L2Ui 42 条摘出主步、单列 entry-l2，main 219 → 177。
-        self.assertEqual(len(main), 177)
+        # LOCK-harmony 段 3（#24 只加，D10-2141 ④）：LockHarmonySeg3Fake 15 条随主步跑，main 177 → 192。
+        self.assertEqual(len(main), 192)
         self.assertEqual(len(l2), 42)
         # HM-L2-STATE（集成 2 换定位）：class=Ds02L2UiState 不复存在，l2state 7 条从 l2 里按前缀取（原 expected_names('l2state')）。
         l2state = {name for name in l2 if name.startswith('l2state_')}
@@ -522,6 +524,12 @@ run_device_tests core common/core core_test
         facilities = (root / 'tools/ci/ds02/check-ui-facilities.cjs').read_text()
         for name in FX25_DEVICE_CASES:
             self.assertIn("'" + name + "'", facilities)
+        # LOCK-harmony 段 3（#24 只加，D10-2141 ④；照 F-X-25 写法）：名单 ⊆ main、与套件 it() 一致、每条都在 check-ui-facilities.cjs 的 FOREIGN_SUITES 里。
+        self.assertEqual(set(LOCKHM_SEG3_FAKE_CASES) & main, set(LOCKHM_SEG3_FAKE_CASES))
+        seg3 = (root / 'entry/src/ohosTest/ets/test/LockHarmonySeg3Fake.test.ets').read_text()
+        self.assertEqual(sorted(re.findall(r"\bit\('(s3f_\d+_[a-z0-9_]+)'", seg3)), sorted(LOCKHM_SEG3_FAKE_CASES))
+        for name in LOCKHM_SEG3_FAKE_CASES:
+            self.assertIn("'" + name + "'", facilities)
 
         def report(case_names, failed=''):
             events = []
@@ -533,8 +541,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 177)  # HM-BATCH1-DEVFIX：219 → 177（换值）
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 177)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 192)  # HM-BATCH1-DEVFIX：219 → 177（换值）；LOCK-harmony 段 3：177 → 192
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 192)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)

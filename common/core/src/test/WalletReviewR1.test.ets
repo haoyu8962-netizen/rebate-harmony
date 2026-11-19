@@ -14,6 +14,9 @@ import {
   withdrawal
 } from './WalletIntegration.test';
 
+/** LOCK-harmony 段 3（D10-2141 ①）：预置 payout_account_change 令牌的业务摘要键（StepUpBusinessSummary.key 格式），与随后保存的原体同一账号。 */
+const SUMMARY_KEY_ZS: string = '{"alipay_logon_id":"zhangsan@example.com","payout_method":"alipay"}';
+
 /** 内存文件操作（FileSlot 注入点）：可模拟改名失败、删除失败（标记的临时文件已落盘但改名失败）。 */
 class MarkOps implements FileOps {
   readonly files: Map<string, string> = new Map<string, string>();
@@ -123,7 +126,7 @@ export default function walletReviewR1Test() {
       const f: WalletFixture = new WalletFixture();
       f.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       f.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => null);
-      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      f.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_ZS);
       f.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(f.deps());
       p.onShown();
@@ -175,7 +178,7 @@ export default function walletReviewR1Test() {
       const g: WalletFixture = new WalletFixture();
       g.reply('/v1/me/payout-account', (_r: TransportRequest) => envelope(0, '{}'));
       g.reply('PUT /v1/me/payout-account', (_r: TransportRequest) => TransportResponse.failed(TransportFailure.DISCONNECT));
-      g.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000);
+      g.session.tokens.put('payout_account_change', 'user-1', 'fixture-step-token', NOW + 300000, '', SUMMARY_KEY_ZS);
       g.session.sync();
       const p: PayoutAccountController = new PayoutAccountController(g.deps());
       p.onShown();

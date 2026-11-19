@@ -12,7 +12,7 @@ import { PendingKeyRecord } from '../network/PendingKeyStore';
 import { RetryAfterGate } from '../network/RetryAfterGate';
 import { WalletDeps } from './WalletController';
 import { WalletRecord } from './WalletJson';
-import { SensitiveOutcome } from './WalletPresentation';
+import { SensitiveOutcome, StepUpBusinessSummary } from './WalletPresentation';
 import { PendingView, SensitiveResultInput, WalletMessage, WalletMessages } from './WalletSession';
 
 type JSONValue = Object | null;
@@ -232,6 +232,32 @@ export class SensitiveFlow {
     return this.boundAccount !== undefined ? this.boundAccount : this.d.account();
   }
 
+  /**
+   * 未决键 key 的原请求体对应的二次验证业务摘要（LOCK-harmony 段 3：确认上一笔 = 未决记录原体，D10-1635 ②）。键已不是本页账号这个
+   * 操作的未决记录、或这个 action 不带摘要（提现）时为 null。
+   */
+  pendingStepUpSummary(key: string): StepUpBusinessSummary | null {
+    const record: PendingKeyRecord | null = this.ownRecord();
+    return record === null || record.key !== key ? null : StepUpBusinessSummary.of(this.stepUpAction, record.body);
+  }
+
+  /** 取缓存 token 时的摘要键：按这次将要发出的原请求体算（改收款）；提现为 null（LOCK-harmony 段 3）。 */
+  private summaryKey(body: string | null): string | null {
+    const summary: StepUpBusinessSummary | null = StepUpBusinessSummary.of(this.stepUpAction, body);
+    return summary === null ? null : summary.key;
+  }
+
+  /**
+   * 取缓存 token（LOCK-harmony 段 3，D10-2141 ⑥）：按摘要键严格相等复用。改收款必须有摘要键——取不到（原体解析不了、未决记录已不是
+   * 这个键）时不取，不让 null 键匹配到任何改收款 token；提现等不带摘要的操作仍以 null 键复用（行为照旧）。
+   */
+  private cachedToken(account: string, summaryKey: string | null): string | null {
+    if (summaryKey === null && this.stepUpAction === StepUpBusinessSummary.PAYOUT_ACTION) {
+      return null;
+    }
+    return this.d.session.tokens.take(this.stepUpAction, account, this.d.clock(), null, summaryKey);
+  }
+
   storeUnavailable(): boolean {
     return this.d.api.pendingStoreUnavailable();
   }
@@ -249,8 +275,8 @@ export class SensitiveFlow {
     const request: ApiRequest = new ApiRequest(this.operationId, {}, '', body);
     request.summary = summary;
     request.idempotencyKey = replayKey;
-    request.stepUpToken = token ?? (account === null ? null
-      : this.d.session.tokens.take(this.stepUpAction, account, this.d.clock()));
+    // LOCK-harmony 段 3：改收款的缓存 token 只在摘要与这次请求体相同时复用。
+    request.stepUpToken = token ?? (account === null ? null : this.cachedToken(account, this.summaryKey(body)));
     // B 类写请求：不设 owner（离开页面不取消）；42901 闸门与点击身份在每次实际发包前核对。
     request.sendAllowed = this.sendGuard(click);
     // 二次验证后原键重放至多一次，预算按一次用户提交计（共性第 16 条）：用户的新提交（replayKey 为 null）重置预算。
@@ -270,8 +296,10 @@ export class SensitiveFlow {
     }
     // 共性第 52 条：凭据按点击身份（表单所属账号）读取，不取执行时的当前会话。
     const account: string | null = click !== null ? click.account : this.fallbackAccount();
+    // LOCK-harmony 段 3：改收款的缓存 token 只在摘要与未决记录原体相同时复用（原体取不到时摘要键按 null）。
+    const pendingSummary: StepUpBusinessSummary | null = token === null ? this.pendingStepUpSummary(key) : null;
     const t: string | null = token ?? (account === null ? null
-      : this.d.session.tokens.take(this.stepUpAction, account, this.d.clock()));
+      : this.cachedToken(account, pendingSummary === null ? null : pendingSummary.key));
     // 用户点的确认重置重放预算；二次验证后带 token 的续发占用这次预算（共性第 16 条）。
     this.replayedKey = token !== null ? key : null;
     return this.d.api.confirmPending(key, t, this.sendGuard(click)).then((result: ApiResult) =>

@@ -38,6 +38,11 @@ export interface StepUpDeps {
   stepUpPhone: (account: string) => string | null;
   forceUpdate: () => void;
   stepUpRestricted: () => boolean;
+  /**
+   * 本账号是否绑定了手机号（LOCK-harmony 段 3；Me.phone_bound，D10-1682 ②、D10-1659 S2-4 / S2-5）：true / false / null（未知）。
+   * 只有 false 才在本地拦改收款、换号、注销的发码（StepUpActions.needsBoundPhone）；null 照发、由服务端兜；提现不看它（D10-1667）。
+   */
+  phoneBound: () => boolean | null;
 }
 
 /** 二次验证的四个 action（enums/identity step_up_action）。 */
@@ -50,6 +55,18 @@ export class StepUpActions {
   /** 受限会话（deletion_only）下只接受 account_deletion（BR-ID-01 细则「受限会话」可调接口表）。 */
   static allowedIn(restricted: boolean, action: string): boolean {
     return !restricted || action === StepUpActions.ACCOUNT_DELETION;
+  }
+
+  /** 契约 step_up_action 里改收款的取值（PayoutAccountController.STEP_UP_ACTION 同值）。 */
+  static readonly PAYOUT_ACCOUNT_CHANGE: string = 'payout_account_change';
+
+  /**
+   * phone_bound=false 时本地拦发码的 action（LOCK-harmony 段 3，D10-1667「只拦改收款 / 换号 / 注销，不碰提现」）：
+   * payout_account_change、phone_change、account_deletion；withdraw 不在内。
+   */
+  static needsBoundPhone(action: string): boolean {
+    return action === StepUpActions.PAYOUT_ACCOUNT_CHANGE || action === StepUpActions.PHONE_CHANGE
+      || action === StepUpActions.ACCOUNT_DELETION;
   }
 }
 

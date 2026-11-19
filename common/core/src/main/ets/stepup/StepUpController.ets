@@ -2,10 +2,13 @@
 // APP-13a：从 wallet/ 挪到共用位置，依赖改为通用接口 StepUpDeps（钱包与账号的执行器依赖都实现它），支持 withdraw、
 // payout_account、phone_change、account_deletion 四个 action；受限会话（deletion_only）下只允许 account_deletion，其余本地拒绝、不发请求。
 // 拿到的 token 记进共享缓存时绑定打开面板的会话归属（scope），按账号、会话归属与 action 隔离（APP-13a G23）。
-// - 打开即对当前 action 发码：sendSmsCode {phone, purpose: step_up, action}。号码只用本机绑定了当前账号归属的规范化号码（G31）；取不到
-//   不编造、不让用户另填，提示并登记空白（rule-gaps H 段）。
+// - 打开即对当前 action 发码：sendSmsCode {purpose: step_up, action}（LOCK-harmony 段 3，D10-1635 ①、D10-1658 ①：不带 phone，服务端按
+//   本人令牌发到账号绑定的手机）；请求置 requiresSession（没有本人会话本地拒、零写出）。本机号码槽位（stepUpPhone：Debug 为测试号，
+//   Release 有账号时为不含数字的占位）只作 SmsResendClock 的键、不上送；取不到槽位不发码（G31）。phone_bound=false 时改收款、换号、
+//   注销不发码，走「先绑定手机」（noPhone）；提现不看 phone_bound（D10-1667）。
 // - 「验证码已发送至你绑定的手机号」（G16，不显示号码）；倒计时按 resend_after_sec（未返回按 60 秒）。
-// - 【验证并提交】输满 6 位才可用 → stepUp {action, code}；成功把 token 记进内存（按账号与 action，G17）并交给发起方，由发起方沿用原键重放。
+// - 【验证并提交】输满 6 位才可用 → stepUp {action, code}，改收款另带 summary（发起方按将要 PUT 的原体算好交进来，D10-1635 ②）；成功把
+//   token 记进内存（按账号、action 与摘要键，G17）并交给发起方，由发起方沿用原键重放。
 // - 20002 / 20003：清空输入、assertive 播报；42901 发码与验证分开限流：发码按「账号 + 号码 + action」键（SmsResendClock，与倒计时同键，
 //   harmony-review-r1 R1-10），验证用 verifyGate；10405 只在网络层判定 FORCE_UPDATE 时进强更（R1-07）。
 // - 面板是敏感浮层：关闭或会话变化后迟到的结果只丢弃（APP-07 第 4 条）。
@@ -16,6 +19,7 @@
 import { ApiRequest, ApiResult } from '../network/ApiClient';
 import { EffectKind, ErrorActionMapper } from '../network/ErrorActionMapper';
 import { StepUpGrant, WalletJson } from '../wallet/WalletJson';
+import { StepUpBusinessSummary } from '../wallet/WalletPresentation';
 import { SmsResendClock, SmsSendOutcome, WalletLoadFailure, WalletMessage, WalletMessages } from '../wallet/WalletSession';
 import { StepUpActions, StepUpDeps } from './StepUpPorts';
 
@@ -30,6 +34,11 @@ export class StepUpSnapshot {
   error: WalletMessage | null = null;
   /** 取不到本账号的手机号（G31）：不发码。 */
   noPhone: boolean = false;
+  /**
+   * 本账号确认没绑手机（phone_bound=false，LOCK-harmony 段 3）：改收款、换号、注销不发码；提示 BR-ID-08 原句
+   * （step_up.no_available_method，同注销页 G10），去绑定的入口由发起页给（各页现有的 BindPhone 引导）。
+   */
+  phoneUnbound: boolean = false;
   /** 受限会话（deletion_only）下这个 action 不允许（只允许 account_deletion）：本地拒绝，不发请求。 */
   scopeDenied: boolean = false;
   /** 发码 / 验证的 42901 禁用中。 */
@@ -42,12 +51,16 @@ export class StepUpSnapshot {
 export class StepUpController {
   static readonly SEND_OPERATION: string = 'sendSmsCode';
   static readonly VERIFY_OPERATION: string = 'stepUp';
+  /** phone_bound=false 的提示（契约文案键，BR-ID-08 原句「请先绑定手机号，或在支持该登录方式的设备上操作」）。 */
+  static readonly UNBOUND_TEXT_KEY: string = 'step_up.no_available_method';
   readonly action: string;
   private readonly d: StepUpDeps;
   private readonly account: string;
   private readonly scope: string;
   /** 打开面板的提交 / 确认所属的钱包会话世代（共性第 60 条）；null 只给不经页面的直接构造（单测），不核对世代。 */
   private readonly epoch: number | null;
+  /** 改收款的业务摘要（发起方按将要 PUT 的原体算好；其余 action 为 null）：验证体带 summary，令牌按摘要键记进缓存。 */
+  private readonly summary: StepUpBusinessSummary | null;
   private closed: boolean = false;
   private timer: number = -1;
   private rateTimer: number = -1;
@@ -66,15 +79,16 @@ export class StepUpController {
   /**
    * APP-09 共性第 60 条：面板沿用打开它的提交 / 确认身份——account、scope（页面构建时的归属键，含登录序号与会话世代）、epoch（钱包
    * 会话世代）由发起页原样传入；发码、重新获取、验证、读手机号、占用发码槽位、发包前都核对它，不重新绑定执行时的会话。scope 为 null
-   * 时（不经页面的直接构造）取构造时的归属。
+   * 时（不经页面的直接构造）取构造时的归属。summary：改收款由发起方按将要 PUT 的原体给出（LOCK-harmony 段 3），其余为 null。
    */
   constructor(deps: StepUpDeps, action: string, account: string, scope: string | null = null,
-    epoch: number | null = null) {
+    epoch: number | null = null, summary: StepUpBusinessSummary | null = null) {
     this.d = deps;
     this.action = action;
     this.account = account;
     this.scope = scope ?? deps.scope();
     this.epoch = epoch;
+    this.summary = summary;
     const gates: () => void = (): void => {
       if (!this.closed) {
         this.emit();
@@ -156,6 +170,15 @@ export class StepUpController {
     if (this.denied()) {
       return false;
     }
+    if (StepUpActions.needsBoundPhone(this.action) && this.d.phoneBound() === false) {
+      // LOCK-harmony 段 3（D10-1682 ②、D10-1659 S2-4 / S2-5、D10-1667）：本账号确认没绑手机——改收款、换号、注销不发码，走「先绑定手机」；
+      // 未知（null）照发、由服务端兜；提现不看它。提示用 BR-ID-08 原句（契约 step_up.no_available_method，同注销页 G10 的句子）。
+      s.noPhone = true;
+      s.phoneUnbound = true;
+      s.error = WalletMessages.of(StepUpController.UNBOUND_TEXT_KEY);
+      this.emit();
+      return false;
+    }
     const phone: string | null = this.d.stepUpPhone(this.account);
     if (phone === null) {
       // TODO(N-32) G31 / rule-gaps H：本机取不到当前账号的手机号，不编造、不让用户另填。
@@ -189,11 +212,13 @@ export class StepUpController {
     s.sending = true;
     s.error = null;
     this.emit();
+    // LOCK-harmony 段 3（D10-1635 ①、D10-1658 ①）：不带 phone，槽位只作上面的发码键。
     const body: Record<string, string> = {};
-    body['phone'] = phone;
     body['purpose'] = 'step_up';
     body['action'] = this.action;
     const request: ApiRequest = new ApiRequest(StepUpController.SEND_OPERATION, {}, '', JSON.stringify(body));
+    // 03 §4.2 第四条、D10-1703 末句：必须带本人令牌发出；确认游客 / 没有会话由网络层本地拒、零写出（身份未知照段 2 口径拒）。
+    request.requiresSession = true;
     // 只按打开面板的发起身份（会话归属、账号、世代；面板关闭不取消已发出的发码：结果要记进共享截止时间）。
     request.owner = (): boolean => this.sameSession();
     // 执行层：每次实际发包前按同一把键核对 42901（R1-10）。
@@ -294,9 +319,14 @@ export class StepUpController {
     s.verifying = true;
     s.error = null;
     this.emit();
-    const body: Record<string, string> = {};
+    const body: Record<string, Object> = {};
     body['action'] = this.action;
     body['code'] = s.code;
+    const summary: StepUpBusinessSummary | null = this.summary;
+    if (summary !== null) {
+      // LOCK-harmony 段 3（D10-1635 ②、D10-1667 第 3 条）：只有改收款带业务摘要（将要 PUT 的原样账号，不带收款人姓名）。
+      body['summary'] = summary.body;
+    }
     const request: ApiRequest = new ApiRequest(StepUpController.VERIFY_OPERATION, {}, '', JSON.stringify(body));
     // 归属只按会话与账号（同发码，共性第 27 条）：面板关闭后到达的 42901 仍写进共享验证限流；结果本身（含 token）面板关了就丢弃。
     const d: StepUpDeps = this.d;
@@ -335,7 +365,12 @@ export class StepUpController {
           return;
         }
         // APP-13a G23：token 绑定打开面板的会话归属（scope，含登录序号、会话世代；账号页另含会话作用域），只放内存。
-        this.d.session.tokens.put(this.action, this.account, grant.token, grant.expireAtMs, this.scope);
+        // LOCK-harmony 段 3：改收款的 token 另按摘要键记（摘要不同的保存不复用）；其余 action 摘要键为 null。D10-2141 ⑥：改收款没有
+        // 摘要（服务端本应 20001 拒签）时不写缓存，不留 null 键的改收款 token；本次仍交给发起方按原键原体重放。
+        if (summary !== null || this.action !== StepUpBusinessSummary.PAYOUT_ACTION) {
+          this.d.session.tokens.put(this.action, this.account, grant.token, grant.expireAtMs, this.scope,
+            summary === null ? null : summary.key);
+        }
         this.close();
         this.onToken(grant.token);
         return;

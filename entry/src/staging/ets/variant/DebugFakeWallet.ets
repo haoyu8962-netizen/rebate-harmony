@@ -14,6 +14,13 @@
 // - amount_rejected（FU-HM-A11Y-03 读屏走查）：提交第 1 次 → 30303 below_min（金额类），之后每次 → 30303 daily_count
 //   （非金额类）；其余同缺省。编排 D10-1668（#24，按 D10-1665 新口径「提现不再需要二次验证」）：本场景不再先回 10003，带不带 token 都直接回 30303。
 // - 二次验证码：123456 成功；200020 → 20002；其余 20002。实名：身份证号末尾 406X → 30406，其余成功。
+// - LOCK-harmony 段 3（D10-1635、D10-1658 ①、D10-1667；同安卓 / iOS 假服务）：
+//   - step_up 发码：体带 phone → 20001 fields=[phone]；不带 Authorization → 10001；phone_bound=false（由 DebugFakeServer 按本次请求的
+//     getMe 结果交进来，如账号假服务 unbound 场景）→ 20001 fields=[code]；其余成功。
+//   - 验证：payout_account_change 缺摘要或形状不对（封闭对象 {payout_method: alipay, alipay_logon_id} / {payout_method: bank_card,
+//     card_no}）→ 20001 fields=[summary]；其余 action 带摘要 → 20001 fields=[summary]。签发的令牌记下 claim（action + 规范化摘要）。
+//   - 保存收款：令牌的 claim 不是 payout_account_change、或与请求体规范化后的账号不符 → 10003、不核销；相符才保存并核销。
+//   - 提现：照旧「不带令牌回 10003、带令牌成功」（D10-2108 Q5、D10-1667 过渡期）。
 import { ApiOutcome, ApiResult, TransportFailure, WalletContractPort } from 'core';
 import { FakeAnswer } from './DebugFakeSearch';
 
@@ -72,6 +79,17 @@ class FakeWithdrawal {
   }
 }
 
+/** 二次验证令牌签发时记下的 claim（LOCK-harmony 段 3）：action 与规范化后的摘要（不带摘要为 null）。 */
+class FakeStepUpClaim {
+  readonly action: string;
+  readonly summary: string | null;
+
+  constructor(action: string, summary: string | null) {
+    this.action = action;
+    this.summary = summary;
+  }
+}
+
 export class DebugFakeWallet implements WalletContractPort {
   static scene: string = '';
   static readonly marker: string = DEBUG_FAKE_WALLET_MARKER;
@@ -89,8 +107,14 @@ export class DebugFakeWallet implements WalletContractPort {
     ];
   }
 
-  /** 钱包类接口（/v1/wallet、/v1/withdrawals、/v1/me/payout-account、/v1/auth/step-up、step_up 发码、/v1/idempotency-keys）；其余为 null。 */
-  static answer(url: string, method: string, body: string | null, stepUpToken: string | undefined): FakeAnswer | null {
+  /**
+   * 钱包类接口（/v1/wallet、/v1/withdrawals、/v1/me/payout-account、/v1/auth/step-up、step_up 发码、/v1/idempotency-keys）；其余为 null。
+   * auth：请求的 Authorization（step_up 发码要会话）；phoneBound：本次请求账号的 getMe phone_bound（只在 step_up 发码时取；null = 未知）；
+   * idempotencyKey：请求的 Idempotency-Key（保存收款成功后同键重放回原结果）。
+   */
+  static answer(url: string, method: string, body: string | null, stepUpToken: string | undefined,
+    auth: string | undefined = undefined, phoneBound: (() => boolean | null) | null = null,
+    idempotencyKey: string | undefined = undefined): FakeAnswer | null {
     const path: string = url.split('?')[0];
     const scene: string = DebugFakeWallet.scene;
     if (path.endsWith('/v1/wallet/summary')) {
@@ -111,13 +135,13 @@ export class DebugFakeWallet implements WalletContractPort {
       return w === undefined ? new FakeAnswer(30701, '{}', 300) : new FakeAnswer(0, w.json(true), 300);
     }
     if (path.endsWith('/v1/me/payout-account')) {
-      return method === 'PUT' ? DebugFakeWallet.savePayout(body, stepUpToken) : DebugFakeWallet.payout();
+      return method === 'PUT' ? DebugFakeWallet.savePayout(body, stepUpToken, idempotencyKey) : DebugFakeWallet.payout();
     }
     if (path.endsWith('/v1/auth/step-up')) {
       return DebugFakeWallet.stepUp(body);
     }
     if (path.endsWith('/v1/auth/sms-codes') && body !== null && body.indexOf('"step_up"') >= 0) {
-      return new FakeAnswer(0, '{"resend_after_sec":60,"expires_in_sec":300}', 300);
+      return DebugFakeWallet.stepUpSms(body, auth, phoneBound);
     }
     if (path.endsWith('/v1/idempotency-keys/abandon')) {
       return DebugFakeWallet.abandon();
@@ -293,14 +317,35 @@ export class DebugFakeWallet implements WalletContractPort {
       + '"change_remaining_this_month":2}', 300);
   }
 
-  private static savePayout(body: string | null, token: string | undefined): FakeAnswer {
+  private static savePayout(body: string | null, token: string | undefined, key: string | undefined): FakeAnswer {
     if (DebugFakeWallet.scene === 'payout_pending') {
       return new FakeAnswer(-1, '', 600);
+    }
+    // LOCK-harmony 段 3（评审 S3-7）：同一 Idempotency-Key 已保存成功 → 回原结果（令牌已核销也一样），不再 10003。
+    const replay: FakeAnswer | undefined = key === undefined ? undefined : DebugFakeWallet.payoutSaved.get(key);
+    if (replay !== undefined) {
+      return replay;
     }
     if (token === undefined || token.length === 0) {
       return new FakeAnswer(10003, '{}', 400);
     }
+    // LOCK-harmony 段 3：令牌的 claim 要是改收款、且与请求体规范化后的账号相符；不符 → 10003，不核销（同一令牌换回相符的体仍能用）。
+    const claim: FakeStepUpClaim | undefined = DebugFakeWallet.claims.get(token);
+    if (claim === undefined || claim.action !== DebugFakeWallet.PAYOUT_ACTION || claim.summary === null
+      || claim.summary !== DebugFakeWallet.normalizedPayout(body)) {
+      return new FakeAnswer(10003, '{}', 400);
+    }
+    DebugFakeWallet.claims.delete(token);
     DebugFakeWallet.payoutBound = true;
+    const saved: FakeAnswer = DebugFakeWallet.payoutAnswer(body);
+    if (key !== undefined && key.length > 0) {
+      DebugFakeWallet.payoutSaved.set(key, saved);
+    }
+    return saved;
+  }
+
+  /** 保存收款成功的应答（按请求体的收款方式给脱敏结果）。 */
+  private static payoutAnswer(body: string | null): FakeAnswer {
     let method: string = 'alipay';
     try {
       const b: Record<string, Object> = JSON.parse(body ?? '{}') as Record<string, Object>;
@@ -318,19 +363,100 @@ export class DebugFakeWallet implements WalletContractPort {
   private static stepUp(body: string | null): FakeAnswer {
     let code: string = '';
     let action: string = 'withdraw';
+    let hasSummary: boolean = false;
+    let summary: string | null = null;
     try {
       const b: Record<string, Object> = JSON.parse(body ?? '{}') as Record<string, Object>;
       code = typeof b['code'] === 'string' ? b['code'] as string : '';
       action = typeof b['action'] === 'string' ? b['action'] as string : 'withdraw';
+      hasSummary = b['summary'] !== undefined;
+      summary = hasSummary ? DebugFakeWallet.normalizedSummary(b['summary']) : null;
     } catch (e) {
       code = '';
     }
+    // LOCK-harmony 段 3（D10-1635 ②、D10-1667）：改收款必须带形状正确的摘要；其余 action 不许带。
+    if (action === DebugFakeWallet.PAYOUT_ACTION ? summary === null : hasSummary) {
+      return new FakeAnswer(20001, '{"fields":["summary"]}', 400);
+    }
     if (code === '123456') {
       DebugFakeWallet.serial++;
-      return new FakeAnswer(0, '{"step_up_token":"debug-stub-step-up-' + action + '-' + DebugFakeWallet.serial
-        + '","expire_at":"2099-01-01T00:00:00+08:00"}', 400);
+      const token: string = 'debug-stub-step-up-' + action + '-' + DebugFakeWallet.serial;
+      DebugFakeWallet.claims.set(token, new FakeStepUpClaim(action, summary));
+      return new FakeAnswer(0, '{"step_up_token":"' + token + '","expire_at":"2099-01-01T00:00:00+08:00"}', 400);
     }
     return new FakeAnswer(code === '200030' ? 20003 : 20002, '{}', 400);
+  }
+
+  static readonly PAYOUT_ACTION: string = 'payout_account_change';
+  /** 已签发、未核销的二次验证令牌 → claim（LOCK-harmony 段 3）。 */
+  private static readonly claims: Map<string, FakeStepUpClaim> = new Map<string, FakeStepUpClaim>();
+  /** 保存收款已成功的 Idempotency-Key → 原结果（同键重放回原结果，评审 S3-7）。 */
+  private static readonly payoutSaved: Map<string, FakeAnswer> = new Map<string, FakeAnswer>();
+
+  /** step_up 发码（LOCK-harmony 段 3）：带 phone → 20001 [phone]；没有会话 → 10001；确认未绑手机 → 20001 [code]；其余成功。 */
+  private static stepUpSms(body: string, auth: string | undefined, phoneBound: (() => boolean | null) | null): FakeAnswer {
+    let hasPhone: boolean = false;
+    try {
+      const b: Object | null = JSON.parse(body) as Object | null;
+      hasPhone = b !== null && typeof b === 'object' && (b as Record<string, Object>)['phone'] !== undefined;
+    } catch (e) {
+      hasPhone = false;
+    }
+    if (hasPhone) {
+      return new FakeAnswer(20001, '{"fields":["phone"]}', 300);
+    }
+    if (auth === undefined || auth.length === 0) {
+      return new FakeAnswer(10001, '{}', 300);
+    }
+    if (phoneBound !== null && phoneBound() === false) {
+      return new FakeAnswer(20001, '{"fields":["code"]}', 300);
+    }
+    return new FakeAnswer(0, '{"resend_after_sec":60,"expires_in_sec":300}', 300);
+  }
+
+  /**
+   * 验证体里的摘要规范化（形状不对为 null）：封闭对象，支付宝 {payout_method: alipay, alipay_logon_id}、银行卡 {payout_method: bank_card,
+   * card_no}，账号非空字符串；规范化 = 支付宝去首尾空白，卡号去掉空格与连字符（假服务替服务端做，客户端不做）。
+   */
+  private static normalizedSummary(value: Object | undefined): string | null {
+    if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const r: Record<string, Object> = value as Record<string, Object>;
+    const keys: string[] = Object.keys(r).sort();
+    const method: Object | undefined = r['payout_method'];
+    if (method === 'alipay' && keys.join(',') === 'alipay_logon_id,payout_method') {
+      return DebugFakeWallet.normalizedAccount('alipay', r['alipay_logon_id']);
+    }
+    if (method === 'bank_card' && keys.join(',') === 'card_no,payout_method') {
+      return DebugFakeWallet.normalizedAccount('bank_card', r['card_no']);
+    }
+    return null;
+  }
+
+  /** 保存收款请求体的规范化账号（同 normalizedSummary 的规则；取不到为 null）。 */
+  private static normalizedPayout(body: string | null): string | null {
+    try {
+      const r: Record<string, Object> = JSON.parse(body ?? '{}') as Record<string, Object>;
+      const method: Object | undefined = r['payout_method'];
+      if (method === 'alipay') {
+        return DebugFakeWallet.normalizedAccount('alipay', r['alipay_logon_id']);
+      }
+      if (method === 'bank_card') {
+        return DebugFakeWallet.normalizedAccount('bank_card', r['card_no']);
+      }
+    } catch (e) {
+      return null;
+    }
+    return null;
+  }
+
+  private static normalizedAccount(method: string, value: Object | undefined): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const v: string = method === 'bank_card' ? (value as string).replace(/[ \-]/g, '') : (value as string).trim();
+    return v.length === 0 ? null : method + ':' + v;
   }
 
   private static abandon(): FakeAnswer {
@@ -391,5 +517,7 @@ export class DebugFakeWallet implements WalletContractPort {
     DebugFakeWallet.laborSigned = false;
     DebugFakeWallet.payoutBound = scene !== 'unbound';
     DebugFakeWallet.submitted = null;
+    DebugFakeWallet.claims.clear();
+    DebugFakeWallet.payoutSaved.clear();
   }
 }

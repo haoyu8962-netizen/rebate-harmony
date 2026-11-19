@@ -156,6 +156,7 @@ import a11yHomeNoticeTest from './A11yHomeNotice.test';
 import rootShownChainTest from './RootShownChain.test';
 import lockHarmonySeg1Test from './LockHarmonySeg1.test';
 import lockHarmonySeg2Test from './LockHarmonySeg2.test';
+import lockHarmonySeg3Test from './LockHarmonySeg3.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -335,4 +336,6 @@ export default function testsuite() {
   lockHarmonySeg1Test();
   // LOCK-harmony 段 2（D10-2108 Q1 / Q2 / Q3 / Q7；03 §4.2）：身份未知三档、五类声明、两次读交错、固定账号核对、设备凭据窗口。
   lockHarmonySeg2Test();
+  // LOCK-harmony 段 3（D10-1635 / 1658 ① / 1667 / 1682 ②）：step_up 发码去 phone 且必须有会话、phone_bound 判据、改收款摘要、令牌缓存摘要、提现补用例。
+  lockHarmonySeg3Test();
 }
