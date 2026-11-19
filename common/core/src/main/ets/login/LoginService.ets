@@ -643,6 +643,8 @@ export class LoginService {
     body['phone'] = normalized;
     body['purpose'] = 'login';
     const request: ApiRequest = new ApiRequest(LoginErrorMapper.SEND_SMS_CODE, {}, '', JSON.stringify(body));
+    // 03 §4.2 五类声明之一（登录发码 purpose=login；LOCK-harmony 段 2，D10-1709 ③）：身份未知时也不带令牌照发、不等刷新屏障。
+    request.sendsWhenIdentityUnknown = true;
     const owner: () => boolean = this.ownerFor(issued);
     request.owner = owner;
     // F-HM-10（APP-05a 共性 22）：记下这次发码有没有真正写出（传输层发出前最后一次核对的结果）。

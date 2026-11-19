@@ -21,6 +21,8 @@ export class ApiConfigFetcher {
       return new ConfigReply(ConfigReply.FAILURE, null, null);
     }
     const request: ApiRequest = new ApiRequest(ApiConfigFetcher.OPERATION);
+    // 03 §4.2 五类声明之一（取配置是启动要用到的请求；LOCK-harmony 段 2，D10-1709 ③）。裸 getConfig 不声明，身份未知时照拒。
+    request.sendsWhenIdentityUnknown = true;
     request.ifNoneMatch = etag;
     try {
       const result: ApiResult = await client.request(request);

@@ -41,6 +41,8 @@ export class OneTapLoginService {
     body['provider'] = OAuthProvider.HUAWEI;
     body['purpose'] = 'login';
     const request: ApiRequest = new ApiRequest(OAuthLoginService.CREATE_OPERATION, {}, '', JSON.stringify(body));
+    // 03 §4.2 五类声明之一（华为一键登录取授权尝试 purpose=login；LOCK-harmony 段 2，D10-1710）。
+    request.sendsWhenIdentityUnknown = true;
     request.owner = ticket.owner;
     try {
       const result: ApiResult = await this.client.request(request);

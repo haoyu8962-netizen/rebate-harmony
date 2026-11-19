@@ -155,6 +155,7 @@ import a11yAgentReplyTagTest from './A11yAgentReplyTag.test';
 import a11yHomeNoticeTest from './A11yHomeNotice.test';
 import rootShownChainTest from './RootShownChain.test';
 import lockHarmonySeg1Test from './LockHarmonySeg1.test';
+import lockHarmonySeg2Test from './LockHarmonySeg2.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -332,4 +333,6 @@ export default function testsuite() {
   // LOCK-harmony 段 1（D10-2108 / D10-2110）：link_jump 结果映射（Q8）、bridge_call / sdui_card_error 诊断字段、系统权限按类型过滤、
   // MeJson.maskedPhone（H4）。
   lockHarmonySeg1Test();
+  // LOCK-harmony 段 2（D10-2108 Q1 / Q2 / Q3 / Q7；03 §4.2）：身份未知三档、五类声明、两次读交错、固定账号核对、设备凭据窗口。
+  lockHarmonySeg2Test();
 }

@@ -69,6 +69,9 @@ export interface SessionTokens {
    * 这一刻的会话读取结果（APP-03b，三端统一裁定）：present（读到会话）/ absent（没有会话：不存在、内容损坏已按没有处理、
    * 或清会话的隔离中）/ unreadable（安全存储此刻读不出，可能有会话）。unreadable 时上面四个读取方法按没有会话返回，
    * 但调用方不能当成游客：需要会话的接口本地拒绝（session_unreadable），下次再读。
+   * present 时 accessToken() 也可能为 null（LOCK-harmony 段 2，03 §4.2「读得出却没有 access_token」、D10-1931 ②、D10-2108 Q1）：
+   * 会话项里 access_token 缺失或为 null、refresh_token 合法——这是一条会话记录，不是损坏；网络层按「身份未知」处理（与 unreadable 同一档）。
+   * 读取方要先取 readStatus()，present 时再取其余读取方法（同一次读取的结果，D10-1931 ③），不要先读令牌、读到空再查状态。
    */
   readStatus(): string;
 
@@ -277,9 +280,17 @@ export class SessionRevocation {
  *    只在令牌确认删除或新会话整组写入成功后才删，所以损坏的标记不会被抹成「没有」而旧令牌还在。
  * 登录世代与整份会话同口径（F-HM-34 ①）：loginEpoch() 与 accessToken() 走同一个 load——令牌项或任一标记读不出、内容损坏（含令牌为空、
  * 作用域不在合法取值内、字段类型不对，R1-01）、隔离中、损坏清理失败、已撤销，一律为 null。
+ * 「有会话、没有 access」（LOCK-harmony 段 2，D10-2108 Q1）：access_token 缺失或为 null、refresh_token 是非空字符串、其余字段合法——
+ * 不是损坏，不隔离、不删除、不通知丢弃；readStatus() 为 present，accessToken() 为 null，其余读取方法照常给出（网络层按身份未知处理）。
+ * access_token 为空串或类型不对仍按损坏（Q1）。
  */
 export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
   private static readonly ALIAS: string = 'session_tokens';
+  /**
+   * 内存里「有会话、没有 access」的标记值（只在 decode 里给出；存储里的空串 access_token 按损坏，走不到这里）。accessToken() 对它返回
+   * null；save 总是写入登录 / 刷新响应里的真实令牌，不会把它写回存储。
+   */
+  private static readonly NO_ACCESS: string = '';
   /** 撤销标记（与令牌同一 Asset 命名空间，F-HM-34）。 */
   private static readonly REVOKED_ALIAS: string = 'session_revoked';
   private readonly store: SecureStore;
@@ -333,7 +344,7 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
 
   accessToken(): string | null {
     const tokens: SessionTokenSet | null = this.load();
-    return tokens === null ? null : tokens.accessToken;
+    return tokens === null || tokens.accessToken === SecureSessionTokens.NO_ACCESS ? null : tokens.accessToken;
   }
 
   refreshToken(): string | null {
@@ -647,9 +658,11 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
   }
 
   /**
-   * 解析存储的整组令牌（R1-01：完整校验）。内容损坏一律为 null（整组按没有会话、世代 null）：不是 JSON 对象；access_token /
-   * refresh_token 不是非空字符串；session_scope 不是 full / deletion_only（不把非法作用域转成 full）；account 不是字符串或 null；
-   * login_epoch 不是非空字符串或 null。
+   * 解析存储的整组令牌（R1-01：完整校验）。内容损坏一律为 null（整组按没有会话、世代 null）：不是 JSON 对象；refresh_token 不是非空
+   * 字符串；access_token 不是非空字符串、又不是缺失 / null；session_scope 不是 full / deletion_only（不把非法作用域转成 full）；account
+   * 不是字符串或 null；login_epoch 不是非空字符串或 null。
+   * access_token 缺失或为 null、其余合法（D10-2108 Q1：只有这一种算「有会话、没有 access」，空串与类型错仍是损坏）：给出 access 为
+   * NO_ACCESS 的会话（readStatus present、accessToken() null）。
    */
   private static decode(text: string): SessionTokenSet | null {
     try {
@@ -662,8 +675,9 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
       const scope: Object | null | undefined = wire.session_scope;
       const account: Object | null | undefined = wire.account;
       const epoch: Object | null | undefined = wire.login_epoch;
-      if (typeof access !== 'string' || (access as string).length === 0 || typeof refresh !== 'string'
-        || (refresh as string).length === 0) {
+      const accessMissing: boolean = access === undefined || access === null;
+      if ((!accessMissing && (typeof access !== 'string' || (access as string).length === 0))
+        || typeof refresh !== 'string' || (refresh as string).length === 0) {
         return null;
       }
       if (typeof scope !== 'string' || (scope !== SCOPE_FULL && scope !== SCOPE_DELETION_ONLY)) {
@@ -675,8 +689,9 @@ export class SecureSessionTokens implements SessionTokens, SessionLoginEpochs {
       if (epoch !== undefined && epoch !== null && (typeof epoch !== 'string' || (epoch as string).length === 0)) {
         return null;
       }
-      return new SessionTokenSet(access as string, refresh as string, scope as string,
-        typeof account === 'string' ? account as string : null, typeof epoch === 'string' ? epoch as string : null);
+      return new SessionTokenSet(accessMissing ? SecureSessionTokens.NO_ACCESS : access as string, refresh as string,
+        scope as string, typeof account === 'string' ? account as string : null,
+        typeof epoch === 'string' ? epoch as string : null);
     } catch (e) {
       return null;
     }

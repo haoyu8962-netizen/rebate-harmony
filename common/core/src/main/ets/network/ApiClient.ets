@@ -280,6 +280,16 @@ export class ApiRequest {
    * 只保留调用方的归属与发包准入，结果只结算允许的共享事实（10405 强更；42901 由调用方写自己的闸门）。
    */
   singleShot: boolean = false;
+  /**
+   * 「身份未知也照发」声明（LOCK-harmony 段 2；03 §4.2「可选登录接口的发送口径」、D10-1709、D10-2108 Q7）。缺省 false。
+   * 身份未知（本机存着会话，但这一刻读不出，或读得出却没有 access_token）时，x-auth=optional 的请求默认本地拒绝（session_unreadable、
+   * 零写出）；只有调用点打开这个开关、且请求体落在五类条件里（ApiClient.declaredForUnknownIdentity 再核一次），才不带令牌照发。
+   * 五类：sendSmsCode purpose=login / bind（登录、第三方登录后的绑手机；会员换号的新号发码不声明，D10-1860）；createOauthAttempt
+   * purpose=login；getConfig；ingestEvents；recordConsent type=privacy 且 accepted=false（隐私中心撤回）。
+   * 打开了也只管身份未知这一档：有令牌照常带令牌发，确认游客照常匿名发；设备凭据屏障与签名要求照旧（D10-1939 / 1940）。
+   * 满足五类条件的声明请求不等刷新屏障（D10-2108 Q2、D10-1658 ④）。
+   */
+  sendsWhenIdentityUnknown: boolean = false;
 
   constructor(operationId: string, pathParams: Record<string, string> = {}, query: string = '',
     body: string | null = null) {
@@ -422,6 +432,35 @@ class Envelope {
  * 之后每一次实际发送前、每一次异步等待之后、每一个响应处理之前都用 ApiClient.ownershipLost 核对；
  * 归属变了就结束这次调用，绝不改绑到当前账号。
  */
+/**
+ * 同一次读取得到的会话快照（LOCK-harmony 段 2，D10-1931 ③）：先取读取状态，只有 present 时才在同一个同步区里取令牌、账号与作用域
+ * （SecureSessionTokens 读成功后缓存，同一次读取的结果；读失败不缓存，所以先读令牌、读到空再查状态会把前一次失败和后一次成功拼在一起）。
+ * bind、ownershipLost、prepare 都只用它判定。凭据不可读（未同意、基本模式、撤回清理未完成）时不读，按没有会话（不是身份未知）。
+ */
+class SessionRead {
+  /** SessionReadStatus 取值；凭据不可读、没有读时为空串。 */
+  readonly status: string;
+  /** 可用的 access_token（present 且有 access 时才有）。 */
+  readonly access: string | null;
+  /** 会话账号（只在有 access 时取，否则为 null：身份未知不固定账号）。 */
+  readonly account: string | null;
+  /** 会话作用域（只在有 access 时取，否则为 full）。 */
+  readonly scope: string;
+
+  constructor(status: string, access: string | null, account: string | null, scope: string) {
+    this.status = status;
+    this.access = access;
+    this.account = account;
+    this.scope = scope;
+  }
+
+  /** 身份未知（03 §4.2）：本机存着会话，但这一刻读不出，或读得出却没有 access_token。 */
+  get identityUnknown(): boolean {
+    return this.status === SessionReadStatus.UNREADABLE
+      || (this.status === SessionReadStatus.PRESENT && this.access === null);
+  }
+}
+
 class CallContext {
   /** 逻辑调用标识（未决键的占用绑定它，lessons 26）。 */
   readonly id: number;
@@ -1455,6 +1494,10 @@ export class ApiClient {
         return new SessionIdentity(false, null, null);
       }
       const access: string | null = status === SessionReadStatus.PRESENT ? this.deps.tokens.accessToken() : null;
+      if (status === SessionReadStatus.PRESENT && access === null) {
+        // 读得出却没有 access_token：身份未知（03 §4.2、D10-1931 ②），与读不出同一档——不推断为游客，界面与网络层同一个结果。
+        return new SessionIdentity(false, null, null);
+      }
       const account: string | null = access !== null && access !== this.failedAccessToken ? this.deps.tokens.account() : null;
       const epoch: string | null = account !== null && epochs !== null ? epochs.loginEpoch() : null;
       if (account !== null && epochs !== null && (epoch === null || epoch.length === 0)) {
@@ -1880,12 +1923,74 @@ export class ApiClient {
 
   // ------------------------------------------------------------------ 调用归属
 
+  /**
+   * 读一次会话（D10-1931 ③）：先取读取状态，present 时再取 access，有 access 才取账号与作用域。凭据不可读时不读。
+   * 读取方法抛错按读不出（身份未知，不当成游客）。
+   */
+  private readSession(allowed: boolean): SessionRead {
+    if (!allowed) {
+      return new SessionRead('', null, null, SessionScope.FULL);
+    }
+    try {
+      const status: string = this.deps.tokens.readStatus();
+      if (status !== SessionReadStatus.PRESENT) {
+        return new SessionRead(status, null, null, SessionScope.FULL);
+      }
+      const access: string | null = this.deps.tokens.accessToken();
+      if (access === null) {
+        return new SessionRead(status, null, null, SessionScope.FULL);
+      }
+      return new SessionRead(status, access, this.deps.tokens.account(), this.deps.tokens.scope());
+    } catch (e) {
+      return new SessionRead(SessionReadStatus.UNREADABLE, null, null, SessionScope.FULL);
+    }
+  }
+
+  /**
+   * 这次请求是不是「身份未知也照发」的五类声明之一（LOCK-harmony 段 2，D10-2108 Q7）：调用点打开了 ApiRequest.sendsWhenIdentityUnknown，
+   * 接口是 x-auth=optional，且请求体落在 03 §4.2 第二条的条件里——网络层再按请求体核一次，不按开关或 operation 一律放行
+   * （换号新号发码同为 purpose=bind，但调用点不声明，照拒，D10-1860）。
+   */
+  static declaredForUnknownIdentity(op: ApiOperation, request: ApiRequest): boolean {
+    if (!request.sendsWhenIdentityUnknown || op.auth !== 'optional') {
+      return false;
+    }
+    if (op.operationId === 'getConfig' || op.operationId === 'ingestEvents') {
+      return true;
+    }
+    if (op.operationId !== 'sendSmsCode' && op.operationId !== 'createOauthAttempt'
+      && op.operationId !== 'recordConsent') {
+      return false;
+    }
+    let fields: Record<string, Object> = {};
+    try {
+      const parsed: Object | null = request.body === null ? null : JSON.parse(request.body) as Object | null;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return false;
+      }
+      fields = parsed as Record<string, Object>;
+    } catch (e) {
+      return false;
+    }
+    const purpose: Object | undefined = fields['purpose'];
+    switch (op.operationId) {
+      case 'sendSmsCode':
+        return purpose === 'login' || purpose === 'bind';
+      case 'createOauthAttempt':
+        return purpose === 'login';
+      default:
+        return fields['type'] === 'privacy' && fields['accepted'] === false;
+    }
+  }
+
   /** 在调用入口（任何异步等待之前）固定调用归属（R2-01）。 */
   private bind(op: ApiOperation): CallContext {
     this.callSequence++;
     const ctx: CallContext = new CallContext(this.callSequence);
     const allowed: boolean = this.credentialsAllowed();
-    const access: string | null = allowed ? this.deps.tokens.accessToken() : null;
+    // 单次读取（D10-1931 ③）：身份未知时 access、账号都为 null，不固定账号、不算 bound。
+    const read: SessionRead = this.readSession(allowed);
+    const access: string | null = read.access;
     const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
     ctx.credentialsAllowed = allowed;
     ctx.privacy = RequestHeaderPolicy.normalizePrivacy(this.deps.context.privacy());
@@ -1893,7 +1998,7 @@ export class ApiClient {
     ctx.epoch = this.epoch;
     ctx.generation = this.sessionGeneration;
     ctx.loginSerial = this.loginSerial;
-    ctx.account = access !== null ? this.deps.tokens.account() : null;
+    ctx.account = read.account;
     if (allowed) {
       this.observeOwner(ctx.account);
     }
@@ -1930,8 +2035,8 @@ export class ApiClient {
     if (ctx.loginSerial !== this.loginSerial) {
       return LocalRejectReason.SESSION_CHANGED;
     }
-    const account: string | null = allowed && this.deps.tokens.accessToken() !== null ? this.deps.tokens.account() :
-      null;
+    // 单次读取（D10-1931 ③）：身份未知（读不出 / 没有 access）时账号为 null——固定了账号的调用按 session_changed 结束。
+    const account: string | null = this.readSession(allowed).account;
     if (ctx.bound) {
       if (ctx.generation !== this.sessionGeneration && ctx.generation === this.clearedGeneration
         && this.clearedOutcome !== null && account === null) {
@@ -2010,9 +2115,11 @@ export class ApiClient {
   /** 发送前的全部判定与凭据（每次实际发送前都重新取：重试、重签、重放都不复用旧请求，lessons R1-01）。 */
   private prepare(op: ApiOperation, request: ApiRequest, fixedKey: string | null): Prepared {
     const allowed: boolean = this.credentialsAllowed();
-    const accessToken: string | null = allowed ? this.deps.tokens.accessToken() : null;
+    // 令牌、作用域与读取状态取自同一次读取（D10-1931 ③）。
+    const read: SessionRead = this.readSession(allowed);
+    const accessToken: string | null = read.access;
     const deviceId: string | null = allowed ? this.deps.credentials.deviceId() : null;
-    const scope: string = allowed && accessToken !== null ? this.deps.tokens.scope() : SessionScope.FULL;
+    const scope: string = read.scope;
     const endpoints: EnvironmentEndpoints | undefined = this.deps.context.endpoints();
     const state: NetworkRequestState = new NetworkRequestState(this.deps.context.privacy(), scope,
       accessToken !== null, deviceId, endpoints !== undefined, this.deps.context.credentialsReadable());
@@ -2020,9 +2127,9 @@ export class ApiClient {
     if (!decision.send || endpoints === undefined) {
       return Prepared.reject(decision.localRejectReason ?? LocalRejectReason.ENVIRONMENT_UNSETTLED);
     }
-    if (allowed && op.auth !== 'none' && accessToken === null
-      && this.deps.tokens.readStatus() === SessionReadStatus.UNREADABLE) {
-      // 会话此刻读不出（不是没有会话）：需要会话的接口不当成游客匿名发出（APP-03b session_unreadable，三端统一裁定）。
+    if (op.auth !== 'none' && read.identityUnknown && !ApiClient.declaredForUnknownIdentity(op, request)) {
+      // 身份未知（会话此刻读不出，或读得出却没有 access_token；03 §4.2、D10-1931 ②）：需要会话的接口与未声明的 optional 不当成游客
+      // 匿名发出（APP-03b session_unreadable，三端统一裁定）；只有五类声明照发、不带令牌（上面 decide 已按没有令牌组头）。
       return Prepared.reject(LocalRejectReason.SESSION_UNREADABLE);
     }
     if (scope === SessionScope.DELETION_ONLY && !ApiClient.restrictedBodyAllowed(op.operationId, request.body)) {
@@ -2118,7 +2225,10 @@ export class ApiClient {
       // R1-02：单次发送不等刷新屏障（屏障之后带的是新令牌）：没有发出。
       return ApiResult.rejected(LocalRejectReason.SEND_BLOCKED);
     }
-    if (op.operationId !== ApiClient.REFRESH_OPERATION && ctx.bound) {
+    // 只在确有刷新在途时才等（没有在途刷新时 awaitBarrier 本就立即放行，不为它多让出一次，发送仍在调用入口的同步区内交给传输层）。
+    // 五类声明请求不等刷新屏障（D10-2108 Q2、D10-1658 ④：登录发码、取配置等在刷新期间照常立即发出）；其余带会话的调用照旧等。
+    if (op.operationId !== ApiClient.REFRESH_OPERATION && ctx.bound && this.refreshRound !== null
+      && !ApiClient.declaredForUnknownIdentity(op, request)) {
       const barrier: ApiResult | null = await this.awaitBarrier(ctx);
       if (barrier !== null) {
         return barrier;
@@ -2902,8 +3012,10 @@ export class ApiClient {
     if (this.restrictedChecked || this.refreshRound !== null || !this.credentialsAllowed()) {
       return;
     }
-    const access: string | null = this.deps.tokens.accessToken();
-    if (access === null || this.deps.tokens.scope() !== SessionScope.DELETION_ONLY) {
+    // 单次读取（D10-1931 ③）；读取方法抛错按读不出（D10-2123），身份未知时没有 access，不起受限会话屏障。
+    const read: SessionRead = this.readSession(true);
+    const access: string | null = read.access;
+    if (access === null || read.scope !== SessionScope.DELETION_ONLY) {
       return;
     }
     const state: string = this.deps.update.state();

@@ -1019,6 +1019,9 @@ export class BindPhoneService {
     body['phone'] = normalized;
     body['purpose'] = 'bind';
     const request: ApiRequest = new ApiRequest(LoginErrorMapper.SEND_SMS_CODE, {}, '', JSON.stringify(body));
+    // 03 §4.2 五类声明之一（第三方登录后绑手机的发码 purpose=bind；LOCK-harmony 段 2，D10-1709 ③）。会员换号的新号发码
+    // （PhoneChangeController，同为 purpose=bind）不声明，身份未知时照拒（D10-1860）。
+    request.sendsWhenIdentityUnknown = true;
     request.owner = owner;
     request.sendAllowed = owner;
     this.sending = true;

@@ -1232,6 +1232,9 @@ export class PrivacyCenterController implements IdentityBoundPage {
       this.d.clock());
     if (body !== null && !this.d.session.consentGate.active) {
       const request: ApiRequest = new ApiRequest(PrivacyCenterController.CONSENT_OPERATION, {}, '', JSON.stringify(body));
+      // 03 §4.2 五类声明之一（隐私中心撤回隐私同意，只在 type=privacy 且 accepted=false 时打开；LOCK-harmony 段 2，D10-1711）：
+      // 身份未知时也不带令牌照发（设备级记录）。
+      request.sendsWhenIdentityUnknown = body['type'] === 'privacy' && body['accepted'] === false;
       request.sendAllowed = this.d.session.consentGate.sendAllowed;
       // 绑定原归属（隐私、环境、会话）：换代后不改绑到新会话。
       request.owner = (): boolean => this.d.scope() === identity;

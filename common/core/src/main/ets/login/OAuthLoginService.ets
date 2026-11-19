@@ -367,6 +367,8 @@ export class OAuthLoginService {
     createBody['provider'] = provider;
     createBody['purpose'] = 'login';
     const create: ApiRequest = new ApiRequest(OAuthLoginService.CREATE_OPERATION, {}, '', JSON.stringify(createBody));
+    // 03 §4.2 五类声明之一（取授权尝试 purpose=login；LOCK-harmony 段 2，D10-1710）。
+    create.sendsWhenIdentityUnknown = true;
     create.owner = ticket.owner;
     const created: ApiResult = await this.client.request(create);
     if (!this.login.ticketValid(ticket) || !this.client.scopeValid(scope)) {
