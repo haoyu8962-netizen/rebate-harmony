@@ -193,7 +193,8 @@ export default function routerBehaviorTest() {
     });
 
     it('since_null_routes_are_unknown', 0, () => {
-      for (const name of ['Earnings', 'LinkLanding', 'DeleteAccount', 'InvitedFriends', 'LevelUpgrade']) {
+      // LOCK-harmony（D10-2110 #24）：DeleteAccount 在锁 d47f660e5 的 since.harmony 为 1.0.0（D10-2108 Q4 随锁开门），移出 null 列表。
+      for (const name of ['Earnings', 'LinkLanding', 'InvitedFriends', 'LevelUpgrade']) {
         expect((Routes.spec(name) as RouteSpec).sinceHarmony).assertNull();
         expect(decide(req(name, 'in_app'), state('consented', 'ok', 'phone_bound', true)))
           .assertEqual('upgrade - unknown_route');

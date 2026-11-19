@@ -1,4 +1,5 @@
-import { BridgeMethods, BridgeMethodSpec, ClientEvent, ClientEvents } from 'generated';
+import { BridgeContract, BridgeMethods, BridgeMethodSpec, ClientEvent, ClientEvents } from 'generated';
+import { EventDiagnostics } from '../clientcore/EventDiagnostics';
 import { LaunchQueue, UpdateCheckStatus } from '../router/LaunchQueue';
 import { UpdateState } from '../router/GuardState';
 import {
@@ -297,11 +298,16 @@ export type BridgeTrackPort = (event: ClientEvent) => void;
  * - 超时：方法声明了 timeout_ms 的，到时 90003（结果未知，迟到的结果丢弃）。
  * - 远程禁用（F-X-24）：disabledMethods 里的方法在可信主框架判断之后、其余协议判定与能力实现之前直接 90403 +
  *   data.reason=method_disabled（强更等待后重判时同样）；supportedMethods 不声明它们。
- * - 被拒（非 0 码）时记一条 bridge_call 埋点（方法名与错误码）。
+ * - 被拒（非 0 码）时记一条 bridge_call 埋点（方法名、错误码与 events v6 的四项诊断字段）。
  * 单线程（UI 线程）使用。
  */
 export class BridgeHost {
   static readonly BRIDGE_VERSION: number = 1;
+  /**
+   * bridge_call 的 schema_version（03 §4.7，D10-1612 ④ (i)，LOCK-harmony Q9）：本端打包的 contracts/bridge.schema.json 顶层 version
+   * （gen 导出 BridgeContract.SCHEMA_VERSION）转成的字符串。与 BRIDGE_VERSION 各有来源，数值相同也不互相借用。
+   */
+  static readonly SCHEMA_VERSION: string = String(BridgeContract.SCHEMA_VERSION);
   /** 远程禁用时回复 data.reason 的取值（03 §5.3）。 */
   static readonly REASON_METHOD_DISABLED: string = 'method_disabled';
   /** 未知状态下照常执行的只读方法（03 §4.4「未知状态下的桥调用」第一类）。 */
@@ -324,6 +330,8 @@ export class BridgeHost {
   track: BridgeTrackPort = (_event: ClientEvent) => {
   };
   page: string = 'WebPage';
+  /** bridge_call 的 config_version（App 接生效配置，见 EventDiagnostics.configVersion）；没接或取不到为 unknown。 */
+  configVersion: () => string = (): string => EventDiagnostics.UNKNOWN;
   /** 容器当前的页面世代（BridgePageSession.generation）；调用所属的世代不是它时作废（R1-04）。不分页面时恒为 0。 */
   pageGeneration: () => number = () => 0;
   /**
@@ -663,7 +671,10 @@ export class BridgeHost {
       return BridgeWire.success(id, result.dataJson);
     }
     try {
-      this.track(ClientEvents.bridgeCall(this.page, BridgeHost.safeMethod(method), result.code));
+      // 诊断字段（03 §4.7，D10-1612 ④ (i)）：schema_version 取打包的 bridge.schema.json 顶层 version；bridge_version 与 app.getEnv
+      // 同源（BRIDGE_VERSION）；config_version 取生效配置；h5_release 原生取不到（地址不带版本），填 unknown。
+      this.track(ClientEvents.bridgeCall(this.page, BridgeHost.safeMethod(method), result.code, BridgeHost.SCHEMA_VERSION,
+        String(BridgeHost.BRIDGE_VERSION), this.configVersion(), EventDiagnostics.UNKNOWN));
     } catch (e) {
       // 埋点失败不影响响应。
     }

@@ -258,8 +258,8 @@
         413,
         415
       ],
-      "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」；后台上传平台标识被拒收时 data.fields=[file]、data.reason 为 icon_format_invalid（非 SVG / PNG、不能解析、PNG 边长不足 512px 或非透明底）、icon_too_large（超过 content.platform_icon.max_bytes）或 icon_svg_unconvertible（含样式表、复杂选择器、@ 规则、外部引用或超出转换上限，无法保真转换），后台发布缺来源登记的版本时 data.fields 列出所有缺的项（[source_url]、[downloaded_on]，两项都缺时为 [source_url, downloaded_on]），BR-TEXT-24 细则；加收藏时收藏数已达 favorites.max_per_user 为 data.reason=favorites_full，规划/01 F-PROD-12；后台对 reauth_mode=manual 的联盟账号发起 OAuth 重新授权时 data.fields=[union_account_id]、data.reason=manual_mode，表示该账号走手工录入凭据，与没有可更新站长凭据（不带 reason）区分，BR-ID-24 细则，编排裁定 D10-176；后台指派未归因订单时目标用户不能作为归属对象为 data.fields=[user_id]、data.reason 为 target_banned（已封禁）、target_deleting（注销中）或 target_deleted（已注销），BR-ATTR-31 细则「改归属的目标用户」，冻结账号可以指派；后台「消息模板」页（BR-TEXT-20 细则「短信渠道登记与后台渠道开关」，编排裁定 D10-335 ②）：开关推送或短信、或给不能发短信的编码登记短信时该渠道不能在后台开关或登记，data.fields=[push]、[sms] 或 [code]、data.reason=notify_channel_locked；保存短信登记时预览正文的变量与该编码在代码中定义的变量不一致，data.fields=[preview_text]、data.reason=notify_preview_vars_mismatch；SMS_CODE 的预览正文写的有效分钟数与 BR-ID-05 的有效期不一致，data.fields=[preview_text]、data.reason=notify_code_ttl_mismatch；后台月结批次写操作（BR-FUND-04，编排裁定 D10-436、D10-437、D10-440）：账单还在生成中或账单日任务没有结果时 data.fields=[bill_id]、data.reason=bill_not_ready；发起补充时该平台开关 credit.enabled 关闭为 data.fields=[platform]、data.reason=credit_disabled；发起补充时账单下还有任何 DRAFT 批次（同平台或别平台）为 data.fields=[bill_id]、data.reason=pending_draft，须先确认或驳回现有 DRAFT 再发起；继续 PARTIAL 批次时开关未全开为 data.fields=[batch_id]、data.reason=switches_off，当日资产快照未完成且未超时为 data.fields=[batch_id]、data.reason=snapshot_pending；后台差错单恢复处理（BR-FUND-22 ③，编排裁定 D10-468 ①、D10-469 ①）：差错单不是账户封禁申诉的 appeal_restore 时 data.fields=[recon_diff_id]、data.reason=restore_not_supported；受益人已注销时 data.fields=[recon_diff_id]、data.reason=restore_user_deleted，差错单走关单结案；后台差错单结案（编排裁定 D10-447 ②、D10-506，B2-09h 起校验）：不是 type=settle_amount_mismatch（source R1）的差错单带 outcome 时 data.fields=[outcome]；后台人工调账（BR-FUND-24）：关联单据不存在、差错单是 source R4（收款对账，BR-PAY-07）或提现单、注销单属于别的用户时 data.fields=[refs]、data.reason=adjust_ref_invalid；红冲的原单不是 APPROVED 或本身是红冲单时 data.fields=[reverses_adjust_id]、data.reason=reverse_not_allowed；目标用户已注销时 data.fields=[user_id] 或 [reverses_adjust_id]、data.reason=adjust_user_deleted；批准系统预填的 ACCOUNT_CLOSED 单时 available 不大于 0 为 data.fields=[adjust_id]、data.reason=adjust_no_balance，单据保持 PENDING；后台批准坏账核销（BR-FUND-12）：用户有冻结金额且开关开启时 data.fields=[id]、data.reason=writeoff_frozen_pending，候选单保持 PENDING；驳回提现单时有 pending / success / unknown 转账尝试为 data.fields=[withdrawal_id]、data.reason=reject_attempt_exists，付款方侧失败退回的单还没有可用查询结果为 reject_query_required，最近查询已成功为 reject_query_success，都不写任何东西；未知结果处置 adminResolveUnknownPayout：判成功而最近查询明确失败且账单没有成功行为 data.fields=[resolution]、data.reason=resolve_query_failed，实付时间不合法为 data.fields=[paid_at]、data.reason=resolve_paid_at_invalid，流水号已被占用为 data.fields=[channel_order_id]、data.reason=resolve_order_id_taken，会员没有已核实名为 data.fields=[withdrawal_id]、data.reason=resolve_identity_missing；判失败的条件不成立为 data.fields=[resolution]，距 T 不足 24 小时 data.reason=resolve_too_early，账单核验不了 resolve_bill_unverifiable，「订单不存在」确认不了 resolve_query_unverifiable，都不写任何东西）",
-      "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash、manual_mode 与 icon_format_invalid、icon_too_large、icon_svg_unconvertible、target_banned、target_deleting、target_deleted、notify_channel_locked、notify_preview_vars_mismatch、notify_code_ttl_mismatch、bill_not_ready、credit_disabled、pending_draft、snapshot_pending、switches_off、restore_not_supported、restore_user_deleted、adjust_ref_invalid、reverse_not_allowed、adjust_user_deleted、adjust_no_balance、writeoff_frozen_pending、reject_attempt_exists、reject_query_required、reject_query_success、resolve_query_failed、resolve_too_early、resolve_bill_unverifiable、resolve_query_unverifiable、resolve_paid_at_invalid、resolve_order_id_taken、resolve_identity_missing 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31、BR-TEXT-24 细则），不进用户侧字典；favorites_full 轻提示、不弹窗",
+      "meaning": "参数校验失败（data.fields；提醒目标价无效时 data.fields=[target_price]、data.reason=watch_target_invalid；昵称命中内容安全时 data.reason=nickname_sensitive；设备注册时 data.fields=[device_hash] 表示设备标识哈希格式不符或命中无效清单；后台登记或修改设备黑名单时 data.fields=[value]、data.reason=invalid_device_hash 表示该值命中无效设备哈希清单；手机号规范化后不是中国大陆 11 位手机号时 data.fields=[phone]、data.reason=phone_invalid，BR-ID-05 细则「手机号规范化」；后台上传平台标识被拒收时 data.fields=[file]、data.reason 为 icon_format_invalid（非 SVG / PNG、不能解析、PNG 边长不足 512px 或非透明底）、icon_too_large（超过 content.platform_icon.max_bytes）或 icon_svg_unconvertible（含样式表、复杂选择器、@ 规则、外部引用或超出转换上限，无法保真转换），后台发布缺来源登记的版本时 data.fields 列出所有缺的项（[source_url]、[downloaded_on]，两项都缺时为 [source_url, downloaded_on]），BR-TEXT-24 细则；加收藏时收藏数已达 favorites.max_per_user 为 data.reason=favorites_full，规划/01 F-PROD-12；后台对 reauth_mode=manual 的联盟账号发起 OAuth 重新授权时 data.fields=[union_account_id]、data.reason=manual_mode，表示该账号走手工录入凭据，与没有可更新站长凭据（不带 reason）区分，BR-ID-24 细则，编排裁定 D10-176；后台指派未归因订单时目标用户不能作为归属对象为 data.fields=[user_id]、data.reason 为 target_banned（已封禁）、target_deleting（注销中）或 target_deleted（已注销），BR-ATTR-31 细则「改归属的目标用户」，冻结账号可以指派；后台「消息模板」页（BR-TEXT-20 细则「短信渠道登记与后台渠道开关」，编排裁定 D10-335 ②）：开关推送或短信、或给不能发短信的编码登记短信时该渠道不能在后台开关或登记，data.fields=[push]、[sms] 或 [code]、data.reason=notify_channel_locked；保存短信登记时预览正文的变量与该编码在代码中定义的变量不一致，data.fields=[preview_text]、data.reason=notify_preview_vars_mismatch；SMS_CODE 的预览正文写的有效分钟数与 BR-ID-05 的有效期不一致，data.fields=[preview_text]、data.reason=notify_code_ttl_mismatch；后台月结批次写操作（BR-FUND-04，编排裁定 D10-436、D10-437、D10-440）：账单还在生成中或账单日任务没有结果时 data.fields=[bill_id]、data.reason=bill_not_ready；发起补充时该平台开关 credit.enabled 关闭为 data.fields=[platform]、data.reason=credit_disabled；发起补充时账单下还有任何 DRAFT 批次（同平台或别平台）为 data.fields=[bill_id]、data.reason=pending_draft，须先确认或驳回现有 DRAFT 再发起；继续 PARTIAL 批次时开关未全开为 data.fields=[batch_id]、data.reason=switches_off，当日资产快照未完成且未超时为 data.fields=[batch_id]、data.reason=snapshot_pending；后台差错单恢复处理（BR-FUND-22 ③ 与 R12 / R13，编排裁定 D10-468 ①、D10-469 ①、D10-973）：差错单既不是账户封禁申诉或订单申诉 R12 的 appeal_restore 也不是 platform_restore（订单申诉恢复 ② 的 R13 留下一段；订单申诉恢复 ① 的 R12，即 reason_code=BLACKLIST 的 appeal_restore，可处理，CT-24zzg），或 platform_restore 的 ref_id 不合形状、指不到本应用订单时 data.fields=[recon_diff_id]、data.reason=restore_not_supported；受益人已注销时 data.fields=[recon_diff_id]、data.reason=restore_user_deleted，差错单走关单结案；平台恢复的 VOID 或 CLAWED_BACK 订单当前 platform_status 又为 INVALID（R12 / R13 守卫 platform_status ≠ INVALID）时 data.fields=[recon_diff_id]、data.reason=restore_platform_invalid，CLAWED_BACK 订单当前有效联盟佣金正数部分为 0（不满足 BR-FUND-22「佣金恢复为 >0」前提）时 data.fields=[recon_diff_id]、data.reason=restore_commission_zero，二者都不写任何东西、差错单可走关单结案（代理补全的默认，D10-973、D10-986）；R12 需补分佣快照而生成不了时（选不出已发布规则版本，或付款时刻不可恢复，或淘宝推广位场景取不到，D10-1105）data.fields=[recon_diff_id]、data.reason=restore_snapshot_unavailable，同样不写、差错单保持打开（D10-1093）；后台黑名单已入账订单复核确认扣回（BR-ATTR-26、BR-FUND-08，D10-1035、D10-1095）：差错单不是 blacklist_after_credit，或 ref_id 指不到本应用订单时 data.fields=[recon_diff_id]、data.reason=blacklist_clawback_not_supported；开关 order.blacklist_clawback.enabled 未开时 data.fields=[recon_diff_id]、data.reason=blacklist_clawback_disabled，二者都不写任何东西；后台差错单结案（编排裁定 D10-447 ②、D10-506，B2-09h 起校验）：不是 type=settle_amount_mismatch（source R1）的差错单带 outcome 时 data.fields=[outcome]；后台人工调账（BR-FUND-24）：关联单据不存在、差错单是 source R4（收款对账，BR-PAY-07）或提现单、注销单属于别的用户时 data.fields=[refs]、data.reason=adjust_ref_invalid；红冲的原单不是 APPROVED 或本身是红冲单时 data.fields=[reverses_adjust_id]、data.reason=reverse_not_allowed；目标用户已注销时 data.fields=[user_id] 或 [reverses_adjust_id]、data.reason=adjust_user_deleted；批准系统预填的 ACCOUNT_CLOSED 单时 available 不大于 0 为 data.fields=[adjust_id]、data.reason=adjust_no_balance，单据保持 PENDING；后台批准坏账核销（BR-FUND-12）：用户有冻结金额且开关开启时 data.fields=[id]、data.reason=writeoff_frozen_pending，候选单保持 PENDING；驳回提现单时有 pending / success / unknown 转账尝试为 data.fields=[withdrawal_id]、data.reason=reject_attempt_exists，付款方侧失败退回的单还没有可用查询结果为 reject_query_required，最近查询已成功为 reject_query_success，都不写任何东西；未知结果处置 adminResolveUnknownPayout：判成功而最近查询明确失败且账单没有成功行为 data.fields=[resolution]、data.reason=resolve_query_failed，实付时间不合法为 data.fields=[paid_at]、data.reason=resolve_paid_at_invalid，流水号已被占用为 data.fields=[channel_order_id]、data.reason=resolve_order_id_taken，会员没有已核实名为 data.fields=[withdrawal_id]、data.reason=resolve_identity_missing；判失败的条件不成立为 data.fields=[resolution]，距 T 不足 24 小时 data.reason=resolve_too_early，账单核验不了 resolve_bill_unverifiable，「订单不存在」确认不了 resolve_query_unverifiable，都不写任何东西）",
+      "action": "在对应字段旁提示（带 reason 取子键文案）；device_hash 不向用户提示，客户端按 BR-ID-09 重新读取设备标识后再注册；invalid_device_hash、manual_mode 与 icon_format_invalid、icon_too_large、icon_svg_unconvertible、target_banned、target_deleting、target_deleted、notify_channel_locked、notify_preview_vars_mismatch、notify_code_ttl_mismatch、bill_not_ready、credit_disabled、pending_draft、snapshot_pending、switches_off、restore_not_supported、restore_user_deleted、restore_platform_invalid、restore_commission_zero、restore_snapshot_unavailable、blacklist_clawback_not_supported、blacklist_clawback_disabled、adjust_ref_invalid、reverse_not_allowed、adjust_user_deleted、adjust_no_balance、writeoff_frozen_pending、reject_attempt_exists、reject_query_required、reject_query_success、resolve_query_failed、resolve_too_early、resolve_bill_unverifiable、resolve_query_unverifiable、resolve_paid_at_invalid、resolve_order_id_taken、resolve_identity_missing 只出现在后台接口，后台在该字段旁显示后台文案（BR-ID-31、BR-TEXT-24 细则），不进用户侧字典；favorites_full 轻提示、不弹窗",
       "retry": "否",
       "retry_kind": "never",
       "data": {
@@ -292,6 +292,11 @@
           "switches_off",
           "restore_not_supported",
           "restore_user_deleted",
+          "restore_platform_invalid",
+          "restore_commission_zero",
+          "restore_snapshot_unavailable",
+          "blacklist_clawback_not_supported",
+          "blacklist_clawback_disabled",
           "adjust_ref_invalid",
           "reverse_not_allowed",
           "adjust_user_deleted",
@@ -306,7 +311,10 @@
           "resolve_query_unverifiable",
           "resolve_paid_at_invalid",
           "resolve_order_id_taken",
-          "resolve_identity_missing"
+          "resolve_identity_missing",
+          "resolve_order_id_other_order",
+          "resolve_order_id_mismatch",
+          "resolve_amount_mismatch"
         ]
       },
       "sources": [
@@ -324,6 +332,8 @@
         "BR-TEXT-20",
         "BR-FUND-04",
         "BR-FUND-22",
+        "BR-FUND-08",
+        "BR-ATTR-26",
         "BR-FUND-24",
         "BR-FUND-12",
         "BR-PAY-07"
@@ -438,10 +448,13 @@
           "product_pool",
           "admin_adjustment",
           "bad_debt_writeoff",
-          "union_receipt"
+          "union_receipt",
+          "settle_adjust_batch",
+          "agent_report"
         ]
       },
       "sources": [
+        "BR-FUND-09",
         "BR-FUND-01",
         "BR-FUND-04",
         "BR-ATTR-20",
@@ -461,7 +474,8 @@
         "BR-FUND-24",
         "BR-FUND-12",
         "BR-FUND-16",
-        "BR-FUND-20"
+        "BR-FUND-20",
+        "BR-ID-15"
       ]
     },
     {
@@ -689,19 +703,33 @@
     {
       "code": 30146,
       "http": 422,
-      "meaning": "该店铺暂不支持进店（POST /v1/products/{product_key}/shop/open：本平台进店来源未配置或开关关闭，data.reason=shop_entry_disabled）；转链失败不用本码，按购买链路的失败处理（上游不可用 50303 等，不外跳、不改跳无推广参数的店铺页）",
+      "meaning": "该店铺暂不支持进店（POST /v1/products/{product_key}/shop/open：本平台进店来源未配置或开关关闭，data.reason=shop_entry_disabled；点击进店时商品没有店铺标识 shop_ref 或店名，data.reason=shop_unavailable）；转链失败不用本码，按购买链路的失败处理（上游不可用 50303 等，不外跳、不改跳无推广参数的店铺页）",
       "action": "只提示，不外跳",
       "retry": "否",
       "retry_kind": "never",
       "data": {
         "platform": null,
         "reason": [
-          "shop_entry_disabled"
+          "shop_entry_disabled",
+          "shop_unavailable"
         ]
       },
       "sources": [
         "BR-PRICE-21",
         "BR-TEXT-14"
+      ]
+    },
+    {
+      "code": 30147,
+      "http": 422,
+      "meaning": "商品所在类目已被禁售，不能加入商品池（category_blocked；只出现在 /admin/v1 的 POST product-pools/{pool_id}/items 与 PATCH product-pools/{pool_id}/items/{product_key}，后者只在 offline→online 复核时；只用本次调用拿到的联盟答复里的类目判定、不读已存数据，且禁售类目先于价格判定：联盟答复带商品详情（可用商品，含 price_status=anomaly）时先按本应用启用中的禁售类目名单 category_blocklist（与搜索结果过滤同一份名单，01 F-PROD-08）判，命中即返回本码，什么都不写（不新增、不覆盖、不下架本条或其他条目），不再走 50401 或覆盖下架；可用但没有类目时只按带关键词的规则匹配标题，不命中放行；不命中再照该接口既有口径（含 anomaly → 新键 50401、已在池覆盖下架）；联盟答复不带商品详情（下架、失效、无法确认）时照既有口径（30141、50401、offline 带 invalid_reason），不用本码；不带 data。码值按 08 §13.11 301 段顺序取号，编排裁定 D10-1059，CT-26zf）",
+      "action": "后台只提示，不入池、不改条目；运营可换商品或先在禁售类目名单里调整",
+      "retry": "否",
+      "retry_kind": "never",
+      "sources": [
+        "D10-1059",
+        "01 F-PROD-08",
+        "BR-PROD-08"
       ]
     },
     {
@@ -733,12 +761,13 @@
       "code": 30153,
       "http": 422,
       "meaning": "该平台返利已被停用（绑定为 blocked 且用户未被封禁）；授权管理页取授权链接（GET /v1/unions/{platform}/auth-url）时同码",
-      "action": "购买入口：给无返利购买与联系客服两个按钮；授权管理页：只给联系客服（BR-ID-17 细则「授权管理页」）",
+      "action": "购买入口：给无返利购买与联系客服两个按钮；授权管理页：只给联系客服（BR-ID-17 细则「授权管理页」）。进店（POST /v1/products/{product_key}/shop/open）遇 30153 例外：只给联系客服，不给「仍去购买（无返利）」按钮，不外跳、不改跳无推广参数的店铺页（BR-ID-18 进店例外）",
       "retry": "否",
       "retry_kind": "never",
       "sources": [
         "BR-ID-17",
-        "BR-ID-18"
+        "BR-ID-18",
+        "BR-PRICE-21"
       ]
     },
     {
@@ -1688,13 +1717,14 @@
     {
       "code": 50303,
       "http": 503,
-      "meaning": "暂时无法确认价格或生成链接（点击复核失败且无缓存，或取价成功但转链失败）",
-      "action": "不外跳返利链接；给重试主按钮与无返利购买次按钮（BR-PRICE-08）",
+      "meaning": "暂时无法确认价格或生成链接（点击复核失败且无缓存，或取价成功但转链失败）；进店（POST /v1/products/{product_key}/shop/open）转链失败（没有生成带用户归因的店铺推广链接）同码（BR-PRICE-21 细则「进店」）",
+      "action": "不外跳返利链接；给重试主按钮与无返利购买次按钮（BR-PRICE-08）。进店（POST /v1/products/{product_key}/shop/open）转链失败例外：只提示（客户端文案取 error.30146「暂时不能进入这家店铺」），不给「仍去购买（无返利）」次按钮，不外跳、不改跳无推广参数的店铺页",
       "retry": "稍后",
       "retry_kind": "later",
       "sources": [
         "BR-PRICE-08",
-        "BR-PRICE-13"
+        "BR-PRICE-13",
+        "BR-PRICE-21"
       ]
     },
     {
@@ -1762,14 +1792,15 @@
     {
       "code": 50401,
       "http": 504,
-      "meaning": "依赖超时（Agent 发送消息：存储暂不可用或受理结果未知，不保证未计数，BR-AI-23 细则，2026-10-08）",
-      "action": "通用错误态 + trace_id 后 6 位；Agent 发送消息用同一 client_msg_id 重试",
+      "meaning": "依赖超时（Agent 发送消息返回 JSON：存储暂不可用或受理结果未知，不保证未计数，BR-AI-23 细则，2026-10-08；Agent 事件流的 error 帧：含链接或口令的消息每个链接都因服务端原因没出成卡，或无模型时商品情境入口的报价因服务端原因失败，这一条退还，帧上 `retryable` 为 false，BR-AI-15 细则，2026-11-12）",
+      "action": "通用错误态 + trace_id 后 6 位；Agent 发送消息返回 JSON 时用同一 client_msg_id 重试；出现在 Agent 事件流的 error 帧上时只显示错误条目，不拿同一 client_msg_id 重试，用户重新发送算一条新消息",
       "retry": "是",
       "retry_kind": "immediate",
       "sources": [
         "BR-PROD-05",
         "BR-ID-25",
-        "BR-AI-23"
+        "BR-AI-23",
+        "BR-AI-15"
       ]
     }
   ],

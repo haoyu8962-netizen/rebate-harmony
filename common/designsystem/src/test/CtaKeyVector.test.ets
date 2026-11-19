@@ -1,6 +1,7 @@
 // FU-X-CTA-KEY-DRIFT-harmony 测试作者 v1（D10-856 / D10-857 / D10-861 / D10-907）：商品卡 cta.text_key 的渲染与未知键兜底。
-// 规则与向量在 specs/cta-key-vectors.json（三端逐字节照抄 iOS，sha256 d93b2905…，95 行；gen.py 守字节）。本机单测读不了文件，
+// 规则与向量在 specs/cta-key-vectors.json（三端逐字节照抄 iOS，sha256 84b2897e…，95 行；gen.py 守字节）。本机单测读不了文件，
 // gen.py 把全文生成为同目录 CtaKeyVectorsData.ets 的 CTA_KEY_VECTORS_JSON（同 FormatVectorsData / FormatVector.test.ets 的读法）。
+// LOCK-harmony（D10-2110 #24）：升锁 d47f660e5 后向量第 4 行 contractCommit 换值，sha256 d93b2905… → 84b2897e…（与 iOS 94abbe0、安卓 9f015b2 同字节）。
 //
 // 被测接口（实现者按此提供；本文件不提供假实现）：
 // - ProductCardMapper.fromCard(card, texts, buyEnabled, nowMillis, purchaseStatus, onCtaFallback)：末位新参数
@@ -12,7 +13,8 @@
 // 下架（D10-907 ① / FU-HM-OFFSHELF-STATE，HM-L2-BUTTON #24）：鸿蒙下架已是 DISABLED，与向量 disabled 直接对上，不再映射；
 // 另核 retryText = error.30141 文案（见 a2 的下架分支）。
 // 不依赖时区（verify 在默认 / UTC / America/Los_Angeles 各跑一遍）：nowMillis 固定 1794022200000（与 iOS 同一时刻），
-// 断言不涉及取价时间；DefaultTexts 是升锁到 a89c1ec3a 后的包内契约字典（A10 钉住几条原文）。
+// 断言不涉及取价时间；DefaultTexts 是升锁到 d47f660e5 后的包内契约字典（A10 钉住几条原文）。
+// LOCK-harmony（D10-2110 #24）：锁定提交 a89c1ec3a → d47f660e5（A10 钉的几条原文在新锁里逐字未变）。
 // 接入：List.test.ets 导入并调用 ctaKeyVectorTest()；gen.py 生成 CtaKeyVectorsData.ets（--check 查漂移）。
 import { describe, it, expect } from '@ohos/hypium';
 import { DefaultTexts } from 'generated';
@@ -24,8 +26,9 @@ import {
 
 /** 2026-11-07 11:30:00 +08:00（与 iOS CtaKeyVectorTests 同一时刻）。 */
 const NOW: number = 1794022200000;
-/** D10-857：三端统一锁到 rebate-platform a89c1ec3a（CT-26t #2450）。 */
-const LOCK_COMMIT: string = 'a89c1ec3a7f4de0b069742af909eba6545358ea3';
+/** D10-857：三端统一锁；LOCK-harmony（D10-2108 ①）起三端同锁 rebate-platform d47f660e5。 */
+// LOCK-harmony（D10-2110 #24）：三端同一锁定提交 a89c1ec3a → d47f660e5，向量 contractCommit 随锁换值。
+const LOCK_COMMIT: string = 'd47f660e5d42729899ade06298ddf5457791ff3d';
 const BUY: string = '购买';
 /** 鸿蒙下架卡的按钮字（ProductCardKeys.OFF_SHELF 的契约键；这里写键名本身，不借产品常量）。 */
 const OFF_SHELF_TEXT: string = 'error.30141';

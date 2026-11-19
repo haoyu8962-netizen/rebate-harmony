@@ -1,5 +1,5 @@
 {
-  "version": "1",
+  "version": "3",
   "permissions": [
     {
       "type": "photos",
@@ -21,6 +21,62 @@
       "system_key": null,
       "feature": "通知（PermissionRequester，push 类型；只在用户需要时申请，BR-ID-13）",
       "purpose_key": "perm.push.card_hint",
+      "phase": "MVP",
+      "builds": [
+        "debug",
+        "staging",
+        "release"
+      ],
+      "source": "own"
+    },
+    {
+      "type": "vibrate",
+      "platform": "harmony",
+      "system_key": "ohos.permission.VIBRATE",
+      "feature": "触感反馈（FEEL-KIT，操作时的轻微震动；system_grant，安装即授予、不弹窗）",
+      "purpose_key": "perm.vibrate.system_purpose",
+      "phase": "MVP",
+      "builds": [
+        "debug",
+        "staging",
+        "release"
+      ],
+      "source": "own"
+    },
+    {
+      "type": "network",
+      "platform": "android",
+      "system_key": "android.permission.INTERNET",
+      "feature": "网络访问（接口请求、WebView 页面；normal 权限，安装即授予、不弹窗）",
+      "purpose_key": null,
+      "phase": "MVP",
+      "builds": [
+        "debug",
+        "staging",
+        "release"
+      ],
+      "source": "own"
+    },
+    {
+      "type": "dynamic_receiver",
+      "platform": "android",
+      "system_key": "com.couli.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+      "feature": "androidx.core 合并进来的应用内签名级权限（保护不导出的动态广播接收器；不弹窗）",
+      "purpose_key": null,
+      "phase": "MVP",
+      "builds": [
+        "debug",
+        "staging",
+        "release"
+      ],
+      "source": "sdk:androidx.core"
+    },
+    {
+      "type": "network",
+      "platform": "harmony",
+      "system_key": "ohos.permission.INTERNET",
+      "feature": "网络访问（接口请求、Web 组件页面；system_grant，安装即授予、不弹窗）",
+      "purpose_key": null,
       "phase": "MVP",
       "builds": [
         "debug",

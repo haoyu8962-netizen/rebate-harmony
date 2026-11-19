@@ -33,6 +33,9 @@
     },
     "agreement": {
       "version": 2
+    },
+    "ai_third_party": {
+      "version": 1
     }
   },
   "invite": {

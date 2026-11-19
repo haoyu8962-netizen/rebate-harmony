@@ -86,9 +86,15 @@ function assertRecorded(rig: BridgeRig, method: string): void {
   const event: ClientEvent = rig.events[0];
   expect(event.name).assertEqual('bridge_call');
   expect(event.page).assertEqual('WebPage');
-  expect(event.fields.size).assertEqual(2);
+  // LOCK-harmony（D10-2110 #24）：events v6 的 bridge_call 必带四项诊断字段（method、code 之外再 4 项，共 6 项）。
+  expect(event.fields.size).assertEqual(6);
   expect(event.fields.get('method')).assertEqual(method);
   expect(event.fields.get('code')).assertEqual(90403);
+  // LOCK-harmony（D10-2110 #24）：诊断字段取值——bridge.schema.json 顶层 version、BRIDGE_VERSION；rig 没接配置、原生无 H5 版本，为 unknown。
+  expect(event.fields.get('schema_version')).assertEqual('1');
+  expect(event.fields.get('bridge_version')).assertEqual('1');
+  expect(event.fields.get('config_version')).assertEqual('unknown');
+  expect(event.fields.get('h5_release')).assertEqual('unknown');
 }
 
 export default function bridgeDisabledMethodsTest() {

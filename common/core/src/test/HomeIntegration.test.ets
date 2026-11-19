@@ -431,7 +431,9 @@ export default function homeIntegrationTest() {
       for (const e of f.events) {
         expect(e.name).assertEqual('sdui_card_error');
         const keys: string[] = Array.from(e.fields.keys()).sort();
-        expect(keys.every((k: string): boolean => ['page_version', 'reason', 'type', 'version'].indexOf(k) >= 0))
+        // LOCK-harmony（D10-2110 #24）：events v6 的 sdui_card_error 另带四项诊断字段（同安卓 AppHomeIntegrationTest、iOS HomeCardsTests）。
+        expect(keys.every((k: string): boolean => ['page_version', 'reason', 'type', 'version', 'schema_version',
+          'bridge_version', 'config_version', 'h5_release'].indexOf(k) >= 0))
           .assertTrue();
         expect(JSON.stringify(Array.from(e.fields.values())).indexOf('http')).assertEqual(-1);
       }

@@ -1,6 +1,6 @@
 // 生成物，禁止手改；来源 contract.lock（tools/codegen/gen.py 生成）
 
-// 埋点事件（APP-03b）：specs/events.yaml（version 2）的事件构造函数与枚举字段类型。03 §4.7、拍板第二批 TECH-21：
+// 埋点事件（APP-03b）：specs/events.yaml（version 6）的事件构造函数与枚举字段类型。03 §4.7、拍板第二批 TECH-21：
 // 业务代码只能调用 ClientEvents 的生成函数；事件族（families）随各自任务补。字段名禁用规则见 gen.py FORBIDDEN_EVENT_FIELD。
 
 /** 事件字段的取值类型（events.yaml 的 string / integer / boolean / enum）。 */
@@ -37,7 +37,7 @@ export class ClientEvent {
   }
 }
 
-/** events.yaml link_jump.phase：purchase 是一次购买外跳的某一步；startup 只用于同意隐私政策后、还没有购买时的百川初始化失败（result=sdk_init_failed），这时没有 link 与尝试 */
+/** events.yaml link_jump.phase：purchase 是一次购买外跳的某一步；startup 只用于同意隐私政策后、还没有购买时的百川初始化失败（result=failed、failure_reason=sdk_init_failed），这时没有 link 与尝试 */
 export enum EventLinkJumpPhase {
   PURCHASE = 'purchase',
   STARTUP = 'startup'
@@ -65,12 +65,17 @@ export enum EventLinkJumpStep {
   COPY_TPWD = 'copy_tpwd'
 }
 
-/** events.yaml link_jump.result：launched 拉起了目标 App 或页面；copied 已复制口令；sdk_init_failed 百川初始化失败（与已初始化但拉起失败的 failed 分开，BR-ATTR-27 淘宝行） */
+/** events.yaml link_jump.result：启动结果只有三种（03 §4.5）。requested 系统或 SDK 接受了启动请求，或已复制口令（取代原 launched 与 copied）；failed 明确失败，必带 failure_reason（原因码）；unknown 系统返回不确定、SDK 回调超时或提交后进程重启。BR-ATTR-21「至少一步执行成功」按 requested 或 unknown 计，failed 不计；漏斗与看板把 unknown 单列，不并入 requested。requested 不等于用户看到了商品页，更不等于成交（BR-ATTR-23） */
 export enum EventLinkJumpResult {
-  LAUNCHED = 'launched',
+  REQUESTED = 'requested',
   FAILED = 'failed',
+  UNKNOWN = 'unknown'
+}
+
+/** events.yaml link_jump.failure_reason：failed 的原因码，result=failed 时必带、其他结果不带。sdk_init_failed 百川初始化失败（原 result 的同名取值，BR-ATTR-27 淘宝行；phase=startup 时只会是它）；step_failed 已初始化但这一步明确失败（原 result=failed）。步骤类型见 step */
+export enum EventLinkJumpFailureReason {
   SDK_INIT_FAILED = 'sdk_init_failed',
-  COPIED = 'copied'
+  STEP_FAILED = 'step_failed'
 }
 
 /** events.yaml link_jump.sdk_open_by：step=sdk 且为淘宝百川打开指令时必带，取 open 响应 JumpStep.sdk.open_by 的原值（url 走我方推广链接，code 走商品 ID 由 SDK 转链）；其他步骤不带 */
@@ -165,18 +170,28 @@ export enum EventRouteParamsDroppedRoute {
   REALNAME = 'RealName'
 }
 
+/** events.yaml agent_stream_limit.kind：超过的是哪一个上限：text 累计文本、cards 卡片数、frames 内容帧数（02 §9.2） */
+export enum EventAgentStreamLimitKind {
+  TEXT = 'text',
+  CARDS = 'cards',
+  FRAMES = 'frames'
+}
+
 /** specs/events.yaml 的事件构造函数（静态方法名为事件名的小驼峰）。 */
 export class ClientEvents {
   /** 全部事件名（契约顺序）。 */
-  static readonly names: string[] = ['link_jump', 'external_page_union_host', 'external_page_nav_host', 'external_page_blocked_nav', 'route_entry_blocked', 'route_params_dropped', 'bridge_call', 'sdui_card_error', 'app_launch', 'page_view', 'exposure', 'click', 'search', 'convert', 'h5_white_screen'];
+  static readonly names: string[] = ['link_jump', 'external_page_union_host', 'external_page_nav_host', 'external_page_blocked_nav', 'route_entry_blocked', 'route_params_dropped', 'bridge_call', 'sdui_card_error', 'agent_stream_seq_gap', 'agent_stream_frame_too_large', 'agent_stream_limit', 'agent_stream_unknown_event', 'app_launch', 'page_view', 'exposure', 'click', 'search', 'convert', 'h5_white_screen'];
 
-  /** link_jump：外跳的每一步结果（BR-ATTR-27 ③；BR-ATTR-21 细则「待跟单卡按实际外跳选」）；另记百川初始化失败（BR-ATTR-27 淘宝行）（规划/03 §4.5、§4.7；08 BR-ATTR-21、BR-ATTR-27） */
-  static linkJump(page: string, phase: EventLinkJumpPhase, unionPlatform: EventLinkJumpUnionPlatform, step: EventLinkJumpStep, result: EventLinkJumpResult, attemptId: string | null = null, linkId: string | null = null, sdkOpenBy: EventLinkJumpSdkOpenBy | null = null, sdkErrorCode: string | null = null, durationMs: number | null = null, installed: EventLinkJumpInstalled | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+  /** link_jump：外跳的每一步结果（BR-ATTR-27 ③；BR-ATTR-21 细则「待跟单卡按实际外跳选」）；另记百川初始化失败（BR-ATTR-27 淘宝行，result=failed 且 failure_reason=sdk_init_failed）（规划/03 §4.5、§4.7、§6.2 第 9 条；04 §6.4 POST /v1/events；08 BR-ATTR-21、BR-ATTR-27；编排裁定 D10-1470 ③ ④） */
+  static linkJump(page: string, phase: EventLinkJumpPhase, unionPlatform: EventLinkJumpUnionPlatform, step: EventLinkJumpStep, result: EventLinkJumpResult, attemptId: string | null = null, linkId: string | null = null, failureReason: EventLinkJumpFailureReason | null = null, sdkOpenBy: EventLinkJumpSdkOpenBy | null = null, sdkErrorCode: string | null = null, durationMs: number | null = null, installed: EventLinkJumpInstalled | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
     if (phase === EventLinkJumpPhase.PURCHASE && attemptId === null) {
       throw new Error('link_jump.attempt_id 在 phase=purchase 时必填');
     }
     if (phase === EventLinkJumpPhase.PURCHASE && linkId === null) {
       throw new Error('link_jump.link_id 在 phase=purchase 时必填');
+    }
+    if (result === EventLinkJumpResult.FAILED && failureReason === null) {
+      throw new Error('link_jump.failure_reason 在 result=failed 时必填');
     }
     if (phase === EventLinkJumpPhase.PURCHASE && durationMs === null) {
       throw new Error('link_jump.duration_ms 在 phase=purchase 时必填');
@@ -198,6 +213,9 @@ export class ClientEvents {
     fields.set('union_platform', unionPlatform);
     fields.set('step', step);
     fields.set('result', result);
+    if (failureReason !== null) {
+      fields.set('failure_reason', failureReason);
+    }
     if (sdkOpenBy !== null) {
       fields.set('sdk_open_by', sdkOpenBy);
     }
@@ -259,19 +277,23 @@ export class ClientEvents {
     return new ClientEvent(EVENT_KEY, 'route_params_dropped', page, spm, traceId, fields);
   }
 
-  /** bridge_call：JSBridge 调用被拒（规划/03 §5.3；BR-ATTR-29 细则「桥方法不留没有归因的打开入口」）；当前只记拒绝，强更状态未知时以 90500 拒绝的调用要不要记待定（规划/03 §5.3；08 BR-ATTR-29） */
-  static bridgeCall(page: string, method: string, code: number, spm: string | null = null, traceId: string | null = null): ClientEvent {
+  /** bridge_call：JSBridge 调用被拒（规划/03 §5.3；BR-ATTR-29 细则「桥方法不留没有归因的打开入口」）；当前只记拒绝，强更状态未知时以 90500 拒绝的调用要不要记待定（规划/03 §5.3、§4.7「诊断字段」；08 BR-ATTR-29） */
+  static bridgeCall(page: string, method: string, code: number, schemaVersion: string, bridgeVersion: string, configVersion: string, h5Release: string, spm: string | null = null, traceId: string | null = null): ClientEvent {
     if (code !== null && !Number.isInteger(code)) {
       throw new Error('bridge_call.code 必须是整数');
     }
     const fields: Map<string, ClientEventValue> = new Map<string, ClientEventValue>();
     fields.set('method', method);
     fields.set('code', code);
+    fields.set('schema_version', schemaVersion);
+    fields.set('bridge_version', bridgeVersion);
+    fields.set('config_version', configVersion);
+    fields.set('h5_release', h5Release);
     return new ClientEvent(EVENT_KEY, 'bridge_call', page, spm, traceId, fields);
   }
 
-  /** sdui_card_error：SDUI 卡片解码失败，只丢弃这一项（规划/03 §6 解码隔离）（规划/03 §6） */
-  static sduiCardError(page: string, type: string, pageVersion: number, reason: string, version: number | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+  /** sdui_card_error：SDUI 卡片解码失败，只丢弃这一项（规划/03 §6 解码隔离）（规划/03 §6、§7.2、§4.7「诊断字段」） */
+  static sduiCardError(page: string, type: string, reason: string, schemaVersion: string, bridgeVersion: string, configVersion: string, h5Release: string, version: number | null = null, pageVersion: number | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
     if (version !== null && !Number.isInteger(version)) {
       throw new Error('sdui_card_error.version 必须是整数');
     }
@@ -283,9 +305,89 @@ export class ClientEvents {
     if (version !== null) {
       fields.set('version', version);
     }
-    fields.set('page_version', pageVersion);
+    if (pageVersion !== null) {
+      fields.set('page_version', pageVersion);
+    }
     fields.set('reason', reason);
+    fields.set('schema_version', schemaVersion);
+    fields.set('bridge_version', bridgeVersion);
+    fields.set('config_version', configVersion);
+    fields.set('h5_release', h5Release);
     return new ClientEvent(EVENT_KEY, 'sdui_card_error', page, spm, traceId, fields);
+  }
+
+  /** agent_stream_seq_gap：原生 Agent 页流诊断：text.delta 缺号（收到的 seq 大于本地已应用值 +1），本地结束该条消息（03 §7.2）；不带用户消息原文、输入框原文、帧的 data 与 delta、卡片内容和 fallback_text（规划/03 §4.7「agent_* 事件的字段」、§7.2） */
+  static agentStreamSeqGap(page: string, schemaVersion: string, bridgeVersion: string, configVersion: string, h5Release: string, expected: number, received: number, runId: string | null = null, messageId: string | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+    if (expected !== null && !Number.isInteger(expected)) {
+      throw new Error('agent_stream_seq_gap.expected 必须是整数');
+    }
+    if (received !== null && !Number.isInteger(received)) {
+      throw new Error('agent_stream_seq_gap.received 必须是整数');
+    }
+    const fields: Map<string, ClientEventValue> = new Map<string, ClientEventValue>();
+    if (runId !== null) {
+      fields.set('run_id', runId);
+    }
+    if (messageId !== null) {
+      fields.set('message_id', messageId);
+    }
+    fields.set('schema_version', schemaVersion);
+    fields.set('bridge_version', bridgeVersion);
+    fields.set('config_version', configVersion);
+    fields.set('h5_release', h5Release);
+    fields.set('expected', expected);
+    fields.set('received', received);
+    return new ClientEvent(EVENT_KEY, 'agent_stream_seq_gap', page, spm, traceId, fields);
+  }
+
+  /** agent_stream_frame_too_large：原生 Agent 页流诊断：单帧 data 超过上限，按协议错误本地结束该条消息（03 §7.2）；只有共有字段，不带帧内容（规划/03 §4.7「agent_* 事件的字段」、§7.2） */
+  static agentStreamFrameTooLarge(page: string, schemaVersion: string, bridgeVersion: string, configVersion: string, h5Release: string, runId: string | null = null, messageId: string | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+    const fields: Map<string, ClientEventValue> = new Map<string, ClientEventValue>();
+    if (runId !== null) {
+      fields.set('run_id', runId);
+    }
+    if (messageId !== null) {
+      fields.set('message_id', messageId);
+    }
+    fields.set('schema_version', schemaVersion);
+    fields.set('bridge_version', bridgeVersion);
+    fields.set('config_version', configVersion);
+    fields.set('h5_release', h5Release);
+    return new ClientEvent(EVENT_KEY, 'agent_stream_frame_too_large', page, spm, traceId, fields);
+  }
+
+  /** agent_stream_limit：原生 Agent 页流诊断：同一 run 的累计文本、卡片数或内容帧数超过输出上限，本地结束该条消息（03 §7.2；上限见 02 §9.2）（规划/03 §4.7「agent_* 事件的字段」、§7.2） */
+  static agentStreamLimit(page: string, schemaVersion: string, bridgeVersion: string, configVersion: string, h5Release: string, kind: EventAgentStreamLimitKind, runId: string | null = null, messageId: string | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+    const fields: Map<string, ClientEventValue> = new Map<string, ClientEventValue>();
+    if (runId !== null) {
+      fields.set('run_id', runId);
+    }
+    if (messageId !== null) {
+      fields.set('message_id', messageId);
+    }
+    fields.set('schema_version', schemaVersion);
+    fields.set('bridge_version', bridgeVersion);
+    fields.set('config_version', configVersion);
+    fields.set('h5_release', h5Release);
+    fields.set('kind', kind);
+    return new ClientEvent(EVENT_KEY, 'agent_stream_limit', page, spm, traceId, fields);
+  }
+
+  /** agent_stream_unknown_event：原生 Agent 页流诊断：收到不在 04 §8.2 表内的 event 类型，忽略该帧、不中断流（03 §7.2）（规划/03 §4.7「agent_* 事件的字段」、§7.2） */
+  static agentStreamUnknownEvent(page: string, schemaVersion: string, bridgeVersion: string, configVersion: string, h5Release: string, type: string, runId: string | null = null, messageId: string | null = null, spm: string | null = null, traceId: string | null = null): ClientEvent {
+    const fields: Map<string, ClientEventValue> = new Map<string, ClientEventValue>();
+    if (runId !== null) {
+      fields.set('run_id', runId);
+    }
+    if (messageId !== null) {
+      fields.set('message_id', messageId);
+    }
+    fields.set('schema_version', schemaVersion);
+    fields.set('bridge_version', bridgeVersion);
+    fields.set('config_version', configVersion);
+    fields.set('h5_release', h5Release);
+    fields.set('type', type);
+    return new ClientEvent(EVENT_KEY, 'agent_stream_unknown_event', page, spm, traceId, fields);
   }
 
   /** app_launch：App 启动（字段待定）（规划/03 §4.7） */

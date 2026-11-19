@@ -3,7 +3,7 @@
 
 键规则、40901、哨兵由 core 的 Realname*.test.ets 跑；这里守本机单测管不到的接线与字节。
 
-  V1 specs/realname-submit-vectors.json 与 iOS 原件逐字节相同：41 行、sha256 2b3f8720…（D10-887 ⑥：三端照抄，鸿蒙差异在测试里映射）。
+  V1 specs/realname-submit-vectors.json 与 iOS 原件逐字节相同：41 行、sha256 762989b8…（LOCK-harmony 升锁换值，D10-2110 #24；D10-887 ⑥：三端照抄，鸿蒙差异在测试里映射）。
   C1 向量 contractCommit 等于 contract.lock 的 rebate_platform.commit。
   W1 AppWallet.deps() 恰一处 d.realname = new RealNameRemote(…)，第一个闭包是 AppMe.legalPrivacyVersion()（D10-1033 ②：legal 优先）。
   W2 release BuildVariant 的 walletContract() 仍恒 return null（劳务不可用；实名真实接口不经它，D10-1002 前提）。
@@ -34,7 +34,8 @@ PAGES = 'entry/src/main/ets/wallet/WalletPages.ets'
 CORE_LIST = 'common/core/src/test/List.test.ets'
 
 # iOS 75eb599 原件（安卓副本同值）；iOS 合入前与 rebate-ios main 再核，以 main 为准同步。
-VECTOR_SHA256 = '2b3f872080677d36e3965bf57a5af30c9e7e39c5c1212ff34e6b30ce22b85cf9'
+# LOCK-harmony（D10-2110 #24）：向量第 4 行 contractCommit 随锁 d47f660e5 换值，sha256 2b3f8720… → 762989b8…（docstring V1 同步）。
+VECTOR_SHA256 = '762989b80ab8bd1a1bbefe01236d2675cb6246408272152c7e5e5f796bb4d048'
 VECTOR_LINES = 41
 SUITES = ('RealnameVector', 'RealnameRequest', 'RealnameBusy', 'RealnameMatrix', 'RealnameFlow', 'RealnameWiring',
           'RealnameFundsNoFundWrite', 'RealnamePrivacy')

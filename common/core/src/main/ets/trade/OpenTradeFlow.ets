@@ -1,3 +1,4 @@
+import { EventLinkJumpFailureReason, EventLinkJumpResult } from 'generated';
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { TradeJson } from './TradeJson';
 
@@ -366,6 +367,9 @@ export class JumpPlanRunner {
 export class LinkJumpEvents {
   static readonly PHASE_PURCHASE: string = 'purchase';
   static readonly PHASE_STARTUP: string = 'startup';
+  /** 契约 link_jump.result 的 requested / unknown 原词（步骤执行器不产，toContract 原样认）。 */
+  private static readonly RESULT_REQUESTED: string = 'requested';
+  private static readonly RESULT_UNKNOWN: string = 'unknown';
   private static readonly PURCHASE_FIELDS: string[] = ['union_platform', 'step', 'result', 'duration_ms', 'installed'];
   private static readonly STARTUP_FIELDS: string[] = ['union_platform', 'step', 'result'];
 
@@ -404,6 +408,42 @@ export class LinkJumpEvents {
         to[key] = v;
       }
     }
+  }
+
+  /**
+   * 步骤结果词 → events.yaml link_jump 的 result 与 failure_reason（events version 6，03 §4.5；LOCK-harmony Q8，照安卓 D10-1606 ②）。
+   * 执行器仍用自己的结果词（JumpTypes.LAUNCHED / COPIED / FAILED / SDK_INIT_FAILED，购买流程与 build 的向量靠它们），只在上报前换成契约取值：
+   * 拉起与已复制口令都记 requested；已初始化但这一步明确失败记 failed + step_failed；百川初始化失败记 failed + sdk_init_failed。
+   * 失败一律带 failure_reason、绝不记成 requested；契约的 requested、unknown 原样认；其余取值（含 null）为 null（不上报）。
+   * TODO(N-20)：接上报 sink 时由交易模块直接产契约新取值（含 unknown），并删掉本映射。
+   */
+  static toContract(raw: string | null): LinkJumpContractResult | null {
+    switch (raw) {
+      case JumpTypes.LAUNCHED:
+      case JumpTypes.COPIED:
+        return new LinkJumpContractResult(EventLinkJumpResult.REQUESTED, null);
+      case JumpTypes.FAILED:
+        return new LinkJumpContractResult(EventLinkJumpResult.FAILED, EventLinkJumpFailureReason.STEP_FAILED);
+      case JumpTypes.SDK_INIT_FAILED:
+        return new LinkJumpContractResult(EventLinkJumpResult.FAILED, EventLinkJumpFailureReason.SDK_INIT_FAILED);
+      case LinkJumpEvents.RESULT_REQUESTED:
+        return new LinkJumpContractResult(EventLinkJumpResult.REQUESTED, null);
+      case LinkJumpEvents.RESULT_UNKNOWN:
+        return new LinkJumpContractResult(EventLinkJumpResult.UNKNOWN, null);
+      default:
+        return null;
+    }
+  }
+}
+
+/** LinkJumpEvents.toContract 的结果：契约 result，及 result=failed 时必带的 failure_reason（其余为 null）。 */
+export class LinkJumpContractResult {
+  readonly result: EventLinkJumpResult;
+  readonly failureReason: EventLinkJumpFailureReason | null;
+
+  constructor(result: EventLinkJumpResult, failureReason: EventLinkJumpFailureReason | null) {
+    this.result = result;
+    this.failureReason = failureReason;
   }
 }
 

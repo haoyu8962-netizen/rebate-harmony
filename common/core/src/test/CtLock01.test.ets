@@ -292,9 +292,13 @@ export default function ctLock01Test() {
         'cancelAgentRun', 'setAgentMessageFeedback', 'reportAgentMessage']) {
         expect(ApiOperations.byId(id) !== undefined).assertTrue();
       }
-      // link_jump 新增可选字段在 link_id 之后：不传即不出现（AppTrade 显式传 null）
+      // link_jump 可选字段在 link_id 之后（events v6 起依次为 failure_reason、sdk_open_by、sdk_error_code）：不传即不出现
+      // （AppTrade 的 failure_reason 取 LinkJumpEvents.toContract，其余显式传 null）
+      // LOCK-harmony（D10-2110 #24）：events v6 的 result 取值改为 requested / failed / unknown，link_id 后插入 failure_reason。
       const event: ClientEvent = ClientEvents.linkJump('purchase', EventLinkJumpPhase.PURCHASE, EventLinkJumpUnionPlatform.TAOBAO,
-        EventLinkJumpStep.SDK, EventLinkJumpResult.LAUNCHED, 'att-1', 'lnk-1', null, null, 12, EventLinkJumpInstalled.UNKNOWN);
+        EventLinkJumpStep.SDK, EventLinkJumpResult.REQUESTED, 'att-1', 'lnk-1', null, null, null, 12, EventLinkJumpInstalled.UNKNOWN);
+      // LOCK-harmony（D10-2110 #24）：requested 不带 failure_reason（events v6 只在 result=failed 时必带）。
+      expect(event.fields.has('failure_reason')).assertFalse();
       expect(event.fields.has('sdk_open_by')).assertFalse();
       expect(event.fields.has('sdk_error_code')).assertFalse();
       expect(event.fields.get('duration_ms') as number).assertEqual(12);

@@ -448,3 +448,7 @@ export { RootShownRegistry } from './src/main/ets/router/RootShownRegistry';
 
 // FU-HM-ROOTSHOWN-CHAIN ③（D10-1668）：执行器按页订阅的通知表（提现 / 收款账号 / 换号 / 注销页面不再覆盖单槽 onChange）。
 export { PageListeners } from './src/main/ets/ui/PageListeners';
+
+// LOCK-harmony 段 1（D10-2108）：events v6 诊断字段（bridge_call、sdui_card_error）与 link_jump 结果映射（Q8）。
+export { EventDiagnostics } from './src/main/ets/clientcore/EventDiagnostics';
+export { LinkJumpContractResult } from './src/main/ets/trade/OpenTradeFlow';

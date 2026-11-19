@@ -628,11 +628,14 @@ export class BridgeMethods {
 
 
 def gen_bridge_contract():
-    """bridge.schema.json 的协议数据（APP-04 / HM-03）：方法 params 的 JSON Schema 子集、$defs、signed_paths、not_exposed、
+    """bridge.schema.json 的协议数据（APP-04 / HM-03）：顶层 version、方法 params 的 JSON Schema 子集、$defs、signed_paths、not_exposed、
     events 名单、envelope 的 id 上限，以及 apps.json 里 trade_only 的外跳目标（ext.openApp 的 90403）。
     params 原样转写成 JSON 文本，由 core/bridge 的 BridgeSchema 在运行时按子集关键字校验（与 H5 SDK 同一份 schema）。"""
     data = load("contracts/bridge.schema.json")
     apps = load("contracts/apps.json")
+    schema_version = data.get("version")
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool):
+        raise GenError("bridge.schema.json 顶层 version 不是整数：%r" % (schema_version,))
     envelope = data.get("envelope", {}).get("request", {})
     props = envelope.get("properties", {})
     if props.get("v", {}).get("enum") != [1]:
@@ -675,6 +678,8 @@ def gen_bridge_contract():
     lines.append("}")
     lines.append("")
     lines.append("export class BridgeContract {")
+    lines.append("  /** bridge.schema.json 顶层 version（LOCK-harmony Q9：bridge_call 的 schema_version 取它，03 §4.7、D10-1612 ④ (i)）。 */")
+    lines.append("  static readonly SCHEMA_VERSION: number = %d;" % schema_version)
     lines.append("  /** envelope.v 唯一取值。 */")
     lines.append("  static readonly ENVELOPE_VERSION: number = 1;")
     lines.append("  /** envelope.id 的 maxLength。 */")
@@ -936,7 +941,8 @@ def gen_privacy_visual_vectors_data():
 CTA_KEY_VECTORS = os.path.join("specs", "cta-key-vectors.json")
 # FU-X-CTA-KEY-DRIFT-harmony（D10-861）：specs/cta-key-vectors.json 整份照 rebate-ios FU-X-CTA-KEY-DRIFT-ios 逐字节拷贝（95 行，
 # sha256 下列；安卓副本同值）。鸿蒙差异（下架判「稍后再试」+ error.30141，D10-907 ①）在测试里映射，不改本文件。
-CTA_VECTORS_IOS_SHA256 = "d93b2905983bb07a8cca624f3a8af2a9a9b7220e49f34d43886270cb32f4bc40"
+# LOCK-harmony（D10-2108，锁 d47f660e5）：只换第 4 行 contractCommit 后的值，与 rebate-ios 94abbe0、rebate-android 9f015b2 逐字节相同。
+CTA_VECTORS_IOS_SHA256 = "84b2897e7ed523e835395e0cc073dc206620bab8e9b43f6a9c4596f6c3de3ffa"
 CTA_VECTORS_IOS_LINES = 95
 
 
@@ -964,7 +970,8 @@ def gen_cta_key_vectors_data():
 REALNAME_VECTORS = os.path.join("specs", "realname-submit-vectors.json")
 # FU-HM-REALNAME-API-harmony（D10-887 ⑥）：specs/realname-submit-vectors.json 整份照 rebate-ios 75eb599 逐字节拷贝（41 行，sha256 下列；安卓副本同值）。
 # 鸿蒙差异在测试映射，不改本文件（任务书 §4）。常量名不带 KEY / TOKEN（gitleaks generic-api-key，见 CTA 交回 §5-2）。
-REALNAME_VECTORS_IOS_SHA256 = "2b3f872080677d36e3965bf57a5af30c9e7e39c5c1212ff34e6b30ce22b85cf9"
+# LOCK-harmony（D10-2108，锁 d47f660e5）：只换第 4 行 contractCommit 后的值，与 rebate-ios 94abbe0、rebate-android 9f015b2 逐字节相同。
+REALNAME_VECTORS_IOS_SHA256 = "762989b80ab8bd1a1bbefe01236d2675cb6246408272152c7e5e5f796bb4d048"
 REALNAME_VECTORS_IOS_LINES = 41
 
 

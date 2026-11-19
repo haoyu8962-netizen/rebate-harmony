@@ -1,4 +1,5 @@
-// FU-HM-REALNAME-API-harmony 测试作者 v1：specs/realname-submit-vectors.json（三端逐字节，sha256 2b3f8720…）逐条跑（任务书 §3.1「向量」）。
+// FU-HM-REALNAME-API-harmony 测试作者 v1：specs/realname-submit-vectors.json（三端逐字节，sha256 762989b8…）逐条跑（任务书 §3.1「向量」）。
+// LOCK-harmony（D10-2110 #24）：升锁 d47f660e5 后向量第 4 行 contractCommit 换值，sha256 2b3f8720… → 762989b8…（与 iOS 94abbe0、安卓 9f015b2 同字节）。
 // 向量由 gen.py 嵌入 RealnameVectorsData.ets（本机单测读不了文件；gen.py 补丁见交回 §5）。接口见 RealnameRig.ets 文件头。
 // 实现前本文件编译不过，按「红」计。向量 harness / harnessUnknown 的判读照向量文件原文；鸿蒙差异只在这里映射，向量不改（任务书 §4）。
 import { describe, it, expect } from '@ohos/hypium';
@@ -8,8 +9,10 @@ import { ReferenceDigest } from './TestDigest';
 import { sleep } from './WalletIntegration.test';
 import { IDEMPOTENCY_PATTERN, RealnameFixture, replyOfVector, WANT_ID, WANT_NAME } from './RealnameRig';
 
-const VECTORS_SHA256: string = '2b3f872080677d36e3965bf57a5af30c9e7e39c5c1212ff34e6b30ce22b85cf9';
-const VECTORS_CONTRACT_COMMIT: string = 'a89c1ec3a7f4de0b069742af909eba6545358ea3';
+// LOCK-harmony（D10-2110 #24）：向量只换第 4 行 contractCommit，整文件 sha256 随之换值（资金·实名，规则与用例不变）。
+const VECTORS_SHA256: string = '762989b80ab8bd1a1bbefe01236d2675cb6246408272152c7e5e5f796bb4d048';
+// LOCK-harmony（D10-2110 #24）：三端同一锁定提交 a89c1ec3a → d47f660e5。
+const VECTORS_CONTRACT_COMMIT: string = 'd47f660e5d42729899ade06298ddf5457791ff3d';
 const NAMES: string[] = [
   'ok_verified', 'e20001_field_id_no', 'e20001_field_name', 'e20001_no_fields', 'e30405_taken', 'e30406_mismatch', 'e30407_age',
   'e30410_daily_limit', 'e42901_rate_limited', 'e50401_vendor_timeout', 'e50301_service_unavailable', 'e50001_server',

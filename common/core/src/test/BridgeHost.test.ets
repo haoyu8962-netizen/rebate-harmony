@@ -287,7 +287,8 @@ export default function bridgeHostTest() {
       expect(wire(await pending).code).assertEqual(90003);
     });
 
-    it('refusals_record_bridge_call_with_method_and_code_only', 0, async () => {
+    // LOCK-harmony（D10-2110 #24）：events v6 起 bridge_call 另带四项诊断字段，用例名去掉 _only。
+    it('refusals_record_bridge_call_with_method_and_code', 0, async () => {
       const events: ClientEvent[] = [];
       const host: BridgeHost = new BridgeHost(new FakeState(), new ManualClock());
       host.track = (e: ClientEvent) => {
@@ -297,8 +298,11 @@ export default function bridgeHostTest() {
       await host.handle(req('b', 'ext.openBrowser', '{"url":"https://taobao.example.test/"}'), MAIN_TAP);
       expect(events.length).assertEqual(2);
       expect(events[0].name).assertEqual('bridge_call');
-      expect(JSON.stringify(Array.from(events[0].fields.values()))).assertEqual('["unknown",90001]');
-      expect(JSON.stringify(Array.from(events[1].fields.values()))).assertEqual('["ext.openBrowser",90403]');
+      // LOCK-harmony（D10-2110 #24）：字段顺序按生成函数 method、code、schema_version、bridge_version、config_version、h5_release。
+      expect(JSON.stringify(Array.from(events[0].fields.values())))
+        .assertEqual('["unknown",90001,"1","1","unknown","unknown"]');
+      expect(JSON.stringify(Array.from(events[1].fields.values())))
+        .assertEqual('["ext.openBrowser",90403,"1","1","unknown","unknown"]');
     });
 
     it('privacy_basic_mode_only_lets_basic_methods_through', 0, async () => {

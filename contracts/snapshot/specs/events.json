@@ -1,5 +1,5 @@
 {
-  "version": "2",
+  "version": "6",
   "common_fields": {
     "event_id": {
       "type": "string",
@@ -64,8 +64,8 @@
   },
   "events": {
     "link_jump": {
-      "description": "外跳的每一步结果（BR-ATTR-27 ③；BR-ATTR-21 细则「待跟单卡按实际外跳选」）；另记百川初始化失败（BR-ATTR-27 淘宝行）",
-      "source": "规划/03 §4.5、§4.7；08 BR-ATTR-21、BR-ATTR-27",
+      "description": "外跳的每一步结果（BR-ATTR-27 ③；BR-ATTR-21 细则「待跟单卡按实际外跳选」）；另记百川初始化失败（BR-ATTR-27 淘宝行，result=failed 且 failure_reason=sdk_init_failed）",
+      "source": "规划/03 §4.5、§4.7、§6.2 第 9 条；04 §6.4 POST /v1/events；08 BR-ATTR-21、BR-ATTR-27；编排裁定 D10-1470 ③ ④",
       "fields": {
         "phase": {
           "type": "enum",
@@ -74,7 +74,7 @@
             "purchase",
             "startup"
           ],
-          "note": "purchase 是一次购买外跳的某一步；startup 只用于同意隐私政策后、还没有购买时的百川初始化失败（result=sdk_init_failed），这时没有 link 与尝试"
+          "note": "purchase 是一次购买外跳的某一步；startup 只用于同意隐私政策后、还没有购买时的百川初始化失败（result=failed、failure_reason=sdk_init_failed），这时没有 link 与尝试"
         },
         "attempt_id": {
           "type": "string",
@@ -121,12 +121,22 @@
           "type": "enum",
           "required": true,
           "values": [
-            "launched",
+            "requested",
             "failed",
-            "sdk_init_failed",
-            "copied"
+            "unknown"
           ],
-          "note": "launched 拉起了目标 App 或页面；copied 已复制口令；sdk_init_failed 百川初始化失败（与已初始化但拉起失败的 failed 分开，BR-ATTR-27 淘宝行）"
+          "note": "启动结果只有三种（03 §4.5）。requested 系统或 SDK 接受了启动请求，或已复制口令（取代原 launched 与 copied）；failed 明确失败，必带 failure_reason（原因码）；unknown 系统返回不确定、SDK 回调超时或提交后进程重启。BR-ATTR-21「至少一步执行成功」按 requested 或 unknown 计，failed 不计；漏斗与看板把 unknown 单列，不并入 requested。requested 不等于用户看到了商品页，更不等于成交（BR-ATTR-23）"
+        },
+        "failure_reason": {
+          "type": "enum",
+          "required_when": {
+            "result": "failed"
+          },
+          "values": [
+            "sdk_init_failed",
+            "step_failed"
+          ],
+          "note": "failed 的原因码，result=failed 时必带、其他结果不带。sdk_init_failed 百川初始化失败（原 result 的同名取值，BR-ATTR-27 淘宝行；phase=startup 时只会是它）；step_failed 已初始化但这一步明确失败（原 result=failed）。步骤类型见 step"
         },
         "sdk_open_by": {
           "type": "enum",
@@ -140,7 +150,7 @@
         "sdk_error_code": {
           "type": "string",
           "required": false,
-          "note": "百川回调返回的错误码原样记录（result=failed 或 sdk_init_failed 且 SDK 给出错误码时带），用来区分 SDK 报错与目标 App 未拉起；不带错误描述里的链接或参数"
+          "note": "百川回调返回的错误码原样记录（result=failed 且 SDK 给出错误码时带，含 failure_reason=sdk_init_failed），用来区分 SDK 报错与目标 App 未拉起；不带错误描述里的链接或参数"
         },
         "duration_ms": {
           "type": "integer",
@@ -314,7 +324,7 @@
     },
     "bridge_call": {
       "description": "JSBridge 调用被拒（规划/03 §5.3；BR-ATTR-29 细则「桥方法不留没有归因的打开入口」）；当前只记拒绝，强更状态未知时以 90500 拒绝的调用要不要记待定",
-      "source": "规划/03 §5.3；08 BR-ATTR-29",
+      "source": "规划/03 §5.3、§4.7「诊断字段」；08 BR-ATTR-29",
       "fields": {
         "method": {
           "type": "string",
@@ -325,12 +335,32 @@
           "type": "integer",
           "required": true,
           "note": "桥错误码（90001–90500）"
+        },
+        "schema_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；调用方打包时所依据的桥 schema（contracts/bridge.schema.json 顶层 version）转成的字符串；取不到填 \"unknown\""
+        },
+        "bridge_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；取不到填 \"unknown\"；H5 发出的事件由原生补"
+        },
+        "config_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7，来源见 04 §10.1）；/v1/config 还没拉到时填 \"unknown\"；H5 发出的事件由原生补"
+        },
+        "h5_release": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；原生页没有 H5 时填 \"unknown\"；H5 发出的事件由 H5 自己填"
         }
       }
     },
     "sdui_card_error": {
       "description": "SDUI 卡片解码失败，只丢弃这一项（规划/03 §6 解码隔离）",
-      "source": "规划/03 §6",
+      "source": "规划/03 §6、§7.2、§4.7「诊断字段」",
       "fields": {
         "type": {
           "type": "string",
@@ -343,12 +373,201 @@
         },
         "page_version": {
           "type": "integer",
-          "required": true,
-          "note": "页面配置的 version（整数，规划/03 §6）"
+          "required": false,
+          "note": "页面配置的 version（整数）；首页等配置化页面（规划/03 §6.2）必带；AI 助手页的卡片（03 §7.2）不带（AI 助手页不是配置化页面）"
         },
         "reason": {
           "type": "string",
           "required": true
+        },
+        "schema_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；首页配置化卡片填卡片自带 version 转成的字符串，AI 助手页卡片（03 §7.2）填该卡 schema_version 转成的字符串；正是因为取不到版本而解码失败时填 \"unknown\""
+        },
+        "bridge_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；取不到填 \"unknown\"；H5 发出的事件由原生补"
+        },
+        "config_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7，来源见 04 §10.1）；/v1/config 还没拉到时填 \"unknown\"；H5 发出的事件由原生补"
+        },
+        "h5_release": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；原生页（含 AI 助手页）没有 H5 时填 \"unknown\"；H5 发出的事件由 H5 自己填"
+        }
+      }
+    },
+    "agent_stream_seq_gap": {
+      "description": "原生 Agent 页流诊断：text.delta 缺号（收到的 seq 大于本地已应用值 +1），本地结束该条消息（03 §7.2）；不带用户消息原文、输入框原文、帧的 data 与 delta、卡片内容和 fallback_text",
+      "source": "规划/03 §4.7「agent_* 事件的字段」、§7.2",
+      "fields": {
+        "run_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 run_id（04 §8.2）；还没收到 meta 帧时不带"
+        },
+        "message_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 message_id；还没收到 meta 帧时不带"
+        },
+        "schema_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；这四个事件不针对某一张卡，填 \"unknown\""
+        },
+        "bridge_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7），按诊断字段一条取；取不到填 \"unknown\""
+        },
+        "config_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7，来源见 04 §10.1）；/v1/config 还没拉到时填 \"unknown\""
+        },
+        "h5_release": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；Agent 页是原生页，填 \"unknown\""
+        },
+        "expected": {
+          "type": "integer",
+          "required": true,
+          "note": "本地已应用的最大 seq 加 1"
+        },
+        "received": {
+          "type": "integer",
+          "required": true,
+          "note": "这一帧实际带的 seq（大于 expected）"
+        }
+      }
+    },
+    "agent_stream_frame_too_large": {
+      "description": "原生 Agent 页流诊断：单帧 data 超过上限，按协议错误本地结束该条消息（03 §7.2）；只有共有字段，不带帧内容",
+      "source": "规划/03 §4.7「agent_* 事件的字段」、§7.2",
+      "fields": {
+        "run_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 run_id（04 §8.2）；还没收到 meta 帧时不带"
+        },
+        "message_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 message_id；还没收到 meta 帧时不带"
+        },
+        "schema_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；这四个事件不针对某一张卡，填 \"unknown\""
+        },
+        "bridge_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7），按诊断字段一条取；取不到填 \"unknown\""
+        },
+        "config_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7，来源见 04 §10.1）；/v1/config 还没拉到时填 \"unknown\""
+        },
+        "h5_release": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；Agent 页是原生页，填 \"unknown\""
+        }
+      }
+    },
+    "agent_stream_limit": {
+      "description": "原生 Agent 页流诊断：同一 run 的累计文本、卡片数或内容帧数超过输出上限，本地结束该条消息（03 §7.2；上限见 02 §9.2）",
+      "source": "规划/03 §4.7「agent_* 事件的字段」、§7.2",
+      "fields": {
+        "run_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 run_id（04 §8.2）；还没收到 meta 帧时不带"
+        },
+        "message_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 message_id；还没收到 meta 帧时不带"
+        },
+        "schema_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；这四个事件不针对某一张卡，填 \"unknown\""
+        },
+        "bridge_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7），按诊断字段一条取；取不到填 \"unknown\""
+        },
+        "config_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7，来源见 04 §10.1）；/v1/config 还没拉到时填 \"unknown\""
+        },
+        "h5_release": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；Agent 页是原生页，填 \"unknown\""
+        },
+        "kind": {
+          "type": "enum",
+          "required": true,
+          "values": [
+            "text",
+            "cards",
+            "frames"
+          ],
+          "note": "超过的是哪一个上限：text 累计文本、cards 卡片数、frames 内容帧数（02 §9.2）"
+        }
+      }
+    },
+    "agent_stream_unknown_event": {
+      "description": "原生 Agent 页流诊断：收到不在 04 §8.2 表内的 event 类型，忽略该帧、不中断流（03 §7.2）",
+      "source": "规划/03 §4.7「agent_* 事件的字段」、§7.2",
+      "fields": {
+        "run_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 run_id（04 §8.2）；还没收到 meta 帧时不带"
+        },
+        "message_id": {
+          "type": "string",
+          "required": false,
+          "note": "本轮 meta 帧给的 message_id；还没收到 meta 帧时不带"
+        },
+        "schema_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；这四个事件不针对某一张卡，填 \"unknown\""
+        },
+        "bridge_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7），按诊断字段一条取；取不到填 \"unknown\""
+        },
+        "config_version": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7，来源见 04 §10.1）；/v1/config 还没拉到时填 \"unknown\""
+        },
+        "h5_release": {
+          "type": "string",
+          "required": true,
+          "note": "诊断字段（03 §4.7）；Agent 页是原生页，填 \"unknown\""
+        },
+        "type": {
+          "type": "string",
+          "required": true,
+          "note": "那一帧 event 行的类型名，超过 64 个字符只取前 64 个；不带 data；同一 run 里同一个 type 只记一条（03 §7.2）"
         }
       }
     },

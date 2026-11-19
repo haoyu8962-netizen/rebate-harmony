@@ -6,7 +6,7 @@
    "common/core/src/main/ets/me/MeControllers.ets"
   ],
   [
-   "7e07d00e7a0a3f2aded09ebc036335be56ca93a8bade29b8a60b831b499544dc",
+   "b9ffdd109a707ac946b744e32d58c9da23872cda670ce87ec6938c29842c3e1e",
    "common/core/src/main/ets/me/MePresentation.ets"
   ],
   [
@@ -14,7 +14,7 @@
    "common/core/src/main/ets/me/MeSession.ets"
   ],
   [
-   "dadcdebd2297161ced42c79eb940ba34681190ce5ae96e4fe50b7e7feafedbab",
+   "3c94114d9b59908b7f53fd0625a0da71d95ee04aac632a3cf951c00195679a61",
    "common/core/src/main/ets/me/MeJson.ets"
   ],
   [
@@ -42,7 +42,7 @@
    "entry/src/main/ets/clipboard/AppClipboard.ets"
   ],
   [
-   "8ebc35cd4ec850ce695f04fecc818b0d084cf79b58ae77f3f65ab13c148c2658",
+   "0ef8f287fee288204af64118d18491848ee977225ab798a9965a28acfd082b75",
    "contract.lock"
   ],
   [

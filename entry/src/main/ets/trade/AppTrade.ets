@@ -3,13 +3,13 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiClientSearchPort, ApiOutcome, ApiRequest, ApiResult, AuthManageController, AuthSheetCounter, ConfigStore,
   ConsentResume,
-  HelpLink, JumpPorts, JumpTipService, LinkJumpSink, LoginService, OpenPurchaseController, PlatformPurchase, PlatformStatusOverrides,
+  HelpLink, JumpPorts, JumpTipService, LinkJumpContractResult, LinkJumpEvents, LinkJumpSink, LoginService, OpenPurchaseController,
+  PlatformPurchase, PlatformStatusOverrides,
   PURCHASE_PENDING_ACTION, PurchaseDeps, PurchaseEnv, PurchasePending, SearchApiPort, TradeJson, TradeJumpExecutor,
   TransportFailure, UnavailableBaichuan
 } from 'core';
 import {
-  ClientEvents, ClientEvent, EventLinkJumpInstalled, EventLinkJumpPhase, EventLinkJumpResult, EventLinkJumpStep,
-  EventLinkJumpUnionPlatform
+  ClientEvents, ClientEvent, EventLinkJumpInstalled, EventLinkJumpPhase, EventLinkJumpStep, EventLinkJumpUnionPlatform
 } from 'generated';
 import { BuildVariant } from 'entry/ets/variant/BuildVariant';
 import { AppClientCore } from '../clientcore/AppClientCore';
@@ -59,7 +59,8 @@ class TrackerLinkJumpSink implements LinkJumpSink {
     const platform: EventLinkJumpUnionPlatform | null =
       TrackerLinkJumpSink.platform(TradeJson.text(fields, 'union_platform'));
     const step: EventLinkJumpStep | null = TrackerLinkJumpSink.step(TradeJson.text(fields, 'step'));
-    const result: EventLinkJumpResult | null = TrackerLinkJumpSink.result(TradeJson.text(fields, 'result'));
+    // events version 6：步骤结果词经 core 纯函数换成契约 result + failure_reason（LOCK-harmony Q8；TODO(N-20) 见 LinkJumpEvents.toContract）。
+    const result: LinkJumpContractResult | null = LinkJumpEvents.toContract(TradeJson.text(fields, 'result'));
     if (phase === null || platform === null || step === null || result === null) {
       return;
     }
@@ -67,8 +68,9 @@ class TrackerLinkJumpSink implements LinkJumpSink {
     try {
       // CT-LOCK-01：events.yaml version 2 在 link_id 之后新增 sdk_open_by、sdk_error_code（百川打开指令，JumpStep.sdk），
       // 执行器还不按 JumpStep.sdk 执行、不产出这两项，这里显式传 null（不上报），其余字段与升版前相同。
-      const event: ClientEvent = ClientEvents.linkJump(LINK_JUMP_PAGE, phase, platform, step, result,
-        TradeJson.text(fields, 'attempt_id'), TradeJson.text(fields, 'link_id'), null, null,
+      // events version 6 在 link_id 之后新增 failure_reason（result=failed 时必带，取 toContract 的结果）。
+      const event: ClientEvent = ClientEvents.linkJump(LINK_JUMP_PAGE, phase, platform, step, result.result,
+        TradeJson.text(fields, 'attempt_id'), TradeJson.text(fields, 'link_id'), result.failureReason, null, null,
         TradeJson.fen(fields, 'duration_ms'), installed);
       AppClientCore.shared.track(event);
     } catch (e) {
@@ -117,21 +119,6 @@ class TrackerLinkJumpSink implements LinkJumpSink {
         return EventLinkJumpStep.H5;
       case 'copy_tpwd':
         return EventLinkJumpStep.COPY_TPWD;
-      default:
-        return null;
-    }
-  }
-
-  private static result(raw: string | null): EventLinkJumpResult | null {
-    switch (raw) {
-      case 'launched':
-        return EventLinkJumpResult.LAUNCHED;
-      case 'failed':
-        return EventLinkJumpResult.FAILED;
-      case 'sdk_init_failed':
-        return EventLinkJumpResult.SDK_INIT_FAILED;
-      case 'copied':
-        return EventLinkJumpResult.COPIED;
       default:
         return null;
     }

@@ -154,6 +154,7 @@ import a11yCommonLogicTest from './A11yCommon.test';
 import a11yAgentReplyTagTest from './A11yAgentReplyTag.test';
 import a11yHomeNoticeTest from './A11yHomeNotice.test';
 import rootShownChainTest from './RootShownChain.test';
+import lockHarmonySeg1Test from './LockHarmonySeg1.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -328,4 +329,7 @@ export default function testsuite() {
   a11yHomeNoticeTest();
   // FU-HM-ROOTSHOWN-CHAIN（D10-1652）：Ability 同进程重建后「我的」仍取 /v1/me、Agent 启动参数仍自动发送（按名登记的 onRootShown）。
   rootShownChainTest();
+  // LOCK-harmony 段 1（D10-2108 / D10-2110）：link_jump 结果映射（Q8）、bridge_call / sdui_card_error 诊断字段、系统权限按类型过滤、
+  // MeJson.maskedPhone（H4）。
+  lockHarmonySeg1Test();
 }

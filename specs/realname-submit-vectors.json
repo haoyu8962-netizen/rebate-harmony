@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "D10-856 ②（FU-IOS-REALNAME-API）；rebate-platform a89c1ec3a contracts/openapi.json submitRealname（POST /v1/me/realname，x-auth phone、x-signed、x-idempotent）、SubmitRealnameRequest / SubmitRealnameResult、recordConsent（RecordConsentRequest）、error-codes.json 各码 action；couli 规划/08_业务规则/10_ID_身份授权与合规.md BR-ID-25（先弹实名单独同意 type=id_verification，默认不勾选）、BR-ID-12（consent_records）、BR-ID-10 细则「敏感操作的幂等键」；编排裁定 F-AND-48（2026-10-18：40901 不是终态，实名在列，保持在途、原键查结果 / 重放、不换新键）。三端照抄，逐字节一致。",
-  "contractCommit": "a89c1ec3a7f4de0b069742af909eba6545358ea3",
+  "contractCommit": "d47f660e5d42729899ade06298ddf5457791ff3d",
   "request": {
     "submit": {"method": "POST", "path": "/v1/me/realname", "bodyKeys": ["id_no", "name"], "headers": ["Authorization", "Idempotency-Key", "X-Sign", "X-Timestamp", "X-Nonce"], "idempotencyKeyPattern": "^[A-Za-z0-9_-]{8,64}$"},
     "consent": {"method": "POST", "path": "/v1/consents", "bodyKeys": ["accepted", "channel", "client_at", "type", "version"], "fixed": {"type": "id_verification", "accepted": true, "channel": "realname_sheet"}, "version": "正整数（取值来源契约未写，见 handback §7-1）", "order": "同意记录成功（code 0）之后才发实名提交；同意记录失败不发实名提交"},

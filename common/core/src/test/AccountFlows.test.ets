@@ -6,7 +6,8 @@ import {
   DeletionSourceHandoff, ForceUpdateDeletionEntry, GuardDecision, GuardDecisionKind, GuardReason, GuardState, MeLevel,
   MePlatform, PhoneChangeController, PhoneChangeStep, PushTokenReporter, RouteAvailability, RouteRequest, RouteSource,
   RouteTable, SettingsItems, StepUpController, StepUpSheetFit, TransportRequest, TransportResponse, ApiClientWalletPort,
-  RetryAfterGate, AccountSensitiveFlow, AccountClick, AccountIdentity, AccountStep, DeletionSummary, SmsResendClock
+  RetryAfterGate, AccountSensitiveFlow, AccountClick, AccountIdentity, AccountStep, DeletionSummary, SmsResendClock,
+  LaunchReadiness, MemoryPendingBackend, PendingActionStore, PrivacyState, Router, UpdateCheckStatus, UpdateState
 } from '../../Index';
 import { StepUpPanelFit } from 'designsystem/Logic';
 import { RouteSpec } from 'generated';
@@ -190,7 +191,8 @@ export default function accountFlowsTest() {
       expect(phone?.['clickable']).assertTrue();
       expect((phone?.['params'] as AccountRecord)['phoneChange']).assertTrue();
       expect(find(member, SettingsItems.ID_DELETE)?.['route']).assertEqual('DeleteAccount');
-      // G02（编排者补充）：取不到号码时手机号行保持不可点；since=null 时没有注销行（G01）。
+      // LOCK-harmony（D10-2113 #24）：锁 d47f660e5 起 DeleteAccount since=1.0.0，G01 改钉「since 高于当前版本」，注释同步。
+      // G02（编排者补充）：取不到号码时手机号行保持不可点；since 高于当前版本时没有注销行（G01）。
       const noPhone: AccountRecord[] = rowsOf(SettingsItems.of(MeLevel.MEMBER, MePlatform.HARMONY, true, true, true, false,
         false));
       expect(find(noPhone, SettingsItems.ID_PHONE)?.['clickable']).assertFalse();
@@ -201,13 +203,20 @@ export default function accountFlowsTest() {
       expect(AccountEntryPolicy.of('member', true, 'true', true, undefined, true)['phoneRowRaw']).assertEqual('hidden');
     });
 
-    it('G01_since_null_router_upgrade_entries_hidden_10007_prompt_only', 0, () => {
+    // LOCK-harmony（D10-2113 #24）：DeleteAccount 已随锁开门（since 1.0.0），改用 since 高于当前版本的副本判 UPGRADE，用例名同步。
+    it('G01_since_above_app_version_router_upgrade_entries_hidden_10007_prompt_only', 0, () => {
       const real: RouteSpec | undefined = RouteTable.spec('DeleteAccount');
-      expect(real !== undefined && real.sinceHarmony === null).assertTrue();
-      expect(RouteAvailability.available(real, '1.0.0')).assertFalse();
+      // LOCK-harmony（D10-2110 #24）：锁 d47f660e5 起 DeleteAccount since.harmony=1.0.0，随锁开门（D10-2108 Q4）。
+      expect(real !== undefined && real.sinceHarmony === '1.0.0').assertTrue();
+      expect(RouteAvailability.available(real, '1.0.0')).assertTrue();
       const f: AccountFixture = new AccountFixture();
-      f.available = false;
-      const d: GuardDecision = f.router.open(RouteRequest.of('DeleteAccount', RouteSource.IN_APP));
+      // LOCK-harmony（D10-2113 #24）：只在本用例里用 RouteAvailability.overriding 把 DeleteAccount 的 since 抬到 99.0.0（高于 GuardState
+      // 的 1.0.0），GuardState 与就绪状态照 AccountFixture 原样；共用夹具不动。
+      const router: Router = new Router(new PendingActionStore(new MemoryPendingBackend(), (): number => f.rig.nowMillis),
+        (): GuardState => new GuardState('consented', f.update, 'phone_bound', true, '1.0.0', false, false, true), f.navigator,
+        RouteAvailability.overriding((n: string): RouteSpec | undefined => RouteTable.spec(n), ['DeleteAccount'], '99.0.0'),
+        (): LaunchReadiness => new LaunchReadiness(true, PrivacyState.CONSENTED, UpdateCheckStatus.finished(UpdateState.OK)));
+      const d: GuardDecision = router.open(RouteRequest.of('DeleteAccount', RouteSource.IN_APP));
       expect(d.kind).assertEqual(GuardDecisionKind.UPGRADE);
       expect(Deletion10007.decide({ 'stage': 'cooling' } as AccountRecord, false)).assertEqual(Deletion10007.PROMPT);
       expect(Deletion10007.decide({ 'stage': 'cooling' } as AccountRecord, true)).assertEqual(Deletion10007.NAVIGATE);

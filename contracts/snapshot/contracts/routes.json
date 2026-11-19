@@ -770,8 +770,8 @@
       "auth": "login",
       "since": {
         "ios": null,
-        "android": null,
-        "harmony": null
+        "android": "1.0.0",
+        "harmony": "1.0.0"
       },
       "phase": "M-公开",
       "params": {
@@ -820,7 +820,13 @@
       "params": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "带 order_id 为该订单的订单申诉，不带为账户申诉；不另设申诉类型参数"
+          }
+        },
         "required": []
       },
       "entry": [

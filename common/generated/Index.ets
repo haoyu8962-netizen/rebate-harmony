@@ -69,6 +69,8 @@ export {
   parseAdminSettleBillStatus,
   LedgerType,
   parseLedgerType,
+  LedgerSubAccount,
+  parseLedgerSubAccount,
   ReferralCreditSubType,
   parseReferralCreditSubType,
   ClawbackSubType,
@@ -251,6 +253,8 @@ export {
   parseOrderTimelineNode,
   OrderReason,
   parseOrderReason,
+  OrderReasonSub,
+  parseOrderReasonSub,
   DiffReason,
   parseDiffReason,
   OrderRightsStatus,
@@ -392,6 +396,7 @@ export {
   EventLinkJumpUnionPlatform,
   EventLinkJumpStep,
   EventLinkJumpResult,
+  EventLinkJumpFailureReason,
   EventLinkJumpSdkOpenBy,
   EventLinkJumpInstalled,
   EventExternalPageUnionHostUnionPlatform,
@@ -403,6 +408,7 @@ export {
   EventExternalPageBlockedNavFrame,
   EventRouteEntryBlockedEntry,
   EventRouteParamsDroppedRoute,
+  EventAgentStreamLimitKind,
   ClientEvents
 } from './src/main/ets/ClientEvents';
 export {

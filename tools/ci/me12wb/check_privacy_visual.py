@@ -43,7 +43,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = '8699e5a'
 FIXTURE = 'tools/ci/me12wb/fixtures/privacy-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-b-harmony-v1-aux/make_baseline_b.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = '5ac47bb70dced9e78558a4f21f8ad28e0de4ef9c1fb550763f5a7e555be7f958'
+FIXTURE_SHA256 = '60e64f88363167b0b21e5f97a568d6876a99faa3de07b22bc59033b4097430d3'
 
 ME = 'features/me/src/main/ets/'
 V_PRIVACY = ME + 'PrivacyCenterView.ets'

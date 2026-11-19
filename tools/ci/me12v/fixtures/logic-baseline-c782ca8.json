@@ -721,8 +721,8 @@
  "strict": {
   "common/core/src/main/ets/me/CustomerService.ets": "cc016d7db8a5734f79d4ea70b660aea685d4c8d02e5ad6ef26db3fd8c563ce2c",
   "common/core/src/main/ets/me/MeControllers.ets": "3a368a0ae611dc548f3661944004b0023ee96bedb1c1c47dcc906a94959532e3",
-  "common/core/src/main/ets/me/MeJson.ets": "dadcdebd2297161ced42c79eb940ba34681190ce5ae96e4fe50b7e7feafedbab",
-  "common/core/src/main/ets/me/MePresentation.ets": "7e07d00e7a0a3f2aded09ebc036335be56ca93a8bade29b8a60b831b499544dc",
+  "common/core/src/main/ets/me/MeJson.ets": "3c94114d9b59908b7f53fd0625a0da71d95ee04aac632a3cf951c00195679a61",
+  "common/core/src/main/ets/me/MePresentation.ets": "b9ffdd109a707ac946b744e32d58c9da23872cda670ce87ec6938c29842c3e1e",
   "common/core/src/main/ets/me/MeSession.ets": "8316ade43ae92fadeefed821ff527461fa35c97d13fb4b2aeb3c30e794407ad8",
   "entry/src/main/ets/clipboard/AppClipboard.ets": "1aa5a2540ea4345d7e7fcf53c97c635798b367b86d34c6bd02660b2c1ead730d",
   "entry/src/main/ets/me/AppCsSheet.ets": "3a617209cf8f39bafe6a77226d93804855f1dd506697ae9416432927d9cdd546",

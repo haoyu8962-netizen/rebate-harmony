@@ -4,7 +4,7 @@ import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  AgentEntryVisibility, ApiClient, ApiClientHomeContractPort, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, FileSlot,
+  AgentEntryVisibility, ApiClient, ApiClientHomeContractPort, ApiClientHomeNoticePort, AppConfig, ClipboardController, ConfigStore, EnvironmentSource, EventDiagnostics, FileSlot,
   HomeClearMark, HomeClearResult, HomeController, HomeDataCleaner, HomeDeps, HomeErrorText, HomeFixedArea, HomeIdentity,
   HomeLevel,
   HomeLkgReconciler, HomeSyncOutcome, SessionIdentity, HomeIdentityRead, HomeIdentitySource,
@@ -480,6 +480,8 @@ export class AppHome {
     deps.track = (e: ClientEvent): void => {
       AppClientCore.shared.track(e);
     };
+    // events v6 sdui_card_error 诊断字段 config_version：生效配置的 config_version，取不到为 unknown（03 §4.7）。
+    deps.configVersion = (): string => EventDiagnostics.configVersionOf(AppClientCore.shared.config);
     deps.forceUpdate = (): void => AppUpdate.shared.onServerForced();
     deps.open = (route: string, params: Record<string, Object>, _spm: string): void => {
       // 原样交 Router（入口 in_app）；spm 只作上下文，不塞进路由参数（G06）。

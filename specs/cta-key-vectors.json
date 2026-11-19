@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "D10-856 / D10-857（FU-X-CTA-KEY-DRIFT）；rebate-platform a89c1ec3a（CT-26t #2450）contracts/texts.default.json 与 openapi ProductCta 描述；couli 规划/08_业务规则/12_TEXT_话术与格式.md BR-TEXT-12 细则「购买按钮」、BR-TEXT-14 表 C btn.buy.rebate / btn.buy.rebate_unknown（2026-11-05）。三端照抄，逐字节一致。",
-  "contractCommit": "a89c1ec3a7f4de0b069742af909eba6545358ea3",
+  "contractCommit": "d47f660e5d42729899ade06298ddf5457791ff3d",
   "rules": [
     "R1 锁内有的 cta.text_key：显示字典原文；原文带 {amount} 时用同一张卡的单一返利金额（与返利标签同一格式化结果，BR-TEXT-10）填上。",
     "R2 渲染不出完整文案（texts 返回空串、返回键名本身、或填完已知变量后仍有 {变量}）即为缺键：改用 btn.buy 的文案（先经 texts，texts 给不出可用文字时用包内契约字典），按钮状态照常按价格、下架、平台状态判（缺键本身不置灰）。",

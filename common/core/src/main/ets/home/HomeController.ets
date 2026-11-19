@@ -6,6 +6,7 @@
 // 每次异步等待（网络、读 LKG、读包内默认、图片加载、1.5 秒计时）结束后复核控制器仍在、身份仍一致（APP-04 第 30、60 条）。
 import { SessionIdentity } from '../session/SessionIdentity';
 import { ClientEvent, ClientEvents } from 'generated';
+import { EventDiagnostics } from '../clientcore/EventDiagnostics';
 import { ApiClient, ApiRequest, ApiResult, ApiOutcome } from '../network/ApiClient';
 import { TransportFailure } from '../network/HttpTransport';
 import { RetryAfterGate } from '../network/RetryAfterGate';
@@ -291,6 +292,8 @@ export class HomeDeps {
   preview: boolean = false;
   track: (event: ClientEvent) => void = (_e: ClientEvent) => {
   };
+  /** sdui_card_error 的 config_version（events v6 诊断字段，03 §4.7）：entry 接生效配置；没接或取不到为 unknown。 */
+  configVersion: () => string = (): string => EventDiagnostics.UNKNOWN;
   /** 10405：服务端已判定强更（照已有分流，不另写逻辑）。 */
   forceUpdate: () => void = () => {
   };
@@ -879,7 +882,10 @@ export class HomeController {
         continue;
       }
       try {
-        this.deps.track(ClientEvents.sduiCardError('Home', d.type, decoded.version, d.reason, d.version));
+        // events v6 诊断字段（03 §4.7）：schema_version 取卡片自带 version，取不到填 unknown；首页是原生页，没有桥与 H5，
+        // bridge_version、h5_release 填 unknown；config_version 取生效配置。page_version 改为可选，首页照旧必带。
+        this.deps.track(ClientEvents.sduiCardError('Home', d.type, d.reason, EventDiagnostics.cardSchemaVersion(d.version),
+          EventDiagnostics.UNKNOWN, this.deps.configVersion(), EventDiagnostics.UNKNOWN, d.version, decoded.version));
       } catch (e) {
         // 字段不合法（版本不是整数等）不发。
       }

@@ -14,6 +14,8 @@ export class BridgeSignedPath {
 }
 
 export class BridgeContract {
+  /** bridge.schema.json 顶层 version（LOCK-harmony Q9：bridge_call 的 schema_version 取它，03 §4.7、D10-1612 ④ (i)）。 */
+  static readonly SCHEMA_VERSION: number = 1;
   /** envelope.v 唯一取值。 */
   static readonly ENVELOPE_VERSION: number = 1;
   /** envelope.id 的 maxLength。 */
@@ -31,5 +33,5 @@ export class BridgeContract {
   /** apps.json 里 trade_only 的外跳目标（ext.openApp 一律 90403）。 */
   static readonly TRADE_ONLY_TARGETS: string[] = ['taobao', 'jd', 'pdd'];
   /** share.open 的 share_page_paths[*].path_pattern（null = 未定，按不放行处理）。 */
-  static readonly SHARE_PAGE_PATTERNS: (string | null)[] = [null, null, null];
+  static readonly SHARE_PAGE_PATTERNS: (string | null)[] = ['^/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', '^/i/[2-9A-HJ-NP-Z]{6}$', null];
 }

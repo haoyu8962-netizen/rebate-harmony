@@ -4,7 +4,7 @@ import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   ApiClient, ApiRequest, ClipboardController, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
-  BridgeStatePort, ClientEvent, ConfigSnapshot, ConfigStore, EnvironmentGate, EnvironmentSwitchGate,
+  BridgeStatePort, ClientEvent, ConfigSnapshot, ConfigStore, EnvironmentGate, EnvironmentSwitchGate, EventDiagnostics,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
   GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
   FileSlot, FileTrustedAuthJournal, FileTrustedWebOwnerRecord, PrivacyState, RouteRequest, RouteSource, RouteTargetAllowlist, SessionIdentity,
@@ -190,6 +190,8 @@ export class AppBridge {
     };
     // F-X-24：远程禁用名单读 ConfigStore 的生效值（与其他配置键同一份、同一刷新时机），每次准入时现取。
     host.disabledMethods = (): string[] => AppBridge.disabledMethods();
+    // events v6 bridge_call 诊断字段 config_version：生效配置（当前 → LKG → 包内）的 config_version，取不到为 unknown（03 §4.7）。
+    host.configVersion = (): string => EventDiagnostics.configVersionOf(AppClientCore.shared.config);
     const api = (request: ApiRequest): Promise<ApiResult> => {
       const client: ApiClient | null = AppNetwork.client;
       return client === null ? Promise.resolve(ApiResult.rejected(LocalRejectReason.CANCELLED)) : client.request(request);

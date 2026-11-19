@@ -329,7 +329,8 @@ export class SettingsItems {
 
 /**
  * 隐私中心分节（brief §2.4，G26）：两份清单；basic 只读（无个性化开关、无【撤回同意】，原位显示【开启完整功能】）；
- * 「系统权限」一节的条目只来自锁定契约的 specs/system-permissions.json 里本端的条目（鸿蒙、Android 目前为空）。
+ * 「系统权限」一节的条目只来自锁定契约的 specs/system-permissions.json 里本端、且向用户申请的条目（userRequested；鸿蒙、Android
+ * 现有条目 network、vibrate、dynamic_receiver 都是安装即授予，一节为空）。
  */
 export class PrivacyCenterView {
   static readonly LIST_COLLECT: string = '个人信息收集清单';
@@ -339,6 +340,31 @@ export class PrivacyCenterView {
    * 鸿蒙条目后由 gen.py 生成，不在这里手写。
    */
   static readonly HARMONY_ENTRIES: MeRecord[] = [];
+  /** 权限条目类型的归类：向用户申请（运行时弹系统框）。 */
+  static readonly KIND_USER_REQUESTED: string = 'user_requested';
+  /** 权限条目类型的归类：安装即授予（不弹窗）。 */
+  static readonly KIND_INSTALL_GRANTED: string = 'install_granted';
+  /**
+   * 「系统权限」一节的判据，只此一处（LOCK-harmony H5，编排 D10-1606 ①、D10-1612 S2；与安卓 PERMISSION_KINDS 同表）：权限清单
+   * （specs/system-permissions.json 快照）里每个 type 显式归类，只列 KIND_USER_REQUESTED 的。看类型、不看 purpose_key 是否为空。
+   * 清单出现这里没有的类型时不列（保守），由单测报红，要求在此补归类。
+   */
+  static readonly PERMISSION_KINDS: Map<string, string> = PrivacyCenterView.permissionKinds();
+
+  private static permissionKinds(): Map<string, string> {
+    const kinds: Map<string, string> = new Map<string, string>();
+    kinds.set('push', PrivacyCenterView.KIND_USER_REQUESTED);
+    kinds.set('photos', PrivacyCenterView.KIND_USER_REQUESTED);
+    kinds.set('vibrate', PrivacyCenterView.KIND_INSTALL_GRANTED);
+    kinds.set('network', PrivacyCenterView.KIND_INSTALL_GRANTED);
+    kinds.set('dynamic_receiver', PrivacyCenterView.KIND_INSTALL_GRANTED);
+    return kinds;
+  }
+
+  /** 该权限类型是否向用户申请（PERMISSION_KINDS 里归为 KIND_USER_REQUESTED）；未归类的为 false。 */
+  static userRequested(type: string): boolean {
+    return PrivacyCenterView.PERMISSION_KINDS.get(type) === PrivacyCenterView.KIND_USER_REQUESTED;
+  }
 
   /** PermissionRequester 的状态 → 系统权限一节的状态（granted / denied / not_asked）。 */
   static statusOf(raw: string): string {
@@ -371,6 +397,9 @@ export class PrivacyCenterView {
         continue;
       }
       const type: string = entry['type'] as string;
+      if (!PrivacyCenterView.userRequested(type)) {
+        continue;
+      }
       const row: MeRecord = obj();
       row['type'] = type;
       row['purposeKey'] = typeof entry['purpose_key'] === 'string' ? entry['purpose_key'] : null;

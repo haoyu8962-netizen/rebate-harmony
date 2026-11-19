@@ -154,12 +154,12 @@ export class Routes {
       [], [], false));
     all.set('PrivacyCenter', new RouteSpec('PrivacyCenter', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
       [], [], false));
-    all.set('DeleteAccount', new RouteSpec('DeleteAccount', RouteKind.NATIVE, 'login', null, [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, 'delete',
+    all.set('DeleteAccount', new RouteSpec('DeleteAccount', RouteKind.NATIVE, 'login', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, 'delete',
       [], [], false));
     all.set('RiskNotice', new RouteSpec('RiskNotice', RouteKind.NATIVE, 'login', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
       [], [], false));
     all.set('Appeal', new RouteSpec('Appeal', RouteKind.NATIVE, 'login', '1.0.0', [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
-      [], [], false));
+      [new RouteParamSpec('order_id', RouteParamType.STRING, null, 1, null, null)], [], false));
     all.set('DataCopy', new RouteSpec('DataCopy', RouteKind.NATIVE, 'login', null, [RouteEntry.IN_APP, RouteEntry.PUSH], null, false, false, null,
       [], [], false));
     all.set('ForceUpdate', new RouteSpec('ForceUpdate', RouteKind.NATIVE, 'none', '1.0.0', [RouteEntry.IN_APP], null, false, false, null,

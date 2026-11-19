@@ -4,9 +4,9 @@
 entry 没有本机单测，五个调用点用的文案函数只能在宿主上核；锁与快照也在这里核（本机单测读不了 contract.lock）。
 按钮文字的规则由 designsystem 的 CtaKeyVector.test.ets 逐条跑向量，详情可买判定由 core 的 CtaKeyDetail.test.ets 守。
 
-  L1 contract.lock 的 rebate_platform.commit 是 a89c1ec3a7f4…（D10-857），且等于 specs/cta-key-vectors.json 的 contractCommit。
+  L1 contract.lock 的 rebate_platform.commit 是 d47f660e5d42…（D10-857；LOCK-harmony 升锁，D10-2110 #24），且等于 specs/cta-key-vectors.json 的 contractCommit。
   L2 四个同名快照（enums/admin、error-codes、openapi、texts.default）的 sha256 等于 iOS 升锁提交 c748676 的值（三端同一锁，逐字节相同）。
-  V1 specs/cta-key-vectors.json 与 iOS 原件逐字节相同：95 行、sha256 d93b2905…（D10-861：三端照抄，鸿蒙差异在测试里映射）。
+  V1 specs/cta-key-vectors.json 与 iOS 原件逐字节相同：95 行、sha256 84b2897e…（D10-861：三端照抄，鸿蒙差异在测试里映射）。
   W1 产品代码里 ProductCardMapper.fromCard / fromCardWithStatus 的调用点恰为登记的五个文件七处（搜索两处、详情一处、剪贴板弹层两处、
      首页一处、AI 卡一处），每处的文案参数都解析到「text(key) 只 return SearchDraftTexts.text(key)」的类：
      SearchView / ProductDetailView 的 this.config.texts 来自 AppSearch 里唯一的 new SearchPageConfig / new ProductPageConfig(…, this.texts)，
@@ -47,21 +47,24 @@ CORE_LIST = 'common/core/src/test/List.test.ets'
 DS_SUITE = 'common/designsystem/src/test/CtaKeyVector.test.ets'
 CORE_SUITE = 'common/core/src/test/CtaKeyDetail.test.ets'
 
-# D10-857：三端统一锁到 rebate-platform a89c1ec3a（CT-26t #2450）。
-LOCK_COMMIT = 'a89c1ec3a7f4de0b069742af909eba6545358ea3'
+# D10-857：三端统一锁；LOCK-harmony（D10-2108 ①）起三端同锁 rebate-platform d47f660e5。
+# LOCK-harmony（D10-2110 #24）：锁定提交 a89c1ec3a → d47f660e5（docstring L1 同步）。
+LOCK_COMMIT = 'd47f660e5d42729899ade06298ddf5457791ff3d'
 # iOS 原件（worktrees/native/FU-X-CTA-KEY-DRIFT-ios/specs/cta-key-vectors.json；安卓副本同值）。
-VECTOR_SHA256 = 'd93b2905983bb07a8cca624f3a8af2a9a9b7220e49f34d43886270cb32f4bc40'
+# LOCK-harmony（D10-2110 #24）：向量第 4 行 contractCommit 随锁换值，sha256 d93b2905… → 84b2897e…（docstring V1 同步）。
+VECTOR_SHA256 = '84b2897e7ed523e835395e0cc073dc206620bab8e9b43f6a9c4596f6c3de3ffa'
 VECTOR_LINES = 95
 # iOS HomePageApiLockTests.sameNameHashes（tests-ios-handback §5 T2，c748676 实写）；路径与哈希分两行写（gitleaks 误报）。
+# LOCK-harmony（D10-2110 #24）：四个同名快照随锁 d47f660e5 换值（与 iOS 94abbe0、安卓 9f015b2 的 lock 实算一致）。
 SAME_NAME = (
     ('contracts/snapshot/contracts/enums/admin.json',
-     '15169659cbc717065f12d3c17893972a473b47d6271832e5c4acc026ea00a8ca'),
+     'b2f84f6c3749f43793c11fbbaf58b3035752f2e8eab200d2857e6f745b1e0db2'),
     ('contracts/snapshot/contracts/error-codes.json',
-     '954c14c589f9681d66fa5c8518ad482ee892638a1b6f2adfc2cd8c801dcb2d8f'),
+     'a312384e185aefcc1db7f0538ac98b63082b064a3c9fe77f19a0a889b6a398db'),
     ('contracts/snapshot/contracts/openapi.json',
-     '4b658d0079bc173d5bed9081b122c202032b49247dc4afd45db0d2f2c0787214'),
+     '4815635c38d6c2d90af40304a8e87cfff65834e78a8fdf7f7590b4e2163e1295'),
     ('contracts/snapshot/contracts/texts.default.json',
-     '3ddce957d12e696d6276fd676cd0e78a719d337615f8d99d0d511b551d3022db'),
+     '9892db319fa5d29da786d5feaf1ffd1fd1e61f97ff2ecbfa3d72bcf33d322a2e'),
 )
 
 # W1：登记的调用点（文件 → 调用次数）。新增调用点必须先核它的文案函数对 cta 键等同 contract 模式，再登记到这里。

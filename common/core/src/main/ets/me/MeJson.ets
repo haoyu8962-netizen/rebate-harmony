@@ -11,10 +11,12 @@ export type MeRecord = Record<string, Object | null>;
 export class MeJson {
   /** contracts enums identity.risk_state。 */
   static readonly RISK_STATES: string[] = ['normal', 'frozen', 'appealing', 'banned'];
-  /** Me 的 13 个必填字段（openapi Me.required）。 */
+  /** Me 的 13 个必填字段（openapi Me.required；锁 d47f660e5 新增的第 14 个 masked_phone 不在此列，见 maskedPhone）。 */
   static readonly FIELDS: string[] = ['user_id', 'nickname', 'avatar_url', 'invite_code', 'inviter_bound',
     'invite_backfill', 'identity_level', 'phone_bound', 'balance', 'union_bindings', 'realname_status',
     'need_reconsent', 'risk'];
+  /** masked_phone 的形状：3 位数字 + 4 个 * + 4 位数字（与安卓 MeJson.MASKED_PHONE 同式；见 maskedPhone）。 */
+  private static readonly MASKED_PHONE: RegExp = new RegExp('^[0-9]{3}\\*{4}[0-9]{4}$');
 
   static objectOf(value: JSONValue | undefined): MeRecord | null {
     if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -94,6 +96,22 @@ export class MeJson {
       out[key] = r[key] ?? null;
     }
     return out;
+  }
+
+  /**
+   * masked_phone（锁 d47f660e5 起 openapi Me.required 含它，string 或 null；B1-02zzza）：服务端按 BR-TEXT-02「手机号脱敏」给的
+   * 「前 3 后 4」（138****8000），只用于展示，本端不自己脱敏、不补全。参数是 GET /v1/me 的 data 原样（不是 parse 的 13 字段副本）。
+   * 只在 phone_bound=true 且是「3 位数字 + 4 个 * + 4 位数字」时取；字段缺失（旧服务端、假服务、夹具）、null、类型或格式不合、
+   * phone_bound 不是 true 时一律为 null（按「没有号码」处理）。LOCK-harmony H4：它不进 FIELDS 必填清单，缺失、null、不合格式
+   * 都不让 parse 把整份 Me 当坏数据（照安卓 MeJson.maskedPhone）。展示文案 step_up.sms.sent_to 不在锁定契约里，本单不接展示（D10-1721）。
+   */
+  static maskedPhone(value: JSONValue | undefined): string | null {
+    const r: MeRecord | null = MeJson.objectOf(value);
+    if (r === null || MeJson.bool(r, 'phone_bound') !== true) {
+      return null;
+    }
+    const text: string | null = MeJson.text(r, 'masked_phone');
+    return text !== null && MeJson.MASKED_PHONE.test(text) ? text : null;
   }
 
   /** risk 对象：state 必须是契约四值之一，reason_category 字符串或 null，frozen_until 可解析的时刻或 null。 */

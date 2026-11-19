@@ -19,6 +19,14 @@
         "BAD_DEBT_WRITEOFF": "负余额核销（+）"
       }
     },
+    "ledger_sub_account": {
+      "source": "规划/04 §3.2 ledger_entries.sub_account；BR-FUND-13",
+      "description": "用户余额账户的子户（ledger_entries / daily_balances 的 sub_account）",
+      "values": {
+        "available": "可用",
+        "frozen": "冻结"
+      }
+    },
     "referral_credit_sub_type": {
       "source": "规划/04 §2.4；BR-CALC-05",
       "description": "REFERRAL_CREDIT 的 sub_type；INDIRECT 只在间推开关开启的规则版本下产生",
@@ -371,6 +379,7 @@
         "settle_missing": "应结未结",
         "appeal_restore": "申诉撤销后恢复订单",
         "estimate_changed_after_credit": "入账后只有预估佣金变化（BR-FUND-01 R9b；开关关闭时不生成）",
+        "blacklist_after_credit": "已入账订单命中黑名单待复核（BR-ATTR-26、BR-FUND-08）",
         "pay_mismatch": "收款对账不一致（R4）",
         "pay_anomaly": "收款异常（R4）"
       }

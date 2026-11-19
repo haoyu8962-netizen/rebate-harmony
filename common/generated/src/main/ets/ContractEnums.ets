@@ -13,6 +13,7 @@ export enum AdminPermission {
   FUND_VIEW = 'fund.view',
   AUDIT_VIEW_ALL = 'audit.view_all',
   EXPORT = 'export',
+  FEEDBACK_VIEW = 'feedback.view',
   CONTENT_PAGE = 'content.page',
   CONTENT_POOL = 'content.pool',
   CONTENT_ARTICLE = 'content.article',
@@ -46,6 +47,7 @@ export enum AdminPermission {
   ORDER_ASSIGN = 'order.assign',
   ORDER_HOLD = 'order.hold',
   ORDER_RESTORE = 'order.restore',
+  ORDER_BLACKLIST_CLAWBACK = 'order.blacklist_clawback',
   WITHDRAW_REVIEW = 'withdraw.review',
   PAYOUT_EXECUTE = 'payout.execute',
   PAY_VIEW = 'pay.view',
@@ -82,6 +84,8 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.AUDIT_VIEW_ALL;
     case 'export':
       return AdminPermission.EXPORT;
+    case 'feedback.view':
+      return AdminPermission.FEEDBACK_VIEW;
     case 'content.page':
       return AdminPermission.CONTENT_PAGE;
     case 'content.pool':
@@ -148,6 +152,8 @@ export function parseAdminPermission(raw: string): AdminPermission | undefined {
       return AdminPermission.ORDER_HOLD;
     case 'order.restore':
       return AdminPermission.ORDER_RESTORE;
+    case 'order.blacklist_clawback':
+      return AdminPermission.ORDER_BLACKLIST_CLAWBACK;
     case 'withdraw.review':
       return AdminPermission.WITHDRAW_REVIEW;
     case 'payout.execute':
@@ -383,7 +389,9 @@ export function parseAuditActorKind(raw: string): AuditActorKind | undefined {
 /** 契约枚举 audit_system_actor */
 export enum AuditSystemActor {
   SYSTEM_RISK = 'system:risk',
-  SYSTEM_PAYOUT = 'system:payout'
+  SYSTEM_PAYOUT = 'system:payout',
+  SYSTEM_LEDGER = 'system:ledger',
+  SYSTEM_SETTLEMENT = 'system:settlement'
 }
 
 export function parseAuditSystemActor(raw: string): AuditSystemActor | undefined {
@@ -392,6 +400,10 @@ export function parseAuditSystemActor(raw: string): AuditSystemActor | undefined
       return AuditSystemActor.SYSTEM_RISK;
     case 'system:payout':
       return AuditSystemActor.SYSTEM_PAYOUT;
+    case 'system:ledger':
+      return AuditSystemActor.SYSTEM_LEDGER;
+    case 'system:settlement':
+      return AuditSystemActor.SYSTEM_SETTLEMENT;
     default:
       return undefined;
   }
@@ -851,6 +863,23 @@ export function parseLedgerType(raw: string): LedgerType | undefined {
       return LedgerType.ADMIN_ADJUST;
     case 'BAD_DEBT_WRITEOFF':
       return LedgerType.BAD_DEBT_WRITEOFF;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 ledger_sub_account */
+export enum LedgerSubAccount {
+  AVAILABLE = 'available',
+  FROZEN = 'frozen'
+}
+
+export function parseLedgerSubAccount(raw: string): LedgerSubAccount | undefined {
+  switch (raw) {
+    case 'available':
+      return LedgerSubAccount.AVAILABLE;
+    case 'frozen':
+      return LedgerSubAccount.FROZEN;
     default:
       return undefined;
   }
@@ -1673,6 +1702,7 @@ export enum ReconDiffType {
   SETTLE_MISSING = 'settle_missing',
   APPEAL_RESTORE = 'appeal_restore',
   ESTIMATE_CHANGED_AFTER_CREDIT = 'estimate_changed_after_credit',
+  BLACKLIST_AFTER_CREDIT = 'blacklist_after_credit',
   PAY_MISMATCH = 'pay_mismatch',
   PAY_ANOMALY = 'pay_anomaly'
 }
@@ -1697,6 +1727,8 @@ export function parseReconDiffType(raw: string): ReconDiffType | undefined {
       return ReconDiffType.APPEAL_RESTORE;
     case 'estimate_changed_after_credit':
       return ReconDiffType.ESTIMATE_CHANGED_AFTER_CREDIT;
+    case 'blacklist_after_credit':
+      return ReconDiffType.BLACKLIST_AFTER_CREDIT;
     case 'pay_mismatch':
       return ReconDiffType.PAY_MISMATCH;
     case 'pay_anomaly':
@@ -2602,6 +2634,7 @@ export enum NotifyTemplateCode {
   ORDER_INVALID = 'ORDER_INVALID',
   CREDITED = 'CREDITED',
   CLAWBACK = 'CLAWBACK',
+  SETTLE_ADJUSTED = 'SETTLE_ADJUSTED',
   WD_SUCCESS = 'WD_SUCCESS',
   WD_REJECTED = 'WD_REJECTED',
   WD_FAILED = 'WD_FAILED',
@@ -2628,6 +2661,8 @@ export function parseNotifyTemplateCode(raw: string): NotifyTemplateCode | undef
       return NotifyTemplateCode.CREDITED;
     case 'CLAWBACK':
       return NotifyTemplateCode.CLAWBACK;
+    case 'SETTLE_ADJUSTED':
+      return NotifyTemplateCode.SETTLE_ADJUSTED;
     case 'WD_SUCCESS':
       return NotifyTemplateCode.WD_SUCCESS;
     case 'WD_REJECTED':
@@ -3127,6 +3162,62 @@ export function parseOrderReason(raw: string): OrderReason | undefined {
       return OrderReason.RELATION_INVALID;
     case 'CANCELLED':
       return OrderReason.CANCELLED;
+    default:
+      return undefined;
+  }
+}
+
+/** 契约枚举 order_reason_sub */
+export enum OrderReasonSub {
+  VIOLATION_PROMO = 'VIOLATION_PROMO',
+  SHOP_TK = 'SHOP_TK',
+  INSITE_PROMO = 'INSITE_PROMO',
+  PROXY_BUY = 'PROXY_BUY',
+  FAKE_TRADE = 'FAKE_TRADE',
+  INSITE_RESALE = 'INSITE_RESALE',
+  OVER_LIMIT = 'OVER_LIMIT',
+  MARKET_DISRUPT = 'MARKET_DISRUPT',
+  MULTI_TRADE_ABNORMAL = 'MULTI_TRADE_ABNORMAL',
+  SINGLE_TRADE_ABNORMAL = 'SINGLE_TRADE_ABNORMAL',
+  RISK_ORDER = 'RISK_ORDER',
+  PUNISH_ORDER = 'PUNISH_ORDER',
+  IN_SALE = 'IN_SALE',
+  AFTER_SETTLE = 'AFTER_SETTLE',
+  AFTER_SALE = 'AFTER_SALE'
+}
+
+export function parseOrderReasonSub(raw: string): OrderReasonSub | undefined {
+  switch (raw) {
+    case 'VIOLATION_PROMO':
+      return OrderReasonSub.VIOLATION_PROMO;
+    case 'SHOP_TK':
+      return OrderReasonSub.SHOP_TK;
+    case 'INSITE_PROMO':
+      return OrderReasonSub.INSITE_PROMO;
+    case 'PROXY_BUY':
+      return OrderReasonSub.PROXY_BUY;
+    case 'FAKE_TRADE':
+      return OrderReasonSub.FAKE_TRADE;
+    case 'INSITE_RESALE':
+      return OrderReasonSub.INSITE_RESALE;
+    case 'OVER_LIMIT':
+      return OrderReasonSub.OVER_LIMIT;
+    case 'MARKET_DISRUPT':
+      return OrderReasonSub.MARKET_DISRUPT;
+    case 'MULTI_TRADE_ABNORMAL':
+      return OrderReasonSub.MULTI_TRADE_ABNORMAL;
+    case 'SINGLE_TRADE_ABNORMAL':
+      return OrderReasonSub.SINGLE_TRADE_ABNORMAL;
+    case 'RISK_ORDER':
+      return OrderReasonSub.RISK_ORDER;
+    case 'PUNISH_ORDER':
+      return OrderReasonSub.PUNISH_ORDER;
+    case 'IN_SALE':
+      return OrderReasonSub.IN_SALE;
+    case 'AFTER_SETTLE':
+      return OrderReasonSub.AFTER_SETTLE;
+    case 'AFTER_SALE':
+      return OrderReasonSub.AFTER_SALE;
     default:
       return undefined;
   }
@@ -4263,7 +4354,7 @@ export class ContractEnums {
 
   private static build(): Map<string, string[]> {
     const all: Map<string, string[]> = new Map<string, string[]>();
-    all.set('admin_permission', ['dashboard.view', 'user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'notify.channels', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'tax.export_full', 'agent.trace', 'agent.report']);
+    all.set('admin_permission', ['dashboard.view', 'user.list', 'user.lookup', 'pii.reveal_phone', 'pii.reveal_identity', 'fund.view', 'audit.view_all', 'export', 'feedback.view', 'content.page', 'content.pool', 'content.article', 'content.agreement', 'content.poster', 'content.app_version', 'content.fund_terms', 'content.platform_icon', 'notify.channels', 'config.general', 'config.risk', 'config.business', 'switch.all', 'switch.payout', 'switch.pay', 'risk.freeze', 'risk.ban', 'risk.blocklist', 'risk.appeal', 'union.binding_reset', 'union.binding_disable', 'union.account_auth', 'union.pid', 'user.level', 'user.inviter', 'user.realname_fix', 'user.phone_change', 'user.data_export', 'order.view', 'order.claim', 'order.assign', 'order.hold', 'order.restore', 'order.blacklist_clawback', 'withdraw.review', 'payout.execute', 'pay.view', 'pay.refund', 'pay.resolve', 'payout.manual_entry', 'settle.bill', 'settle.statement_upload', 'fund.adjust', 'fund.writeoff', 'fund.settle_adjust', 'fund.recon', 'fund.cash_entry', 'tax.export_full', 'agent.trace', 'agent.report']);
     all.set('admin_step_up_tier', ['totp', 'sms']);
     all.set('admin_login_step', ['totp', 'change_password', 'bind_totp']);
     all.set('admin_account_status', ['active', 'disabled']);
@@ -4273,7 +4364,7 @@ export class ContractEnums {
     all.set('export_status', ['pending', 'running', 'done', 'failed', 'expired', 'cancelled']);
     all.set('export_resource', ['users', 'audit_logs', 'tax_withdrawals']);
     all.set('audit_actor_kind', ['admin', 'system']);
-    all.set('audit_system_actor', ['system:risk', 'system:payout']);
+    all.set('audit_system_actor', ['system:risk', 'system:payout', 'system:ledger', 'system:settlement']);
     all.set('admin_claim_match_field', ['order_no', 'paid_date']);
     all.set('admin_order_flag', ['locked', 'status_locked', 'rights_pending', 'hold']);
     all.set('admin_order_history_field', ['platform', 'rebate']);
@@ -4295,6 +4386,7 @@ export class ContractEnums {
     all.set('admin_recon_diff_outcome', ['union', 'ours']);
     all.set('admin_settle_bill_status', ['generating', 'issued', 'settled', 'settling', 'scheduled']);
     all.set('ledger_type', ['REBATE_CREDIT', 'SHARE_CREDIT', 'REFERRAL_CREDIT', 'CLAWBACK', 'SETTLE_ADJUST', 'WITHDRAW_FREEZE', 'WITHDRAW_PAID', 'WITHDRAW_RETURN', 'WITHDRAW_FEE', 'TAX_WITHHOLD', 'REWARD', 'ADMIN_ADJUST', 'BAD_DEBT_WRITEOFF']);
+    all.set('ledger_sub_account', ['available', 'frozen']);
     all.set('referral_credit_sub_type', ['DIRECT', 'INDIRECT']);
     all.set('clawback_sub_type', ['FULL', 'PART_REFUND', 'RIGHTS', 'PUNISH']);
     all.set('settle_adjust_sub_type', ['SETTLE_DIFF', 'PRICE_COMPARE', 'PRICE_PROTECT']);
@@ -4329,7 +4421,7 @@ export class ContractEnums {
     all.set('settle_adjustment_status', ['pending', 'approved', 'rejected', 'voided_stale_seq', 'voided_by_clawback']);
     all.set('beneficiary_credit_kind', ['first_credit', 'reassign_credit', 'deferred']);
     all.set('beneficiary_credit_status', ['open', 'done', 'forfeited', 'voided']);
-    all.set('recon_diff_type', ['union_mismatch', 'channel_mismatch', 'ledger_mismatch', 'platform_restore', 'month_end_unbalanced', 'settle_amount_mismatch', 'settle_missing', 'appeal_restore', 'estimate_changed_after_credit', 'pay_mismatch', 'pay_anomaly']);
+    all.set('recon_diff_type', ['union_mismatch', 'channel_mismatch', 'ledger_mismatch', 'platform_restore', 'month_end_unbalanced', 'settle_amount_mismatch', 'settle_missing', 'appeal_restore', 'estimate_changed_after_credit', 'blacklist_after_credit', 'pay_mismatch', 'pay_anomaly']);
     all.set('payout_batch_item_result', ['paying', 'skipped', 'blocked', 'moved_out']);
     all.set('recon_diff_status', ['open', 'processing', 'adjusted', 'written_off', 'closed']);
     all.set('union_receipt_method', ['ADMIN_ENTRY', 'R1_RECON']);
@@ -4370,7 +4462,7 @@ export class ContractEnums {
     all.set('invite_reward_bind_source', ['landing', 'register', 'backfill']);
     all.set('personal_data_copy_delivery', ['in_app_sms', 'wecom_session']);
     all.set('personal_data_copy_status', ['pending', 'running', 'ready', 'delivered', 'failed', 'expired', 'cancelled']);
-    all.set('notify_template_code', ['ORDER_TRACKED', 'ORDER_INVALID', 'CREDITED', 'CLAWBACK', 'WD_SUCCESS', 'WD_REJECTED', 'WD_FAILED', 'WD_OVERDUE', 'CLAIM_RESULT', 'RISK_STATE_CHANGED', 'APPEAL_RESULT', 'DELETION_PROGRESS', 'BALANCE_ADJUSTED', 'SMS_CODE', 'UNION_AUTH_EXPIRING', 'UNION_AUTH_EXPIRED', 'DATA_COPY_READY', 'DATA_COPY_CODE']);
+    all.set('notify_template_code', ['ORDER_TRACKED', 'ORDER_INVALID', 'CREDITED', 'CLAWBACK', 'SETTLE_ADJUSTED', 'WD_SUCCESS', 'WD_REJECTED', 'WD_FAILED', 'WD_OVERDUE', 'CLAIM_RESULT', 'RISK_STATE_CHANGED', 'APPEAL_RESULT', 'DELETION_PROGRESS', 'BALANCE_ADJUSTED', 'SMS_CODE', 'UNION_AUTH_EXPIRING', 'UNION_AUTH_EXPIRED', 'DATA_COPY_READY', 'DATA_COPY_CODE']);
     all.set('notify_category', ['service', 'subscription', 'marketing']);
     all.set('user_level', ['L1', 'L2', 'L3']);
     all.set('agent_intent', ['find_by_link', 'search', 'refine', 'order_query', 'rule_qa', 'handoff', 'clarify', 'out_of_scope', 'page_guide', 'earnings_query']);
@@ -4386,6 +4478,7 @@ export class ContractEnums {
     all.set('order_status_group', ['all', 'estimating', 'credited', 'no_rebate']);
     all.set('order_timeline_node', ['deposit_paid', 'paid', 'final_paid', 'received', 'credit_expected', 'credited', 'invalid', 'clawed_back', 'part_clawed_back']);
     all.set('order_reason', ['REFUND', 'RIGHTS', 'PUNISH', 'PRESALE_UNPAID', 'COMMISSION_ZERO', 'OTHER', 'BLACKLIST', 'PART_REFUND', 'PRICE_COMPARE', 'PRICE_PROTECT', 'SETTLE_DIFF', 'NOT_TRACKED', 'EXPIRED_CLICK', 'OTHER_TLJ', 'RELATION_INVALID', 'CANCELLED']);
+    all.set('order_reason_sub', ['VIOLATION_PROMO', 'SHOP_TK', 'INSITE_PROMO', 'PROXY_BUY', 'FAKE_TRADE', 'INSITE_RESALE', 'OVER_LIMIT', 'MARKET_DISRUPT', 'MULTI_TRADE_ABNORMAL', 'SINGLE_TRADE_ABNORMAL', 'RISK_ORDER', 'PUNISH_ORDER', 'IN_SALE', 'AFTER_SETTLE', 'AFTER_SALE']);
     all.set('diff_reason', ['PART_REFUND', 'PRICE_COMPARE', 'PRICE_PROTECT', 'SETTLE_DIFF']);
     all.set('order_rights_status', ['PROCESSING', 'WAIT_COMMISSION', 'SUCCEEDED', 'FAILED']);
     all.set('order_rights_type', ['RIGHTS', 'PUNISH', 'INVALID_AFTER_SETTLE', 'REFUND_AFTER_SETTLE']);

@@ -6,7 +6,7 @@
    "common/core/src/main/ets/me/MeControllers.ets"
   ],
   [
-   "7e07d00e7a0a3f2aded09ebc036335be56ca93a8bade29b8a60b831b499544dc",
+   "b9ffdd109a707ac946b744e32d58c9da23872cda670ce87ec6938c29842c3e1e",
    "common/core/src/main/ets/me/MePresentation.ets"
   ],
   [
@@ -14,7 +14,7 @@
    "common/core/src/main/ets/me/MeSession.ets"
   ],
   [
-   "dadcdebd2297161ced42c79eb940ba34681190ce5ae96e4fe50b7e7feafedbab",
+   "3c94114d9b59908b7f53fd0625a0da71d95ee04aac632a3cf951c00195679a61",
    "common/core/src/main/ets/me/MeJson.ets"
   ],
   [
@@ -54,7 +54,7 @@
    "features/me/src/main/ets/MeKit.ets"
   ],
   [
-   "8ebc35cd4ec850ce695f04fecc818b0d084cf79b58ae77f3f65ab13c148c2658",
+   "0ef8f287fee288204af64118d18491848ee977225ab798a9965a28acfd082b75",
    "contract.lock"
   ],
   [
@@ -282,23 +282,23 @@
    "common/designsystem/src/main/ets/logic/StepUpPanelFit.ets"
   ],
   [
-   "895bd7458fc9185e5b9022e316fc4313b90b84f91d75f72227bd3e907139fb9e",
+   "c7c6960cd0d606ef3b07757f44aad653681788d5ed1338d9ec4ea4d728c7a38d",
    "contracts/snapshot/contracts/agent-stream.schema.json"
   ],
   [
-   "b7c3e07ad63d52e7ec5b6021b13dc2003cabb0755adffa4af5079aa3ac2267dd",
+   "755f083b1ab1c58eeb7e80b1d1db8158e6118b0ecfbc8f1d07557a0b46105dc8",
    "contracts/snapshot/contracts/apps.json"
   ],
   [
-   "553c7f79b4a803fcdab70d6efa5c0d631f9a8a3263f9fd7f373a053c654dc1e3",
+   "65605d08e15edda6a49036413b534a77f89202cedae7398d145e47b81833a874",
    "contracts/snapshot/contracts/bridge.schema.json"
   ],
   [
-   "15169659cbc717065f12d3c17893972a473b47d6271832e5c4acc026ea00a8ca",
+   "b2f84f6c3749f43793c11fbbaf58b3035752f2e8eab200d2857e6f745b1e0db2",
    "contracts/snapshot/contracts/enums/admin.json"
   ],
   [
-   "609f58a2598222e9b9c88364a77662c9c7efce5612fad7f84b43c133b62e3f5e",
+   "fbdfbe6f4698b6e55d4ce613774a6d7dd1477b042fe33b30988f05b0549439ac",
    "contracts/snapshot/contracts/enums/fund.json"
   ],
   [
@@ -306,11 +306,11 @@
    "contracts/snapshot/contracts/enums/identity.json"
   ],
   [
-   "cf931b2a615086bc3a37e781041baf2ab937fbce8457e4da04f029ef77f7ffc6",
+   "e999d6072cd5d22dfec81526a65f72e01ab52d7cea1cfdb1e71d207c073b0b23",
    "contracts/snapshot/contracts/enums/ops.json"
   ],
   [
-   "9c520a728229f8636b5d1c4556719d61d8cee0d2fd7d5739fb07580134e3007e",
+   "10cb34f7028892b0c4a2a30a7523e1d203017a3bdb1c6abe0ded1d6cda78a9e0",
    "contracts/snapshot/contracts/enums/order.json"
   ],
   [
@@ -326,15 +326,15 @@
    "contracts/snapshot/contracts/enums/trade.json"
   ],
   [
-   "954c14c589f9681d66fa5c8518ad482ee892638a1b6f2adfc2cd8c801dcb2d8f",
+   "a312384e185aefcc1db7f0538ac98b63082b064a3c9fe77f19a0a889b6a398db",
    "contracts/snapshot/contracts/error-codes.json"
   ],
   [
-   "ce745cae752b6f7b8e3caa8930e6115488c1d3fd40174628fb33fb8f3b0909e8",
+   "516ea694a1dbf7da32086cfaa5ad810f4b45f7c8242ce0a5cb0fb8480ffb9fc3",
    "contracts/snapshot/contracts/fixtures/agent-streams/cancelled.ndjson"
   ],
   [
-   "bf17e86ed82cd30caed137ddd091135970a2f2105f61376e77aeaec1e8d7a9cd",
+   "f6971b85cf4e778b3d1565ba959fe1df8d3bd69addb45849901065688cb43429",
    "contracts/snapshot/contracts/fixtures/agent-streams/disconnected.ndjson"
   ],
   [
@@ -358,7 +358,7 @@
    "contracts/snapshot/contracts/fixtures/agent-streams/error.ndjson"
   ],
   [
-   "b9277baf0817d4073c66e89cfd6e59dbaa1fc3235167f9a879d46b3b24b27866",
+   "3b36b2c640ba38973ec69b9d66961dedcdec31aa093c9115edd4c6e5e1c7869c",
    "contracts/snapshot/contracts/fixtures/agent-streams/fallback.ndjson"
   ],
   [
@@ -374,7 +374,7 @@
    "contracts/snapshot/contracts/fixtures/agent-streams/normal-page-guide.ndjson"
   ],
   [
-   "9cc04f7b9188431daf1bf12f12992ec8df794bf1ac0bed36bd16b08aa035aaca",
+   "7955c0e19d22729bc6db85f08632721a3e29655a7c3f48d75385c3bf1096f9bf",
    "contracts/snapshot/contracts/fixtures/agent-streams/normal.ndjson"
   ],
   [
@@ -390,15 +390,15 @@
    "contracts/snapshot/contracts/fixtures/agent-streams/unknown-card.ndjson"
   ],
   [
-   "4b658d0079bc173d5bed9081b122c202032b49247dc4afd45db0d2f2c0787214",
+   "4815635c38d6c2d90af40304a8e87cfff65834e78a8fdf7f7590b4e2163e1295",
    "contracts/snapshot/contracts/openapi.json"
   ],
   [
-   "ab9b31952c979f61b40608edc982423423a38617f40b0937e3541e0766a31b06",
+   "0afda43347552bb3f875fe2b76c6ab9e30d37ec22dedc77fd5a1fe88c376522b",
    "contracts/snapshot/contracts/routes.json"
   ],
   [
-   "3ddce957d12e696d6276fd676cd0e78a719d337615f8d99d0d511b551d3022db",
+   "9892db319fa5d29da786d5feaf1ffd1fd1e61f97ff2ecbfa3d72bcf33d322a2e",
    "contracts/snapshot/contracts/texts.default.json"
   ],
   [
@@ -422,7 +422,7 @@
    "contracts/snapshot/specs/device-hash.vectors.json"
   ],
   [
-   "2f3628e7a02e48f10269d60e54f5116a9934e500582e9aa6fefb55587dfe8d3a",
+   "87f144bee6ce0f3d7025b9ab56ac0193ea61f9be26fe0ba2adde2bae0bec15a5",
    "contracts/snapshot/specs/events.json"
   ],
   [
@@ -430,7 +430,7 @@
    "contracts/snapshot/specs/request-sign.vectors.json"
   ],
   [
-   "bd7c09ae405d0ed5493704be0a51e59ec2628bf7a0c24c2433c39acfe8175b2f",
+   "e5040ac178dc76fe2be510351827425a54d65b1a4cd616683237241a38a479b5",
    "contracts/snapshot/specs/system-permissions.json"
   ]
  ],
