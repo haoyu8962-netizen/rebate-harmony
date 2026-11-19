@@ -7,7 +7,10 @@
 //   node tools/ci/a11ycommon/run-logic.cjs --root <树>               换一棵树
 //   node tools/ci/a11ycommon/run-logic.cjs --swap <相对路径> <文件>   把某个源码换成 <文件>（参照件 / 变异体用，可多次）
 //   node tools/ci/a11ycommon/run-logic.cjs --expect-red              退出码取反（变异体必须至少一条失败）
-//   node tools/ci/a11ycommon/run-logic.cjs --self-test               参照件（fixtures/good 的 OrderDraftTexts.ets，即参照实现）全绿 + 逐个变异体至少一条红
+//   node tools/ci/a11ycommon/run-logic.cjs --self-test               参照件（fixtures/good 的 OrderDraftTexts.ets，即参照实现；契约 DefaultTexts.ets
+//                                                                    取本树真实生成物）全绿 + 逐个变异体至少一条红
+//   复制按钮两键 order_list.copy_label / copy_spoken 升锁后只在契约 DefaultTexts（契约优先、草稿表已删），变异改 DefaultTexts；
+//   order_list.order_no_spoken 仍在草稿表，变异改草稿表。
 // 不冒充 hvigor 编译、ArkTS 严格检查（见 check-arkts.cjs）或设备执行。
 'use strict';
 const fs = require('fs');
@@ -32,40 +35,47 @@ for (let i = 0; i < args.length; i++) {
 const expectRed = args.includes('--expect-red');
 const SUITE = path.join(root, 'common/core/src/test/A11yCommon.test.ets');
 const FLOW = 'common/core/src/main/ets/orders/OrderDraftTexts.ets';
+const GEN = 'common/generated/src/main/ets/DefaultTexts.ets';
 const GOOD = path.join(__dirname, 'fixtures', 'good');
 
-// （名字，原串，新串）：原串在参照件里必须唯一。
-const COPY_LINE = "    m.set('order_list.copy_spoken', '复制订单号 {no}');";
+// （名字，改哪个文件，原串，新串）：原串在该文件的参照件里必须唯一。
+const COPY_LINE = "    map.set('order_list.copy_spoken', '复制订单号 {no}');";
+const LABEL_LINE = "    map.set('order_list.copy_label', '复制');";
 const MUTANTS = [
-  ['草稿值回「复制订单号」（不带单号）', COPY_LINE, "    m.set('order_list.copy_spoken', '复制订单号');"],
-  ['占位名拼错 {num}', COPY_LINE, "    m.set('order_list.copy_spoken', '复制订单号 {num}');"],
-  ['单号前少空格', COPY_LINE, "    m.set('order_list.copy_spoken', '复制订单号{no}');"],
-  ['单号放前面', COPY_LINE, "    m.set('order_list.copy_spoken', '{no} 复制订单号');"],
-  ['只读「复制」+ 单号', COPY_LINE, "    m.set('order_list.copy_spoken', '复制 {no}');"],
-  ['单号读两遍', COPY_LINE, "    m.set('order_list.copy_spoken', '复制订单号 {no}，{no}');"],
-  ['草稿表没有 copy_label（仍是旧键 order_list.copy）', "    m.set('order_list.copy_label', '复制');", "    m.set('order_list.copy', '复制');"],
-  ['copy_label 文字不是「复制」', "    m.set('order_list.copy_label', '复制');", "    m.set('order_list.copy_label', '复制单号');"],
-  ['订单号读法改了口径（与复制名不一致）', "    m.set('order_list.order_no_spoken', '订单号 {no}');",
+  ['契约值回「复制订单号」（不带单号）', GEN, COPY_LINE, "    map.set('order_list.copy_spoken', '复制订单号');"],
+  ['占位名拼错 {num}', GEN, COPY_LINE, "    map.set('order_list.copy_spoken', '复制订单号 {num}');"],
+  ['单号前少空格', GEN, COPY_LINE, "    map.set('order_list.copy_spoken', '复制订单号{no}');"],
+  ['单号放前面', GEN, COPY_LINE, "    map.set('order_list.copy_spoken', '{no} 复制订单号');"],
+  ['只读「复制」+ 单号', GEN, COPY_LINE, "    map.set('order_list.copy_spoken', '复制 {no}');"],
+  ['单号读两遍', GEN, COPY_LINE, "    map.set('order_list.copy_spoken', '复制订单号 {no}，{no}');"],
+  ['契约没有 copy_label（仍是旧键 order_list.copy）', GEN, LABEL_LINE, "    map.set('order_list.copy', '复制');"],
+  ['copy_label 文字不是「复制」', GEN, LABEL_LINE, "    map.set('order_list.copy_label', '复制单号');"],
+  ['订单号读法改了口径（与复制名不一致）', FLOW, "    m.set('order_list.order_no_spoken', '订单号 {no}');",
     "    m.set('order_list.order_no_spoken', '订单编号 {no}');"],
 ];
 
 function selfTest() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a11ycommon-logic-'));
   const failures = [];
-  const run = (file, wantRed) => spawnSync(process.execPath, [__filename, '--root', root, '--swap', FLOW, file]
-    .concat(wantRed ? ['--expect-red'] : []), { encoding: 'utf8' });
+  // 参照件：草稿表取 fixtures/good；契约 DefaultTexts 取本树真实生成物（不另存副本）。
+  const reference = new Map([[FLOW, path.join(GOOD, FLOW)], [GEN, path.join(root, GEN)]]);
+  const run = (over, wantRed) => {
+    const files = new Map([...reference, ...over]);
+    const swapArgs = [];
+    for (const [rel, file] of files) swapArgs.push('--swap', rel, file);
+    return spawnSync(process.execPath, [__filename, '--root', root].concat(swapArgs, wantRed ? ['--expect-red'] : []), { encoding: 'utf8' });
+  };
   try {
-    const goodFile = path.join(GOOD, FLOW);
-    const good = run(goodFile, false);
+    const good = run(new Map(), false);
     if (good.status !== 0) failures.push('参照件不全绿：\n' + good.stdout.split('\n').filter(l => !l.startsWith('PASS')).join('\n'));
     else console.log('REFERENCE ' + good.stdout.trim().split('\n').pop());
-    const text = fs.readFileSync(goodFile, 'utf8');
-    MUTANTS.forEach(([name, from, to], i) => {
+    MUTANTS.forEach(([name, rel, from, to], i) => {
+      const text = fs.readFileSync(reference.get(rel), 'utf8');
       const count = text.split(from).length - 1;
       if (count !== 1) { failures.push('变异「' + name + '」原串出现 ' + count + ' 次（应 1 次）'); return; }
-      const file = path.join(tmp, 'm' + i + '-OrderDraftTexts.ets');
+      const file = path.join(tmp, 'm' + i + '-' + path.basename(rel));
       fs.writeFileSync(file, text.replace(from, () => to));
-      const r = run(file, true);
+      const r = run(new Map([[rel, file]]), true);
       const red = r.stdout.split('\n').filter(l => l.startsWith('FAIL') || l.startsWith('LOAD_FAIL'));
       if (r.status !== 0) failures.push('变异「' + name + '」没被杀（逻辑用例全绿）');
       else console.log('KILLED ' + name + ' ← ' + red.map(l => l.replace(/:.*$/, '')).join(', '));

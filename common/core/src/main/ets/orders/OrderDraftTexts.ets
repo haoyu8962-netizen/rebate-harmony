@@ -120,10 +120,7 @@ export class OrderDraftTexts {
     m.set('order_list.order_no', '订单号');
     m.set('order_list.order_no_spoken', '订单号 {no}');
     m.set('order_list.star', '星号');
-    // D10-1275：复制按钮键 order_list.copy_label「复制」/ copy_spoken「复制订单号 {no}」（读完整单号，D10-1248 ⑨）。已登记进 08，
-    // 契约快照待升锁，升锁前本表兜底（与 iOS 同做法）；升锁后契约优先、本两条可删。
-    m.set('order_list.copy_label', '复制');
-    m.set('order_list.copy_spoken', '复制订单号 {no}');
+    // D10-1275：复制按钮键 order_list.copy_label「复制」/ copy_spoken「复制订单号 {no}」已随契约升锁进 DefaultTexts（契约优先），本表不再兜底。
     m.set('order_list.image_placeholder', '商品图');
     m.set('order_list.retry', '重试');
     // ---- 详情（设计稿 OrderDetail*）

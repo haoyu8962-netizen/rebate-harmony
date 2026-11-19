@@ -12,6 +12,8 @@ const fs = require('fs');
 const path = require('path');
 
 const DRAFT = 'common/core/src/main/ets/orders/OrderDraftTexts.ets';
+/** 契约文案生成物（contracts/texts.default.json 经 gen.py 转写；取文案时契约优先于草稿表）。 */
+const GEN_TEXTS = 'common/generated/src/main/ets/DefaultTexts.ets';
 const KIT = 'features/orders/src/main/ets/OrderViewKit.ets';
 const LIST = 'features/orders/src/main/ets/OrderListView.ets';
 const DETAIL = 'features/orders/src/main/ets/OrderDetailView.ets';
@@ -25,7 +27,7 @@ const BIND = 'features/auth/src/main/ets/BindPhoneView.ets';
 /** D10-1248 ⑨：复制按钮读「复制订单号 {no}」，{no} 读完整单号（与「订单号 {no}」同口径）。 */
 const COPY_KEY = 'order_list.copy_spoken';
 const COPY_VALUE = '复制订单号 {no}';
-/** D10-1275：复制按钮可见文字键 order_list.copy_label「复制」（三端同名，契约快照待升锁，升锁前草稿表兜底）。 */
+/** D10-1275：复制按钮可见文字键 order_list.copy_label「复制」（三端同名；已随契约升锁进 DefaultTexts，草稿表不再有这两个键）。 */
 const LABEL_KEY = 'order_list.copy_label';
 const LABEL_VALUE = '复制';
 /** 说明弹窗（问号）的识别：primaryText 取 wallet.help.ok（【知道了】）。 */
@@ -507,25 +509,42 @@ function checkFormat(call, ctx, facts, out) {
   out.ok++;
 }
 
+/** 契约文案表：DefaultTexts.buildTexts() 方法体（不含 buildFallbacks 的兜底表）；找不到即判定不完整。 */
+function contractTexts(gen) {
+  const cls = findClass(gen, 'DefaultTexts');
+  const m = cls ? cls.members.find((x) => ts.isMethodDeclaration(x) && memberName(x) === 'buildTexts' && x.body) : null;
+  if (!m) { incomplete.push(GEN_TEXTS + '：找不到 DefaultTexts.buildTexts()'); }
+  return m ? m.body : null;
+}
+
+/** AC1-draft / AC1-label 共用：契约（DefaultTexts.buildTexts）里键恰一处、值 = 约定原文；草稿表里没有这个键（契约优先，草稿同名即死代码）。
+ *  返回契约里的值（判不了返回 null）。 */
+function checkContractKey(rule, key, want, why, gen, genBody, draft) {
+  const sets = findSetCall(genBody, key);
+  let value = null;
+  if (sets.length !== 1 || !isStr(unwrap(sets[0].arguments[1]))) {
+    report(rule, sets[0] || gen, '契约 DefaultTexts ' + key + ' 应恰有一处字面量（实际 ' + sets.length + ' 处）', GEN_TEXTS);
+  } else {
+    value = unwrap(sets[0].arguments[1]).text;
+    if (value !== want) {
+      report(rule, sets[0], '契约 DefaultTexts ' + key + ' 是「' + value + '」，' + why + ' 定为「' + want + '」', GEN_TEXTS);
+    }
+  }
+  for (const d of findSetCall(draft, key)) {
+    report(rule, d, '草稿表又有 ' + key + '（' + compact(d.arguments[1]) + '）：契约已有此键且优先，草稿同名是死代码，应删', DRAFT);
+  }
+  return value;
+}
+
 function checkCopy() {
   const draft = parse(DRAFT);
   const kit = parse(KIT);
-  if (!draft || !kit) { return; }
-  const sets = findSetCall(draft, COPY_KEY);
-  let value = null;
-  if (sets.length !== 1 || !isStr(unwrap(sets[0].arguments[1]))) {
-    report('AC1-draft', sets[0] || draft, '草稿表 ' + COPY_KEY + ' 应恰有一处字面量（实际 ' + sets.length + ' 处）', DRAFT);
-  } else {
-    value = unwrap(sets[0].arguments[1]).text;
-    if (value !== COPY_VALUE) {
-      report('AC1-draft', sets[0], '草稿表 ' + COPY_KEY + ' 是「' + value + '」，D10-1248 ⑨ 定为「' + COPY_VALUE + '」（读完整单号）', DRAFT);
-    }
-  }
-  const labels = findSetCall(draft, LABEL_KEY);
-  if (labels.length !== 1 || !isStr(unwrap(labels[0].arguments[1])) || unwrap(labels[0].arguments[1]).text !== LABEL_VALUE) {
-    report('AC1-label', labels[0] || draft, '草稿表 ' + LABEL_KEY + ' 应恰有一处「' + LABEL_VALUE + '」（D10-1275；实际 ' + labels.length + ' 处' +
-      (labels.length === 1 ? '「' + compact(labels[0].arguments[1]) + '」' : '') + '）', DRAFT);
-  }
+  const gen = parse(GEN_TEXTS);
+  if (!draft || !kit || !gen) { return; }
+  const genBody = contractTexts(gen);
+  if (!genBody) { return; }
+  const value = checkContractKey('AC1-draft', COPY_KEY, COPY_VALUE, 'D10-1248 ⑨（读完整单号）', gen, genBody, draft);
+  checkContractKey('AC1-label', LABEL_KEY, LABEL_VALUE, 'D10-1275', gen, genBody, draft);
   const phs = placeholders(value === null ? COPY_VALUE : value);
   if (phs.length === 0) { phs.push('no'); }
   const table = mergedTable(kit);
@@ -932,7 +951,7 @@ function checkExits() {
 
 // ---------------------------------------------------------------- 主流程
 
-for (const rel of [DRAFT, KIT, LIST, DETAIL, DS_WALLET, WALLET, WITHDRAW, PAYOUT, LOGIN, BIND]) { parse(rel); }
+for (const rel of [DRAFT, GEN_TEXTS, KIT, LIST, DETAIL, DS_WALLET, WALLET, WITHDRAW, PAYOUT, LOGIN, BIND]) { parse(rel); }
 const structs = [[LIST, 'OrderListView'], [DETAIL, 'OrderDetailView'], [WALLET, 'WalletView'], [WITHDRAW, 'WithdrawView'],
   [PAYOUT, 'PayoutAccountPage'], [LOGIN, 'LoginView'], [BIND, 'BindPhoneView']];
 for (const [rel, name] of structs) {

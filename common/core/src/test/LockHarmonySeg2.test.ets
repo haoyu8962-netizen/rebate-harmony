@@ -816,5 +816,64 @@ export default function lockHarmonySeg2Test() {
       expect(recovered.ok).assertTrue();
       expect(auth(rig.server.last(SEARCH))).assertEqual('Bearer old-access');
     });
+
+    // ================================================================ D10-2128 补用例（评审 S3-2：受限会话冷启动屏障期间的声明发码）
+
+    // 依据：D10-2128；08 BR-ID-01 细则「受限会话」表（规划/08_业务规则/10_ID_身份授权与合规.md:244-255：受限会话只能调用表内接口；表内有
+    // purpose=login 与 purpose=step_up 且 action=account_deletion 的发码、POST /v1/auth/refresh、POST /v1/consents 的撤回；purpose=bind 发码
+    // 不在表内）、03 §4.2「受限会话」与 R1-06（冷启动本机是 deletion_only 先单飞刷新）、D10-2108 Q2（只有五类声明不等屏障）。
+    // 两面：① 冷启动刷新在途时，绑手机发码（经调用点 BindPhoneService 声明，以及网络层直接带开关）本地拒、零发送，刷新回来仍是 deletion_only 时
+    // 也照拒；② 同一会话下表内允许的照常发出：刷新恰好一次；声明了的 purpose=login 发码与隐私撤回在刷新在途时就发出；没声明的注销二次验证发码
+    // （step_up + account_deletion）与个性化撤回等刷新后发出；全部不被误拦。
+    // 防的错法：声明请求不等屏障后，bind 按旧受限作用域被放出去（越过受限会话表）；或反过来把表内允许的发码 / 撤回也本地拒掉、让刷新发两次。
+    it('s2_d2128_restricted_cold_start_refresh_bind_sms_rejected_allowed_table_requests_still_sent', 0, async () => {
+      const tokens: MemorySessionTokens = new MemorySessionTokens(
+        new SessionTokenSet('old-access', 'old-refresh', 'deletion_only', 'user-1'));
+      const f: OAuthFixture = new OAuthFixture(tokens);
+      const refresh: Deferred = new Deferred();
+      f.rig.server.handler = (r: TransportRequest): Promise<TransportResponse> => {
+        if (r.url.indexOf('/v1/auth/refresh') >= 0) {
+          return refresh.promise;
+        }
+        if (r.url.indexOf(SMS) >= 0) {
+          return Promise.resolve(envelope(0, '{"resend_after_sec":60,"expires_in_sec":300}'));
+        }
+        return Promise.resolve(envelope(0, '{}'));
+      };
+      const smsWith = (part: string): number => sentTo(f.rig, SMS)
+        .filter((r: TransportRequest): boolean => (r.body ?? '').indexOf(part) >= 0).length;
+      // 第一个请求触发冷启动受限会话屏障（单飞刷新挂起）；声明了的登录发码不等屏障。
+      const login: Promise<SendCodeOutcome> = f.service.sendCode(PHONE);
+      await flush();
+      expect(f.rig.server.count('/v1/auth/refresh')).assertEqual(1);
+      expect(smsWith('"purpose":"login"')).assertEqual(1);
+      // ① 刷新在途：绑手机发码（调用点声明 / 网络层带开关）本地拒、零发送。
+      await f.bind.sendCode('13900001234');
+      const bindDeclared: ApiResult = await f.rig.client.request(declared(sms('bind')));
+      expect(bindDeclared.outcome).assertEqual(ApiOutcome.LOCAL_REJECT);
+      expect(smsWith('"purpose":"bind"')).assertEqual(0);
+      // ② 表内允许的：声明了的隐私撤回不等屏障；注销二次验证发码与个性化撤回等刷新后照常发出。
+      const withdraw: Promise<ApiResult> = f.rig.client.request(declared(consent('privacy', false)));
+      const deletionCode: Promise<ApiResult> = f.rig.client.request(new ApiRequest('sendSmsCode', {}, '',
+        '{"purpose":"step_up","action":"account_deletion"}'));
+      const personalization: Promise<ApiResult> = f.rig.client.request(consent('personalization', false));
+      await flush();
+      expect(sentTo(f.rig, CONSENTS).length).assertEqual(1);
+      // 刷新回来仍是受限作用域（版本仍过低）。
+      refresh.resolve(envelope(0, tokenPair('still-restricted', 'still-restricted-r', 'deletion_only')));
+      await login;
+      expect((await withdraw).ok).assertTrue();
+      expect((await deletionCode).ok).assertTrue();
+      expect((await personalization).ok).assertTrue();
+      expect(f.rig.server.count('/v1/auth/refresh')).assertEqual(1);
+      expect(smsWith('"action":"account_deletion"')).assertEqual(1);
+      expect(sentTo(f.rig, CONSENTS).length).assertEqual(2);
+      expect(auth(f.rig.server.last(CONSENTS))).assertEqual('Bearer still-restricted');
+      // 刷新后仍是 deletion_only：绑手机发码照拒、零发送（受限会话表外）。
+      await f.bind.sendCode('13900005678');
+      const bindAfter: ApiResult = await f.rig.client.request(declared(sms('bind')));
+      expect(bindAfter.outcome).assertEqual(ApiOutcome.LOCAL_REJECT);
+      expect(smsWith('"purpose":"bind"')).assertEqual(0);
+    });
   });
 }

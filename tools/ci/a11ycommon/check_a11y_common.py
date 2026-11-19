@@ -6,13 +6,14 @@
     python3 tools/ci/a11ycommon/check_a11y_common.py --self-test        # 参照件（fixtures/good）全过 + 每个变异都要被杀 + 良性改写不误报
 
 退出码：0 通过；1 有违反（自测：有变异没被杀、参照件不过或良性改写被误报）；2 参数不对；3 解析工具链不可用（复用 lint.hm10_toolchain，
-node + 鸿蒙 SDK ohos-typescript）；4 无法保证判定完整（文件缺失、语法错误、找不到 struct / class、me12wc 基线读不到）。解析错误不算「红在断言」，一律 4。
+node + 鸿蒙 SDK ohos-typescript）；4 无法保证判定完整（文件缺失、语法错误、找不到 struct / class / DefaultTexts.buildTexts、me12wc 基线读不到）。解析错误不算「红在断言」，一律 4。
 
 判定在 a11ycommon_ast.cjs（AST，不用正则切块；注释与字符串里的字不算）。规则：
     AC1 订单【复制】读屏名带本行单号（共性 ①，FU-HM-A11Y-09，D10-1248 ⑨）：
-        AC1-draft  草稿表 OrderDraftTexts 的 order_list.copy_spoken 恰一处，值 =「复制订单号 {no}」
-        AC1-label  D10-1275：草稿表 order_list.copy_label 恰一处「复制」；OrderNumberRow 的 copyText = <t>(键) 且键解析为 order_list.copy_label
-                   （契约快照待升锁，升锁前草稿表兜底）
+        AC1-draft  契约生成物 DefaultTexts.buildTexts() 的 order_list.copy_spoken 恰一处，值 =「复制订单号 {no}」；草稿表 OrderDraftTexts
+                   里没有这个键（升锁后契约优先，草稿同名即死代码）
+        AC1-label  D10-1275：契约 DefaultTexts order_list.copy_label 恰一处「复制」，草稿表里没有这个键；OrderNumberRow 的 copyText = <t>(键)
+                   且键解析为 order_list.copy_label
         AC1-copy   订单列表、详情里每个 OrderNumberRow 的 copySpoken 实参沿 OrderView 字段 / this.<方法>() / 局部 const / 三元解析到
                    <texts>.format(<COPY_SPOKEN 键>, M)，M 是本函数里的 Map，set 了草稿值里的每个占位名（{no}），{no} 的值在该路径上
                    （三元 / if 条件记成事实）取本行完整单号（orderNo），不经脱敏 / 读屏读法；t(COPY_SPOKEN) 这类不带变量的常量、判不了一律红。
@@ -56,6 +57,8 @@ AST_TOOL = os.path.join(HERE, "a11ycommon_ast.cjs")
 GOOD = os.path.join(HERE, "fixtures", "good")
 
 DRAFT = "common/core/src/main/ets/orders/OrderDraftTexts.ets"
+# 契约文案生成物：参照件树不另存副本，自测时从本仓库拷真实生成物（gen.py --check 保证它与 contracts 快照一致）。
+GEN_TEXTS = "common/generated/src/main/ets/DefaultTexts.ets"
 KIT = "features/orders/src/main/ets/OrderViewKit.ets"
 LIST = "features/orders/src/main/ets/OrderListView.ets"
 DETAIL = "features/orders/src/main/ets/OrderDetailView.ets"
@@ -65,7 +68,7 @@ WITHDRAW = "features/wallet/src/main/ets/WithdrawView.ets"
 PAYOUT = "features/wallet/src/main/ets/PayoutAccountView.ets"
 LOGIN = "features/auth/src/main/ets/LoginView.ets"
 BIND = "features/auth/src/main/ets/BindPhoneView.ets"
-REQUIRED = (DRAFT, KIT, LIST, DETAIL, DS_WALLET, WALLET, WITHDRAW, PAYOUT, LOGIN, BIND)
+REQUIRED = (DRAFT, GEN_TEXTS, KIT, LIST, DETAIL, DS_WALLET, WALLET, WITHDRAW, PAYOUT, LOGIN, BIND)
 SKIP_DIRS = {"build", "oh_modules", "node_modules", ".hvigor", ".preview", ".test"}
 
 RULE_TITLES = {
@@ -218,11 +221,18 @@ MUTATIONS = [
     ("详情复制名回常量 t(COPY_SPOKEN)", DETAIL, "copySpoken: view.copySpoken,", "copySpoken: this.t(OrderKeys.COPY_SPOKEN),", "AC1-copy"),
     ("复制按钮键回 order_list.copy", KIT, "  static readonly COPY: string = 'order_list.copy_label';",
      "  static readonly COPY: string = 'order_list.copy';", "AC1-label"),
-    ("草稿表没有 copy_label", DRAFT, "    m.set('order_list.copy_label', '复制');\n", "    m.set('order_list.copy', '复制');\n", "AC1-label"),
+    ("契约没有 copy_label（仍是旧键 order_list.copy）", GEN_TEXTS, "    map.set('order_list.copy_label', '复制');\n",
+     "    map.set('order_list.copy', '复制');\n", "AC1-label"),
+    ("草稿表加回 copy_label（死代码）", DRAFT, "    m.set('order_list.star', '星号');\n",
+     "    m.set('order_list.star', '星号');\n    m.set('order_list.copy_label', '复制');\n", "AC1-label"),
     ("复制按钮文字改用复制读屏名的键", DETAIL, "copyText: this.t(OrderKeys.COPY),", "copyText: this.t(OrderKeys.COPY_SPOKEN),", "AC1-label"),
     ("复制名改用字面量", LIST, "copySpoken: view.copySpoken,", "copySpoken: '',", "AC1-copy"),
-    ("草稿值回「复制订单号」", DRAFT, "m.set('order_list.copy_spoken', '复制订单号 {no}');", "m.set('order_list.copy_spoken', '复制订单号');", "AC1-draft"),
-    ("草稿占位拼错 {num}", DRAFT, "m.set('order_list.copy_spoken', '复制订单号 {no}');", "m.set('order_list.copy_spoken', '复制订单号 {num}');", "AC1-draft"),
+    ("契约值回「复制订单号」", GEN_TEXTS, "map.set('order_list.copy_spoken', '复制订单号 {no}');", "map.set('order_list.copy_spoken', '复制订单号');",
+     "AC1-draft"),
+    ("契约占位拼错 {num}", GEN_TEXTS, "map.set('order_list.copy_spoken', '复制订单号 {no}');",
+     "map.set('order_list.copy_spoken', '复制订单号 {num}');", "AC1-draft"),
+    ("草稿表加回 copy_spoken（死代码）", DRAFT, "    m.set('order_list.star', '星号');\n",
+     "    m.set('order_list.star', '星号');\n    m.set('order_list.copy_spoken', '复制订单号 {no}');\n", "AC1-draft"),
     ("代入名拼错 set('num')", KIT, COPY_SET, "    copyVars.set('num', this.orderNo);\n", "AC1-copy"),
     ("{no} 代入脱敏读法", KIT, COPY_SET, "    copyVars.set('no', OrderNumberDisplay.spoken(this.orderNo, texts.text(OrderKeys.STAR)));\n", "AC1-copy"),
     ("{no} 代入别的值（数量）", KIT, COPY_SET, "    copyVars.set('no', this.quantityText);\n", "AC1-copy"),
@@ -391,17 +401,24 @@ def _frozen_selftest(tmp, failures):
         print("KILLED 改 me12wc 冻结的 core wallet 文件 ← AC4-frozen")
 
 
+def _good_tree(dst):
+    """参照件树 = fixtures/good + 本仓库真实契约生成物 DefaultTexts.ets（不另存副本）。"""
+    shutil.copytree(GOOD, dst)
+    os.makedirs(os.path.dirname(os.path.join(dst, GEN_TEXTS)), exist_ok=True)
+    shutil.copy2(os.path.join(REPO_ROOT, GEN_TEXTS), os.path.join(dst, GEN_TEXTS))
+
+
 def self_test():
     failures = []
     with tempfile.TemporaryDirectory(prefix="a11ycommon-selftest-") as tmp:
         good = os.path.join(tmp, "good")
-        shutil.copytree(GOOD, good)
+        _good_tree(good)
         got = check(good, with_frozen=False)
         if got:
             failures.append("参照件不过：%s" % [(v["rule"], v["file"], v["line"], v["msg"]) for v in got])
         for idx, (name, rel, old, new, want) in enumerate(MUTATIONS):
             root = os.path.join(tmp, "m%02d" % idx)
-            shutil.copytree(GOOD, root)
+            _good_tree(root)
             if not _apply(root, rel, old, new, failures, "变异「%s」" % name):
                 continue
             try:
@@ -416,7 +433,7 @@ def self_test():
             shutil.rmtree(root)
         for idx, (name, edits) in enumerate(BENIGN):
             root = os.path.join(tmp, "b%02d" % idx)
-            shutil.copytree(GOOD, root)
+            _good_tree(root)
             ok = True
             for rel, old, new in edits:
                 ok = _apply(root, rel, old, new, failures, "良性改写「%s」" % name) and ok
@@ -441,7 +458,7 @@ def self_test():
         ]
         for idx, (name, mutate) in enumerate(cases):
             root = os.path.join(tmp, "x%02d" % idx)
-            shutil.copytree(GOOD, root)
+            _good_tree(root)
             mutate(root)
             try:
                 check(root, with_frozen=False)
