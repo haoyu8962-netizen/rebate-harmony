@@ -13,6 +13,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 HM-BATCH1-DEVFIX（#24，编排 D10-1279 ③）：Ds02L2Ui 42 条从主步摘出、单列设备步 entry-l2（--set l2 必跑），主步 notClass 加 Ds02L2Ui，
                 main 219 → 177 条（= DS-02 162 + F-X-05a 9 + F-X-25 6）；主步混进任一条 l2 用例即红（套件过滤失效）
                 LOCK-harmony 段 3（#24 只加，D10-2135 ④ / D10-2141 ④）：+ LockHarmonySeg3Fake 15 条（LOCKHM_SEG3_FAKE_CASES），main 177 → 192 条
+                LOCK-harmony C3 修（#24 只加，D10-2181 (A)）：LockHarmonySeg3Fake 15 → 16 条，main 192 → 193 条
   --set hm07va  首页视觉 a 段单独步：HM-07v-a 17 条（测试 v3 +2），且只能是这 17 条（套件过滤失效、混进别的套件都报红）
   --set hm07vb  首页视觉 b 段（弹窗与剪贴板浮层）单独步：HM-07v-b 11 条，且只能是这 11 条
   --set hm05r   剪贴板自动识别单独步（HM-05r；测试 v3 起 11 条：默认开启、关闭态、升级迁移、撤回与重新同意），且只能是这 11 条
@@ -42,6 +43,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 HM-BATCH1-FREEZE 集成 2（#24 只加）：+ a11y 步 AGENT 段 5 条（tools/ci/a11yagent/device-cases.txt），a11y 10 → 15，合集 348 → 353
                 HM-BATCH1-FREEZE 集成 3（#24 只加）：+ a11y 步 HOME-SEARCH 段 5 条（tools/ci/a11yhome/device-cases.txt），a11y 15 → 20，合集 353 → 358
                 LOCK-harmony 段 3（#24 只加）：+ 主步 LockHarmonySeg3Fake 15 条，main 177 → 192，合集 358 → 373
+                LOCK-harmony C3 修（#24 只加，D10-2181 (A)）：LockHarmonySeg3Fake 15 → 16 条，main 192 → 193，合集 373 → 374
 """
 import collections
 import csv
@@ -77,6 +79,8 @@ LOCKHM_SEG3_FAKE_CASES = [
     's3f_14_save_payout_success_consumes_token_new_key_same_token_10003',
     's3f_13_release_step_up_slot_is_digitless_placeholder_when_account_present',
     's3f_15_staging_step_up_slot_bound_when_fake_off_test_phone_when_fake_on',
+    # LOCK-harmony C3 修（D10-2181 (A)，#24 只加）：+1 条，15 → 16。
+    's3f_16_route_unavailable_override_wins_over_available_in_staging_release_ignores_it',
 ]
 SETS = ('main', 'hm07va', 'hm07vb', 'hm05r', 'me12v', 'me12wa', 'me12wb', 'me12wc', 'tabbar', 'loginphone', 'a11y', 'l2', 'all')
 
@@ -250,7 +254,7 @@ def expected_names(set_name='all'):
                  if line.strip() and not line.startswith('#'))
     # F-X-25：此前只按 check-ui-facilities.cjs 核对注册名，设备结果里未逐条要求；拆步后 main 名单把这 6 条也列为必跑（只加不减）。
     names.update(FX25_DEVICE_CASES)
-    # LOCK-harmony 段 3（#24 只加，D10-2135 ④）：LockHarmonySeg3Fake 15 条随主步跑，main / all 都列为必跑。
+    # LOCK-harmony 段 3（#24 只加，D10-2135 ④）：LockHarmonySeg3Fake 15 条随主步跑，main / all 都列为必跑（C3 修 D10-2181：15 → 16 条）。
     names.update(LOCKHM_SEG3_FAKE_CASES)
     # HM-L2-CARD（#24 只加；README ⑩：Ds02L2Ui 在主 entry 步跑，不新增设备步）：main / all 都列为必跑。
     names.update(l2_names())

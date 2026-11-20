@@ -341,8 +341,29 @@ export class BuildVariant {
    */
   static readonly routeAvailabilityMarker: string = 'COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e';
   private static availableOverride: string[] = [];
+  /**
+   * 路由「强制不可用」覆盖（C3 修，编排 D10-2181 ①）：`--ps couli_debug_route_unavailable DeleteAccount`（逗号分隔多个；空串清空）
+   * 把这些路由按未发布处理（since 换成 null，同契约未填 since 时的表示），用于设备用例造「内测版」。与 couli_debug_route_available
+   * 同一道闸（DebugMockGate.allowedNow，prod 环境不生效），只在 src/staging 编译，Release 没有这个入口也不读这个键。
+   */
+  private static unavailableOverride: string[] = [];
+
+  /** 解析 couli_debug_route_unavailable：字符串按逗号拆分、去空白、去空项替换名单（空串即清空）；不是字符串（参数没带）名单不动。 */
+  static applyRouteUnavailable(value: Object | undefined): void {
+    if (typeof value !== 'string') {
+      return;
+    }
+    BuildVariant.unavailableOverride = (value as string).split(',').map((x: string): string => x.trim())
+      .filter((x: string): boolean => x.length > 0);
+  }
 
   static routeSpec(name: string): RouteSpec | undefined {
+    // 同一路由同时在可用与不可用名单里，以不可用为准（D10-2181 ②，保守）：先判强制不可用，再走下面原有的强制可用。
+    const forced: RouteSpec | undefined = RouteTable.spec(name);
+    if (forced !== undefined && BuildVariant.unavailableOverride.indexOf(name) >= 0 && DebugMockGate.allowedNow(true)) {
+      return new RouteSpec(forced.name, forced.kind, forced.auth, null, forced.entries, forced.h5Path, forced.debugOnly,
+        forced.agentGuide, forced.agentGuideAccount, forced.params, forced.requiredParams, forced.additionalParams);
+    }
     const spec: RouteSpec | undefined = RouteTable.spec(name);
     if (spec === undefined || BuildVariant.availableOverride.indexOf(name) < 0 || !DebugMockGate.allowedNow(true)) {
       return spec;
@@ -482,6 +503,13 @@ export class BuildVariant {
         .filter((x: string): boolean => x.length > 0);
       hilog.info(0x0000, 'Couli', 'route availability override %{public}s %{public}s',
         BuildVariant.availableOverride.join(','), BuildVariant.routeAvailabilityMarker);
+    }
+    // C3 修（D10-2181 ①）：路由「强制不可用」覆盖（见 applyRouteUnavailable、routeSpec；与上面的强制可用同时给时以不可用为准）。
+    const routeUnavailable: Object | undefined = want.parameters?.['couli_debug_route_unavailable'];
+    BuildVariant.applyRouteUnavailable(routeUnavailable);
+    if (typeof routeUnavailable === 'string') {
+      hilog.info(0x0000, 'Couli', 'route unavailability override %{public}s %{public}s',
+        BuildVariant.unavailableOverride.join(','), BuildVariant.routeAvailabilityMarker);
     }
     const accountScene: Object | undefined = want.parameters?.[DEBUG_ACCOUNT_SCENE_KEY];
     if (typeof accountScene === 'string') {

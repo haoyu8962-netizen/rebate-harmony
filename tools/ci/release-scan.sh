@@ -45,7 +45,7 @@
 # AgentProbePort、AgentProbeHandle、AgentProbeTimer、AgentVectorProbe、虚拟计时器 AgentVirtualTimer）与硬编码的 meta / done 帧片段（common/core/src/test/AgentVectorWiring.ets）。
 # 它们不该出现在任何制品里：Release 扫描命中即阻断；--self-test（Staging / Debug）同样不得命中（命中退出 1，与「有标记没命中」区分见下）。
 #   - 注销与换手机号的本机假服务（APP-13a）：标记 COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90、启动参数键 couli_debug_account_scene；
-#     路由可用性覆盖开关：标记 COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e、启动参数键 couli_debug_route_available
+#     路由可用性覆盖开关：标记 COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e、启动参数键 couli_debug_route_available、couli_debug_route_unavailable（C3 修）
 #     （entry/src/staging/ets/variant/DebugFakeAccount.ets、BuildVariant.ets）
 #   - 首页 SDUI 的本机假服务与草稿预览（APP-11）：标记 COULI_FAKE_HOME_SERVER_APP11_5e8c21、启动参数键 couli_debug_home_scene
 #     （entry/src/staging/ets/variant/DebugFakeHome.ets）、预览页标记 COULI_HOME_PREVIEW_APP11_9b4d27（entry/src/staging/ets/home/HomePreviewPage.ets）
@@ -163,6 +163,8 @@ markers = [
     # （编排者补充 G01：DeleteAccount since=null 时只在 Debug / Staging 用于冒烟、截图，entry/src/staging/ets/variant/BuildVariant.ets）。
     "COULI_FAKE_ACCOUNT_SERVER_APP13A_2d7f90", "couli_debug_account_scene",
     "COULI_DEBUG_ROUTE_AVAILABILITY_APP13A_5c1e", "couli_debug_route_available",
+    # C3 修（D10-2181 / D10-2182）：路由「强制不可用」覆盖键，跟兄弟键 couli_debug_route_available 同一条规则（entry/src/staging/ets/variant/BuildVariant.ets）。
+    "couli_debug_route_unavailable",
     # FU-HM-THEME-BASE：系统颜色中性角色方案的启动参数键（entry/src/staging/ets/variant/BuildVariant.ets），Release 必须不含。
     "couli_debug_theme_neutral",
 ]

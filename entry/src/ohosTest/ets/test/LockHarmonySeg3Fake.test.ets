@@ -15,6 +15,9 @@ import { DebugFakeAccount } from '../../../staging/ets/variant/DebugFakeAccount'
 import { BuildVariant as ReleaseVariant } from '../../../release/ets/variant/BuildVariant';
 import { BuildVariant as StagingVariant } from '../../../staging/ets/variant/BuildVariant';
 import { DEBUG_STEP_UP_PHONE } from '../../../staging/ets/variant/DebugFakeWallet';
+import { common, Want } from '@kit.AbilityKit';
+import { RouteAvailability } from 'core';
+import { RouteSpec } from 'generated';
 
 const BASE: string = 'https://api.fake.invalid';
 const BEARER: string = 'Bearer stub-access-1';
@@ -300,6 +303,54 @@ export default function lockHarmonySeg3FakeTest() {
         expect(StagingVariant.stepUpPhone('user-1') as string).assertEqual(DEBUG_STEP_UP_PHONE);
       } finally {
         DebugFakeServer.setEnabled(wasOn);
+      }
+    });
+
+    // ================================================================ 路由「强制不可用」覆盖（C3 修，D10-2181 方案 A 第 1、2 条）
+
+    // 依据：D10-2181 ①：staging 加启动参数 couli_debug_route_unavailable（逗号分隔、去空白、空串清空），与 couli_debug_route_available
+    // 同一道闸（DebugMockGate.allowedNow）；② 同一路由两边都给了以「不可用」为准；① release 变体没有这个入口，给了参数也照路由表。
+    // 驱动：staging 经实现新加的 BuildVariant.applyRouteUnavailable(value: Object | undefined)（applyLaunchOptions 把
+    // want.parameters?.['couli_debug_route_unavailable'] 交给它）；「强制可用」名单是既有私有静态 availableOverride，经类对象 Reflect 写入
+    // （arkts-no-classes-as-obj：经实例的 constructor 取类，同 LockHarmonySeg3 s3_r2_4），finally 里还原。可用性一律用 RouteAvailability.available 判。
+    // 第 3 步（只给强制可用 → since 0.0.0）同时证明 Reflect 写进了闸门读的那个字段、空串清掉了不可用名单，第 4 步的「不可用为准」才有意义。
+    // 先红：c3fix 基 dfc8f98 上 staging 没有 applyRouteUnavailable → TypeError（release 半段与第 1 步是防改错，现状已对）。
+    it('s3f_16_route_unavailable_override_wins_over_available_in_staging_release_ignores_it', 0, async () => {
+      // release：给了参数也照路由表（DeleteAccount since 1.0.0 → 可用），也没有 applyRouteUnavailable 这个入口。
+      const want: Want = { parameters: { 'couli_debug_route_unavailable': 'DeleteAccount' } as Record<string, Object> };
+      ReleaseVariant.applyLaunchOptions(new Object() as common.ApplicationContext, want);
+      expect('release:' + RouteAvailability.available(ReleaseVariant.routeSpec('DeleteAccount'), '1.0.0'))
+        .assertEqual('release:true');
+      const releaseOwner: Object = Reflect.get(new ReleaseVariant(), 'constructor') as Object;
+      expect('release-entry:' + Reflect.has(releaseOwner, 'applyRouteUnavailable')).assertEqual('release-entry:false');
+      // staging：先有环境（闸门要求当前环境允许调试假数据）。
+      if (AppConfig.environment() === undefined) {
+        await AppConfig.start(AppEnvironment.STAGING, new MemoryEnvironmentRecord());
+      }
+      const owner: Object = Reflect.get(new StagingVariant(), 'constructor') as Object;
+      const savedAvailable: Object | undefined = Reflect.get(owner, 'availableOverride') as Object | undefined;
+      try {
+        // 1 两边都没有 → 按路由表。
+        Reflect.set(owner, 'availableOverride', new Array<string>());
+        StagingVariant.applyRouteUnavailable('');
+        expect('none:' + RouteAvailability.available(StagingVariant.routeSpec('DeleteAccount'), '1.0.0')).assertEqual('none:true');
+        // 2 只在强制不可用里（逗号分隔、带空白）→ 不可用。
+        StagingVariant.applyRouteUnavailable(' Wallet , DeleteAccount ');
+        expect('unavailable:' + RouteAvailability.available(StagingVariant.routeSpec('DeleteAccount'), '1.0.0'))
+          .assertEqual('unavailable:false');
+        // 3 空串清掉不可用名单，只在强制可用里 → since 换成 0.0.0（既有行为）。
+        StagingVariant.applyRouteUnavailable('');
+        Reflect.set(owner, 'availableOverride', ['DeleteAccount']);
+        const forced: RouteSpec | undefined = StagingVariant.routeSpec('DeleteAccount');
+        expect('available:' + (forced === undefined ? 'undefined' : String(forced.sinceHarmony))).assertEqual('available:0.0.0');
+        // 4 两边都有 → 以不可用为准。
+        StagingVariant.applyRouteUnavailable('DeleteAccount');
+        expect('both:' + RouteAvailability.available(StagingVariant.routeSpec('DeleteAccount'), '1.0.0')).assertEqual('both:false');
+      } finally {
+        Reflect.set(owner, 'availableOverride', savedAvailable);
+        if (typeof Reflect.get(owner, 'applyRouteUnavailable') === 'function') {
+          StagingVariant.applyRouteUnavailable('');
+        }
       }
     });
   });

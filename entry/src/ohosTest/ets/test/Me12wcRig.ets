@@ -266,6 +266,9 @@ export async function enter10006(scene: string, publicBuild: boolean, what: stri
   }
   const l: Launch = (display ?? base(scene)).with('couli_debug_me_scene', scene).with('couli_debug_open_route', 'Wallet')
     .with('couli_debug_route_available', publicBuild ? 'DeleteAccount' : '');
+  // C3 修（D10-2181 方案 A 第 4 条）：段 1 起 DeleteAccount 默认可用，内测版改为显式「强制不可用」造出来。公开版给空串清掉：
+  // 测试与应用同一进程，覆盖名单是静态的，不清会带到后面的公开版用例。
+  l.with('couli_debug_route_unavailable', publicBuild ? '' : 'DeleteAccount');
   await launch(l);
   if ((await maybe(ON.id(ID_RISK_SCROLL), 8000)) === null) {
     await backToTabs();

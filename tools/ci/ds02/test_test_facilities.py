@@ -306,7 +306,8 @@ run_device_tests core common/core core_test
         # HM-BATCH1-FREEZE 集成 2（#24 只加）：a11y 步 AGENT 段 5 条（tools/ci/a11yagent/device-cases.txt）进合集；348 → 353。
         # HM-BATCH1-FREEZE 集成 3（#24 只加）：a11y 步 HOME-SEARCH 段 5 条（tools/ci/a11yhome/device-cases.txt）进合集；353 → 358。
         # LOCK-harmony 段 3（#24 只加，D10-2135 ④ / D10-2141 ④）：主步 LockHarmonySeg3Fake 15 条进合集；358 → 373。
-        self.assertEqual(len(names), 373)
+        # LOCK-harmony C3 修（#24 只加，D10-2181 (A)）：LockHarmonySeg3Fake 15 → 16 条；373 → 374。
+        self.assertEqual(len(names), 374)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -342,8 +343,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 373)  # HM-BATCH1-FREEZE 集成 2：348 → 353；集成 3：353 → 358；LOCK-harmony 段 3：358 → 373（同上）
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 373)
+        self.assertEqual(validate(report(names)), 374)  # HM-BATCH1-FREEZE 集成 2：348 → 353；集成 3：353 → 358；LOCK-harmony 段 3：358 → 373；C3 修：373 → 374（同上）
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 374)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -395,7 +396,8 @@ run_device_tests core common/core core_test
         l2 = expected_names('l2')
         # HM-BATCH1-DEVFIX（D10-1279 ③，#24 换值）：Ds02L2Ui 42 条摘出主步、单列 entry-l2，main 219 → 177。
         # LOCK-harmony 段 3（#24 只加，D10-2141 ④）：LockHarmonySeg3Fake 15 条随主步跑，main 177 → 192。
-        self.assertEqual(len(main), 192)
+        # LOCK-harmony C3 修（#24 只加，D10-2181 (A)）：LockHarmonySeg3Fake 15 → 16 条，main 192 → 193。
+        self.assertEqual(len(main), 193)
         self.assertEqual(len(l2), 42)
         # HM-L2-STATE（集成 2 换定位）：class=Ds02L2UiState 不复存在，l2state 7 条从 l2 里按前缀取（原 expected_names('l2state')）。
         l2state = {name for name in l2 if name.startswith('l2state_')}
@@ -541,8 +543,8 @@ run_device_tests core common/core core_test
                        'OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(sorted(main)), 'main'), 192)  # HM-BATCH1-DEVFIX：219 → 177（换值）；LOCK-harmony 段 3：177 → 192
-        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 192)
+        self.assertEqual(validate(report(sorted(main)), 'main'), 193)  # HM-BATCH1-DEVFIX：219 → 177（换值）；LOCK-harmony 段 3：177 → 192；C3 修：192 → 193
+        self.assertEqual(validate(report(sorted(main) + ['future_extra_test']), 'main'), 193)
         self.assertEqual(validate(report(sorted(hm07va)), 'hm07va'), 17)
         self.assertEqual(validate(report(sorted(hm07vb)), 'hm07vb'), 11)
         self.assertEqual(validate(report(sorted(hm05r)), 'hm05r'), 11)
