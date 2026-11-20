@@ -353,5 +353,58 @@ export default function lockHarmonySeg3FakeTest() {
         }
       }
     });
+
+    // ================================================================ 换手机号入口（FU-HM-PHONECHANGE-B120B，brief-harmony §1-5，D10-2203 ⑤）
+
+    // 依据：brief §1-5：两个 BuildVariant 各加 phoneChangeAvailable(): boolean。Release 恒 false、不认两份覆盖名单；staging = 假服务闸门放行
+    // 或 couli_debug_route_available 含 PhoneChange 时 true，couli_debug_route_unavailable 含 PhoneChange 时以不可用为准，staging 直连真服务
+    // 又没给覆盖时 false。复用 s3f_16 的两份名单（availableOverride 经类对象 Reflect 写入，unavailable 经既有 applyRouteUnavailable），
+    // 新方法也经类对象 Reflect 取（arkts-no-classes-as-obj，同 s3f_16），HEAD 能编译。新方法须是不依赖 this 的静态方法（这里取出后直接调）。
+    // finally 里还原两份名单与假服务开关。
+    // 先红：HEAD 两个变体都没有 phoneChangeAvailable → 'release-fn:undefined'。
+    it('pcb_9_phone_change_available_release_false_staging_fake_gate_or_override_unavailable_wins', 0, async () => {
+      const releaseOwner: Object = Reflect.get(new ReleaseVariant(), 'constructor') as Object;
+      const releaseAvailable: () => boolean = Reflect.get(releaseOwner, 'phoneChangeAvailable') as () => boolean;
+      expect('release-fn:' + typeof releaseAvailable).assertEqual('release-fn:function');
+      // Release 给了覆盖参数也不认。
+      const want: Want = { parameters: { 'couli_debug_route_available': 'PhoneChange' } as Record<string, Object> };
+      ReleaseVariant.applyLaunchOptions(new Object() as common.ApplicationContext, want);
+      expect('release:' + releaseAvailable()).assertEqual('release:false');
+      if (AppConfig.environment() === undefined) {
+        await AppConfig.start(AppEnvironment.STAGING, new MemoryEnvironmentRecord());
+      }
+      const owner: Object = Reflect.get(new StagingVariant(), 'constructor') as Object;
+      const available: () => boolean = Reflect.get(owner, 'phoneChangeAvailable') as () => boolean;
+      expect('staging-fn:' + typeof available).assertEqual('staging-fn:function');
+      const savedAvailable: Object | undefined = Reflect.get(owner, 'availableOverride') as Object | undefined;
+      const savedUnavailable: Object | undefined = Reflect.get(owner, 'unavailableOverride') as Object | undefined;
+      const wasOn: boolean = !DebugFakeServer.setEnabled(true);
+      DebugFakeServer.setEnabled(false);
+      try {
+        // 1 直连真服务、两份名单都空 → 不可用。
+        Reflect.set(owner, 'availableOverride', new Array<string>());
+        StagingVariant.applyRouteUnavailable('');
+        expect('none:' + available()).assertEqual('none:false');
+        // 2 假服务闸门放行 → 可用。
+        DebugFakeServer.setEnabled(true);
+        expect(DebugFakeServer.mockGate()).assertTrue();
+        expect('fake:' + available()).assertEqual('fake:true');
+        // 3 假服务放行但强制不可用含 PhoneChange（逗号分隔、带空白）→ 不可用。
+        StagingVariant.applyRouteUnavailable(' Wallet , PhoneChange ');
+        expect('fake+unavailable:' + available()).assertEqual('fake+unavailable:false');
+        // 4 假服务关、只在强制可用名单里 → 可用。
+        StagingVariant.applyRouteUnavailable('');
+        DebugFakeServer.setEnabled(false);
+        Reflect.set(owner, 'availableOverride', ['PhoneChange']);
+        expect('available:' + available()).assertEqual('available:true');
+        // 5 两份名单都有 → 以不可用为准。
+        StagingVariant.applyRouteUnavailable('PhoneChange');
+        expect('both:' + available()).assertEqual('both:false');
+      } finally {
+        Reflect.set(owner, 'availableOverride', savedAvailable);
+        Reflect.set(owner, 'unavailableOverride', savedUnavailable);
+        DebugFakeServer.setEnabled(wasOn);
+      }
+    });
   });
 }
