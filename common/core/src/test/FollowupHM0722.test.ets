@@ -327,6 +327,20 @@ export default function followupHM0722Test() {
         expect(a.confirm(a.snapshot.pendingVersion, key)).assertTrue();
         await settle();
         expect(f.rig.client.pendingFor('bindPhone') === null).assertTrue();
+        if (code === 30414) {
+          // B1-20b 后 30414 一律「换号已关闭」弹窗 + 回设置页，不再回第 2 步（D10-2286；同 PhoneChangeB120b pcb_5a）。
+          let finished: number = 0;
+          a.onFinished = (): void => {
+            finished++;
+          };
+          expect(a.snapshot.disabledDialog?.textKey).assertEqual('error.30414');
+          expect(f.session.tokens.has('phone_change')).assertFalse();
+          expect(a.canSubmit).assertFalse();
+          expect(a.finish(a.snapshot.version)).assertTrue();
+          expect(finished).assertEqual(1);
+          a.leave();
+          continue;
+        }
         expect(a.snapshot.step).assertEqual(PhoneChangeStep.STEP2);
         expect(a.snapshot.newPhone).assertEqual(NEW_PHONE);
         expect(a.snapshot.code).assertEqual('654321');
@@ -356,6 +370,25 @@ export default function followupHM0722Test() {
         f.held[f.held.length - 1].resolve(envelope(code, '{}'));
         await settle();
         expect(f.rig.client.pendingFor('bindPhone') === null).assertTrue();
+        if (code === 30414) {
+          // B1-20b 后 30414 一律「换号已关闭」弹窗 + 回设置页：B 不回第 2 步、填了也不能提交（D10-2286；同 PhoneChangeB120b pcb_5b）。
+          let finished: number = 0;
+          b.onFinished = (): void => {
+            finished++;
+          };
+          expect(b.snapshot.disabledDialog?.textKey).assertEqual('error.30414');
+          b.setNewPhone(b.snapshot.version, NEW_PHONE);
+          b.setCode(b.snapshot.version, '654321');
+          expect(b.canSubmit).assertFalse();
+          const posts: number = f.count('POST /v1/me/phone');
+          b.submit(b.snapshot.version);
+          await settle();
+          expect(f.count('POST /v1/me/phone')).assertEqual(posts);
+          expect(b.finish(b.snapshot.version)).assertTrue();
+          expect(finished).assertEqual(1);
+          b.leave();
+          continue;
+        }
         expect(b.snapshot.step).assertEqual(PhoneChangeStep.STEP2);
         expect(b.snapshot.pending === null).assertTrue();
         expect(b.snapshot.banner?.textKey).assertEqual('error.' + code);
@@ -368,7 +401,7 @@ export default function followupHM0722Test() {
       }
     });
 
-    it('fhm0722_47_abandon_completed_original_3xxxx_and_bind_page_confirm_elsewhere_restore_step2', 0, async () => {
+    it('fhm0722_47_abandon_completed_original_3xxxx_and_bind_page_confirm_elsewhere_disabled_dialog_back_to_settings', 0, async () => {
       // 放弃得到 completed（原结果 30414）。
       let f: AccountFixture = new AccountFixture();
       const a: PhoneChangeController = await pendingPhoneChange(f);
@@ -378,15 +411,21 @@ export default function followupHM0722Test() {
       await settle();
       a.leave();
       let b: PhoneChangeController = new PhoneChangeController(f.deps());
+      let finished: number = 0;
+      b.onFinished = (): void => {
+        finished++;
+      };
       b.onShown();
       expect(b.snapshot.step).assertEqual(PhoneChangeStep.PENDING);
       f.held[f.held.length - 1].resolve(envelope(0, '{"outcome":"completed","original":{"code":30414,"msg":""}}'));
       await settle();
-      expect(b.snapshot.step).assertEqual(PhoneChangeStep.STEP2);
-      expect(b.snapshot.banner?.textKey).assertEqual('error.30414');
-      expect(b.snapshot.notice?.textKey).assertEqual('pending_confirm.already_done');
+      // 不再断言 already_done：B1-20b 后 30414 一律弹窗回设置（D10-2286），放弃得 completed 原 30414 只出弹窗、不出轻提示。
+      expect(b.snapshot.disabledDialog?.textKey).assertEqual('error.30414');
+      expect(b.snapshot.notice === null).assertTrue();
+      expect(b.finish(b.snapshot.version)).assertTrue();
+      expect(finished).assertEqual(1);
       b.leave();
-      // BindPhone 页（首次绑定）确认同一键得到 30414：换号页 B 同样恢复第 2 步与错误提示（BindPhone 通知也带完整结局）。
+      // BindPhone 页（首次绑定）确认同一键得到 30414：换号页 B 同样弹窗，【联系客服】后回设置页（BindPhone 通知也带完整结局）。
       f = new AccountFixture();
       const svc: BindPhoneService = bindService(f);
       const form: BindPhoneForm = new BindPhoneForm(svc, new TestFields());
@@ -399,15 +438,21 @@ export default function followupHM0722Test() {
       const bindKey: string = svc.pendingView(form.pageIdentity)?.key ?? '';
       f.session.sync();
       b = new PhoneChangeController(f.deps());
+      finished = 0;
+      b.onFinished = (): void => {
+        finished++;
+      };
       b.onShown();
       expect(b.snapshot.step).assertEqual(PhoneChangeStep.PENDING);
       f.reply('POST /v1/me/phone', (_r: TransportRequest) => envelope(30414, '{}'));
       const permit: BindPhonePagePermit = form.permit();
       await form.confirmPending(bindKey, permit);
       await settle();
-      expect(b.snapshot.step).assertEqual(PhoneChangeStep.STEP2);
-      expect(b.snapshot.banner?.textKey).assertEqual('error.30414');
-      expect(b.snapshot.showCustomerService).assertTrue();
+      expect(b.snapshot.disabledDialog?.textKey).assertEqual('error.30414');
+      expect(b.canSubmit).assertFalse();
+      expect(b.contactCs()).assertTrue();
+      expect(f.cs).assertEqual(1);
+      expect(finished).assertEqual(1);
       b.leave();
     });
 
@@ -786,8 +831,8 @@ export default function followupHM0722Test() {
     // ---------------------------------------------------------------- F-X-15：held 原体重发的号码类反馈按原提交核对
     it('fhm0722_x15_phone_change_held_resend_phone_errors_not_landed_on_edited_new_phone', 0, async () => {
       const edited: string = '13700007777';
-      const replies: TransportResponse[] = [envelope(20001, '{"reason":"phone_invalid"}'), envelope(30411, '{}'),
-        envelope(30414, '{}')];
+      // 30414 已移出号码类反馈（B1-20b，D10-2286），单独断言见循环后。
+      const replies: TransportResponse[] = [envelope(20001, '{"reason":"phone_invalid"}'), envelope(30411, '{}')];
       for (const reply of replies) {
         const f: AccountFixture = new AccountFixture();
         const p: PhoneChangeController = await toStep2(f);
@@ -812,6 +857,29 @@ export default function followupHM0722Test() {
         expect(p.snapshot.step).assertEqual(PhoneChangeStep.STEP2);
         p.leave();
       }
+      // 30414：开关关闭与号码无关，held 原体重发旧号得 30414 照样「换号已关闭」弹窗、不能再提交、回设置页（同 PhoneChangeB120b pcb_3b）。
+      const h: AccountFixture = new AccountFixture();
+      const r: PhoneChangeController = await toStep2(h);
+      let finished: number = 0;
+      r.onFinished = (): void => {
+        finished++;
+      };
+      await fillStep2(h, r);
+      h.reply('POST /v1/me/phone', (_r: TransportRequest) => envelope(50401, '{}'));
+      expect(r.submit(r.snapshot.version)).assertTrue();
+      await settle();
+      expect(h.rig.pendingBackend.list('user-1').length).assertEqual(1);
+      r.setNewPhone(r.snapshot.version, edited);
+      r.setCode(r.snapshot.version, '222222');
+      h.reply('POST /v1/me/phone', (_r: TransportRequest) => envelope(30414, '{}'));
+      expect(r.submit(r.snapshot.version)).assertTrue();
+      await settle();
+      expect((h.last('POST /v1/me/phone').body ?? '').indexOf(NEW_PHONE) >= 0).assertTrue();
+      expect(r.snapshot.disabledDialog?.textKey).assertEqual('error.30414');
+      expect(r.canSubmit).assertFalse();
+      expect(r.finish(r.snapshot.version)).assertTrue();
+      expect(finished).assertEqual(1);
+      r.leave();
       // 对照：没改号码时同一错误照常显示在号码上。
       const g: AccountFixture = new AccountFixture();
       const q: PhoneChangeController = await toStep2(g);

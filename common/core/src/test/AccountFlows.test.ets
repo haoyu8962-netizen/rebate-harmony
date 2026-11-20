@@ -91,14 +91,21 @@ export default function accountFlowsTest() {
       expect(p.snapshot.banner?.textKey).assertEqual('error.30411');
       expect(f.count('POST /v1/auth/merge')).assertEqual(0);
       expect(f.pendingKeys('bindPhone')).assertEqual(0);
-      // 30414：提示加【联系客服】。
+      // 30414：B1-20b 后一律「换号已关闭」弹窗、不能再提交，【知道了】回设置页（D10-2286；同 PhoneChangeB120b pcb_3）。
       f = new AccountFixture();
       f.reply('POST /v1/me/phone', (_r: TransportRequest) => envelope(30414, '{}'));
       p = await toStep2(f);
       await fillStep2(f, p);
+      let finished: number = 0;
+      p.onFinished = (): void => {
+        finished++;
+      };
       p.submit(p.snapshot.version);
       await settle();
-      expect(p.snapshot.showCustomerService).assertTrue();
+      expect(p.snapshot.disabledDialog?.textKey).assertEqual('error.30414');
+      expect(p.canSubmit).assertFalse();
+      expect(p.finish(p.snapshot.version)).assertTrue();
+      expect(finished).assertEqual(1);
       // 44001：弹窗（标题 error.44001 回落），新号保留、验证码清空，联系客服申诉。
       f = new AccountFixture();
       f.reply('POST /v1/me/phone', (_r: TransportRequest) => envelope(44001, '{"risk_msg_code":"test_unmapped"}'));
