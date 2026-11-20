@@ -43,7 +43,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REV = '8699e5a'
 FIXTURE = 'tools/ci/me12wb/fixtures/privacy-baseline-' + REV + '.json'
 # fixture 指纹（NATIVE/APP-12w/tests-b-harmony-v1-aux/make_baseline_b.py 由 git show REV 生成；改 fixture 来迁就实现即红）。
-FIXTURE_SHA256 = 'ecdbec5ed1cb23b2c00a44e678d6f1ac3a1aa0bb036f16abc680aaf8c0135ef4'
+FIXTURE_SHA256 = '0bbe3e1c182afe41c3a9bda30b88a002b2d7f27ffdd553c490478911b1f5ad5a'
 
 ME = 'features/me/src/main/ets/'
 V_PRIVACY = ME + 'PrivacyCenterView.ets'
@@ -289,8 +289,10 @@ def load_fixture(root):
 # FU-HM-ROOTSHOWN-CHAIN（编排 D10-1652；D10-1657 批准的 #24 换钉；me12v / me12wa / me12wb / me12wc 同一条）：AppMe.ets 只改 onRootShown 接线
 # （直接赋值包 previous → 按模块名 RootShownRegistry.ME 登记，重入分支同名重登）。G1 对该文件只多认这一个新 sha；基线 fixture 与其指纹不动，
 # 该文件其余字节再变仍红。
+# FU-HM-PHONECHANGE-B120B（编排 D10-2286 批，#24；做法照 D10-2108 Q11 / D10-2141 ③）：AppMe.ets 设置页手机号行的可点条件再与上
+# BuildVariant.phoneChangeAvailable()，旧 sha 501a3e93… 同步换成本单最终文件的 sha，旧版不再放行；仍只多认这一个 sha。
 STRICT_AMENDED = dict((rel, digest) for digest, rel in [
-    ('501a3e93c20fd9405827c977505ee605980027bbe038cfabc8a950e3e3b8490c', 'entry/src/main/ets/me/AppMe.ets'),
+    ('c53d3220b26b829846add1940aa86848ab1df3cf0b278a08998086aa101aa725', 'entry/src/main/ets/me/AppMe.ets'),
 ])
 # FU-HM-ROOTSHOWN-CHAIN 第二部分（编排 D10-1668 批，#24）：二次验证关闭链与按页订阅改了下面这些冻结树里的文件，整树比对只对它们多认这一个新 sha。
 TREE_D10_1668 = dict((rel, digest) for digest, rel in [

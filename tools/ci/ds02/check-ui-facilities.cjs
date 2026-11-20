@@ -107,6 +107,8 @@ const FOREIGN_SUITES = new Map([
     's3f_15_staging_step_up_slot_bound_when_fake_off_test_phone_when_fake_on',
     // LOCK-harmony C3 修（D10-2181 (A)，#24 只加）：+1 条，15 → 16。
     's3f_16_route_unavailable_override_wins_over_available_in_staging_release_ignores_it',
+    // FU-HM-PHONECHANGE-B120B（D10-2286，#24 只加）：+1 条 pcb_9，16 → 17。
+    'pcb_9_phone_change_available_release_false_staging_fake_gate_or_override_unavailable_wins',
   ] }],
 ]);
 const foreignCases = [];
@@ -307,7 +309,7 @@ function pageDriver(rows, mutation = '', tallIndex = 2, tallHeight = 2800) {
   load(path.join(testRoot, 'List.test.ets')).default();
   // HM-07v-a 测试 v2：check_device_result 的合集把 F-X-25 6 条也列为设备必跑（FX25_DEVICE_CASES）；这里比的是严格加载器注册名，
   // F-X-25 走上方 FOREIGN_SUITES 固定名单（与 FX25_DEVICE_CASES 一致由 test_test_facilities.py 守），所以从合集里减掉再比。
-  // LOCK-harmony 段 3 的 LockHarmonySeg3Fake 15 条同理（LOCKHM_SEG3_FAKE_CASES），一并减掉（C3 修 D10-2181：15 → 16 条）。
+  // LOCK-harmony 段 3 的 LockHarmonySeg3Fake 15 条同理（LOCKHM_SEG3_FAKE_CASES），一并减掉（C3 修 D10-2181：15 → 16 条；FU-HM-PHONECHANGE-B120B D10-2286：16 → 17 条）。
   const expected = JSON.parse(execFileSync('python3', ['-c',
     'import json,sys; sys.path.insert(0,sys.argv[1]); from check_device_result import expected_names, FX25_DEVICE_CASES, LOCKHM_SEG3_FAKE_CASES; print(json.dumps(sorted(expected_names() - set(FX25_DEVICE_CASES) - set(LOCKHM_SEG3_FAKE_CASES))))', __dirname], { encoding: 'utf8' }));
   checkRegistration(cases.map(test => test.name), foreignCases, expected);

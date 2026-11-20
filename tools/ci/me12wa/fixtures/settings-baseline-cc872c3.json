@@ -46,7 +46,7 @@
    "entry/src/main/ets/account/AccountPages.ets"
   ],
   [
-   "99896bdc671cff7f5fc9aba1be6fd3ea23f827f76bae1e3d006b632e49c43d43",
+   "0a0fc184a7b181ff88e5bacfe8465ac18f3fceaeeb507e6bf53e785a8f762ca2",
    "entry/src/main/ets/account/AppAccount.ets"
   ],
   [
@@ -72,7 +72,7 @@
    "common/core/src/main/ets/me/account/AccountJson.ets"
   ],
   [
-   "56dde29b6304e2f05e79cf2fa98835bfba8bb6fae481691d9e2029d17013b4ef",
+   "7e25e60f9ec1d59b576165fbf89151c3c710ed20cb0f57df10cb0ad48ed0a215",
    "common/core/src/main/ets/me/account/AccountPolicies.ets"
   ],
   [
@@ -88,7 +88,7 @@
    "common/core/src/main/ets/me/account/DeleteAccountController.ets"
   ],
   [
-   "e3d17f93ffe37fd447f9a8b2faa0f9e36c7f2bfe81c4bb7e45627efe3c00bb70",
+   "b1d0f70974d64dd9dfeefaafeea37d8661c1daed6e3c2ab9804fecb570f099b0",
    "common/core/src/main/ets/me/account/PhoneChangeController.ets"
   ],
   [
@@ -268,7 +268,7 @@
    "features/me/src/main/ets/AboutView.ets"
   ],
   [
-   "43b3d66a156ebef9ade2663c3ea02ba8de586082016188f254b5ff27d5c583db",
+   "70def9a7f2737f9db47e9355ff3916192ae2749ebc5c6ece6f5ff7fa929ff0a0",
    "features/me/src/main/ets/AccountKit.ets"
   ],
   [
@@ -296,7 +296,7 @@
    "features/me/src/main/ets/MeTabView.ets"
   ],
   [
-   "f584a8de74f79123d3659afa11a551885f1681203bf2d465ec8cced80c84c6c5",
+   "c56867be8b269b26cc002a3c71f74c28b0bcc855f5f0e25e3386bda27dbf3ce0",
    "features/me/src/main/ets/PhoneChangeView.ets"
   ],
   [

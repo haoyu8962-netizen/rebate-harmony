@@ -61,7 +61,9 @@ APPEND_ONLY = [DRAFTS, CORE_INDEX]
 # FU-HM-ROOTSHOWN-CHAIN（编排 D10-1652；D10-1657 批准的 #24 换钉）：AppMe.ets 只改 onRootShown 接线（直接赋值包 previous → 按模块名
 # RootShownRegistry.ME 登记，重入分支同名重登）。G1 对该文件只多认这一个新 sha；逻辑基线 fixture 与 FIXTURE_SHA256 不动，
 # 该文件其余字节再变仍红。A1 仍判「我的」那一项回调体只调 tab().autoLoad()。
-STRICT_AMENDED = {APP_ME: '501a3e93c20fd9405827c977505ee605980027bbe038cfabc8a950e3e3b8490c'}
+# FU-HM-PHONECHANGE-B120B（编排 D10-2286 批，#24；做法照 D10-2108 Q11 / D10-2141 ③）：AppMe.ets 设置页手机号行的可点条件再与上
+# BuildVariant.phoneChangeAvailable()，旧 sha 501a3e93… 同步换成本单最终文件的 sha，旧版不再放行；仍只多认这一个 sha。
+STRICT_AMENDED = {APP_ME: 'c53d3220b26b829846add1940aa86848ab1df3cf0b278a08998086aa101aa725'}
 # FU-HM-G1-SYSTEM-CONTROLS（D10-951 ② / #24）：designsystem 不再整树冻结，只守 fixture tree 里的清单文件（tools/ci/system-controls/frozen_deps.py 实算）。
 TREE_DIRS = []
 SKIP_PARTS = {'src/test', 'src/ohosTest', 'build', '.test', 'oh_modules', '.hvigor', '.preview', 'node_modules'}
