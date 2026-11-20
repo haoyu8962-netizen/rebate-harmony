@@ -242,10 +242,11 @@ export class AppAccount {
 
   /**
    * 换手机号子页的执行器（G22）：identity 是手机号行渲染时捕获的归属（只比较）；不是已登录、归属已变、受限会话、强更中都返回 null。
+   * FU-HM-PHONECHANGE-B120B（D10-2203 ⑤）：换号入口不可用（BuildVariant.phoneChangeAvailable()，Release 恒 false）也返回 null，挡住直达。
    */
   phoneChange(identity: string): PhoneChangeController | null {
     if (identity !== AppMe.scopeKey() || AppMe.level() !== MeLevel.MEMBER || AppUpdate.shared.belowMin
-      || AppAccount.sessionScope() === SessionScope.DELETION_ONLY) {
+      || AppAccount.sessionScope() === SessionScope.DELETION_ONLY || !BuildVariant.phoneChangeAvailable()) {
       return null;
     }
     return new PhoneChangeController(this.deps());

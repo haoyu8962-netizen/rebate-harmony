@@ -1,6 +1,6 @@
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import {
-  AccountPendingView, PhoneBlockedDialog, PhoneChangeController, PhoneChangeSnapshot, PhoneChangeStep,
+  AccountMessage, AccountPendingView, PhoneBlockedDialog, PhoneChangeController, PhoneChangeSnapshot, PhoneChangeStep,
   PhoneChangeStep1Buttons, StepUpController, StepUpSnapshot
 } from 'core';
 import {
@@ -61,6 +61,8 @@ export struct PhoneChangeView {
   private lastNotice: number = 0;
   private lastStep1Error: number = 0;
   private lastBlocked: number = 0;
+  /** 「换号已关闭」弹窗（30414，B1-20b）已打开过的消息序号。 */
+  private lastDisabled: number = 0;
   private lastPendingKey: string = '';
   /** 在途的是放弃（转圈落在放弃按钮上）。 */
   private abandoning: boolean = false;
@@ -187,11 +189,17 @@ export struct PhoneChangeView {
       // 拿到 token（或别处结束了这次验证）：本页在同一调用栈里自己收起半屏（FU-HM-ROOTSHOWN-CHAIN ③）。
       this.hideStepUp();
     }
+    const disabled: AccountMessage | null = s.disabledDialog;
+    if (disabled !== null && disabled.seq !== this.lastDisabled) {
+      // B1-20b：30414 时控制器已关掉面板（上面收起半屏）、作废表单与令牌；这里只弹窗（被别的出口收掉时下一次通知再弹）。
+      this.openDisabled(disabled);
+    }
     m.version = s.version * 1000 + s.pendingVersion;
   }
 
   private dropDialog(): void {
     this.dialogSerial++;
+    this.lastDisabled = 0;
     const close: () => void = this.closeDialog;
     this.closeDialog = () => {
     };
@@ -215,6 +223,34 @@ export struct PhoneChangeView {
     };
     options.onDismissed = (): void => this.controller.dismissBlocked();
     this.closeDialog = CouliDialog.open(this.getUIContext(), options);
+  }
+
+  /**
+   * 「换号已关闭」（30414，B1-20b，brief §1-1）：正文 error.30414（作标题行，打开时焦点落在它上，并 assertive 播报一次）；
+   * 【知道了】phone_change.risk_blocked.ok → finish、【联系客服】deletion.contact_cs → contactCs（先客服后回设置）；系统返回同【知道了】，
+   * 点遮罩不关。任一出口都经 onFinished 回设置页（与结果页【完成】同一出口）。
+   */
+  private openDisabled(m: AccountMessage): void {
+    this.dropDialog();
+    this.lastDisabled = m.seq;
+    const options: CouliDialogOptions = new CouliDialogOptions();
+    options.title = m.text;
+    options.primaryText = this.t('phone_change.risk_blocked.ok');
+    options.secondaryText = this.t('deletion.contact_cs');
+    options.dismissOnMask = false;
+    options.backDismisses = true;
+    options.onPrimary = (): void => {
+      this.controller.finish(this.snap.version);
+    };
+    options.onSecondary = (): void => {
+      this.controller.contactCs();
+    };
+    options.onDismissed = (): void => {
+      this.controller.finish(this.snap.version);
+    };
+    const ui: UIContext = this.getUIContext();
+    this.closeDialog = CouliDialog.open(ui, options);
+    CouliAnnounce.say(ui, m.text);
   }
 
   private confirmAbandon(b: AccountBound): void {

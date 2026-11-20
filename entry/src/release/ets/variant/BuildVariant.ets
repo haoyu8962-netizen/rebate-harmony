@@ -217,6 +217,14 @@ export class BuildVariant {
   /** Release 不认任何调试启动参数。 */
   static applyLaunchOptions(context: common.ApplicationContext, want: Want): void {
   }
+
+  /**
+   * 换手机号入口（FU-HM-PHONECHANGE-B120B，D10-2203 ⑤）：Release 恒不可用——设置页手机号行（已绑定）显示为不可点、换号子页工厂不建，
+   * 不认任何调试覆盖名单。B1-20b 部署 staging 后另开小单开门。
+   */
+  static phoneChangeAvailable(): boolean {
+    return false;
+  }
 }
 
 /** Release 首屏不叠加任何内容。 */

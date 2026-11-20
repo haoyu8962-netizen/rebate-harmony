@@ -150,8 +150,10 @@ export class DebugFakeServer implements HttpTransport, HttpStreamTransport {
     // LOCK-harmony 段 3：钱包假服务另拿 Authorization（step_up 发码要会话）、本次请求账号的 phone_bound（按同一分派取 getMe）与
     // Idempotency-Key（保存收款同键重放回原结果）。
     const auth: string | undefined = request.headers[NetworkHeaders.AUTHORIZATION];
+    // FU-HM-PHONECHANGE-B120B：换号补充场景（step_up 发码 / 验证 30414、新号等于当前号）先于账号假服务的原分派。
     const answered: FakeAnswer | null = DebugFakeClipboard.answerConsent(request.url, request.method, request.body,
-      request.headers[NetworkHeaders.SIGN]) ?? DebugFakeAccount.answer(request.url, request.method, request.body,
+      request.headers[NetworkHeaders.SIGN]) ?? DebugFakeAccount.answerB120b(request.url, request.method, request.body,
+      request.headers[NetworkHeaders.STEP_UP_TOKEN]) ?? DebugFakeAccount.answer(request.url, request.method, request.body,
       request.headers[NetworkHeaders.AUTHORIZATION], request.headers[NetworkHeaders.STEP_UP_TOKEN])
       ?? DebugFakeMe.answer(request.url, request.method, request.body)
       ?? DebugFakeWallet.answer(request.url, request.method, request.body,

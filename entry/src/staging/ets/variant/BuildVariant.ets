@@ -636,6 +636,23 @@ export class BuildVariant {
       // 设置失败时按系统字号继续。
     }
   }
+
+  /**
+   * 换手机号入口（FU-HM-PHONECHANGE-B120B，D10-2203 ⑤）：假服务闸门放行（DebugFakeServer.mockGate）时可用，或
+   * couli_debug_route_available 名单含 PhoneChange 时可用；couli_debug_route_unavailable 含 PhoneChange 时以不可用为准。两份名单
+   * 复用上面 routeSpec 的覆盖（同一道闸 DebugMockGate.allowedNow，prod 环境不生效），不加新参数名、不加路由名。staging 直连真服务
+   * 又没给覆盖时不可用（B1-20b 还没部署 staging）。静态、不用 this。
+   */
+  static phoneChangeAvailable(): boolean {
+    const name: string = 'PhoneChange';
+    if (BuildVariant.unavailableOverride.indexOf(name) >= 0 && DebugMockGate.allowedNow(true)) {
+      return false;
+    }
+    if (DebugFakeServer.mockGate()) {
+      return true;
+    }
+    return BuildVariant.availableOverride.indexOf(name) >= 0 && DebugMockGate.allowedNow(true);
+  }
 }
 
 /** 首屏开发信息：令牌版本、构建配置名、调试面板入口（英文开发字样）。 */

@@ -93,6 +93,11 @@ export class PhoneChangeSnapshot {
   /** 30414：页内提示加【联系客服】（G05）。 */
   showCustomerService: boolean = false;
   blocked: PhoneBlockedDialog | null = null;
+  /**
+   * 「换号已关闭」弹窗（30414，B1-20b；FU-HM-PHONECHANGE-B120B）：正文 error.30414（assertive，seq 供页面去重），按钮【联系客服】
+   * （contactCs）与【知道了】（finish），任一按钮之后都回设置页。没有弹窗为 null；页面不可见时不置位，回到可见（onShown）再置位。
+   */
+  disabledDialog: AccountMessage | null = null;
   pending: AccountPendingView | null = null;
   pendingBusy: boolean = false;
   /** 二次验证面板要打开（第 2 步提交或确认得到 10003）。 */
@@ -110,6 +115,8 @@ export class PhoneChangeSnapshot {
 export class PhoneChangeController implements AccountSessionAware {
   static readonly SEND_OPERATION: string = 'sendSmsCode';
   static readonly ME_OPERATION: string = 'getMe';
+  /** 换号开关关闭（30414）的弹窗正文键（契约文案 error.30414）。 */
+  static readonly DISABLED_KEY: string = 'error.30414';
   private static instances: number = 0;
   readonly identity: AccountIdentity;
   readonly flow: AccountSensitiveFlow;
@@ -148,6 +155,15 @@ export class PhoneChangeController implements AccountSessionAware {
    */
   private deferredBlocked: PhoneBlockedDialog | null = null;
   private deferredBlockedAt: DeferredResult | null = null;
+  /**
+   * 换号开关关闭（30414，B1-20b）：本子页实例一旦得到 30414（第 1 步发码 / 验证、10003 面板发码 / 验证、提交、确认、放弃得 completed
+   * 原 30414、别处结算同一键得 30414）就进入终态：第 1 步执行器与面板关掉、第 2 步表单与倒计时清掉、phone_change 令牌作废，之后各入口
+   * 都不发请求，只等弹窗的两个按钮回设置页。switchedOffShown：弹窗已经置位过（不可见时延后，回到可见再置位一次）。
+   */
+  private switchedOff: boolean = false;
+  private switchedOffShown: boolean = false;
+  /** 10003 后打开的二次验证面板（createStepUp 给页面的那个；30414 时由本控制器关掉）。 */
+  private panel: StepUpController | null = null;
   onChange: (snapshot: PhoneChangeSnapshot) => void = (_s: PhoneChangeSnapshot) => {
   };
   /**
@@ -219,6 +235,7 @@ export class PhoneChangeController implements AccountSessionAware {
     this.nav.back();
     this.surfaceDeferred();
     this.surfaceBlocked();
+    this.surfaceSwitchedOff();
     this.syncPending();
     this.emit();
   }
@@ -251,7 +268,7 @@ export class PhoneChangeController implements AccountSessionAware {
     this.step1Ctl = null;
     const s: PhoneChangeSnapshot = this.state;
     s.step = PhoneChangeStep.STEP1;
-    if (account === null) {
+    if (account === null || this.switchedOff) {
       return;
     }
     const c: StepUpController = new StepUpController(this.d, 'phone_change', account, this.identity.key,
@@ -259,6 +276,11 @@ export class PhoneChangeController implements AccountSessionAware {
     c.onChange = (snap: StepUpSnapshot): void => {
       if (this.alive && this.step1Ctl === c) {
         s.step1 = snap;
+        if (PhoneChangeController.stepUpSwitchedOff(snap)) {
+          // B1-20b（brief §1-2）：第 1 步发码 / 验证得 30414——只看执行器快照的错误键识别，StepUpController 不改。
+          this.landSwitchedOff();
+          s.version++;
+        }
         this.emit();
       }
     };
@@ -277,8 +299,8 @@ export class PhoneChangeController implements AccountSessionAware {
   /** 【获取验证码】（第 1 步，绑定渲染时版本）。G02：取不到号码不发。 */
   sendStep1(renderVersion: number): boolean {
     const c: StepUpController | null = this.step1Ctl;
-    if (!this.alive || c === null || renderVersion !== this.state.version || this.state.step !== PhoneChangeStep.STEP1
-      || !this.state.phoneKnown) {
+    if (!this.alive || this.switchedOff || c === null || renderVersion !== this.state.version
+      || this.state.step !== PhoneChangeStep.STEP1 || !this.state.phoneKnown) {
       return false;
     }
     this.nav.capture();
@@ -287,7 +309,8 @@ export class PhoneChangeController implements AccountSessionAware {
 
   setStep1Code(renderVersion: number, text: string): boolean {
     const c: StepUpController | null = this.step1Ctl;
-    if (!this.alive || c === null || renderVersion !== this.state.version || this.state.step !== PhoneChangeStep.STEP1) {
+    if (!this.alive || this.switchedOff || c === null || renderVersion !== this.state.version
+      || this.state.step !== PhoneChangeStep.STEP1) {
       return false;
     }
     c.setCode(text);
@@ -297,8 +320,8 @@ export class PhoneChangeController implements AccountSessionAware {
   /** 【下一步】：输满 6 位才可用，stepUp {action: phone_change, code}。 */
   next(renderVersion: number): boolean {
     const c: StepUpController | null = this.step1Ctl;
-    if (!this.alive || c === null || renderVersion !== this.state.version || this.state.step !== PhoneChangeStep.STEP1
-      || !this.state.phoneKnown) {
+    if (!this.alive || this.switchedOff || c === null || renderVersion !== this.state.version
+      || this.state.step !== PhoneChangeStep.STEP1 || !this.state.phoneKnown) {
       return false;
     }
     return c.verify();
@@ -306,7 +329,7 @@ export class PhoneChangeController implements AccountSessionAware {
 
   get canNext(): boolean {
     const c: StepUpController | null = this.step1Ctl;
-    return this.alive && this.state.phoneKnown && c !== null && c.canVerify;
+    return this.alive && !this.switchedOff && this.state.phoneKnown && c !== null && c.canVerify;
   }
 
   // ---------------------------------------------------------------- 第 2 步
@@ -314,7 +337,8 @@ export class PhoneChangeController implements AccountSessionAware {
   /** 新号输入（只去首尾空白；不做规范化与号段判断，G33）。 */
   setNewPhone(renderVersion: number, text: string): boolean {
     const s: PhoneChangeSnapshot = this.state;
-    if (!this.alive || renderVersion !== s.version || s.step !== PhoneChangeStep.STEP2 || s.submitting) {
+    if (!this.alive || this.switchedOff || renderVersion !== s.version || s.step !== PhoneChangeStep.STEP2
+      || s.submitting) {
       return false;
     }
     if (text !== s.newPhone) {
@@ -329,7 +353,8 @@ export class PhoneChangeController implements AccountSessionAware {
 
   setCode(renderVersion: number, text: string): boolean {
     const s: PhoneChangeSnapshot = this.state;
-    if (!this.alive || renderVersion !== s.version || s.step !== PhoneChangeStep.STEP2 || s.submitting) {
+    if (!this.alive || this.switchedOff || renderVersion !== s.version || s.step !== PhoneChangeStep.STEP2
+      || s.submitting) {
       return false;
     }
     s.code = text.replace(/[^0-9]/g, '').substring(0, 6);
@@ -352,10 +377,11 @@ export class PhoneChangeController implements AccountSessionAware {
   /**
    * 归属于提交时那个新号 / 验证码的字段反馈（FU-HM-0722 R1-05，F-X-15 的过滤范围）：20001 号码错误、20002 / 20003 验证码、304xx 号码已被
    * 占用等、44001 风控弹窗，以及策略标了字段错误的结局。5xxxx、42901 限流、10xxx 补办等不属于字段反馈，held 重发时照常显示。
+   * B1-20b（brief §1-1）：30414（换号开关关闭）与号码无关，不算号码类反馈，held 重发得到也照样弹窗 + 回设置。
    */
   static fieldFeedback(o: AccountOutcome, code: number): boolean {
     return o.fieldError !== 'none' || o.nextState === PhoneChangeOutcomePolicy.BLOCKED || code === 20001 || code === 20002
-      || code === 20003 || code === 44001 || (code >= 30000 && code <= 39999);
+      || code === 20003 || code === 44001 || (code >= 30000 && code <= 39999 && code !== 30414);
   }
 
   private bindKey(): string {
@@ -365,7 +391,7 @@ export class PhoneChangeController implements AccountSessionAware {
   get canSendBind(): boolean {
     const s: PhoneChangeSnapshot = this.state;
     const phone: string = s.newPhone.trim();
-    return this.alive && s.step === PhoneChangeStep.STEP2 && phone.length > 0 && !s.submitting
+    return this.alive && !this.switchedOff && s.step === PhoneChangeStep.STEP2 && phone.length > 0 && !s.submitting
       && this.d.session.bindSms.remainingMs(this.bindKey(), this.d.clock()) === 0
       && !this.d.session.bindSms.sending(this.bindKey());
   }
@@ -418,7 +444,7 @@ export class PhoneChangeController implements AccountSessionAware {
         message = result.code === 20001 ? AccountMessages.of('error.20001.phone_invalid')
           : AccountMessages.raw(failure.message.text);
       }
-      if (!this.alive || s !== this.state) {
+      if (!this.alive || s !== this.state || this.switchedOff) {
         return;
       }
       if (gen !== this.step2Gen || rev !== this.phoneRev || phone !== s.newPhone.trim()) {
@@ -473,7 +499,8 @@ export class PhoneChangeController implements AccountSessionAware {
 
   get canSubmit(): boolean {
     const s: PhoneChangeSnapshot = this.state;
-    return this.alive && s.step === PhoneChangeStep.STEP2 && s.newPhone.trim().length > 0 && s.code.length === 6
+    return this.alive && !this.switchedOff && s.step === PhoneChangeStep.STEP2 && s.newPhone.trim().length > 0
+      && s.code.length === 6
       && !s.submitting && s.pending === null && !this.flow.storeUnavailable() && !this.d.session.phoneGate.active
       && s.stepUpAction === null && !this.flow.inFlightElsewhere();
   }
@@ -516,8 +543,8 @@ export class PhoneChangeController implements AccountSessionAware {
   confirm(renderVersion: number, renderKey: string): boolean {
     const s: PhoneChangeSnapshot = this.state;
     const p: AccountPendingView | null = s.pending;
-    if (!this.alive || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion || renderKey !== p.key
-      || p.inFlight || this.d.session.phoneGate.active) {
+    if (!this.alive || this.switchedOff || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
+      || renderKey !== p.key || p.inFlight || this.d.session.phoneGate.active) {
       return false;
     }
     s.pendingBusy = true;
@@ -534,8 +561,8 @@ export class PhoneChangeController implements AccountSessionAware {
   abandon(renderVersion: number, renderKey: string): boolean {
     const s: PhoneChangeSnapshot = this.state;
     const p: AccountPendingView | null = s.pending;
-    if (!this.alive || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion || renderKey !== p.key
-      || p.inFlight || this.d.session.phoneGate.active) {
+    if (!this.alive || this.switchedOff || p === null || s.pendingBusy || renderVersion !== this.flow.pendingVersion
+      || renderKey !== p.key || p.inFlight || this.d.session.phoneGate.active) {
       return false;
     }
     s.pendingBusy = true;
@@ -552,22 +579,33 @@ export class PhoneChangeController implements AccountSessionAware {
 
   createStepUp(): StepUpController | null {
     const account: string | null = this.identity.account;
-    if (!this.alive || this.state.stepUpAction === null || account === null) {
+    if (!this.alive || this.switchedOff || this.state.stepUpAction === null || account === null) {
       return null;
     }
     const c: StepUpController = new StepUpController(this.d, 'phone_change', account, this.identity.key,
       this.identity.epoch);
     c.onToken = (token: string): void => this.afterStepUp(token);
+    // B1-20b（brief §1-1、§1-2）：面板发码 / 验证得 30414 → 关面板、落弹窗、回设置（只看快照错误键，StepUpController 不改）。
+    // 页面的面板驱动（features/me AccountKit.accountStepUpDriver）保留这个处理、再推给面板视图，不覆盖它。
+    c.onChange = (snap: StepUpSnapshot): void => {
+      if (this.alive && this.panel === c && PhoneChangeController.stepUpSwitchedOff(snap)) {
+        this.landSwitchedOff();
+        this.state.version++;
+        this.emit();
+      }
+    };
+    this.panel = c;
     return c;
   }
 
   private afterStepUp(token: string): void {
     const s: PhoneChangeSnapshot = this.state;
     const key: string | null = this.stepUpKey;
-    if (!this.alive || s.stepUpAction === null || key === null) {
+    if (!this.alive || this.switchedOff || s.stepUpAction === null || key === null) {
       return;
     }
     s.stepUpAction = null;
+    this.panel = null;
     if (this.stepUpPhase === AccountPhase.SUBMIT) {
       if (this.submitClick === null || !this.submitClick.valid(this.d) || this.flow.keySuperseded(key)) {
         s.submitting = false;
@@ -599,6 +637,7 @@ export class PhoneChangeController implements AccountSessionAware {
       return;
     }
     s.stepUpAction = null;
+    this.panel = null;
     s.submitting = false;
     s.pendingBusy = false;
     this.syncPending();
@@ -646,6 +685,17 @@ export class PhoneChangeController implements AccountSessionAware {
     const current: boolean = this.nav.current(gen);
     s.submitting = false;
     s.pendingBusy = false;
+    if (o.phoneChangeDisabled || this.switchedOff) {
+      // B1-20b（brief §1-1）：提交（含 held 原键重发）、确认、放弃得 completed 原 30414 → 弹窗 + 回设置；不再落第 2 步横幅、【联系客服】
+      // 与 already_done 轻提示。已进入终态后迟到的其他结局也只同步未决记录，不再改表单。
+      if (o.phoneChangeDisabled) {
+        this.landSwitchedOff();
+      }
+      this.syncPending();
+      s.version++;
+      this.emit();
+      return;
+    }
     if (o.autoResendSameKey && o.stepUpAction !== null) {
       this.stepUpKey = step.key;
       this.stepUpPhase = step.phase === AccountPhase.CONFIRM ? AccountPhase.CONFIRM : AccountPhase.SUBMIT;
@@ -809,7 +859,8 @@ export class PhoneChangeController implements AccountSessionAware {
 
   openGuide(renderVersion: number, renderRoute: string): boolean {
     const s: PhoneChangeSnapshot = this.state;
-    if (!this.alive || !this.nav.visible || renderVersion !== s.version || s.guideRoute !== renderRoute) {
+    if (!this.alive || this.switchedOff || !this.nav.visible || renderVersion !== s.version
+      || s.guideRoute !== renderRoute) {
       return false;
     }
     s.guideRoute = null;
@@ -831,23 +882,99 @@ export class PhoneChangeController implements AccountSessionAware {
     if (!this.alive) {
       return false;
     }
+    // B1-20b：「换号已关闭」弹窗的【联系客服】——先打开客服，再关子页回设置页（与结果页【完成】同一出口 onFinished）。
+    const disabled: boolean = this.state.disabledDialog !== null;
     this.state.blocked = null;
+    this.state.disabledDialog = null;
     this.nav.away();
     this.d.customerService();
     this.emit();
+    if (disabled) {
+      const done: (() => void) | null = this.onFinished;
+      if (done !== null) {
+        done();
+      }
+    }
     return true;
   }
 
-  /** 结果页【完成】：回 Settings（关掉本子页）。 */
+  /** 结果页【完成】、「换号已关闭」弹窗的【知道了】（B1-20b）：回 Settings（关掉本子页）。 */
   finish(renderVersion: number): boolean {
-    if (this.left || renderVersion !== this.state.version || this.state.step !== PhoneChangeStep.DONE) {
+    if (this.left || renderVersion !== this.state.version
+      || (this.state.step !== PhoneChangeStep.DONE && this.state.disabledDialog === null)) {
       return false;
+    }
+    if (this.state.disabledDialog !== null) {
+      this.state.disabledDialog = null;
+      this.emit();
     }
     const done: (() => void) | null = this.onFinished;
     if (done !== null) {
       done();
     }
     return true;
+  }
+
+  /** 第 1 步与 10003 面板的 30414 识别（只看 StepUpController 快照的错误键；StepUpController 不改，brief §1-2）。 */
+  static stepUpSwitchedOff(snap: StepUpSnapshot): boolean {
+    return snap.error !== null && snap.error.textKey === PhoneChangeController.DISABLED_KEY;
+  }
+
+  /**
+   * 进入「换号已关闭」终态（B1-20b，brief §1-1）：第 1 步执行器、10003 面板关掉；第 2 步表单、倒计时、字段错误与横幅清掉；phone_change
+   * 令牌作废；之后各入口不发请求（各入口另判 switchedOff）。弹窗页面可见时立即置位，不可见时等 onShown（照 44001 的延后弹窗）。
+   * 不自动回设置页：等弹窗按钮（finish / contactCs）。
+   */
+  private landSwitchedOff(): void {
+    const s: PhoneChangeSnapshot = this.state;
+    if (!this.switchedOff) {
+      this.switchedOff = true;
+      this.step1Ctl?.close();
+      this.step1Ctl = null;
+      this.panel?.close();
+      this.panel = null;
+      s.stepUpAction = null;
+      this.deferredStepUp = null;
+      this.deferredBlocked = null;
+      this.deferredBlockedAt = null;
+      s.blocked = null;
+      // 第 2 步表单作废（旧发码结果许可同时作废，F-HM-32 的世代）。
+      this.step2Gen++;
+      this.phoneRev++;
+      s.newPhone = '';
+      s.code = '';
+      s.phoneError = null;
+      s.codeError = null;
+      s.banner = null;
+      s.notice = null;
+      s.codeSent = false;
+      s.sending = false;
+      s.countdown = 0;
+      s.sendRateLimited = false;
+      s.submitting = false;
+      s.pendingBusy = false;
+      s.showCustomerService = false;
+      s.guideRoute = null;
+      s.guideCode = 0;
+      if (this.timer !== -1) {
+        clearTimeout(this.timer);
+        this.timer = -1;
+      }
+      if (this.identity.valid(this.d)) {
+        this.d.session.tokens.on10003('phone_change');
+      }
+    }
+    this.surfaceSwitchedOff();
+  }
+
+  /** 「换号已关闭」弹窗置位：只置一次，且只在本子页可见时（不可见时由 onShown 再调）。 */
+  private surfaceSwitchedOff(): void {
+    if (!this.switchedOff || this.switchedOffShown || !this.alive || !this.nav.visible) {
+      return;
+    }
+    this.switchedOffShown = true;
+    this.state.disabledDialog = AccountMessages.of(PhoneChangeController.DISABLED_KEY);
+    this.state.version++;
   }
 
   private resetForm(): void {
@@ -894,6 +1021,15 @@ export class PhoneChangeController implements AccountSessionAware {
    */
   private landSettled(settled: PendingSettlement, was: AccountPendingView): boolean {
     const s: PhoneChangeSnapshot = this.state;
+    if ((settled.outcome !== null && settled.outcome.phoneChangeDisabled) || this.switchedOff) {
+      // B1-20b（brief §1-1）：别处（另一个换号实例、BindPhone 页）确认得 30414、放弃得 completed 原 30414 → 本页同样弹窗 + 回设置。
+      // 待确认已结束：与同页确认得 30414 一样落第 2 步（表单已作废、入口已关），弹窗盖在上面。
+      s.step = PhoneChangeStep.STEP2;
+      if (!this.switchedOff) {
+        this.landSwitchedOff();
+      }
+      return true;
+    }
     if (settled.nextState === PhoneChangeOutcomePolicy.STEP1) {
       this.resetForm();
       this.startStep1();
@@ -956,7 +1092,7 @@ export class PhoneChangeController implements AccountSessionAware {
    */
   back(): boolean {
     const s: PhoneChangeSnapshot = this.state;
-    if (!this.alive || s.step !== PhoneChangeStep.STEP2 || s.submitting || s.stepUpAction !== null) {
+    if (!this.alive || this.switchedOff || s.step !== PhoneChangeStep.STEP2 || s.submitting || s.stepUpAction !== null) {
       return false;
     }
     this.resetForm();
@@ -990,6 +1126,7 @@ export class PhoneChangeController implements AccountSessionAware {
     }
     this.step1Ctl?.close();
     this.step1Ctl = null;
+    this.panel = null;
     for (const u of this.unsubscribers) {
       u();
     }

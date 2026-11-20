@@ -5,6 +5,10 @@ import {
 } from 'designsystem';
 import { fmt1, MeTexts } from './MeKit';
 
+/** 执行器 → 发起方最初挂的 onChange（accountStepUpDriver 串接用；执行器回收后随之释放）。 */
+const originalStepUpChange: WeakMap<StepUpController, (s: StepUpSnapshot) => void> =
+  new WeakMap<StepUpController, (s: StepUpSnapshot) => void>();
+
 /**
  * 「我的」里的二次验证面板（申请注销 account_deletion、换手机号 phone_change；APP-13a §2 第 7 项）：视图在 DesignSystem（与钱包共用），
  * 这里把 Core 的执行器接到面板驱动上。标题按 action 变（草稿 step_up.title.<action>）。
@@ -35,7 +39,19 @@ export function accountStepUpDriver(c: StepUpController): StepUpPanelDriver {
     return p;
   };
   d.state = toState(c.snapshot);
-  c.onChange = (s: StepUpSnapshot): void => d.push(toState(s));
+  // FU-HM-PHONECHANGE-B120B（brief §5）：发起方在执行器上挂的处理（换号控制器 createStepUp 挂的 30414 识别：关面板、弹窗、回设置）
+  // 先照常执行，再推给面板视图——不覆盖它。按执行器记住最初的处理：组件重建再包同一个执行器时仍从最初的处理接，不叠包、
+  // 旧 driver 也不再收到推送。注销页的执行器没挂 onChange（缺省空函数），行为不变。
+  let first: ((s: StepUpSnapshot) => void) | undefined = originalStepUpChange.get(c);
+  if (first === undefined) {
+    first = c.onChange;
+    originalStepUpChange.set(c, first);
+  }
+  const owner: (s: StepUpSnapshot) => void = first;
+  c.onChange = (s: StepUpSnapshot): void => {
+    owner(s);
+    d.push(toState(s));
+  };
   return d;
 }
 

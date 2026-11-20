@@ -445,9 +445,12 @@ export class AppMe {
         null);
     const contract: boolean = BuildVariant.meContract() !== null;
     // APP-13a：注销行只在路由可用时（G01）；手机号行在已绑定且本机取得到号码时进换号子页（编排者补充 G02），强更中不可达。
+    // FU-HM-PHONECHANGE-B120B（D10-2203 ⑤）：换号入口另按 BuildVariant.phoneChangeAvailable()（Release 先挡住）；不可用时已绑定的手机号行
+    // 不可点（与「未知」同一种样式），不隐藏；未绑定去 BindPhone 不变。
     return SettingsItems.of(level, MePlatform.HARMONY, phoneBound, contract, contract,
       AppMe.routeAvailable('DeleteAccount') && AppMe.sessionFull(),
-      AppAccount.ownedPhoneKnown() && !AppUpdate.shared.belowMin && AppMe.sessionFull());
+      AppAccount.ownedPhoneKnown() && !AppUpdate.shared.belowMin && AppMe.sessionFull()
+        && BuildVariant.phoneChangeAvailable());
   }
 
   settingsNickname(): string {

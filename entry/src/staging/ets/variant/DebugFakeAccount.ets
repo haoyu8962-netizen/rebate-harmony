@@ -275,4 +275,31 @@ export class DebugFakeAccount {
       + '"pending_credit_paused_fen":0,"next_credit_period":"2026-10","credit_overdue":false,"withdrawn_fen":500,'
       + '"risk_paused_reason":null,"withdraw_enabled":true}', 300);
   }
+
+  /**
+   * FU-HM-PHONECHANGE-B120B（brief §1-6，B1-20b）：换号的三个补充场景，由 DebugFakeServer 在 answer 之前先问；不命中返回 null（照原分派）。
+   * - phone_sms_30414：第 1 步 / 10003 面板的 step_up 发码（action=phone_change）回 30414（换号开关关闭）；提现、收款的发码不受影响；
+   * - phone_stepup_30414：二次验证 stepUp（action=phone_change）回 30414；提现、收款的验证不受影响；
+   * - phone_same_number：带第 1 步令牌的换号提交回 20001 data.fields=["phone"]、不带 reason（新号等于当前号，bind-phone.ts:283）。
+   * 可与其他场景逗号组合；场景名都以 phone_ 开头，换号提交照 changeScene 的口径由本服务答（没带令牌回 10003）。
+   */
+  static answerB120b(url: string, method: string, body: string | null, stepUpToken: string | undefined): FakeAnswer | null {
+    const path: string = url.split('?')[0];
+    if (method !== 'POST' || body === null) {
+      return null;
+    }
+    const phoneChange: boolean = body.indexOf('"phone_change"') >= 0;
+    if (path.endsWith('/v1/auth/sms-codes') && phoneChange && body.indexOf('"step_up"') >= 0
+      && DebugFakeAccount.has('phone_sms_30414')) {
+      return new FakeAnswer(30414, '{}', 400);
+    }
+    if (path.endsWith('/v1/auth/step-up') && phoneChange && DebugFakeAccount.has('phone_stepup_30414')) {
+      return new FakeAnswer(30414, '{}', 400);
+    }
+    if (path.endsWith('/v1/me/phone') && stepUpToken !== undefined && stepUpToken.length > 0
+      && DebugFakeAccount.has('phone_same_number')) {
+      return new FakeAnswer(20001, '{"fields":["phone"]}', 400);
+    }
+    return null;
+  }
 }

@@ -181,6 +181,11 @@ export class AccountOutcome {
   clearsAllStepUpTokens: boolean = false;
   /** 30414：页内提示加【联系客服】（G05）。 */
   showCustomerService: boolean = false;
+  /**
+   * 换号开关关闭（30414，B1-20b；FU-HM-PHONECHANGE-B120B）：提交、确认、放弃得 completed 原 30414 时为 true。换号页据此弹「换号已关闭」
+   * 弹窗并回设置页；BindPhone 页（首次绑定）不读它、行为不变。不进向量 JSON（共享向量不变）。
+   */
+  phoneChangeDisabled: boolean = false;
   /** 表外码且字典没有：用服务端 msg（G26）。 */
   serverMsg: boolean = false;
   /** 本地没有发出（存储失败、账号不符）：键状态以存储为准。 */
@@ -864,6 +869,7 @@ export class PhoneChangeOutcomePolicy {
         PhoneChangeOutcomePolicy.ends(out, PhoneChangeOutcomePolicy.STEP2, AccountCodes.textKey(input.code, input.data));
         out.toastKey = 'pending_confirm.already_done';
         out.serverMsg = out.textKey === null;
+        out.phoneChangeDisabled = input.code === 30414;
         return out;
       case AccountResultInput.ABANDONED:
         PhoneChangeOutcomePolicy.restart(out, 'pending_confirm.abandoned');
@@ -964,6 +970,7 @@ export class PhoneChangeOutcomePolicy {
       if (code >= 30000 && code <= 39999) {
         PhoneChangeOutcomePolicy.ends(out, PhoneChangeOutcomePolicy.STEP2, AccountCodes.textKey(code, data));
         out.showCustomerService = code === 30414;
+        out.phoneChangeDisabled = code === 30414;
         out.serverMsg = out.textKey === null;
         return out;
       }
@@ -977,8 +984,15 @@ export class PhoneChangeOutcomePolicy {
     }
     if (code === 20001) {
       // G33：服务端规范化；phone_invalid 时在新号旁提示，保留新号与 token，键结束。
-      PhoneChangeOutcomePolicy.ends(out, PhoneChangeOutcomePolicy.STEP2, AccountCodes.textKey(20001, data) ?? 'error.20001');
-      out.fieldError = PhoneChangeOutcomePolicy.field(data);
+      // B1-20b（FU-HM-PHONECHANGE-B120B，brief §1-3）：新号等于当前号时服务端回 20001 fields=["phone"]、不带 reason（rebate-platform
+      // bind-phone.ts:283）：字段落在 phone 且 fields 含 phone、没有 reason → 文案固定 error.20001.phone_invalid。带 reason 的、fields=[code]
+      // 的、既无 fields 也无 reason 的照旧；确认分支（上面 cannot_confirm）不变。
+      const fieldError: string = PhoneChangeOutcomePolicy.field(data);
+      const sameNumber: boolean = fieldError === 'phone' && str(data, 'reason') === null
+        && PhoneChangeOutcomePolicy.fieldsHasPhone(data);
+      PhoneChangeOutcomePolicy.ends(out, PhoneChangeOutcomePolicy.STEP2, sameNumber ? 'error.20001.phone_invalid'
+        : (AccountCodes.textKey(20001, data) ?? 'error.20001'));
+      out.fieldError = fieldError;
       return out;
     }
     if (code === 20002 || code === 20003) {
@@ -1014,6 +1028,7 @@ export class PhoneChangeOutcomePolicy {
       PhoneChangeOutcomePolicy.ends(out, PhoneChangeOutcomePolicy.STEP2, code === 30411 ? 'error.30411'
         : AccountCodes.textKey(code, data));
       out.showCustomerService = code === 30414;
+      out.phoneChangeDisabled = code === 30414;
       out.serverMsg = out.textKey === null;
       return out;
     }
@@ -1029,6 +1044,12 @@ export class PhoneChangeOutcomePolicy {
       return 'code';
     }
     return 'phone';
+  }
+
+  /** data.fields 是数组且含 "phone"（B1-20b 新号等于当前号的判据之一）。 */
+  private static fieldsHasPhone(data: AccountRecord | null): boolean {
+    const fields: JSONValue | undefined = data === null ? undefined : data['fields'];
+    return Array.isArray(fields) && (fields as JSONValue[]).indexOf('phone') >= 0;
   }
 
   private static decorate(out: AccountOutcome, input: AccountResultInput): void {
