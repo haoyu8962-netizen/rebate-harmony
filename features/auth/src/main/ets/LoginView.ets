@@ -271,7 +271,8 @@ export struct LoginView {
     // 离开登录页：在途的发码与登录结果不再改页面、不恢复 pending_action（会话若已保存照常生效）。
     this.active = false;
     this.pageFlow.backToPhone();
-    // 避让方式只注销监听（出栈 / 清栈时 ON_HIDDEN 已先到，已在回调里还原）。
+    // 避让方式：出栈 / 清栈时 ON_HIDDEN 通常已先到并还原；没到时这里兜底还原一次（已还原则无事）。
+    this.restoreAvoid();
     const listener: ((info: uiObserver.NavDestinationInfo) => void) | null = this.navListener;
     this.navListener = null;
     if (listener !== null) {
@@ -316,14 +317,28 @@ export struct LoginView {
           ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
         }
       } else if (info.state === uiObserver.NavDestinationState.ON_HIDDEN) {
-        const saved: KeyboardAvoidMode | null = this.savedAvoid;
-        this.savedAvoid = null;
-        if (saved !== null) {
-          ui.setKeyboardAvoidMode(saved);
-        }
+        this.restoreAvoid();
       }
     } catch (e) {
       // 忽略：取不到 UIContext 时不改避让方式。
+    }
+  }
+
+  /**
+   * 还原进页前的避让方式（只还原一次）。ON_HIDDEN 时调；登录成功交给 entry 之前也先调——成功后 entry 可能在同一同步区里
+   * 移除本页并打开会自己设避让方式的页（如绑定手机号页在 aboutToAppear 存原值），先还原才不会让它把本页的 RESIZE 当原值存下
+   * （评审 r1 S2-1）。离页兜底也调。
+   */
+  private restoreAvoid(): void {
+    const saved: KeyboardAvoidMode | null = this.savedAvoid;
+    this.savedAvoid = null;
+    if (saved === null) {
+      return;
+    }
+    try {
+      this.getUIContext().setKeyboardAvoidMode(saved);
+    } catch (e) {
+      // 窗口已销毁时忽略。
     }
   }
 
@@ -593,6 +608,7 @@ export struct LoginView {
     switch (outcome.stateRaw) {
       case LoginOutcome.LOGGED_IN:
         this.stopTimer();
+        this.restoreAvoid();
         this.config.onLoggedIn(outcome);
         return;
       case LoginOutcome.STALE:
@@ -660,6 +676,8 @@ export struct LoginView {
     } else {
       this.model.codeError = text;
     }
+    // 报错文字出现会把目标按钮往下推：键盘在时重新滚一次（评审 r1 S3）。
+    this.scheduleReveal();
     const ui: UIContext = this.getUIContext();
     CouliAnnounce.say(ui, text);
     const id: string = phone ? ID_PHONE : ID_CODE;
@@ -745,6 +763,7 @@ export struct LoginView {
     switch (outcome.stateRaw) {
       case OAuthLoginOutcome.LOGGED_IN:
         this.stopTimer();
+        this.restoreAvoid();
         this.config.onOAuthLoggedIn(outcome);
         return;
       case OAuthLoginOutcome.CANCELLED:
