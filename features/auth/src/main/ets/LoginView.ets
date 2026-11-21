@@ -325,9 +325,9 @@ export struct LoginView {
   }
 
   /**
-   * 还原进页前的避让方式（只还原一次）。ON_HIDDEN 时调；登录成功交给 entry 之前也先调——成功后 entry 可能在同一同步区里
-   * 移除本页并打开会自己设避让方式的页（如绑定手机号页在 aboutToAppear 存原值），先还原才不会让它把本页的 RESIZE 当原值存下
-   * （评审 r1 S2-1）。离页兜底也调。
+   * 还原进页前的避让方式（只还原一次）。ON_HIDDEN 时调；登录成功拿到结果时也立即调——Core 在返回结果之前已移除本页、
+   * 推入下一页（如绑定手机号页，它在 aboutToAppear 存原值），但新页要到下一帧才构建，结果交回本页这段在微任务里，
+   * 所以在这里还原能赶在新页存原值之前，不让它把本页的 RESIZE 当原值存下（评审 r1 S2-1；先后未上设备核）。离页兜底也调。
    */
   private restoreAvoid(): void {
     const saved: KeyboardAvoidMode | null = this.savedAvoid;
