@@ -12,9 +12,12 @@
 // 无按钮外观）、04 / 05 红（错误没关联到输入框）、06 绿（钉住判据 1）。
 import { describe, expect, it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
+import { KeyboardAvoidMode, window } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import {
   appTree, appUi, attr, capture, density, ensureFull, findById, hitRect, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node,
-  overlaps, Pixels, relaunchCold, settledNode, token, vp, windowLayoutWidth, windowWidthVp, freshRead, withRefind, boundsFresh
+  overlaps, Pixels, relaunchCold, settledNode, token, vp, windowLayoutWidth, windowWidthVp, freshRead, withRefind, boundsFresh, layoutSize,
+  settleOn
 } from './Hm07vHomeRig';
 import { check, GUEST, maxDiff, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, fontOf, openMeTab, safeTexts, tabItem, T_ORDERS_TAB, textWidthVp, weightOf } from './Me12vRig';
@@ -32,7 +35,9 @@ export const LOGINPHONE_DEVICE_CASES: string[] = [
   'loginphone_01_login_phone_field_grows_with_font200_w320_digits_not_clipped_light_dark',
   'loginphone_06_phone_inputs_single_line_and_masked_number_unbroken_w320_font200',
   'loginphone_02_login_countdown_and_resend_are_buttons_wrap_not_truncated_w320_font200_light_dark',
-  'loginphone_03_bind_send_is_system_button_wraps_hit48_not_truncated_w320_font200_light_dark'
+  'loginphone_03_bind_send_is_system_button_wraps_hit48_not_truncated_w320_font200_light_dark',
+  // FU-LOGIN-KEYBOARD-AVOID（D10-2378）：+1 条，6 → 7（名单末尾；套件里声明在 03 之前，见用例注释）。
+  'loginphone_07_get_code_and_resend_clear_of_keyboard_font200_w320_default'
 ];
 
 const ID_PHONE: string = 'login_phone';
@@ -369,6 +374,75 @@ async function toCodeStep(): Promise<void> {
   await dropFocus();
 }
 
+// ---------------------------------------------------------------- 键盘几何（FU-LOGIN-KEYBOARD-AVOID，loginphone_07）
+
+/** 等键盘最多 3 s（brief §2）；按钮距键盘顶的最小余量 12vp（D10-2378）。 */
+const LKA_KB_WAIT_MS: number = 3000;
+const LKA_MARGIN_VP: number = 12;
+
+/**
+ * 软键盘顶边（屏幕 px）；键盘不在 / 取不到为 -1。取法照 Hm07vHomeRig.keyboardBox（未导出，Rig 不改，本文件自写）：
+ * 应用窗口的 getWindowAvoidArea(TYPE_KEYBOARD).bottomRect 加窗口偏移。窗口经 appUi() 的宿主 Context 取（与页面同一个 UIContext）。
+ */
+async function keyboardTopPx(): Promise<number> {
+  try {
+    const ctx: common.Context | undefined = (await appUi()).getHostContext();
+    if (ctx === undefined) {
+      return -1;
+    }
+    const win: window.Window = await window.getLastWindow(ctx);
+    const kb: window.Rect = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD).bottomRect;
+    if (kb.height <= 0 || kb.width <= 0) {
+      return -1;
+    }
+    return win.getWindowProperties().windowRect.top + kb.top;
+  } catch (e) {
+    return -1;
+  }
+}
+
+/** 轮询等键盘出现（底部避让区高 > 0），最多 timeoutMs；返回键盘顶 px，没出现为 -1。 */
+async function waitKeyboardTop(timeoutMs: number): Promise<number> {
+  const end: number = Date.now() + timeoutMs;
+  let top: number = await keyboardTopPx();
+  while (top < 0 && Date.now() < end) {
+    await hm07vDriver.delayMs(200);
+    top = await keyboardTopPx();
+  }
+  return top;
+}
+
+/** 应用窗口当前的键盘避让方式（写法同 Me12wcUi.test.ets:456-458 avoidMode）。 */
+async function lkaAvoidMode(): Promise<KeyboardAvoidMode> {
+  return (await appUi()).getKeyboardAvoidMode();
+}
+
+/**
+ * 键盘在时 id 按钮整块在键盘顶之上、且（键盘顶 − 按钮底）/ 密度 ≥ 12vp（容 1px 取整）。整块 = 屏上框高不小于组件树布局高 − 2px
+ * （没被 Scroll 可视区裁掉）、框顶在屏内。先等按钮位置落定（settleOn，不判定），落定后重读键盘顶。返回实测余量 vp。
+ */
+async function clearOfKeyboard(id: string, what: string, shown: string): Promise<number> {
+  const first: number = await waitKeyboardTop(LKA_KB_WAIT_MS);
+  await need(first >= 0, 'LKA_NO_KEYBOARD ' + shown + ' ' + what + '：' + LKA_KB_WAIT_MS + ' ms 内键盘没弹出（前置）');
+  await settleOn(ON.id(id));
+  const kbTop: number = await keyboardTopPx();
+  await need(kbTop >= 0, 'LKA_NO_KEYBOARD ' + shown + ' ' + what + '：按钮落定后键盘不在了（前置）');
+  const c: Component | null = await maybe(ON.id(id));
+  if (c === null) {
+    await fail('LKA_COVERED ' + shown + ' ' + what + ' 键盘弹起时不在屏上（被键盘盖住或滚不到），键盘顶 ' + Math.round(kbTop) + 'px');
+    return -1;
+  }
+  const r: Rect = await (c as Component).getBounds();
+  const size: number[] | null = await layoutSize(id);
+  const fullH: number = size === null ? 0 : size[1];
+  const d: number = density();
+  const marginVp: number = (kbTop - r.bottom) / d;
+  await need(r.top >= 0 && r.bottom > r.top && r.bottom - r.top >= fullH - 2 && r.bottom <= kbTop && kbTop - r.bottom >= LKA_MARGIN_VP * d - 1,
+    'LKA_COVERED ' + shown + ' ' + what + ' 按钮 ' + box(r) + '（布局高 ' + Math.round(fullH) + 'px）键盘顶 ' + Math.round(kbTop) +
+    'px，余量 ' + marginVp.toFixed(1) + 'vp（应整块在键盘顶之上且 ≥ ' + LKA_MARGIN_VP + 'vp）');
+  return marginVp;
+}
+
 // ---------------------------------------------------------------- 用例
 
 export default function loginPhoneUiTest() {
@@ -524,6 +598,76 @@ export default function loginPhoneUiTest() {
         await (await node(ON.id(ID_CLOSE), '验证码步返回')).click();
         await idle();
       }
+      await relaunchCold(defaultsDisplay());
+    });
+
+    // FU-LOGIN-KEYBOARD-AVOID（D10-2378，写手先红）：键盘弹起时【获取验证码】/【重新获取】整块露在键盘顶之上、余量 ≥ 12vp，键盘在时直接点得到；
+    // 离开登录页后窗口避让方式还原（不是 RESIZE）。三种显示各冷启动一次：(a) 200% 整窗宽 (b) 100% 宽 320 (c) 默认。
+    // 声明在 03 之前（03 经微信登录改了身份，本条要游客登录页）；名单里排在末尾。不写 / 不清设备剪贴板（D10-2351），不截图。
+    // 现树预期：(a) 第一处 LKA_COVERED 红（200% 下【获取验证码】在键盘之下，VISUAL-TRIAL-1121/harmony-report.md :79）。
+    it('loginphone_07_get_code_and_resend_clear_of_keyboard_font200_w320_default', 0, async () => {
+      const shows: string[] = ['(a) 200% 整窗宽', '(b) 100% 宽 320', '(c) 默认'];
+      const launches: Launch[] = [display('2', windowLayoutWidth(), 'light'), display('1', '320', 'light'), defaultsDisplay()];
+      const margins: string[] = [];
+      for (let i: number = 0; i < shows.length; i++) {
+        const shown: string = shows[i];
+        await relaunchCold(launches[i]);
+        const original: KeyboardAvoidMode = await lkaAvoidMode();
+        await openLogin();
+        await agree();
+        // 1–2：点手机号框获焦、等键盘，【获取验证码】整块在键盘顶之上且余量 ≥ 12vp。
+        await (await reveal(ON.id(ID_PHONE), '登录页手机号')).click();
+        const focused: number = await clearOfKeyboard(ID_GET_CODE, '【获取验证码】（手机号框获焦）', shown);
+        // 3：输合法号码（照 01 的输法），键盘仍在时直接点【获取验证码】（不 dropFocus、不收键盘）。
+        await typeInto(ID_PHONE, PHONE, '登录页手机号');
+        if ((await keyboardTopPx()) < 0) {
+          // 输号后键盘若被收起，再点一次框把它叫回来（前置，不是判据）。
+          await (await node(ON.id(ID_PHONE), '登录页手机号')).click();
+        }
+        const typed: number = await clearOfKeyboard(ID_GET_CODE, '【获取验证码】（输号后）', shown);
+        margins.push(shown + ' 获焦 ' + focused.toFixed(1) + 'vp / 输号后 ' + typed.toFixed(1) + 'vp');
+        await need((await keyboardTopPx()) >= 0, 'LKA_KEYBOARD_GONE ' + shown + ' 点【获取验证码】前键盘已不在（前置）');
+        await (await node(ON.id(ID_GET_CODE), '【获取验证码】')).click();
+        // App 接到点击：出「同意并获取验证码」确认框或进验证码步（判据同 toCodeStep）。
+        let codeStep: Component | null = null;
+        let sheet: Component | null = null;
+        const end: number = Date.now() + 8000;
+        while (codeStep === null && sheet === null && Date.now() < end) {
+          codeStep = await maybe(ON.id(ID_CODE));
+          if (codeStep === null) {
+            sheet = await maybe(ON.text(T_AGREE_SHEET));
+            if (sheet === null) {
+              await hm07vDriver.delayMs(200);
+            }
+          }
+        }
+        await need(codeStep !== null || sheet !== null, 'LKA_GETCODE_NOT_RECEIVED ' + shown + ' 键盘在时点【获取验证码】8 s 内既没出确认框也没进验证码步' +
+          '（点击没被 App 接到）');
+        if (i !== 0) {
+          continue;
+        }
+        // 4：仅 (a)：进验证码步（确认框照 toCodeStep 落定后点），等键盘（login_code 默认焦点），【重新获取】整块在键盘顶之上且余量 ≥ 12vp。
+        if (codeStep === null) {
+          await (await settledNode(ON.text(T_AGREE_SHEET), '「' + T_AGREE_SHEET + '」')).click();
+          await idle();
+          codeStep = await maybe(ON.id(ID_CODE), 12000);
+          await need(codeStep !== null, 'LKA_NO_CODE_STEP ' + shown + ' 点确认框后没进验证码步（前置）');
+        }
+        if ((await waitKeyboardTop(LKA_KB_WAIT_MS)) < 0) {
+          // 默认焦点没弹出键盘时点一次验证码框（前置，不是判据；判据仍是下面的余量）。
+          await (await node(ON.id(ID_CODE), '验证码输入')).click();
+        }
+        const resend: number = await clearOfKeyboard(ID_RESEND, '【重新获取 / 倒计时】（验证码步）', shown);
+        margins.push(shown + ' 验证码步 ' + resend.toFixed(1) + 'vp');
+        // 5：仅 (a)：离开登录页回 Tab 后，窗口避让方式不是 RESIZE、等于进页前的值。
+        await (await node(ON.id(ID_CLOSE), '验证码步返回')).click();
+        await idle();
+        await backToTabs();
+        const after: KeyboardAvoidMode = await lkaAvoidMode();
+        await need(after !== KeyboardAvoidMode.RESIZE && after === original, 'LKA_AVOID_NOT_RESTORED ' + shown + ' 离开登录页后窗口避让方式 ' +
+          String(after) + '（进页前 ' + String(original) + '，RESIZE = ' + String(KeyboardAvoidMode.RESIZE) + '；应还原、不是 RESIZE）');
+      }
+      console.info('LKA_MARGINS ' + margins.join('；'));
       await relaunchCold(defaultsDisplay());
     });
 

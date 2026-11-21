@@ -29,6 +29,7 @@ import l2PriceTagTest from './L2PriceTag.test';
 import l2StateTest from './L2State.test';
 import l2ProductCellTest from './L2ProductCell.test';
 import a11yAgentCellLabelTest from './A11yAgentCellLabel.test';
+import keyboardRevealTest from './KeyboardReveal.test';
 
 export default function testsuite() {
   designTokensMappingTest();
@@ -73,4 +74,6 @@ export default function testsuite() {
   l2ProductCellTest();
   // FU-HM-A11Y-AGENT（测试 v2，Codex r1 S3）：不展示价格时读看得见的「预售」。
   a11yAgentCellLabelTest();
+  // FU-LOGIN-KEYBOARD-AVOID：登录页键盘弹起后把目标按钮滚进可视区的滚动量纯函数（keyboardRevealOffset）。
+  keyboardRevealTest();
 }
