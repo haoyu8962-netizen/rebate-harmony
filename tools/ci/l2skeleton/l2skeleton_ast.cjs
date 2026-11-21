@@ -41,7 +41,9 @@ const SHAPES = ['SkeletonProductCard', 'SkeletonOrderCard', 'SkeletonWalletCard'
 const INDEX_NEW = ['SkeletonOrderCard', 'SkeletonWalletCard', 'SkeletonHost', 'SkeletonGate'];
 // FU-HM-ROOTSHOWN-CHAIN ②（编排 D10-1668 批，#24 只增）：可点图标改不带子组件的 SymbolGlyph 叶子，designsystem 多导出这两个名字。
 const INDEX_D10_1668 = ['couliSymbol', 'CouliGlyphTap'];
-const INDEX_OPTIONAL = ['SkeletonPhase', 'SkeletonClock', 'shimmerEnabled'].concat(INDEX_D10_1668);
+// FU-LOGIN-KEYBOARD-AVOID（编排 D10-2460 批，#24 只增）：登录页键盘避让，designsystem 多导出这两个名字。
+const INDEX_D10_2378 = ['keyboardRevealOffset', 'KeyboardRevealInput'];
+const INDEX_OPTIONAL = ['SkeletonPhase', 'SkeletonClock', 'shimmerEnabled'].concat(INDEX_D10_1668).concat(INDEX_D10_2378);
 const LOGIC_NEW = ['SkeletonGate', 'SkeletonPhase', 'SkeletonClock', 'shimmerEnabled'];
 const V1 = ['Component', 'State', 'Prop', 'Link', 'Provide', 'Consume', 'ObjectLink', 'Observed', 'Watch', 'StorageLink', 'StorageProp',
   'LocalStorageLink', 'LocalStorageProp', 'Track'];

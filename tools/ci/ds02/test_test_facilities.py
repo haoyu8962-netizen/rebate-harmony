@@ -308,7 +308,8 @@ run_device_tests core common/core core_test
         # LOCK-harmony 段 3（#24 只加，D10-2135 ④ / D10-2141 ④）：主步 LockHarmonySeg3Fake 15 条进合集；358 → 373。
         # LOCK-harmony C3 修（#24 只加，D10-2181 (A)）：LockHarmonySeg3Fake 15 → 16 条；373 → 374。
         # FU-HM-PHONECHANGE-B120B（#24 只加，D10-2286）：LockHarmonySeg3Fake 16 → 17 条（+ pcb_9）；374 → 375。
-        self.assertEqual(len(names), 375)
+        # FU-LOGIN-KEYBOARD-AVOID（#24 只加，D10-2460）：loginphone 6 → 7；375 → 376。
+        self.assertEqual(len(names), 376)
         self.assertEqual(len([name for name in names if name.startswith('l2cell_')]), 9)
         self.assertEqual(len([name for name in names if name.startswith('l2card_')]), 8)
         self.assertEqual(len([name for name in names if name.startswith('l2skel_')]), 6)
@@ -344,8 +345,8 @@ run_device_tests core common/core core_test
                 events += ['OHOS_REPORT_CODE: 0', 'TestFinished-ResultCode: 0']
             return '\n'.join(events)
 
-        self.assertEqual(validate(report(names)), 375)  # HM-BATCH1-FREEZE 集成 2：348 → 353；集成 3：353 → 358；LOCK-harmony 段 3：358 → 373；C3 修：373 → 374；PHONECHANGE-B120B：374 → 375（同上）
-        self.assertEqual(validate(report(names + ['future_extra_test'])), 375)
+        self.assertEqual(validate(report(names)), 376)  # HM-BATCH1-FREEZE 集成 2：348 → 353；集成 3：353 → 358；LOCK-harmony 段 3：358 → 373；C3 修：373 → 374；PHONECHANGE-B120B：374 → 375；LOGIN-KEYBOARD-AVOID：375 → 376（同上）
+        self.assertEqual(validate(report(names + ['future_extra_test'])), 376)
         for missing in [name for name in names if name.startswith('fx05a_') or name.startswith('hm07va_')
                         or name.startswith('hm07vb_') or name.startswith('hm05r_') or name.startswith('me12v_')
                         or name.startswith('me12wa_') or name.startswith('me12wb_') or name.startswith('me12wc_') or name.startswith('tabbar_')
@@ -430,7 +431,7 @@ run_device_tests core common/core core_test
         self.assertEqual(len(hm07va), 17)
         self.assertEqual(len(hm07vb), 11)
         self.assertEqual(len(hm05r), 11)
-        self.assertEqual(len(loginphone), 6)
+        self.assertEqual(len(loginphone), 7)
         # FU-HM-A11Y-FUNDS（#24 只加）：COMMON 5 + FUNDS 5。
         # HM-BATCH1-FREEZE 集成 2（#24 换值）：+ AGENT 5，10 → 15。
         # HM-BATCH1-FREEZE 集成 3（#24 换值）：+ HOME-SEARCH 5，15 → 20。

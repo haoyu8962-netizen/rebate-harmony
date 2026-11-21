@@ -1128,7 +1128,7 @@ run_device_tests core common/core core_test
 #   entry-me12wc  APP-12w-c-harmony 21 条（只跑 Me12wcUi 套件：账号状态 / 申诉视觉与处罚申诉红线；H-R16）；同样先卸载再装、从未同意隐私开始
 #                 （会员 → 冻结组直达 → 封禁组 10006 落页 → 真退出）、各自 1800 秒（超了按 risk / appeal 拆两步，不放宽门槛）
 #   entry-tabbar  FU-HM-TAB-BAR 7 条（只跑 TabBarShellUi 套件：系统底栏节点、选中只跟 Router、首页常驻、材质、深浅色、G32、200%）；同样先卸载再装、从未同意隐私开始、各自 1800 秒
-#   entry-loginphone  FU-HM-LOGIN-PHONE-LAYOUT 6 条（只跑 LoginPhoneUi 套件：登录出错关联输入框、手机号框随字号长、判据 1、倒计时 / 重新获取与绑定页发码是按钮且不截断）；
+#   entry-loginphone  FU-HM-LOGIN-PHONE-LAYOUT 7 条（只跑 LoginPhoneUi 套件：登录出错关联输入框、手机号框随字号长、判据 1、倒计时 / 重新获取与绑定页发码是按钮且不截断）；
 #                 同样先卸载再装、从未同意隐私开始（游客登录页 → 微信第三方新号进绑定页）、各自 1800 秒
 #   entry-l2      HM-BATCH1-DEVFIX（编排 D10-1279 ③，照 entry-tabbar 先例单列）：L2 批 1 共用套件 Ds02L2Ui 42 条（card 8 + skel 6 + button 7 + price 5
 #                 + state 7 + cell 9，--set l2）从主步摘出、单独一步跑：主步在排除名单最前加 Ds02L2Ui（主步 219 → 177 条，门槛 1800 秒不调）；
