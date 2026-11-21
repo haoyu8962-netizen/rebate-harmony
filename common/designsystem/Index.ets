@@ -67,6 +67,8 @@ export {
   StepUpPanel, stepUpWillDismiss, StepUpPanelState, StepUpPanelTexts, StepUpPanelDriver
 } from './src/main/ets/components/StepUpPanel';
 export { StepUpPanelFit } from './src/main/ets/logic/StepUpPanelFit';
+// FU-LOGIN-KEYBOARD-AVOID（D10-2378）：键盘弹起后把目标按钮滚进 Scroll 可视区的滚动量纯函数（登录页用）。
+export { keyboardRevealOffset, KeyboardRevealInput } from './src/main/ets/logic/KeyboardReveal';
 export { PendingConfirmCard, PendingSummaryRow } from './src/main/ets/components/PendingConfirm';
 // DS-02：组件清单落地（基础控件换系统控件套令牌、登录专用件、新增业务组件）。纯逻辑在 ControlModels / PlatformIconSource（无资源）。
 export {

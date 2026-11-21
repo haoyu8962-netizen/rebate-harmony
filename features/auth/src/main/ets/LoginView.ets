@@ -1,3 +1,4 @@
+import { ComponentUtils, KeyboardAvoidMode, componentUtils, uiObserver } from '@kit.ArkUI';
 import {
   AgreementConfirmKeys, AgreementSentence, AuthFeedback, CodeInput, CodeSubmitResult, LoginOutcome,
   LoginPageEntries, LoginPageFlow, LoginService, QuickLoginFlow,
@@ -7,7 +8,7 @@ import {
 import {
   CodeCellLayout, CouliAnnounce, CouliButton, CouliButtonSize, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
-  CouliTextModifier, CouliToast, CouliTypography, TABULAR_FEATURE
+  CouliTextModifier, CouliToast, CouliTypography, KeyboardRevealInput, TABULAR_FEATURE, keyboardRevealOffset
 } from 'designsystem';
 
 /**
@@ -191,6 +192,10 @@ const ID_GET_CODE: string = 'login_get_code';
 const ID_CODE: string = 'login_code';
 const ID_PHONE: string = 'login_phone';
 const ID_RESEND: string = 'login_resend';
+/** FU-LOGIN-KEYBOARD-AVOID：页面 Scroll（量可视区用，getRectangleById）。 */
+const ID_SCROLL: string = 'login_scroll';
+/** 键盘弹起 / 获焦 / 可视区变化后等布局落定再量（同绑手机页 revealFocused 的 setTimeout 写法；连续变化只按最后一次量）。 */
+const REVEAL_DELAY_MS: number = 50;
 /** 错误提示出现后再移读屏焦点（等节点挂上；同绑手机页）。 */
 const A11Y_ERROR_DELAY_MS: number = 300;
 const ID_TITLE: string = 'login_title';
@@ -228,6 +233,21 @@ export struct LoginView {
   }
 
   private timer: number = -1;
+  /**
+   * FU-LOGIN-KEYBOARD-AVOID（D10-2378，照申诉页 AppealView 先例）：本页（登录 NavDestination）**显示期间**窗口改为 RESIZE，
+   * Scroll 可视区随键盘收缩；被上层页压住 / 出栈 / 清栈（ON_HIDDEN）时还原为进页前的值，不外溢到别的页；返回本页再设。
+   */
+  private savedAvoid: KeyboardAvoidMode | null = null;
+  private navDestinationId: string = '';
+  private navListener: ((info: uiObserver.NavDestinationInfo) => void) | null = null;
+  /** 键盘弹起后把目标按钮（手机号步【获取验证码】、验证码步【重新获取】）滚进可视区：只滚动，不改焦点与播报。 */
+  private readonly scroller: Scroller = new Scroller();
+  /** 当前获焦的输入框 id（login_phone / login_code；没有为空串）。 */
+  private focusedInput: string = '';
+  /** Scroll 可视区高与内容高（vp，onAreaChange 测得），算最大可滚偏移。 */
+  private viewportHeight: number = 0;
+  private contentHeight: number = 0;
+  private revealTimer: number = -1;
 
   aboutToAppear(): void {
     CouliFontScale.attach(this.getUIContext());
@@ -247,9 +267,129 @@ export struct LoginView {
     this.config.pageShown = () => {
     };
     this.stopTimer();
+    this.cancelReveal();
     // 离开登录页：在途的发码与登录结果不再改页面、不恢复 pending_action（会话若已保存照常生效）。
     this.active = false;
     this.pageFlow.backToPhone();
+    // 避让方式只注销监听（出栈 / 清栈时 ON_HIDDEN 已先到，已在回调里还原）。
+    const listener: ((info: uiObserver.NavDestinationInfo) => void) | null = this.navListener;
+    this.navListener = null;
+    if (listener !== null) {
+      try {
+        this.getUIContext().getUIObserver().off('navDestinationUpdate', listener);
+      } catch (e) {
+        // 忽略。
+      }
+    }
+  }
+
+  /** 首次构建后登记所在 NavDestination 的状态监听；避让方式的设与还原只在监听回调里随显示 / 隐藏做。 */
+  onDidBuild(): void {
+    // LoginView 是 AppLoginPage 的 NavDestination 里的子组件：queryNavDestinationInfo 向上取最近的 NavDestination，即登录页本身。
+    const info: uiObserver.NavDestinationInfo | undefined = this.queryNavDestinationInfo();
+    if (info === undefined) {
+      return;
+    }
+    this.navDestinationId = info.navDestinationId;
+    const listener: (i: uiObserver.NavDestinationInfo) => void = (i: uiObserver.NavDestinationInfo): void => {
+      this.onNavState(i);
+    };
+    this.navListener = listener;
+    try {
+      this.getUIContext().getUIObserver().on('navDestinationUpdate', listener);
+    } catch (e) {
+      this.navListener = null;
+    }
+    // 本组件在所在 NavDestination 构建期内构建，首个 ON_SHOWN 在此之后到达，避让方式只在回调里设。
+  }
+
+  /** 本页显示 → 存下原避让方式并设 RESIZE；本页隐藏（被压住 / 出栈 / 清栈）→ 还原。只认本页的 navDestinationId。 */
+  private onNavState(info: uiObserver.NavDestinationInfo): void {
+    if (info.navDestinationId !== this.navDestinationId) {
+      return;
+    }
+    try {
+      const ui: UIContext = this.getUIContext();
+      if (info.state === uiObserver.NavDestinationState.ON_SHOWN) {
+        if (this.savedAvoid === null) {
+          this.savedAvoid = ui.getKeyboardAvoidMode();
+          ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+        }
+      } else if (info.state === uiObserver.NavDestinationState.ON_HIDDEN) {
+        const saved: KeyboardAvoidMode | null = this.savedAvoid;
+        this.savedAvoid = null;
+        if (saved !== null) {
+          ui.setKeyboardAvoidMode(saved);
+        }
+      }
+    } catch (e) {
+      // 忽略：取不到 UIContext 时不改避让方式。
+    }
+  }
+
+  // ---------------------------------------------------------------- 键盘避让：把目标按钮滚进可视区
+
+  private inputFocused(id: string): void {
+    this.focusedInput = id;
+    this.scheduleReveal();
+  }
+
+  private inputBlurred(id: string): void {
+    if (this.focusedInput === id) {
+      this.focusedInput = '';
+    }
+  }
+
+  /** 键盘弹起、获焦输入框变化、Scroll 可视区高度变化、换步后：等布局落定再量（连续触发只量最后一次）。 */
+  private scheduleReveal(): void {
+    this.cancelReveal();
+    this.revealTimer = setTimeout(() => {
+      this.revealTimer = -1;
+      this.revealTarget();
+    }, REVEAL_DELAY_MS);
+  }
+
+  private cancelReveal(): void {
+    if (this.revealTimer >= 0) {
+      clearTimeout(this.revealTimer);
+      this.revealTimer = -1;
+    }
+  }
+
+  /**
+   * 量目标按钮（手机号步 login_get_code，验证码步 login_resend）、获焦输入框、Scroll 可视区（同一窗口坐标，px → vp），交纯函数
+   * keyboardRevealOffset 算新偏移，比当前大才滚。只在本步的输入框获焦时做；取不到坐标时不滚。余量 = CouliSpacing.space3（12vp）。
+   */
+  private revealTarget(): void {
+    const codeStep: boolean = this.model.step === LoginModel.STEP_CODE;
+    const focusId: string = codeStep ? ID_CODE : ID_PHONE;
+    if (!this.active || this.focusedInput !== focusId) {
+      return;
+    }
+    try {
+      const ui: UIContext = this.getUIContext();
+      const utils: ComponentUtils = ui.getComponentUtils();
+      const view: componentUtils.ComponentInfo = utils.getRectangleById(ID_SCROLL);
+      const target: componentUtils.ComponentInfo = utils.getRectangleById(codeStep ? ID_RESEND : ID_GET_CODE);
+      const focus: componentUtils.ComponentInfo = utils.getRectangleById(focusId);
+      const offset: number = this.scroller.currentOffset().yOffset;
+      const input: KeyboardRevealInput = {
+        targetTop: ui.px2vp(target.windowOffset.y),
+        targetBottom: ui.px2vp(target.windowOffset.y + target.size.height),
+        focusTop: ui.px2vp(focus.windowOffset.y),
+        viewTop: ui.px2vp(view.windowOffset.y),
+        viewBottom: ui.px2vp(view.windowOffset.y + view.size.height),
+        margin: CouliSpacing.space3,
+        offset: offset,
+        maxOffset: Math.max(0, this.contentHeight - this.viewportHeight)
+      };
+      const next: number = keyboardRevealOffset(input);
+      if (next > offset) {
+        this.scroller.scrollTo({ xOffset: 0, yOffset: next, animation: false });
+      }
+    } catch (e) {
+      // 控件尚未布局：不滚。
+    }
   }
 
   /** 系统返回：验证码步先回手机号步；手机号步交给导航关闭页面。 */
@@ -385,7 +525,12 @@ export struct LoginView {
       return;
     }
     this.model.entryStamp++;
+    const stepBefore: string = this.model.step;
     this.model.step = this.pageFlow.step;
+    if (this.model.step !== stepBefore) {
+      // 换步（进验证码步时 login_code 默认焦点弹键盘）：等新步布局落定再把本步目标按钮滚进可视区。
+      this.scheduleReveal();
+    }
     this.model.codeText = this.pageFlow.code.code;
     this.model.codeError = '';
     this.model.agreed = this.pageFlow.agreement.checked;
@@ -787,6 +932,8 @@ export struct LoginView {
           // FU-HM-A11Y-02：错误说明关联到输入框。
           .accessibilityDescription(this.model.phoneError)
           .id(ID_PHONE)
+          .onFocus(() => this.inputFocused(ID_PHONE))
+          .onBlur(() => this.inputBlurred(ID_PHONE))
           .onChange((value: string) => {
             if (value !== this.model.phoneText) {
               this.model.phoneText = value;
@@ -1014,6 +1161,8 @@ export struct LoginView {
         .id(ID_CODE)
         .defaultFocus(true)
         .enabled(!this.model.sending)
+        .onFocus(() => this.inputFocused(ID_CODE))
+        .onBlur(() => this.inputBlurred(ID_CODE))
         .onChange((value: string) => this.inputCode(value))
     }
     .width('100%')
@@ -1084,7 +1233,7 @@ export struct LoginView {
   build() {
     Column() {
       this.topBar()
-      Scroll() {
+      Scroll(this.scroller) {
         // F-HM-08（APP-05a 共性 17，03 §10.4）：大屏上内容限宽并水平居中（Scroll 的 Alignment.Top 即上方居中）。
         Column() {
           if (this.model.step === LoginModel.STEP_CODE) {
@@ -1095,12 +1244,24 @@ export struct LoginView {
         }
         .width('100%')
         .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
+        .onAreaChange((_old: Area, now: Area) => {
+          this.contentHeight = now.height as number;
+        })
       }
       .layoutWeight(1)
       .width('100%')
       .align(Alignment.Top)
       .edgeEffect(EdgeEffect.None)
       .scrollBar(BarState.Off)
+      .id(ID_SCROLL)
+      .onAreaChange((_old: Area, now: Area) => {
+        // FU-LOGIN-KEYBOARD-AVOID：RESIZE 下键盘弹起 / 收起即可视区变高变矮，变了就重新把目标按钮滚进来。
+        const height: number = now.height as number;
+        if (height !== this.viewportHeight) {
+          this.viewportHeight = height;
+          this.scheduleReveal();
+        }
+      })
     }
     .width('100%')
     .height('100%')
