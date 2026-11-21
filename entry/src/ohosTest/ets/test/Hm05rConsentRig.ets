@@ -139,7 +139,8 @@ export async function backgroundAndBack(l: Launch): Promise<void> {
 export async function foregroundRound(l: Launch, cold: boolean = false): Promise<number> {
   const before: number = probes();
   if (cold) {
-    await relaunchCold(l);
+    // FU-HM-RIG-CLIPBOARD-ISOLATION（D10-2340）：本轮量的是「剪贴板里有内容时」的自动任务，测试台冷启动后的清剪贴板在这里关掉（keepClipboard）。
+    await relaunchCold(l, true);
   } else {
     await backgroundAndBack(l);
   }

@@ -16,6 +16,7 @@ import { describe, it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
 import { KeyCode } from '@kit.InputKit';
 import { appTree, appUi, attr, ensureFull, findById, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node, settledNode, freshRead, withRefind, boundsFresh, readFresh } from './Hm07vHomeRig';
+import { beforeGetCodeTap, clearDeviceClipboard, rigLoginDiag } from './Hm07vHomeRig';
 import { check, GUEST, nodesOf, typeName } from './Hm07vOverlayRig';
 import { backToTabs, safeTexts, tabItem, T_ORDERS_TAB } from './Me12vRig';
 import { base, ensureMember } from './Me12wbRig';
@@ -311,6 +312,8 @@ export function a11yCommonCases(): void {
     await (await tabItem(T_ORDERS_TAB)).click();
     await idle();
     await node(ON.id(ID_PHONE), '游客点「订单」进短信登录页', 8000);
+    // FU-HM-RIG-CLIPBOARD-ISOLATION（D10-2340，测试台前置，不是被测项）：清设备侧剪贴板，免得输入法挂「来自剪贴板」建议栏。
+    await clearDeviceClipboard('a11y_common_05', true);
     const agree: Component | null = await maybe(ON.id(ID_AGREE), 3000);
     if (agree !== null && !(await agree.isChecked())) {
       await agree.click();
@@ -320,6 +323,8 @@ export function a11yCommonCases(): void {
     await phone.clearText();
     await phone.inputText(PHONE);
     await idle();
+    // FU-HM-RIG-CLIPBOARD-ISOLATION：点之前收起软键盘、看按钮有没有被盖住（只留痕）；点法与次数不变。
+    await beforeGetCodeTap(ON.id(ID_GET_CODE), 'a11y_common_05');
     await (await reveal(ON.id(ID_GET_CODE), '【获取验证码】')).click();
     await idle();
     let code: Component | null = null;
@@ -334,6 +339,10 @@ export function a11yCommonCases(): void {
           await idle();
         } else { await hm07vDriver.delayMs(200); }
       }
+    }
+    if (code === null) {
+      // FU-HM-RIG-CLIPBOARD-ISOLATION：报红前补一行现场（RIG_LOGIN_DIAG），下一行判据与报错原文不变。
+      await rigLoginDiag(ON.id(ID_GET_CODE), 'a11y_common_05');
     }
     await need(code !== null, 'A11Y_COMMON_NO_CODE_STEP 没进验证码步');
     // #24 + D10-1919 ①：验证码框出现后立刻 inputText 与 common_04 同类竞态，改走公共输码（登录码输满自动提交，autoSubmit = true）；

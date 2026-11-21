@@ -16,6 +16,8 @@ import { abilityDelegatorRegistry, Driver, ON, On, Component, Rect } from '@kit.
 import { display, window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { UIAbility } from '@kit.AbilityKit';
+import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
+import { inputMethod } from '@kit.IMEKit';
 import { EXPECTED_COLORS, ExpectedColor } from './Ds02Expected';
 import { captureChecked, isNoCandidates, scene, Shot, waitUntil } from './FlakeKit';
 
@@ -339,8 +341,10 @@ export function defaults(scene: string): Launch {
  * 不触发重绘），热启动 onNewWant 写进去了但页面不重排——实现交回 §8 与本设施探针实测 w=320 时 home_list 仍 376vp 宽。
  * 测试与应用同一进程（同包 ohosTest），不能 aa force-stop；改为在进程内结束 EntryAbility（terminateSelf，等它 DESTROY）再带参数
  * startAbility：onCreate 重新 applyLaunchOptions、RootPage 重新构建，宽度参数即生效（等同「冷启动页面」，应用数据不动）。
+ * FU-HM-RIG-CLIPBOARD-ISOLATION（D10-2340）：冷启动拉起之后清设备侧系统剪贴板（clearDeviceClipboard，只是前置、不判定）。
+ * keepClipboard = true 只给「先写剪贴板、再冷启动量自动任务」的 HM-05r（Hm05rConsentRig.foregroundRound）用：那里剪贴板内容是被测前提，不能清。
  */
-export async function relaunchCold(l: Launch): Promise<void> {
+export async function relaunchCold(l: Launch, keepClipboard: boolean = false): Promise<void> {
   const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
   watchEntry();
   const top: UIAbility | null = await entryAbility();
@@ -359,6 +363,9 @@ export async function relaunchCold(l: Launch): Promise<void> {
   }
   await launch(l);
   expect((await entryAbility()) !== null ? 'relaunched' : 'HM07VA_STATE EntryAbility 冷启动后没有拉起').assertEqual('relaunched');
+  if (!keepClipboard) {
+    await clearDeviceClipboard('relaunchCold', false);
+  }
 }
 
 /**
@@ -417,9 +424,45 @@ export async function launch(l: Launch): Promise<void> {
   await abilityDelegatorRegistry.getAbilityDelegator().startAbility({
     bundleName: BUNDLE, moduleName: 'entry', abilityName: 'EntryAbility', parameters: parameters
   });
+  // FU-HM-RIG-RELAUNCH-WAIT（D10-2279 / D10-2340）：先在上限内等 EntryAbility 起来（拿到即止）；到时不判定，照旧往下，
+  // 判据仍是调用方原来的（relaunchCold 的 HM07VA_STATE、各用例后续的查找）。下面固定的渲染余量不变。
+  await waitEntryAbility();
   // 假服务 getPage / listSectionItems 各 300ms；再给渲染与图片解码留余量。
   await driver.delayMs(1800);
   await idle();
+}
+
+/** RELAUNCH-WAIT：startAbility 之后轮询 entryAbility() 的间隔与上限（ms）。 */
+export const LAUNCH_POLL_MS: number = 250;
+export const LAUNCH_WAIT_MAX_MS: number = 10000;
+
+/**
+ * FU-HM-RIG-RELAUNCH-WAIT：每 LAUNCH_POLL_MS 取一次 entryAbility()，取到或满 LAUNCH_WAIT_MAX_MS 即返回；只是等待，不判定。
+ * 热启动（EntryAbility 已在栈顶）第一次就取到，不多等。等过的打一行 RIG_LAUNCH_WAIT（没取到或超过 2 s 的带 FLKRIG 进步骤日志）。
+ */
+async function waitEntryAbility(): Promise<void> {
+  const t0: number = Date.now();
+  let polls: number = 0;
+  let got: boolean = await entryAbilityPolled(polls);
+  while (!got && Date.now() - t0 < LAUNCH_WAIT_MAX_MS) {
+    await driver.delayMs(LAUNCH_POLL_MS);
+    polls++;
+    got = await entryAbilityPolled(polls);
+  }
+  if (polls > 0) {
+    const ms: number = Date.now() - t0;
+    console.info((got && ms <= SLOW_MS ? '' : 'FLKRIG ') + 'RIG_LAUNCH_WAIT got=' + got + ' polls=' + polls + ' ms=' + ms);
+  }
+}
+
+/** 评审 r1 S3-5：轮询里取一次 entryAbility()；抛错只记一行 FLKRIG RIG_LAUNCH_WAIT error、当作这一次没取到（继续轮询到上限，之后照走原断言）。 */
+async function entryAbilityPolled(poll: number): Promise<boolean> {
+  try {
+    return (await entryAbility()) !== null;
+  } catch (e) {
+    console.info('FLKRIG RIG_LAUNCH_WAIT error poll=' + poll + ' ' + String(e));
+    return false;
+  }
 }
 
 async function privacyPromptShown(): Promise<boolean> {
@@ -491,6 +534,8 @@ export async function ensureMemberHome(scene: string): Promise<void> {
 export async function loginOnLoginPage(): Promise<void> {
   // 测试 v2：先勾协议再输手机号。设备探针实测：输入后软键盘（带「来自剪贴板」建议栏）不收起，【获取验证码】弹出的「同意并获取验证码」
   // 半屏按钮落在键盘下，点击被键盘吃掉、停在登录页（HOT 路径同样复现，与进程内冷启动无关）；先勾选则不出该半屏。
+  // FU-HM-RIG-CLIPBOARD-ISOLATION（D10-2340）：开头先清设备侧剪贴板（宿主同步进来的长文本让输入法挂「来自剪贴板」建议栏）；只是前置。
+  await clearDeviceClipboard('loginOnLoginPage', true);
   const box: Component | null = await maybe(ON.id('login_agree_checkbox'), 3000);
   if (box !== null && !(await box.isChecked())) {
     await box.click();
@@ -505,6 +550,8 @@ export async function loginOnLoginPage(): Promise<void> {
     const p: Component | null = await maybe(ON.id('login_phone'));
     return p !== null && (await p.getText()).replace(/\s/g, '') === MEMBER_PHONE;
   }, 3000);
+  // FU-HM-RIG-CLIPBOARD-ISOLATION：点之前收起软键盘、等收完，看按钮有没有被盖住（只留痕）；之后照旧等按钮可点且位置不变、点一次。
+  await beforeGetCodeTap(ON.id('login_get_code'), 'loginOnLoginPage');
   await settledEnabled(ON.id('login_get_code'), 3000);
   await tap(ON.id('login_get_code'), '【获取验证码】');
   // FU-HM-DEVICE-FLAKE（#24 只改等待）：原先「同意」半屏只等 3 s、之后再等验证码 10 s；改为同一轮里两样一起看——半屏出现就点（等多久都点），
@@ -528,6 +575,8 @@ export async function loginOnLoginPage(): Promise<void> {
     if (found === null) { await driver.delayMs(200); }
   }
   if (found === null) {
+    // FU-HM-RIG-CLIPBOARD-ISOLATION：报红前补一行现场（剪贴板 / 键盘 / 建议栏 / 按钮坐标），判据与报错原文不变。
+    await rigLoginDiag(ON.id('login_get_code'), 'loginOnLoginPage');
     expect('HM07VA_MISSING 验证码输入 ' + (await loginScene())).assertEqual('验证码输入');
   }
   // #24 + rootcause-r7 §1 + D10-1919 ①：验证码框出现后系统数字键盘随默认焦点弹出、页面避让，原来立刻 inputText（同 r7 common_04 的竞态）。
@@ -556,6 +605,177 @@ async function settledEnabled(on: On, timeoutMs: number): Promise<void> {
       throw e as Error;
     }
   }, timeoutMs, 300);
+}
+
+// ---------------------------------------------------------------- 剪贴板隔离 / 收键盘 / 登录留痕（FU-HM-RIG-CLIPBOARD-ISOLATION，D10-2340）
+// 段 D 15 条红（d-a11y-rootcause.md）：模拟器开机时把宿主 Mac 剪贴板（一大段多行文本，属主 QemuParams-clipboard）同步进设备，输入法挂着
+// 「来自剪贴板」建议栏、键盘不收，【获取验证码】这一点没被 App 接到。这里给登录辅助三件设施，都只是前置 / 留痕，不作被测判定、不改点击次数：
+//   · clearDeviceClipboard：只清设备侧系统剪贴板（pasteboard.clearData，不需要权限；本来就空不动）。不碰宿主，也不碰锁包装。
+//   · beforeGetCodeTap：点【获取验证码】前收起软键盘（hideTextInput：只收面板、不解绑、不挪焦点；不按返回键——键盘不在时返回会关登录页），
+//     等键盘收完（≤ KB_HIDE_MAX_MS），再看按钮是否可见、有没有被键盘 / 建议栏盖住：盖住只打 FLKRIG RIG_GETCODE_COVERED，照原样去点。
+//   · rigLoginDiag：登录辅助红在「没进验证码步」时，报红前打一行 FLKRIG RIG_LOGIN_DIAG（剪贴板是否非空、键盘在不在、建议栏、按钮坐标、点按前状态）。
+// 所有调用都吞自身异常、只记一行；不调任何带 expect 的设施（appWindow / node 等），不会因为留痕把用例弄红。
+
+/**
+ * 设备侧清剪贴板总开关，缺省关（本线 2026-11-21，D10-2340「不动负责人的剪贴板」）：模拟器与宿主的剪贴板同步可能是双向的，
+ * 设备侧清空可能连带清掉宿主剪贴板，方向坐实且编排批准前不开。段 D 的直接障碍（输入法剪贴板建议栏挡点按）由点按前收键盘处理。
+ */
+export const RIG_CLIP_CLEAR: boolean = false;
+/** 输入法「来自剪贴板」建议栏标题（设备原文，见 d-a11y-rootcause.md §1）。 */
+const CLIP_BAR_TEXT: string = '来自剪贴板';
+/** 收键盘后等键盘避让区消失的上限与间隔（ms）。 */
+const KB_HIDE_MAX_MS: number = 2000;
+const KB_POLL_MS: number = 200;
+/** 最近一次点【获取验证码】前的现场（RIG_LOGIN_DIAG 带上）。 */
+let preTapState: string = '-';
+
+function errText(e: Object): string {
+  const be: BusinessError = e as BusinessError;
+  return 'code=' + be.code + ' ' + be.message;
+}
+
+/**
+ * 清设备侧系统剪贴板。先 hasData：本来就空就不清（不多动 changeCount）；hasData 读失败照样去清。
+ * trace = true（登录辅助）时清过就带 FLKRIG 进步骤日志；冷启动后的清只进 hilog。失败只记一行（带 FLKRIG），不判定。
+ */
+export async function clearDeviceClipboard(where: string, trace: boolean): Promise<void> {
+  if (!RIG_CLIP_CLEAR) { return; }
+  let had: string = '?';
+  try {
+    const board: pasteboard.SystemPasteboard = pasteboard.getSystemPasteboard();
+    try {
+      had = String(await board.hasData());
+    } catch (e) {
+      had = 'err(' + errText(e as Object) + ')';
+    }
+    if (had === 'false') { return; }
+    await board.clearData();
+    const left: boolean = await board.hasData();
+    console.info((trace || left ? 'FLKRIG ' : '') + 'RIG_CLIP_CLEAR where=' + where + ' had=' + had + ' left=' + left);
+  } catch (e) {
+    console.info('FLKRIG RIG_CLIP_CLEAR where=' + where + ' had=' + had + ' error ' + errText(e as Object));
+  }
+}
+
+/** 设备侧剪贴板是否非空（只用于留痕）：true / false / err。 */
+async function clipState(): Promise<string> {
+  try {
+    return String(await pasteboard.getSystemPasteboard().hasData());
+  } catch (e) {
+    return 'err';
+  }
+}
+
+/**
+ * 软键盘的屏幕框 [left, top, right, bottom]（px）：EntryAbility 主窗口的键盘避让区（窗口坐标）加窗口偏移；键盘不在为 null。
+ * 取不到（拿不到 Ability / 窗口、接口报错）也为 null——只用于等待与留痕，不判定。
+ */
+async function keyboardBox(): Promise<number[] | null> {
+  try {
+    const ability: UIAbility | null = await entryAbility();
+    if (ability === null) { return null; }
+    const win: window.Window = await window.getLastWindow(ability.context);
+    const area: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);
+    const kb: window.Rect = area.bottomRect;
+    if (kb.height <= 0 || kb.width <= 0) { return null; }
+    const wr: window.Rect = win.getWindowProperties().windowRect;
+    return [wr.left + kb.left, wr.top + kb.top, wr.left + kb.left + kb.width, wr.top + kb.top + kb.height];
+  } catch (e) {
+    return null;
+  }
+}
+
+function boxText(b: number[] | null): string {
+  return b === null ? 'none' : b.join(',');
+}
+
+function rectOverlapsBox(a: Rect, b: number[]): boolean {
+  return a.left < b[2] && b[0] < a.right && a.top < b[3] && b[1] < a.bottom;
+}
+
+/** 收起软键盘并等它收完（≤ KB_HIDE_MAX_MS）。收不起 / 接口报错只记一行，不按返回、不判定。 */
+async function hideKeyboard(where: string): Promise<void> {
+  const before: number[] | null = await keyboardBox();
+  let err: string = '';
+  try {
+    await inputMethod.getController().hideTextInput();
+  } catch (e) {
+    err = errText(e as Object);
+  }
+  const t0: number = Date.now();
+  let after: number[] | null = await keyboardBox();
+  while (after !== null && Date.now() - t0 < KB_HIDE_MAX_MS) {
+    await driver.delayMs(KB_POLL_MS);
+    after = await keyboardBox();
+  }
+  if (before !== null || after !== null || err.length > 0) {
+    // 键盘本来就不在且没报错的不打；收不起（after 仍在）或报错带 FLKRIG。
+    console.info((after !== null || (err.length > 0 && before !== null) ? 'FLKRIG ' : '') + 'RIG_KB_HIDE where=' + where +
+      ' before=' + boxText(before) + ' after=' + boxText(after) + ' ms=' + (Date.now() - t0) + (err.length > 0 ? ' error ' + err : ''));
+  }
+}
+
+/**
+ * 按钮与键盘 / 建议栏的现场（一行文字）；covered 写进 out[0]（'1' / '0'）。只读，不判定。
+ * 评审 r1 S3-1：readClip = false 时完全不碰剪贴板（连 hasData 也不调），留痕写 clip=skip；只输出「有没有内容」的布尔值，不读不打剪贴板文字。
+ */
+async function getCodeState(on: On, out: string[], readClip: boolean): Promise<string> {
+  const parts: string[] = [];
+  let covered: boolean = false;
+  try {
+    const kb: number[] | null = await keyboardBox();
+    const bar: Component | null = await maybe(ON.text(CLIP_BAR_TEXT));
+    const barRect: Rect | null = bar === null ? null : await bar.getBounds();
+    const c: Component | null = await maybe(on);
+    if (c === null) {
+      parts.push('button=none');
+      covered = true;
+    } else {
+      const r: Rect = await c.getBounds();
+      const enabled: boolean = await c.isEnabled();
+      const visible: boolean = r.right > r.left && r.bottom > r.top;
+      const underKb: boolean = kb !== null && rectOverlapsBox(r, kb);
+      const underBar: boolean = barRect !== null && overlaps(r, barRect);
+      covered = !visible || underKb || underBar;
+      parts.push('button=' + [r.left, r.top, r.right, r.bottom].join(',') + ' enabled=' + enabled + ' visible=' + visible +
+        ' underKb=' + underKb + ' underBar=' + underBar);
+    }
+    parts.push('kb=' + boxText(kb));
+    parts.push('bar=' + (barRect === null ? 'none' : [barRect.left, barRect.top, barRect.right, barRect.bottom].join(',')));
+  } catch (e) {
+    parts.push('state-error ' + String(e));
+  }
+  parts.push('clip=' + (readClip ? await clipState() : 'skip'));
+  out.push(covered ? '1' : '0');
+  return parts.join(' ');
+}
+
+/**
+ * 点【获取验证码】前：收起软键盘、等收完，再看一眼按钮（可见、没被键盘 / 建议栏盖住）。盖住只打 FLKRIG RIG_GETCODE_COVERED，
+ * 不改点法、不多点；随后由调用方照原样等按钮落定并点一次。
+ */
+export async function beforeGetCodeTap(on: On, where: string): Promise<void> {
+  await hideKeyboard(where);
+  // 评审 r1 S3-2：收键盘后页面可能因避让变化重排，点按前等一次界面空闲（≤ 2 s）；不判定、不用会断言的 idle()，到时照旧往下。
+  try {
+    await driver.waitForIdle(200, 2000);
+  } catch (e) {
+    console.info('FLKRIG RIG_KB_HIDE where=' + where + ' idle-wait error ' + String(e));
+  }
+  const out: string[] = [];
+  // 评审 r1 S3-1：点按前只在 RIG_CLIP_CLEAR 打开时读剪贴板有无（开关关着就完全不碰剪贴板）。
+  preTapState = await getCodeState(on, out, RIG_CLIP_CLEAR);
+  if (out.length > 0 && out[0] === '1') {
+    console.info('FLKRIG RIG_GETCODE_COVERED where=' + where + ' ' + preTapState);
+  }
+}
+
+/** 登录辅助没进验证码步、报红之前：打一行 FLKRIG RIG_LOGIN_DIAG（现场 + 点按前状态）。只留痕，不判定。 */
+export async function rigLoginDiag(on: On, where: string): Promise<void> {
+  const out: string[] = [];
+  // 评审 r1 S3-1：只在失败留痕这一刻读剪贴板「有没有内容」（hasData 布尔），不读内容。
+  const now: string = await getCodeState(on, out, true);
+  console.info('FLKRIG RIG_LOGIN_DIAG where=' + where + ' now: ' + now + ' | pre-tap: ' + preTapState);
 }
 
 // ---------------------------------------------------------------- 落定等待 / 公共输码 / 稳定后读树（#24 + rootcause-r7 + 编排 D10-1919）
