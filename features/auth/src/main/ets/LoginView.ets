@@ -1,4 +1,5 @@
-import { ComponentUtils, KeyboardAvoidMode, componentUtils, uiObserver } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
+import { ComponentUtils, KeyboardAvoidMode, componentUtils, uiObserver, window } from '@kit.ArkUI';
 import {
   AgreementConfirmKeys, AgreementSentence, AuthFeedback, CodeInput, CodeSubmitResult, LoginOutcome,
   LoginPageEntries, LoginPageFlow, LoginService, QuickLoginFlow,
@@ -194,8 +195,12 @@ const ID_PHONE: string = 'login_phone';
 const ID_RESEND: string = 'login_resend';
 /** FU-LOGIN-KEYBOARD-AVOID：页面 Scroll（量可视区用，getRectangleById）。 */
 const ID_SCROLL: string = 'login_scroll';
+/** FU-LOGIN-KEYBOARD-AVOID：Scroll 内容 Column（实时量剩余可滚距离用，getRectangleById）。 */
+const ID_CONTENT: string = 'login_scroll_content';
 /** 键盘弹起 / 获焦 / 可视区变化后等布局落定再量（同绑手机页 revealFocused 的 setTimeout 写法；连续变化只按最后一次量）。 */
 const REVEAL_DELAY_MS: number = 50;
+/** 落定补滚（C3 loginphone_07 查因）：同一次触发在此之后再量一次，键盘动画 / 布局晚落定时不够再滚。 */
+const REVEAL_SETTLE_MS: number = 300;
 /** 错误提示出现后再移读屏焦点（等节点挂上；同绑手机页）。 */
 const A11Y_ERROR_DELAY_MS: number = 300;
 const ID_TITLE: string = 'login_title';
@@ -248,6 +253,19 @@ export struct LoginView {
   private viewportHeight: number = 0;
   private contentHeight: number = 0;
   private revealTimer: number = -1;
+  /** 落定补滚定时器（REVEAL_SETTLE_MS）；与 revealTimer 同排同撤。 */
+  private settleTimer: number = -1;
+  /**
+   * 应用窗口（window.getLastWindow 异步取得；取到前为 null，只按 Scroll 下边量）。用来读键盘顶（TYPE_KEYBOARD 避让区）并订阅
+   * keyboardHeightChange；订阅只在本页显示期间（ON_SHOWN 订、ON_HIDDEN / 离页退，与 RESIZE 的设与还原同步）。写法照 SearchView / StepUpPanel。
+   */
+  private win: window.Window | null = null;
+  private winRequested: boolean = false;
+  private keyboardWanted: boolean = false;
+  private keyboardSubscribed: boolean = false;
+  private readonly onKeyboard: (height: number) => void = (_height: number): void => {
+    this.scheduleReveal();
+  };
 
   aboutToAppear(): void {
     CouliFontScale.attach(this.getUIContext());
@@ -268,6 +286,7 @@ export struct LoginView {
     };
     this.stopTimer();
     this.cancelReveal();
+    this.detachKeyboard();
     // 离开登录页：在途的发码与登录结果不再改页面、不恢复 pending_action（会话若已保存照常生效）。
     this.active = false;
     this.pageFlow.backToPhone();
@@ -316,8 +335,11 @@ export struct LoginView {
           this.savedAvoid = ui.getKeyboardAvoidMode();
           ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
         }
+        this.attachKeyboard();
       } else if (info.state === uiObserver.NavDestinationState.ON_HIDDEN) {
         this.restoreAvoid();
+        this.detachKeyboard();
+        this.cancelReveal();
       }
     } catch (e) {
       // 忽略：取不到 UIContext 时不改避让方式。
@@ -355,19 +377,111 @@ export struct LoginView {
     }
   }
 
-  /** 键盘弹起、获焦输入框变化、Scroll 可视区高度变化、换步后：等布局落定再量（连续触发只量最后一次）。 */
+  /**
+   * 键盘高度变化、获焦输入框变化、Scroll 可视区高度变化、换步后：等布局落定再量（连续触发只量最后一次）。50ms 量一次，
+   * REVEAL_SETTLE_MS 再复量一次（布局 / 键盘晚落定时不够再滚；够了纯函数返回原偏移，不动）。
+   */
   private scheduleReveal(): void {
     this.cancelReveal();
     this.revealTimer = setTimeout(() => {
       this.revealTimer = -1;
       this.revealTarget();
     }, REVEAL_DELAY_MS);
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = -1;
+      this.revealTarget();
+    }, REVEAL_SETTLE_MS);
   }
 
   private cancelReveal(): void {
     if (this.revealTimer >= 0) {
       clearTimeout(this.revealTimer);
       this.revealTimer = -1;
+    }
+    if (this.settleTimer >= 0) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = -1;
+    }
+  }
+
+  /** 本页显示：订阅窗口键盘高度（窗口没取到先异步取，取到时本页仍显示才订）。 */
+  private attachKeyboard(): void {
+    this.keyboardWanted = true;
+    const win: window.Window | null = this.win;
+    if (win !== null) {
+      this.subscribeKeyboard(win);
+      return;
+    }
+    if (this.winRequested) {
+      return;
+    }
+    this.winRequested = true;
+    try {
+      const context: common.Context | undefined = this.getUIContext().getHostContext();
+      if (context === undefined) {
+        this.winRequested = false;
+        return;
+      }
+      window.getLastWindow(context).then((w: window.Window): void => {
+        this.win = w;
+        if (this.keyboardWanted && this.active) {
+          this.subscribeKeyboard(w);
+          // 取窗口期间键盘可能已弹起：补量一次。
+          this.scheduleReveal();
+        }
+      }).catch((): void => {
+        // 取不到窗口：只按 Scroll 下边量。
+        this.winRequested = false;
+      });
+    } catch (e) {
+      // 上下文不可用：只按 Scroll 下边量。
+      this.winRequested = false;
+    }
+  }
+
+  private subscribeKeyboard(win: window.Window): void {
+    if (this.keyboardSubscribed) {
+      return;
+    }
+    try {
+      win.on('keyboardHeightChange', this.onKeyboard);
+      this.keyboardSubscribed = true;
+    } catch (e) {
+      // 窗口不可用时忽略。
+    }
+  }
+
+  /** 本页隐藏 / 离页：退订键盘高度（只退本页这一个回调）。 */
+  private detachKeyboard(): void {
+    this.keyboardWanted = false;
+    const win: window.Window | null = this.win;
+    if (win !== null && this.keyboardSubscribed) {
+      try {
+        win.off('keyboardHeightChange', this.onKeyboard);
+      } catch (e) {
+        // 窗口已销毁时忽略。
+      }
+    }
+    this.keyboardSubscribed = false;
+  }
+
+  /**
+   * 键盘顶（vp，窗口坐标）：应用窗口 TYPE_KEYBOARD 避让区 bottomRect 的顶边。bottomRect 相对应用窗口（设备用例 keyboardTopPx 即
+   * 窗口 windowRect.top + bottomRect.top 换屏幕坐标），与 getRectangleById 的 windowOffset 同一坐标系。键盘不在 / 窗口未取到为 -1。
+   */
+  private keyboardTopVp(ui: UIContext): number {
+    const win: window.Window | null = this.win;
+    if (win === null) {
+      return -1;
+    }
+    try {
+      const kb: window.Rect = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD).bottomRect;
+      if (kb.height <= 0 || kb.width <= 0) {
+        return -1;
+      }
+      return ui.px2vp(kb.top);
+    } catch (e) {
+      return -1;
     }
   }
 
@@ -388,15 +502,19 @@ export struct LoginView {
       const target: componentUtils.ComponentInfo = utils.getRectangleById(codeStep ? ID_RESEND : ID_GET_CODE);
       const focus: componentUtils.ComponentInfo = utils.getRectangleById(focusId);
       const offset: number = this.scroller.currentOffset().yOffset;
+      // 可视区下边 = min(Scroll 下边, 键盘顶)：RESIZE 后 Scroll 下边未必恰在键盘顶（C3 查因原因 1），键盘不在时只用 Scroll 下边。
+      const scrollBottom: number = ui.px2vp(view.windowOffset.y + view.size.height);
+      const kbTop: number = this.keyboardTopVp(ui);
+      const viewBottom: number = kbTop >= 0 ? Math.min(scrollBottom, kbTop) : scrollBottom;
       const input: KeyboardRevealInput = {
         targetTop: ui.px2vp(target.windowOffset.y),
         targetBottom: ui.px2vp(target.windowOffset.y + target.size.height),
         focusTop: ui.px2vp(focus.windowOffset.y),
         viewTop: ui.px2vp(view.windowOffset.y),
-        viewBottom: ui.px2vp(view.windowOffset.y + view.size.height),
+        viewBottom: viewBottom,
         margin: CouliSpacing.space3,
         offset: offset,
-        maxOffset: Math.max(0, this.contentHeight - this.viewportHeight)
+        maxOffset: this.liveMaxOffset(utils, ui, offset, scrollBottom)
       };
       const next: number = keyboardRevealOffset(input);
       if (next > offset) {
@@ -404,6 +522,24 @@ export struct LoginView {
       }
     } catch (e) {
       // 控件尚未布局：不滚。
+    }
+  }
+
+  /**
+   * 最大可滚偏移（vp），按此刻布局实时量：当前偏移 + 内容 Column 底边超出 Scroll 下边的距离（C3 查因原因 2：onAreaChange 缓存可能过时）。
+   * 量不到内容时退回 onAreaChange 缓存值。
+   */
+  private liveMaxOffset(utils: ComponentUtils, ui: UIContext, offset: number, scrollBottom: number): number {
+    const cached: number = Math.max(0, this.contentHeight - this.viewportHeight);
+    try {
+      const content: componentUtils.ComponentInfo = utils.getRectangleById(ID_CONTENT);
+      if (content.size.height <= 0) {
+        return cached;
+      }
+      const contentBottom: number = ui.px2vp(content.windowOffset.y + content.size.height);
+      return offset + Math.max(0, contentBottom - scrollBottom);
+    } catch (e) {
+      return cached;
     }
   }
 
@@ -1263,6 +1399,7 @@ export struct LoginView {
         }
         .width('100%')
         .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
+        .id(ID_CONTENT)
         .onAreaChange((_old: Area, now: Area) => {
           this.contentHeight = now.height as number;
         })
