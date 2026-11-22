@@ -449,6 +449,8 @@ export struct LoginView {
     try {
       win.on('keyboardHeightChange', this.onKeyboard);
       this.keyboardSubscribed = true;
+      // 订上时键盘可能已在（如键盘弹着返回本页）：按当前键盘避让区定初值（评审 r4 S3-2）。
+      this.model.keyboardShown = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD).bottomRect.height > 0;
     } catch (e) {
       // 窗口不可用时忽略。
     }
@@ -1217,7 +1219,7 @@ export struct LoginView {
   @Builder
   phoneStep() {
     // FU-LOGIN-KEYBOARD-AVOID（整轮 C3 / 单跑定位，LKA_DIAG）：200% 字号下手机号框上沿到【获取验证码】下沿约 403vp，键盘上方可视区
-    // 只有约 408vp，保输入框整块可见时按钮离键盘只剩约 5vp。键盘弹起时把竖向间距 space5 → space3（两段共省 16vp），
+    // 只有约 408vp，保输入框整块可见时按钮离键盘只剩约 5vp。键盘弹起时把输入框下方的竖向间距 space5 → space3（两段共省 16vp；品牌块下补 space2），
     // 输入框与按钮都整块可见、按钮离键盘 ≥ 12vp；键盘收起恢复。先例：绑定手机号页键盘弹起时收紧按钮栏内边距（adaptation-a11y-spec §3）。
     Column({ space: this.model.keyboardShown ? CouliSpacing.space3 : CouliSpacing.space5 }) {
       Column({ space: CouliSpacing.space4 }) {
@@ -1241,7 +1243,9 @@ export struct LoginView {
           .onAppear(() => CouliFocusReturn.accessibilityFocus(this.getUIContext(), ID_TITLE))
       }
       .width('100%')
-      .margin({ top: CouliSpacing.space4 })
+      // 键盘弹起时列间距收到 space3，这里补回 space2，品牌块到手机号框仍是 20vp：只收紧输入框下方两段，避免先按宽布局滚到
+      // 输入框顶贴可视区顶、再收紧时框顶被裁出可视区（评审 r4 S3-1）。
+      .margin({ top: CouliSpacing.space4, bottom: this.model.keyboardShown ? CouliSpacing.space2 : 0 })
       this.phoneField()
       this.agreementRow()
       CouliButton({
