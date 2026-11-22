@@ -487,7 +487,7 @@ export struct LoginView {
 
   /**
    * 量目标按钮（手机号步 login_get_code，验证码步 login_resend）、获焦输入框、Scroll 可视区（同一窗口坐标，px → vp），交纯函数
-   * keyboardRevealOffset 算新偏移，比当前大才滚。只在本步的输入框获焦时做；取不到坐标时不滚。余量 = CouliSpacing.space3（12vp）。
+   * keyboardRevealOffset 算新偏移，比当前大才滚。只在本步的输入框获焦时做；取不到坐标时不滚。余量 = CouliSpacing.space4（16vp）：验收要求 ≥ 12vp，多留 4vp 给像素取整与键盘候选栏高度抖动（评审 r3 S3）。
    */
   private revealTarget(): void {
     const codeStep: boolean = this.model.step === LoginModel.STEP_CODE;
@@ -512,7 +512,7 @@ export struct LoginView {
         focusTop: ui.px2vp(focus.windowOffset.y),
         viewTop: ui.px2vp(view.windowOffset.y),
         viewBottom: viewBottom,
-        margin: CouliSpacing.space3,
+        margin: CouliSpacing.space4,
         offset: offset,
         maxOffset: this.liveMaxOffset(utils, ui, offset, scrollBottom)
       };
