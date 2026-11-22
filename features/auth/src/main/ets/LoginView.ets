@@ -1412,7 +1412,12 @@ export struct LoginView {
         .constraintSize({ maxWidth: CouliLayout.maxContentWidth })
         .id(ID_CONTENT)
         .onAreaChange((_old: Area, now: Area) => {
-          this.contentHeight = now.height as number;
+          // 内容高度变了（输号后出现清空按钮、报错行等把按钮往下推）也要重新把目标按钮滚进来（lp-device 第 3 次单跑：输号后余量 5.7vp）。
+          const height: number = now.height as number;
+          if (height !== this.contentHeight) {
+            this.contentHeight = height;
+            this.scheduleReveal();
+          }
         })
       }
       .layoutWeight(1)
