@@ -183,6 +183,8 @@ export class LoginModel {
   @Trace now: number = 0;
   /** 第三方授权进行中（按钮显示加载、不重复点击）。 */
   @Trace oauthBusy: boolean = false;
+  /** 键盘是否弹起（窗口 keyboardHeightChange，本页显示期间订阅）；弹起时手机号步收紧竖向间距，见 phoneStep。 */
+  @Trace keyboardShown: boolean = false;
 
   static readonly STEP_PHONE: string = 'phone';
   static readonly STEP_CODE: string = 'code';
@@ -263,7 +265,8 @@ export struct LoginView {
   private winRequested: boolean = false;
   private keyboardWanted: boolean = false;
   private keyboardSubscribed: boolean = false;
-  private readonly onKeyboard: (height: number) => void = (_height: number): void => {
+  private readonly onKeyboard: (height: number) => void = (height: number): void => {
+    this.model.keyboardShown = height > 0;
     this.scheduleReveal();
   };
 
@@ -454,6 +457,7 @@ export struct LoginView {
   /** 本页隐藏 / 离页：退订键盘高度（只退本页这一个回调）。 */
   private detachKeyboard(): void {
     this.keyboardWanted = false;
+    this.model.keyboardShown = false;
     const win: window.Window | null = this.win;
     if (win !== null && this.keyboardSubscribed) {
       try {
@@ -1212,7 +1216,10 @@ export struct LoginView {
 
   @Builder
   phoneStep() {
-    Column({ space: CouliSpacing.space5 }) {
+    // FU-LOGIN-KEYBOARD-AVOID（整轮 C3 / 单跑定位，LKA_DIAG）：200% 字号下手机号框上沿到【获取验证码】下沿约 403vp，键盘上方可视区
+    // 只有约 408vp，保输入框整块可见时按钮离键盘只剩约 5vp。键盘弹起时把竖向间距 space5 → space3（两段共省 16vp），
+    // 输入框与按钮都整块可见、按钮离键盘 ≥ 12vp；键盘收起恢复。先例：绑定手机号页键盘弹起时收紧按钮栏内边距（adaptation-a11y-spec §3）。
+    Column({ space: this.model.keyboardShown ? CouliSpacing.space3 : CouliSpacing.space5 }) {
       Column({ space: CouliSpacing.space4 }) {
         Text(this.t(LoginKeys.BRAND))
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textInverse, CouliFontWeight.bold))
