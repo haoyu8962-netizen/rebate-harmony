@@ -1219,9 +1219,10 @@ export struct LoginView {
   @Builder
   phoneStep() {
     // FU-LOGIN-KEYBOARD-AVOID（整轮 C3 / 单跑定位，LKA_DIAG）：200% 字号下手机号框上沿到【获取验证码】下沿约 403vp，键盘上方可视区
-    // 只有约 408vp，保输入框整块可见时按钮离键盘只剩约 5vp。键盘弹起时把输入框下方的竖向间距 space5 → space3（两段共省 16vp；品牌块下补 space2），
+    // 只有约 408vp，保输入框整块可见时按钮离键盘只剩约 5vp。键盘弹起时把输入框下方的竖向间距 space5 → space2（两段共省 24vp；品牌块下补 space3，品牌块到输入框仍 20vp）；
+    // 输号后输入框按正文字号重排会长高约 10vp（lp-device 第 4 次单跑 9.1vp），故收到 space2 而非 space3，
     // 输入框与按钮都整块可见、按钮离键盘 ≥ 12vp；键盘收起恢复。先例：绑定手机号页键盘弹起时收紧按钮栏内边距（adaptation-a11y-spec §3）。
-    Column({ space: this.model.keyboardShown ? CouliSpacing.space3 : CouliSpacing.space5 }) {
+    Column({ space: this.model.keyboardShown ? CouliSpacing.space2 : CouliSpacing.space5 }) {
       Column({ space: CouliSpacing.space4 }) {
         Text(this.t(LoginKeys.BRAND))
           .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textInverse, CouliFontWeight.bold))
@@ -1243,9 +1244,9 @@ export struct LoginView {
           .onAppear(() => CouliFocusReturn.accessibilityFocus(this.getUIContext(), ID_TITLE))
       }
       .width('100%')
-      // 键盘弹起时列间距收到 space3，这里补回 space2，品牌块到手机号框仍是 20vp：只收紧输入框下方两段，避免先按宽布局滚到
+      // 键盘弹起时列间距收到 space2，这里补回 space3，品牌块到手机号框仍是 20vp：只收紧输入框下方两段，避免先按宽布局滚到
       // 输入框顶贴可视区顶、再收紧时框顶被裁出可视区（评审 r4 S3-1）。
-      .margin({ top: CouliSpacing.space4, bottom: this.model.keyboardShown ? CouliSpacing.space2 : 0 })
+      .margin({ top: CouliSpacing.space4, bottom: this.model.keyboardShown ? CouliSpacing.space3 : 0 })
       this.phoneField()
       this.agreementRow()
       CouliButton({
