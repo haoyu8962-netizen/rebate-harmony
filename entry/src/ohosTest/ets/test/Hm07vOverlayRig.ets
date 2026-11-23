@@ -273,12 +273,36 @@ export async function questionWhole(barId: string, question: string, scale: numb
 
 // ---------------------------------------------------------------- 打开浮层
 
+/** 底栏【首页】项节点 id（系统页签项 Column，clickable、isSelected 准确；见 TabBarShellUi 的 TAB_IDS）。 */
+const HOME_TAB_ID: string = 'couli-tab-home';
+/** homeReady 的有界轮数（每轮至多一个动作：关弹窗 / 点底栏【首页】/ 按返回）。 */
+const HOME_READY_ROUNDS: number = 6;
+
 /**
- * 回到干净的首页：收起上一条用例留下的识别卡半屏 / 弹窗、退出详情或搜索页（最多 4 次返回）。只在确实不在首页或有浮层时才按返回，
- * 不会把应用退到后台。返回是否已在首页（粘贴卡可见、无半屏 / 弹窗）。
+ * 停在别的 Tab 根页（AI 助手 / 订单 / 我的）时点底栏【首页】，等首页搜索行出现；点了返回 true。
+ * D10-2740（hm07vb 601ec95 续跑 C2 4 红）：外壳选中的 Tab 存在进程级单例 ShellState 里，热启动（launch）与进程内冷启动
+ * （relaunchCold：terminateSelf + startAbility）都不重置它（AppShell.onAppear 只在 rootsOpened 之前开一次 Home）；Tab 根页上
+ * 按返回只会把应用退到后台，再 launch 回来仍是那个 Tab。所以这里必须显式点【首页】。只在【首页】项未选中、且没有压栈页
+ * （NavDestination）盖住底栏时点；每次点都打一行 FLKRIG RIG_HOME_TAB（带当时屏上的字），留痕谁把页面带离了首页。
+ */
+async function homeTab(round: number): Promise<boolean> {
+  const tab: Component | null = await maybe(ON.id(HOME_TAB_ID), 200);
+  if (tab === null || await tab.isSelected() || (await maybe(ON.type('NavDestination'), 0)) !== null) {
+    return false;
+  }
+  console.info('FLKRIG RIG_HOME_TAB round=' + round + ' texts=' + (await screenTexts(6)));
+  await tab.click();
+  await maybe(ON.id('home_search_row'), 3000);
+  await idle();
+  return true;
+}
+
+/**
+ * 回到干净的首页：收起上一条用例留下的识别卡半屏 / 弹窗、退出详情或搜索页、从别的 Tab 根页点回【首页】（至多 HOME_READY_ROUNDS 轮，
+ * 每轮一个动作）。只在确实不在首页或有浮层时才动作；Tab 根页上不按返回（会把应用退到后台）。返回是否已在首页（搜索行可见、无半屏 / 弹窗）。
  */
 export async function homeReady(): Promise<boolean> {
-  for (let i: number = 0; i < 4; i++) {
+  for (let i: number = 0; i < HOME_READY_ROUNDS; i++) {
     const popup: Component | null = await maybe(ON.id('home_popup_close'), 300);
     if (popup !== null) {
       await popup.click();
@@ -287,10 +311,13 @@ export async function homeReady(): Promise<boolean> {
     }
     const sheet: boolean = (await maybe(ON.id('clipboard_card_list_title'), 200)) !== null
       || (await maybe(ON.id('clipboard_card_list_close'), 200)) !== null;
-    // 冷启动后首页可能还没渲染完：先等首页出现，确实不在首页（详情、搜索页）或有半屏时才按返回。
+    // 冷启动后首页可能还没渲染完：先等首页出现，确实不在首页（详情、搜索页、别的 Tab）或有半屏时才动作。
     const home: boolean = (await maybe(ON.id('home_search_row'), 3000)) !== null;
     if (home && !sheet) {
       return true;
+    }
+    if (!sheet && await homeTab(i)) {
+      continue;
     }
     if (!home && !sheet && (await maybe(ON.type('Navigation'), 200)) === null) {
       return false;
@@ -436,6 +463,7 @@ async function clickPasteAndSettle(): Promise<void> {
   await scrollTop();
   const btn: Component = await enabledPasteButton();
   const before: string = await pasteScene();
+  const at: Rect = await btn.getBounds();
   await btn.click();
   let end: number = Date.now() + 3000;
   while (Date.now() < end) {
@@ -453,6 +481,12 @@ async function clickPasteAndSettle(): Promise<void> {
     await hm07vDriver.delayMs(150);
   }
   await idle();
+  // D10-2740 留痕（只打印、不判定）：点完粘贴后离开了首页且不是识别卡半屏（应进详情的单卡除外，本套件样例不进详情），
+  // 记下点击坐标与屏上的字（601ec95 C2 那次屏上是 AI 助手页首条建议的回答，与点在粘贴按钮坐标上的结果一致）。
+  const after: string = await pasteScene();
+  if (after.charAt(0) === '0' && after.charAt(3) === '0') {
+    console.info('FLKRIG RIG_PASTE_LEFT_HOME at=' + box(at) + ' scene=' + before + '>' + after + ' texts=' + (await screenTexts(6)));
+  }
 }
 
 /** 首页粘贴：应用把样例写进系统剪贴板（启动参数，等写入落地），回到顶部，UiTest 真点 PasteButton（等可点、等处理完）。 */
@@ -461,6 +495,8 @@ export async function pasteSample(sample: string, l: Launch = Launch.of(GUEST)):
   const before: number = clipChangeCount();
   await launch(l.with('couli_debug_clip', sample));
   await clipWritten(before, '启动参数 couli_debug_clip');
+  // D10-2740：热启动不改外壳所选 Tab；拉起后再走一次 homeReady（已在首页时只是三次查找，不动作），判据不变。
+  await homeReady();
   check((await maybe(ON.id('home_search_row'), 5000)) !== null, 'HM07VB_NOT_ON_HOME 粘贴前不在首页', await screenTexts());
   await clickPasteAndSettle();
 }
