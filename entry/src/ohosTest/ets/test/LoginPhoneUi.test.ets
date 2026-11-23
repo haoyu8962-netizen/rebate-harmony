@@ -12,7 +12,7 @@
 // 无按钮外观）、04 / 05 红（错误没关联到输入框）、06 绿（钉住判据 1）。
 import { describe, expect, it as hypiumIt } from '@ohos/hypium';
 import { ON, On, Component, MatchPattern, Rect } from '@kit.TestKit';
-import { KeyboardAvoidMode, window } from '@kit.ArkUI';
+import { KeyboardAvoidMode, MeasureText, window } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import {
   appTree, appUi, attr, capture, density, ensureFull, findById, hitRect, hm07vDriver, idle, inputCodeSettled, launch, Launch, maybe, node,
@@ -37,7 +37,9 @@ export const LOGINPHONE_DEVICE_CASES: string[] = [
   'loginphone_02_login_countdown_and_resend_are_buttons_wrap_not_truncated_w320_font200_light_dark',
   'loginphone_03_bind_send_is_system_button_wraps_hit48_not_truncated_w320_font200_light_dark',
   // FU-LOGIN-KEYBOARD-AVOID（D10-2378）：+1 条，6 → 7（名单末尾；套件里声明在 03 之前，见用例注释）。
-  'loginphone_07_get_code_and_resend_clear_of_keyboard_font200_w320_default'
+  'loginphone_07_get_code_and_resend_clear_of_keyboard_font200_w320_default',
+  // FU-HM-LOGIN-BRAND（D10-2730 / D10-2732）：+1 条，7 → 8（名单末尾；套件里声明在 03 之前）。
+  'loginphone_08_login_brand_mark_and_agreement_check_row_default_font200_w320'
 ];
 
 const ID_PHONE: string = 'login_phone';
@@ -46,6 +48,9 @@ const ID_GET_CODE: string = 'login_get_code';
 const ID_RESEND: string = 'login_resend';
 const ID_AGREE: string = 'login_agree_checkbox';
 const ID_CLOSE: string = 'login_close';
+/** FU-HM-LOGIN-BRAND：品牌标识外层（里面是组件库 BrandMark）与登录页 Scroll（点协议链接后判是否盖住本页）。 */
+const ID_BRAND: string = 'login_brand';
+const ID_LOGIN_SCROLL: string = 'login_scroll';
 const ID_WECHAT: string = 'login_oauth_wechat';
 const ID_ME_LOGIN: string = 'me_login';
 const ID_BIND_PHONE: string = 'bind_phone_phone';
@@ -66,6 +71,12 @@ const T_BIND_COUNTDOWN: string = '秒后重新获取';
 const T_AGREE_SHEET: string = '同意并获取验证码';
 const T_AGREE_LOGIN: string = '同意并登录';
 const T_GO_BIND: string = '去绑定';
+/** 协议句 login.agree.text 与两个链接文字（契约 texts.default.json / 草稿表原文）。 */
+const T_AGREE_TEXT: string = '我已阅读并同意《用户协议》和《隐私政策》，未注册的手机号验证后将自动注册凑狸账号';
+const T_LINK_AGREEMENT: string = '《用户协议》';
+const T_LINK_PRIVACY: string = '《隐私政策》';
+/** 组件库 BrandMark 默认边长（vp）。 */
+const BRAND_MARK_VP: number = 56;
 /** 文字行高 / 字号（与 Me12v notTruncated 同口径的下限）。 */
 const LINE_MUL: number = 1.2;
 
@@ -443,6 +454,118 @@ async function clearOfKeyboard(id: string, what: string, shown: string): Promise
   return marginVp;
 }
 
+// ---------------------------------------------------------------- 品牌标识与协议行（FU-HM-LOGIN-BRAND，loginphone_08）
+
+/** Logo 是组件库 BrandMark：login_brand 子树里恰一个 Image（56×56vp，读屏跳过）、没有 Text（不是旧的文字方块）。 */
+async function brandIsMark(shown: string): Promise<void> {
+  await reveal(ON.id(ID_BRAND), '登录页品牌标识');
+  const n: Record<string, Object> | null = findById(await appTree(), ID_BRAND);
+  if (n === null) {
+    await fail('LOGIN_BRAND_MISSING ' + shown + ' 组件树里没有 ' + ID_BRAND);
+    return;
+  }
+  const sub: Record<string, Object>[] = [];
+  nodesOf(n, sub);
+  const images: Record<string, Object>[] = sub.filter((x: Record<string, Object>): boolean => typeName(x) === 'Image');
+  const texts: number = sub.filter((x: Record<string, Object>): boolean => typeName(x) === 'Text').length;
+  await need(images.length === 1 && texts === 0, 'LOGIN_BRAND_NOT_MARK ' + shown + ' 品牌标识子树 Image ' + images.length + ' 个、Text ' +
+    texts + ' 个（应是组件库 BrandMark：恰一个 Image、没有文字）');
+  if (images.length === 1) {
+    await need(attr(images[0], 'accessibilityLevel') === 'no', 'LOGIN_BRAND_READ ' + shown + ' 品牌标识 Image accessibilityLevel=' +
+      attr(images[0], 'accessibilityLevel') + '（装饰，读屏应跳过）');
+  }
+  const img: Component | null = await maybe(ON.type('Image').within(ON.id(ID_BRAND)), 2000);
+  if (img === null) {
+    await fail('LOGIN_BRAND_NO_IMAGE ' + shown + ' 屏上找不到品牌标识图片');
+    return;
+  }
+  const r: Rect = await (img as Component).getBounds();
+  await need(Math.abs(wVpOf(r) - BRAND_MARK_VP) <= 1 && Math.abs(hVpOf(r) - BRAND_MARK_VP) <= 1, 'LOGIN_BRAND_SIZE ' + shown +
+    ' 品牌标识 ' + wVpOf(r).toFixed(1) + '×' + hVpOf(r).toFixed(1) + ' vp（应为 BrandMark 默认 ' + BRAND_MARK_VP + '，不随字号放大）');
+}
+
+/**
+ * 协议行是组件库 AgreementCheckRow：login_agree_checkbox 是系统 Checkbox，读屏名称 = 整句；点它切换、再点切回；勾选圆命中区 ≥ 48vp，
+ * 不压手机号框、不压【获取验证码】（命中矩形按 responseRegion 换算，Hm07vHomeRig.hitRect）。
+ */
+async function agreementIsCheckRow(shown: string): Promise<void> {
+  await reveal(ON.id(ID_GET_CODE), '【获取验证码】');
+  const box0: Component = await reveal(ON.id(ID_AGREE), '协议勾选框');
+  const n: Record<string, Object> | null = findById(await appTree(), ID_AGREE);
+  const type: string = await box0.getType();
+  await need(type === 'Checkbox' && n !== null && typeName(n) === 'Checkbox', 'LOGIN_AGREE_NOT_SYSTEM_CHECKBOX ' + shown + ' ' + ID_AGREE +
+    ' 类型 ' + type + ' / 组件树 ' + (n === null ? 'none' : typeName(n)) + '（应是 AgreementCheckRow 的系统 Checkbox）');
+  const name: string = n === null ? '' : attr(n, 'accessibilityText');
+  const desc: string = await box0.getDescription();
+  await need(name === T_AGREE_TEXT || desc === T_AGREE_TEXT, 'LOGIN_AGREE_NAME ' + shown + ' 勾选框读屏名称「' + name + '」/ 说明「' + desc +
+    '」（应为整句 login.agree.text）');
+  const before: boolean = await box0.isChecked();
+  await box0.click();
+  await idle();
+  const once: boolean = await (await node(ON.id(ID_AGREE), '协议勾选框')).isChecked();
+  await need(once === !before, 'LOGIN_AGREE_NO_TOGGLE ' + shown + ' 点勾选框后状态 ' + once + '（点前 ' + before + '）');
+  await (await node(ON.id(ID_AGREE), '协议勾选框')).click();
+  await idle();
+  const twice: boolean = await (await node(ON.id(ID_AGREE), '协议勾选框')).isChecked();
+  await need(twice === before, 'LOGIN_AGREE_NO_TOGGLE_BACK ' + shown + ' 再点一次后状态 ' + twice + '（应回到 ' + before + '）');
+  const hit: Rect = await hitRect(ID_AGREE, shown + ' 协议勾选框');
+  await need(wVpOf(hit) >= 47.5 && hVpOf(hit) >= 47.5, 'LOGIN_AGREE_HIT_SMALL ' + shown + ' 勾选框命中区 ' + wVpOf(hit).toFixed(1) + '×' +
+    hVpOf(hit).toFixed(1) + ' vp < 48');
+  const phone: Rect = await (await node(ON.id(ID_PHONE), '登录页手机号')).getBounds();
+  const getCode: Rect = await hitRect(ID_GET_CODE, shown + ' 【获取验证码】');
+  await need(!overlaps(hit, phone), 'LOGIN_AGREE_HIT_OVER_PHONE ' + shown + ' 勾选框命中区 ' + box(hit) + ' 压在手机号框 ' + box(phone) + ' 上');
+  await need(!overlaps(hit, getCode), 'LOGIN_AGREE_HIT_OVER_GET_CODE ' + shown + ' 勾选框命中区 ' + box(hit) + ' 压在【获取验证码】' +
+    box(getCode) + ' 上');
+}
+
+/** 点协议句里的链接文字（照 Ds02Ui.clickSpan：12fp 量字定位，只在 100% 字号下用）。 */
+async function clickAgreementLink(link: string, shown: string): Promise<void> {
+  const text: Component = await node(ON.type('Text').text(link, MatchPattern.CONTAINS), shown + ' 协议句', 8000);
+  const full: string = await text.getText();
+  const at: number = full.indexOf(link);
+  await need(at >= 0, 'LOGIN_AGREE_LINK_MISSING ' + shown + ' 协议句「' + full + '」里没有' + link);
+  const r: Rect = await text.getBounds();
+  const size: string = '12fp';
+  const total: number = MeasureText.measureText({ textContent: full, fontSize: size });
+  const pos: number = MeasureText.measureText({ textContent: full.substring(0, at), fontSize: size }) +
+    MeasureText.measureText({ textContent: link, fontSize: size }) / 2;
+  const width: number = r.right - r.left;
+  const lines: number = Math.max(1, Math.ceil(total / Math.max(1, width)));
+  const line: number = Math.min(lines - 1, Math.floor(pos / Math.max(1, width)));
+  const x: number = Math.floor(r.left + pos - line * width);
+  const y: number = Math.floor(r.top + (line + 0.5) * (r.bottom - r.top) / lines);
+  await need(x >= r.left && x < r.right && y >= r.top && y < r.bottom, 'LOGIN_AGREE_LINK_POS ' + shown + ' ' + link + ' 算出的点 (' + x +
+    ',' + y + ') 不在协议句框 ' + box(r) + ' 内');
+  await hm07vDriver.click(x, y);
+}
+
+/** 句内两个链接各开一页协议（盖住登录页）、一次返回回到登录页，勾选状态不变（点链接不勾选）。 */
+async function agreementLinksOpen(shown: string): Promise<void> {
+  for (const link of [T_LINK_AGREEMENT, T_LINK_PRIVACY]) {
+    const before: boolean = await (await reveal(ON.id(ID_AGREE), '协议勾选框')).isChecked();
+    await clickAgreementLink(link, shown);
+    await hm07vDriver.delayMs(1500);
+    await idle();
+    const scroll: Component | null = await maybe(ON.id(ID_LOGIN_SCROLL));
+    let covered: boolean = scroll === null;
+    if (!covered) {
+      const b: Rect = await (scroll as Component).getBounds();
+      covered = b.right <= b.left || b.bottom <= b.top;
+    }
+    await need(covered, 'LOGIN_AGREE_LINK_NOT_OPENED ' + shown + ' 点' + link + '没有打开协议页');
+    await hm07vDriver.pressBack();
+    await hm07vDriver.delayMs(1200);
+    await idle();
+    const back: Component | null = await maybe(ON.id(ID_AGREE), 2500);
+    await need(back !== null && (await maybe(ON.id(ID_LOGIN_SCROLL), 2500)) !== null, 'LOGIN_AGREE_LINK_BACK ' + shown + ' 从' + link +
+      '一次返回没回到登录页');
+    if (back !== null) {
+      await need((await (back as Component).isChecked()) === before, 'LOGIN_AGREE_LINK_TOGGLED ' + shown + ' 点' + link +
+        '改了勾选状态（链接只开协议、不勾选）');
+    }
+  }
+}
+
 // ---------------------------------------------------------------- 用例
 
 export default function loginPhoneUiTest() {
@@ -668,6 +791,26 @@ export default function loginPhoneUiTest() {
           String(after) + '（进页前 ' + String(original) + '，RESIZE = ' + String(KeyboardAvoidMode.RESIZE) + '；应还原、不是 RESIZE）');
       }
       console.info('LKA_MARGINS ' + margins.join('；'));
+      await relaunchCold(defaultsDisplay());
+    });
+
+    // FU-HM-LOGIN-BRAND（D10-2730 / D10-2732）：登录页 Logo 是组件库 BrandMark（56vp 图片，不是文字方块）；协议行是组件库 AgreementCheckRow：
+    // login_agree_checkbox 是系统 Checkbox、读屏名称 = 整句、点它切换；勾选圆 48vp 命中区不压手机号框与【获取验证码】；句内《用户协议》
+    // 《隐私政策》各开一页协议、不改勾选。三种显示各冷启动一次：默认 / 200% 整窗宽 / 200% 宽 320；点链接只在默认显示做（按 12fp 量字定位）。
+    // 声明在 03 之前（03 经微信登录改了身份，本条要游客登录页）；名单里排在末尾。不截图、不碰剪贴板。
+    it('loginphone_08_login_brand_mark_and_agreement_check_row_default_font200_w320', 0, async () => {
+      const shows: string[] = ['(c) 默认', '(a) 200% 整窗宽', '(d) 200% 宽 320'];
+      const launches: Launch[] = [defaultsDisplay(), display('2', windowLayoutWidth(), 'light'), display('2', '320', 'light')];
+      for (let i: number = 0; i < shows.length; i++) {
+        await relaunchCold(launches[i]);
+        await openLogin();
+        await dropFocus();
+        await brandIsMark(shows[i]);
+        await agreementIsCheckRow(shows[i]);
+        if (i === 0) {
+          await agreementLinksOpen(shows[i]);
+        }
+      }
       await relaunchCold(defaultsDisplay());
     });
 

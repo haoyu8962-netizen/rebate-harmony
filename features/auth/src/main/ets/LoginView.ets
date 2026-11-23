@@ -7,10 +7,11 @@ import {
   OAuthLoginOutcome, OAuthLoginService, OAuthProvider, PhoneNumber, PhoneEntry, SendCodeOutcome
 } from 'core';
 import {
-  CodeCellLayout, CouliAnnounce, CouliButton, CouliButtonSize, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
+  AgreementCheckRow, CodeCellLayout, CouliAnnounce, CouliButton, CouliButtonSize, CouliLayout, CouliButtonVariant, CouliColors, CouliDialog, CouliDialogLink, CouliDialogOptions, CouliFocus,
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliToast, CouliTypography, KeyboardRevealInput, TABULAR_FEATURE, keyboardRevealOffset
 } from 'designsystem';
+import { BrandMark } from 'designsystem/Brand';
 
 /**
  * 登录页用到的文案键（BR-TEXT-14；三端同名）。契约 texts.default.json 已有的键（error.*、invite.notice_inviter、
@@ -18,7 +19,6 @@ import {
  * 本模块不出现中文（HM-LINT-1），文案一律经 LoginTexts 取。
  */
 export class LoginKeys {
-  static readonly BRAND: string = 'login.brand';
   static readonly CLOSE: string = 'login.close';
   static readonly BACK: string = 'login.back';
   static readonly TITLE: string = 'login.title';
@@ -29,12 +29,8 @@ export class LoginKeys {
   static readonly AGREE_TEXT: string = 'login.agree.text';
   static readonly LAST_METHOD: string = 'login.last_method_tag';
   static readonly CODE_HELP: string = 'login.code.help_entry';
-  static readonly AGREE_PREFIX: string = 'login.agree.prefix';
   static readonly AGREE_AGREEMENT: string = 'login.agree.agreement';
-  static readonly AGREE_AND: string = 'login.agree.and';
   static readonly AGREE_PRIVACY: string = 'login.agree.privacy';
-  static readonly AGREE_SUFFIX: string = 'login.agree.suffix';
-  static readonly AGREE_HINT: string = 'login.agree.hint';
   static readonly GET_CODE: string = 'login.get_code';
   static readonly CONTINUE_CODE: string = 'login.code.continue';
   static readonly OTHER_METHODS: string = 'login.other_methods';
@@ -190,7 +186,10 @@ export class LoginModel {
   static readonly STEP_CODE: string = 'code';
 }
 
+/** 协议勾选框（AgreementCheckRow 里的系统 Checkbox 本体，controlId）。 */
 const ROW_ID_CHECKBOX: string = 'login_agree_checkbox';
+/** 品牌标识外层（挂测试 id 用；里面是组件库 BrandMark）。 */
+const ID_BRAND: string = 'login_brand';
 const ID_GET_CODE: string = 'login_get_code';
 const ID_CODE: string = 'login_code';
 const ID_PHONE: string = 'login_phone';
@@ -206,21 +205,17 @@ const REVEAL_SETTLE_MS: number = 300;
 /** 错误提示出现后再移读屏焦点（等节点挂上；同绑手机页）。 */
 const A11Y_ERROR_DELAY_MS: number = 300;
 const ID_TITLE: string = 'login_title';
-const ID_LINK_AGREEMENT: string = 'login_link_agreement';
-const ID_LINK_PRIVACY: string = 'login_link_privacy';
+/** 句内协议链接 Span 的 id 前缀（AgreementCheckRow.linkIdPrefix）：login_link/agreement、login_link/privacy。 */
+const LINK_ID_PREFIX: string = 'login_link';
 const AGREEMENT_TYPE: string = 'agreement';
 const PRIVACY_TYPE: string = 'privacy';
-const BRAND_SIZE: number = 72;
-const BRAND_RADIUS: number = 20;
-const BRAND_FONT: number = 22;
 const INPUT_HEIGHT: number = 52;
-const CHECKBOX: number = 20;
 
 /**
  * 短信登录页（Login / LoginAgreeConfirm / LoginCode / LoginCodeBlocked / LoginCodeInvite / LoginSessionExpired /
  * LoginDeletionProcessing 画板；鸿蒙「其他登录方式」按 LoginPublicHarmony）。一个路由 Login，两步：手机号 → 验证码。
- * 读屏顺序按 A11yFocusLogin：关闭 → 标题 → 手机号（含 +86）→ 清除 → 协议复选框（描述为自动注册说明）→ 两个协议链接 →
- * 获取验证码 → 其他登录方式 → 第三方按钮 → 登录遇到问题；品牌方块是装饰。进入页面焦点落在标题，不自动弹键盘。
+ * 读屏顺序按 A11yFocusLogin-v2：关闭 → 标题 → 手机号（含 +86）→ 清除 → 协议复选框（名称 = 整句）→ 句内两个协议链接 →
+ * 获取验证码 → 其他登录方式 → 第三方按钮 → 登录遇到问题；品牌标识（组件库 BrandMark）是装饰。进入页面焦点落在标题，不自动弹键盘。
  */
 @ComponentV2
 export struct LoginView {
@@ -620,13 +615,31 @@ export struct LoginView {
 
   // ---------------------------------------------------------------- 协议
 
-  private toggleAgreement(): void {
-    if (this.pageFlow.agreement.checked) {
-      this.pageFlow.agreement.uncheck();
-    } else {
+  /** 勾选框报来的新值（AgreementCheckRow.onChange，同值不报）。 */
+  private setAgreement(checked: boolean): void {
+    if (checked && !this.pageFlow.agreement.checked) {
       this.pageFlow.agreement.check();
+    } else if (!checked && this.pageFlow.agreement.checked) {
+      this.pageFlow.agreement.uncheck();
     }
     this.model.agreed = this.pageFlow.agreement.checked;
+  }
+
+  /** 协议链接（文字取字典，键 = routes.json Agreement.type）：协议行与确认框共用。 */
+  private agreementLinks(): CouliDialogLink[] {
+    return [new CouliDialogLink(this.t(LoginKeys.AGREE_AGREEMENT), AGREEMENT_TYPE),
+      new CouliDialogLink(this.t(LoginKeys.AGREE_PRIVACY), PRIVACY_TYPE)];
+  }
+
+  /** 协议句（login.agree.text）：字典里的句子不含某个链接文字时补在句末，协议入口不因改文案而消失（组件只在句中找得到的位置挂链接）。 */
+  private agreementMessage(): string {
+    let message: string = this.config.agreementSentence.text;
+    for (const link of this.agreementLinks()) {
+      if (link.text.length > 0 && message.indexOf(link.text) < 0) {
+        message = message + ' ' + link.text;
+      }
+    }
+    return message;
   }
 
   /** Core 已决定是否显示确认框；按钮只转发，不在视图里继续发码。 */
@@ -642,8 +655,7 @@ export struct LoginView {
     options.primaryText = this.t(keys.primaryKey);
     options.secondaryText = this.t(keys.secondaryKey);
     options.returnFocusId = returnFocusId;
-    options.links = [new CouliDialogLink(this.t(LoginKeys.AGREE_AGREEMENT), AGREEMENT_TYPE),
-      new CouliDialogLink(this.t(LoginKeys.AGREE_PRIVACY), PRIVACY_TYPE)];
+    options.links = this.agreementLinks();
     options.onLink = (type: string): void => {
       if (!this.active || this.pageFlow.confirm !== keys) {
         return;
@@ -1000,71 +1012,24 @@ export struct LoginView {
     .padding({ left: CouliSpacing.space2, right: CouliSpacing.space4 })
   }
 
-  /** 协议链接（R1-06）：各自至少 48vp 的独立命中区，与勾选单元分开；读屏单独聚焦（超链接角色）。 */
-  @Builder
-  agreementLink(key: string, type: string, id: string) {
-    Text(this.t(key))
-      .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textLink))
-      .constraintSize({ minHeight: CouliInteraction.minTouchTarget, minWidth: CouliInteraction.minTouchTarget })
-      .textAlign(TextAlign.Center)
-      .accessibilityRole(AccessibilityRoleType.HYPERLINK)
-      .focusable(true)
-      .focusBox(CouliFocus.box)
-      .id(id)
-      .onClick(() => this.config.onAgreement(type))
-  }
-
   /**
-   * 协议行（BR-ID-04；A11yFocusLogin 第 6–8 项、A11yHitLogin）：一行可换行的 Flex——
-   * 「复选框 +『我已阅读并同意』」是一个读屏单元、一个命中区（复选框角色，描述为自动注册说明），点它切换勾选；
-   * 《用户协议》《隐私政策》是两个独立链接，各自 48vp 命中区（R1-06：原先链接只有文字行高，点文字上下会落到父行的勾选）。
-   * 窄屏、大字号时整节换行，命中区不重叠。
+   * 协议行（BR-ID-04；A11yFocusLogin-v2、A11yHitLogin-v2）：组件库 AgreementCheckRow——系统圆形 Checkbox（id login_agree_checkbox，
+   * 读屏名称 = 整句，角色 / 状态由系统控件报）+ 一段 Text / Span 整句，《用户协议》《隐私政策》是句内链接（点链接只开协议、不勾选）。
+   * 勾选圆命中区 48vp（CouliCheckbox 外层 Stack 48×48 占在行内，行高 ≥ 48），不伸出行外：上下与输入框 / 【获取验证码】之间
+   * 仍是本列间距（键盘收起 space5、弹起 space2），命中区不重叠（FU-HM-LOGIN-BRAND 交回 §4 核算）。
    */
   @Builder
   agreementRow() {
-    Column({ space: CouliSpacing.space1 }) {
-      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
-        Row({ space: CouliSpacing.space3 }) {
-          Row() {
-            if (this.model.agreed) {
-              CouliIcon({ name: 'check', iconSize: 14, color: CouliColors.textInverse })
-            }
-          }
-          .width(CHECKBOX)
-          .height(CHECKBOX)
-          .justifyContent(FlexAlign.Center)
-          .borderRadius(CouliRadius.small)
-          .border({ width: this.model.agreed ? 0 : 1.5, color: CouliColors.borderControl })
-          .backgroundColor(this.model.agreed ? CouliColors.brandPrimary : CouliColors.backgroundSurface)
-          Text(this.t(LoginKeys.AGREE_PREFIX))
-            .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-        }
-        .constraintSize({ minHeight: CouliInteraction.minTouchTarget })
-        .accessibilityGroup(true)
-        .accessibilityText(this.config.agreementSentence.accessibilityText)
-        .accessibilityRole(AccessibilityRoleType.CHECKBOX)
-        .accessibilityChecked(this.model.agreed)
-        .focusable(true)
-        .focusBox(CouliFocus.box)
-        .id(ROW_ID_CHECKBOX)
-        .onClick(() => this.toggleAgreement())
-        this.agreementLink(LoginKeys.AGREE_AGREEMENT, AGREEMENT_TYPE, ID_LINK_AGREEMENT)
-        Text(this.t(LoginKeys.AGREE_AND))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-          .accessibilityLevel('no')
-        this.agreementLink(LoginKeys.AGREE_PRIVACY, PRIVACY_TYPE, ID_LINK_PRIVACY)
-        Text(this.t(LoginKeys.AGREE_SUFFIX))
-          .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-          .accessibilityLevel('no')
-      }
-      .width('100%')
-      Text(this.t(LoginKeys.AGREE_HINT))
-        .attributeModifier(new CouliTextModifier(CouliTypography.footnote, CouliColors.textSecondary))
-        .padding({ left: CHECKBOX + CouliSpacing.space3 })
-        .accessibilityLevel('no')
-    }
-    .alignItems(HorizontalAlign.Start)
-    .width('100%')
+    AgreementCheckRow({
+      checked: this.model.agreed,
+      message: this.agreementMessage(),
+      links: this.agreementLinks(),
+      accessibilityName: this.config.agreementSentence.accessibilityText,
+      controlId: ROW_ID_CHECKBOX,
+      linkIdPrefix: LINK_ID_PREFIX,
+      onChange: (checked: boolean) => this.setAgreement(checked),
+      onLink: (type: string) => this.config.onAgreement(type)
+    })
   }
 
   @Builder
@@ -1222,20 +1187,16 @@ export struct LoginView {
     // 只有约 408vp，保输入框整块可见时按钮离键盘只剩约 5vp。键盘弹起时把输入框下方的竖向间距 space5 → space2（两段共省 24vp；品牌块下补 space3，品牌块到输入框仍 20vp）；
     // 输号后输入框按正文字号重排会长高约 10vp（lp-device 第 4 次单跑 9.1vp），故收到 space2 而非 space3，
     // 输入框与按钮都整块可见、按钮离键盘 ≥ 12vp；键盘收起恢复。先例：绑定手机号页键盘弹起时收紧按钮栏内边距（adaptation-a11y-spec §3）。
+    // FU-HM-LOGIN-BRAND：协议行换成组件库 AgreementCheckRow（整句一段、勾选命中区在行内）后，200% 整窗宽下协议块由约 232vp 降到约 159vp，
+    // 输入框上沿到按钮下沿这一段只会变短，上面的前提更宽裕；品牌标识在输入框上方，不进这一段（核算见 FU-HM-LOGIN-BRAND 交回 §3）。
     Column({ space: this.model.keyboardShown ? CouliSpacing.space2 : CouliSpacing.space5 }) {
-      Column({ space: CouliSpacing.space4 }) {
-        Text(this.t(LoginKeys.BRAND))
-          .attributeModifier(new CouliTextModifier(CouliTypography.body, CouliColors.textInverse, CouliFontWeight.bold))
-          // 品牌方块是图形（设计稿 AdaptLargeText200Login：Logo 不随字号放大）：字号不随系统字号缩放。
-          .fontSize(BRAND_FONT + 'vp')
-          .maxFontScale(1)
-          .letterSpacing(2)
-          .textAlign(TextAlign.Center)
-          .width(BRAND_SIZE)
-          .height(BRAND_SIZE)
-          .borderRadius(BRAND_RADIUS)
-          .backgroundColor(CouliColors.brandPrimary)
-          .accessibilityLevel('no')
+      // 品牌标识（FU-HM-LOGIN-BRAND）：组件库 BrandMark（正式 Logo 主图形，组件默认 56vp；读屏跳过、不随字号放大）；外层 Row 只挂测试 id。
+      // 标识到标题 24vp（space6，有 Logo 的登录画板 LoginPublicHarmony-v2 / LoginSessionExpired-v2：Logo 下 24）。
+      Column({ space: CouliSpacing.space6 }) {
+        Row() {
+          BrandMark()
+        }
+        .id(ID_BRAND)
         Text(this.t(LoginKeys.TITLE))
           .attributeModifier(new CouliTextModifier(CouliTypography.heading, CouliColors.textPrimary, CouliFontWeight.bold))
           .accessibilityRole(AccessibilityRoleType.TITLE_BAR)

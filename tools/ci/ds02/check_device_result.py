@@ -23,7 +23,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
   --set me12wb  隐私中心 / 关于 / 客服半屏视觉单独步（APP-12w-b-harmony 测试 v1：17 条），且只能是这 17 条
   --set me12wc  账号状态 / 申诉视觉单独步（APP-12w-c-harmony 测试 v5：21 条），且只能是这 21 条
   --set tabbar  系统底栏单独步（FU-HM-TAB-BAR 测试 v1：7 条），且只能是这 7 条
-  --set loginphone  绑定手机号 / 短信登录适配与出错读屏单独步（FU-HM-LOGIN-PHONE-LAYOUT 测试 v1：6 条 tools/ci/loginphone/device-cases.txt；FU-LOGIN-KEYBOARD-AVOID 加 1 条，7 条），且只能是这 7 条
+  --set loginphone  绑定手机号 / 短信登录适配与出错读屏单独步（FU-HM-LOGIN-PHONE-LAYOUT 测试 v1：6 条 tools/ci/loginphone/device-cases.txt；FU-LOGIN-KEYBOARD-AVOID 加 1 条，7 条；FU-HM-LOGIN-BRAND 再加 1 条，8 条），且只能是这 8 条
   --set a11y    FU-HM-A11Y 共用套件 HmA11yUi 单独步（COMMON 段 5 条 tools/ci/a11ycommon/device-cases.txt + FUNDS 段 5 条
                 tools/ci/a11yfunds/device-cases.txt；其余两单集成时并入），且只能是这些
                 （HM-BATCH1-FREEZE 集成 2：+ AGENT 段 5 条 tools/ci/a11yagent/device-cases.txt，a11y 10 → 15）
@@ -47,6 +47,7 @@ HM-07v-a（编排 D10-405 D4 / 测试 v2）：同一测试包分两个设备步�
                 LOCK-harmony C3 修（#24 只加，D10-2181 (A)）：LockHarmonySeg3Fake 15 → 16 条，main 192 → 193，合集 373 → 374
                 FU-HM-PHONECHANGE-B120B（#24 只加，D10-2286）：LockHarmonySeg3Fake 16 → 17 条（+ pcb_9），main 193 → 194，合集 374 → 375
                 FU-LOGIN-KEYBOARD-AVOID（#24 只加，D10-2460）：+ loginphone_07，loginphone 6 → 7，合集 375 → 376
+                FU-HM-LOGIN-BRAND（#24 只加，D10-2730 / D10-2732）：+ loginphone_08，loginphone 7 → 8，合集 376 → 377
 """
 import collections
 import csv
