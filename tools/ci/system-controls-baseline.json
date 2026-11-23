@@ -12,7 +12,7 @@
     "features/agent/src/main/ets/AgentConsentDialog.ets": 1,
     "features/agent/src/main/ets/AgentTabRoot.ets": 4,
     "features/auth/src/main/ets/BindPhoneView.ets": 2,
-    "features/auth/src/main/ets/LoginView.ets": 8,
+    "features/auth/src/main/ets/LoginView.ets": 6,
     "features/home/src/main/ets/HomeCards.ets": 7,
     "features/home/src/main/ets/HomeTabRoot.ets": 2,
     "features/home/src/main/ets/HomeTiles.ets": 1,
@@ -59,7 +59,6 @@
     "entry/src/main/ets/web/WebPages.ets": 2
   },
   "couli-g1/self-drawn-control": {
-    "features/auth/src/main/ets/LoginView.ets": 1,
     "features/me/src/main/ets/MeKit.ets": 1,
     "features/me/src/main/ets/PrivacyAboutCsParts.ets": 1,
     "features/me/src/main/ets/SettingsParts.ets": 1,
