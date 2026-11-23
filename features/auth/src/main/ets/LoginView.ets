@@ -11,7 +11,7 @@ import {
   CouliFocusReturn, CouliFontScale, CouliFontWeight, CouliIcon, CouliInteraction, CouliRadius, CouliSpacing,
   CouliTextModifier, CouliToast, CouliTypography, KeyboardRevealInput, TABULAR_FEATURE, keyboardRevealOffset
 } from 'designsystem';
-import { BrandMark } from 'designsystem/Brand';
+import { BrandMark, BrandMarkVariant } from 'designsystem/Brand';
 
 /**
  * 登录页用到的文案键（BR-TEXT-14；三端同名）。契约 texts.default.json 已有的键（error.*、invite.notice_inviter、
@@ -188,7 +188,7 @@ export class LoginModel {
 
 /** 协议勾选框（AgreementCheckRow 里的系统 Checkbox 本体，controlId）。 */
 const ROW_ID_CHECKBOX: string = 'login_agree_checkbox';
-/** 品牌标识外层（挂测试 id 用；里面是组件库 BrandMark）。 */
+/** 品牌标识外层（挂测试 id 用；里面是组件库 BrandMark 应用图标式，D10-2762）。 */
 const ID_BRAND: string = 'login_brand';
 const ID_GET_CODE: string = 'login_get_code';
 const ID_CODE: string = 'login_code';
@@ -1190,11 +1190,12 @@ export struct LoginView {
     // FU-HM-LOGIN-BRAND：协议行换成组件库 AgreementCheckRow（整句一段、勾选命中区在行内）后，200% 整窗宽下协议块由约 232vp 降到约 159vp，
     // 输入框上沿到按钮下沿这一段只会变短，上面的前提更宽裕；品牌标识在输入框上方，不进这一段（核算见 FU-HM-LOGIN-BRAND 交回 §3）。
     Column({ space: this.model.keyboardShown ? CouliSpacing.space2 : CouliSpacing.space5 }) {
-      // 品牌标识（FU-HM-LOGIN-BRAND）：组件库 BrandMark（正式 Logo 主图形，组件默认 56vp；读屏跳过、不随字号放大）；外层 Row 只挂测试 id。
+      // 品牌标识（FU-HM-LOGIN-BRAND / D10-2762）：组件库 BrandMark 应用图标式（狸橙圆角方块 + 白色图形，规划仓库 design/app-icon 原件；
+      // 组件默认 56vp，按 vp 定死不随字号放大，读屏跳过）；外层 Row 只挂测试 id。边长仍 56，键盘避让前提不变。
       // 标识到标题 24vp（space6，有 Logo 的登录画板 LoginPublicHarmony-v2 / LoginSessionExpired-v2：Logo 下 24）。
       Column({ space: CouliSpacing.space6 }) {
         Row() {
-          BrandMark()
+          BrandMark({ variant: BrandMarkVariant.AppIcon })
         }
         .id(ID_BRAND)
         Text(this.t(LoginKeys.TITLE))

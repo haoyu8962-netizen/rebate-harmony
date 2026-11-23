@@ -28,3 +28,5 @@ export { HapticMoment, HAPTIC_EFFECT, HapticPlan, HapticPort } from './src/main/
 export { MotionPolicy, MotionKind, MotionSpec, PressKind } from './src/main/ets/logic/MotionPolicy';
 // HM-L2-SKELETON：骨架防闪门控（300 / 300，时钟注入）与减弱动态微光策略。
 export { SkeletonClock, SkeletonGate, SkeletonPhase, shimmerEnabled } from './src/main/ets/logic/SkeletonGate';
+// D10-2762：BrandMark 版式与应用图标式圆角（12 / 56）纯逻辑（组件 BrandMark 只从 designsystem/Brand 导出）。
+export { BrandMarkVariant, BrandMarkSpec } from './src/main/ets/logic/BrandMarkSpec';

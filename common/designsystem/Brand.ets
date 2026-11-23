@@ -5,3 +5,5 @@
 export { CouliLogo, CouliLogoVariant, CouliLogoSpec } from './src/main/ets/components/CouliLogo';
 // DS-02：登录页品牌标识 BrandMark（Logo 主图形 56）同理只从这里导出。
 export { BrandMark } from './src/main/ets/components/BrandMark';
+// D10-2762：BrandMark 版式（Mark 透明底主图形 / AppIcon 应用图标式方块）与圆角换算，纯逻辑，Logic.ets 也导出同一份（Index.ets 导出名集合由 l2skeleton K2 冻结，不加）。
+export { BrandMarkVariant, BrandMarkSpec } from './src/main/ets/logic/BrandMarkSpec';

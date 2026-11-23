@@ -3,6 +3,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import { CheckboxMetrics, ChoiceState, SingleSelection, LoginRowModel, OAuthAction, SheetDismissPolicy }
   from '../main/ets/components/ControlModels';
 import { PlatformIconSource } from '../main/ets/components/PlatformIconSource';
+import { BrandMarkSpec, BrandMarkVariant } from '../main/ets/logic/BrandMarkSpec';
 
 export default function ds02ControlsTest() {
   describe('Ds02Controls', () => {
@@ -113,6 +114,20 @@ export default function ds02ControlsTest() {
       expect(PlatformIconSource.builtin('pdd')).assertEqual('pinduoduo.png');
       for (const key of ['tmall', 'douyin', 'vip', 'unknown', '']) {
         expect(PlatformIconSource.builtin(key)).assertEqual('');
+      }
+    });
+
+    // D10-2762：BrandMark 应用图标式（design/app-icon/icon-default.svg）圆角 = 边长 × 12 / 56（Login-v2 app_icon(s=56, r=12)）；
+    // 默认 Mark（透明底主图形）不裁圆角，现有调用方不变；边长非正时不出负值。
+    it('brand_mark_app_icon_corner_12_of_56_and_mark_default_unclipped', 0, () => {
+      expect(BrandMarkSpec.cornerRadius(BrandMarkVariant.AppIcon, 56)).assertEqual(12);
+      expect(BrandMarkSpec.cornerRadius(BrandMarkVariant.AppIcon, 28)).assertEqual(6);
+      expect(BrandMarkSpec.cornerRadius(BrandMarkVariant.AppIcon, 112)).assertEqual(24);
+      for (const size of [24, 56, 112]) {
+        expect(BrandMarkSpec.cornerRadius(BrandMarkVariant.Mark, size)).assertEqual(0);
+      }
+      for (const size of [0, -56]) {
+        expect(BrandMarkSpec.cornerRadius(BrandMarkVariant.AppIcon, size)).assertEqual(0);
       }
     });
   });
