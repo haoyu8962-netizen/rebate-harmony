@@ -160,6 +160,7 @@ import lockHarmonySeg3Test from './LockHarmonySeg3.test';
 import phoneChangeB120bTest from './PhoneChangeB120b.test';
 import homeEntryObjectFieldsTest from './HomeEntryObjectFields.test';
 import homeEntryBadgeExpiryTest from './HomeEntryBadgeExpiry.test';
+import payoutSave50301Test from './PayoutSave50301.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -346,4 +347,6 @@ export default function testsuite() {
   // FU-HM-HOME-ENTRY-OBJECT-FIELDS（D10-2998 / 3054 / 3069 / 3076）：金刚区 icon 对象 / image / 徽标对象解析，徽标 expire_at 到点隐藏。
   homeEntryObjectFieldsTest();
   homeEntryBadgeExpiryTest();
+  // FU-HM-PAYOUT-50301（#24 只加；D10-2781 ④）：收款账号保存 50301 取 error.50301.bank_vendor，字典没有时回落 error.50001 + trace6。
+  payoutSave50301Test();
 }

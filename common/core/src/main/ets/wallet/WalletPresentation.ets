@@ -361,6 +361,9 @@ export class SensitiveOutcome {
   static readonly SUBMIT: string = 'submit';
   static readonly CONFIRM: string = 'confirm';
   static readonly ABANDON: string = 'abandon';
+  /** 收款账号保存得到 50301 的场景子键（BR-TEXT-14 表 B；契约补键前字典里没有，回落 error.50001）。 */
+  static readonly BANK_VENDOR_KEY: string = 'error.50301.bank_vendor';
+  private static readonly VENDOR_UNAVAILABLE: number = 50301;
 
   static of(op: string, phase: string, keyEverUnknown: boolean, result: WalletRecord): WalletRecord {
     const kind: string = str(result, 'kind') ?? 'transport';
@@ -459,6 +462,15 @@ export class SensitiveOutcome {
         ? SensitiveOutcome.make(SensitiveOutcome.PENDING_CONFIRM, false, false, 'pending_confirm.retry_later')
         : SensitiveOutcome.make(SensitiveOutcome.RETRY_AFTER, true, true, 'error.42901');
       out['disableMs'] = ErrorActionMapper.retryAfterMillis(headers);
+      return out;
+    }
+    if (code === SensitiveOutcome.VENDOR_UNAVAILABLE && payout && !unknownKey) {
+      // BR-TEXT-14 表 B 50301.bank_vendor：收款账号保存（首次提交）取场景子键，不用表 A 50301 的「维护中」句；字典没有这个键时
+      // 回落表 A「其他 5xxxx」（error.50001 + trace6，键结束、可重试）。场景子键不是 reason，不看 data.reason。
+      const vendorKey: string = WalletDraftTexts.has(SensitiveOutcome.BANK_VENDOR_KEY)
+        ? SensitiveOutcome.BANK_VENDOR_KEY : 'error.50001';
+      const out: WalletRecord = SensitiveOutcome.make(SensitiveOutcome.ERROR_TRACE6, true, true, vendorKey);
+      out['showTrace6'] = true;
       return out;
     }
     if (code >= 50000 && code <= 59999) {
