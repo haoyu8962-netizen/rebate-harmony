@@ -16,7 +16,7 @@ import { BuildVariant as ReleaseVariant } from '../../../release/ets/variant/Bui
 import { BuildVariant as StagingVariant } from '../../../staging/ets/variant/BuildVariant';
 import { DEBUG_STEP_UP_PHONE } from '../../../staging/ets/variant/DebugFakeWallet';
 import { common, Want } from '@kit.AbilityKit';
-import { RouteAvailability } from 'core';
+import { RouteAvailability, RouteTable } from 'core';
 import { RouteSpec } from 'generated';
 
 const BASE: string = 'https://api.fake.invalid';
@@ -309,18 +309,34 @@ export default function lockHarmonySeg3FakeTest() {
     // ================================================================ 路由「强制不可用」覆盖（C3 修，D10-2181 方案 A 第 1、2 条）
 
     // 依据：D10-2181 ①：staging 加启动参数 couli_debug_route_unavailable（逗号分隔、去空白、空串清空），与 couli_debug_route_available
-    // 同一道闸（DebugMockGate.allowedNow）；② 同一路由两边都给了以「不可用」为准；① release 变体没有这个入口，给了参数也照路由表。
+    // 同一道闸（DebugMockGate.allowedNow）；② 同一路由两边都给了以「不可用」为准；① release 变体没有这个入口，给了参数也不改变结论。
+    // FU-HM-DELETION-ENTRY-GATE（#24，D10-2998 ①）：Release 变体 routeSpec('DeleteAccount') 改为 since = null 的副本（注销入口关门），
+    // release 半段由「照路由表 → 可用」改为「不可用」，并按 D10-3000（乙′）在此加钉契约 since 1.0.0、release since null、其余路由同一对象；
+    // staging 半段不变。先红（1ae0473）：release 半段第一句 'release:false' 红（实得 release:true）；7ded503 上应全绿。
     // 驱动：staging 经实现新加的 BuildVariant.applyRouteUnavailable(value: Object | undefined)（applyLaunchOptions 把
     // want.parameters?.['couli_debug_route_unavailable'] 交给它）；「强制可用」名单是既有私有静态 availableOverride，经类对象 Reflect 写入
     // （arkts-no-classes-as-obj：经实例的 constructor 取类，同 LockHarmonySeg3 s3_r2_4），finally 里还原。可用性一律用 RouteAvailability.available 判。
     // 第 3 步（只给强制可用 → since 0.0.0）同时证明 Reflect 写进了闸门读的那个字段、空串清掉了不可用名单，第 4 步的「不可用为准」才有意义。
     // 先红：c3fix 基 dfc8f98 上 staging 没有 applyRouteUnavailable → TypeError（release 半段与第 1 步是防改错，现状已对）。
     it('s3f_16_route_unavailable_override_wins_over_available_in_staging_release_ignores_it', 0, async () => {
-      // release：给了参数也照路由表（DeleteAccount since 1.0.0 → 可用），也没有 applyRouteUnavailable 这个入口。
+      // release：DeleteAccount 关门（D10-2998 ①，since = null → 不可用），给了参数也不改变结论，也没有 applyRouteUnavailable 这个入口。
       const want: Want = { parameters: { 'couli_debug_route_unavailable': 'DeleteAccount' } as Record<string, Object> };
       ReleaseVariant.applyLaunchOptions(new Object() as common.ApplicationContext, want);
       expect('release:' + RouteAvailability.available(ReleaseVariant.routeSpec('DeleteAccount'), '1.0.0'))
-        .assertEqual('release:true');
+        .assertEqual('release:false');
+      // D10-3000（用例放法乙′，并进 s3f_16 不新增用例）/ D10-2998 ①：契约层 RouteTable 仍是 since 1.0.0，Release 变体给的是 since = null 的副本。
+      const contractDelete: RouteSpec | undefined = RouteTable.spec('DeleteAccount');
+      expect('contract-since:' + (contractDelete === undefined ? 'undefined' : String(contractDelete.sinceHarmony)))
+        .assertEqual('contract-since:1.0.0');
+      const releaseDelete: RouteSpec | undefined = ReleaseVariant.routeSpec('DeleteAccount');
+      expect('release-since:' + (releaseDelete === undefined ? 'undefined' : String(releaseDelete.sinceHarmony)))
+        .assertEqual('release-since:null');
+      // D10-3000 / D10-2998 ①：其余路由原样取 RouteTable（同一对象）。
+      const others: string[] = ['Settings', 'PrivacyCenter', 'RiskNotice', 'LaborAgreement'];
+      for (const other of others) {
+        expect('release-same-' + other + ':' + (ReleaseVariant.routeSpec(other) === RouteTable.spec(other)))
+          .assertEqual('release-same-' + other + ':true');
+      }
       const releaseOwner: Object = Reflect.get(new ReleaseVariant(), 'constructor') as Object;
       expect('release-entry:' + Reflect.has(releaseOwner, 'applyRouteUnavailable')).assertEqual('release-entry:false');
       // staging：先有环境（闸门要求当前环境允许调试假数据）。
