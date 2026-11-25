@@ -28,7 +28,8 @@ VISUAL_SHA = {
 }
 # 鸿蒙 origin/main af9aab2 的向量（去掉两张视觉页后）：已有页与判定向量一条不改。
 # D1（本线裁定，HM-07v-a 实现交回）：default_home 两张活动卡同步 Android / iOS 的 subtitle（三端同文件），原值 ad441c0e…f3c9。
-REST_SHA = 'c48a750433b61fadee25c302c6e523a0c8aff313062d4fe3ef0579e96b6ded9f'
+# FU-HM-HOME-ENTRY-OBJECT-FIELDS（D10-3076 #24）：goldenPages.icon_grid 的 badge 照平台 6c97062 改成对象 {kind: text, text: 测试}（三端同字节），原值 c48a7504…6ded9f。
+REST_SHA = '800570395e85c8b4c6cafe74614dbf96f2bf8c738d06d657fc9fae3cb544717f'
 SUITE = 'entry/src/ohosTest/ets/test/Hm07vHomeUi.test.ets'
 CASES = 'tools/ci/hm07v/fixtures/device-cases.txt'
 

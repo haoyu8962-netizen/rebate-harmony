@@ -1058,7 +1058,7 @@
           "data_source": {
             "kind": "static",
             "items": [
-              {"icon": "https://img.example.com/icon-a.png", "title": "测试入口甲", "badge": "测试", "action": {"route": "Search", "params": {"q": "测试入口甲"}}},
+              {"icon": "https://img.example.com/icon-a.png", "title": "测试入口甲", "badge": {"kind": "text", "text": "测试"}, "action": {"route": "Search", "params": {"q": "测试入口甲"}}},
               {"icon": "https://img.example.com/icon-b.png", "title": "新人指南", "action": {"route": "Help"}}
             ]
           }
