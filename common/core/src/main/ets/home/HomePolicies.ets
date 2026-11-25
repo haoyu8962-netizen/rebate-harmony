@@ -2,7 +2,9 @@
 // 曝光判定（G20，不接埋点）、sdui_card_error 去重（G20、G21）、三级兜底状态机（G16）。不读系统时钟，时刻一律由调用方给。
 import { ErrorActionMapper } from '../network/ErrorActionMapper';
 import { HomeJson, HomeJsonRead } from './HomeJson';
-import { HomeAction, HomeCard, HomeCardType, HomeDecoded, HomeJsonObject, HomeJsonValue, HomeNoticeItem } from './HomeModels';
+import {
+  HomeAction, HomeCard, HomeCardType, HomeDecoded, HomeIconBadge, HomeIconItem, HomeJsonObject, HomeJsonValue, HomeNoticeItem
+} from './HomeModels';
 
 const SHANGHAI_OFFSET_MS: number = 8 * 60 * 60 * 1000;
 
@@ -85,6 +87,41 @@ export class NoticeView {
 
   get cardHidden(): boolean {
     return this.visible.length === 0;
+  }
+}
+
+/** 金刚区徽标过滤的结果（纯值）：texts 与条目一一对齐。 */
+export class IconBadgeView {
+  readonly texts: (string | null)[];
+  readonly nextExpiryMs: number | null;
+
+  constructor(texts: (string | null)[], nextExpiryMs: number | null) {
+    this.texts = texts;
+    this.nextExpiryMs = nextExpiryMs;
+  }
+}
+
+/**
+ * 金刚区徽标（契约 $defs/badge，D10-2998）：此刻可显示的徽标文字——kind = text 且 nowMs < expire_at（没给不过期）为 text，其余为 null
+ * （dot 暂不显示，D10-2998 (b)）。照公告条做法给出最近一个仍显示的文字徽标的到期时刻，供快照并进重算计时（到点只隐藏徽标、保留条目）。
+ */
+export class IconBadgeFilter {
+  static filter(items: HomeIconItem[], nowMs: number): IconBadgeView {
+    const texts: (string | null)[] = [];
+    let next: number | null = null;
+    for (const item of items) {
+      const badge: HomeIconBadge | null = item.badge;
+      if (badge === null || badge.kind !== HomeIconBadge.TEXT || badge.text === null || !badge.liveAt(nowMs)) {
+        texts.push(null);
+        continue;
+      }
+      texts.push(badge.text as string);
+      const expire: number | null = badge.expireMs;
+      if (expire !== null && (next === null || expire < next)) {
+        next = expire;
+      }
+    }
+    return new IconBadgeView(texts, next);
   }
 }
 

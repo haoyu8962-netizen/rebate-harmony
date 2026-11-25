@@ -18,8 +18,8 @@ import {
   HomeJsonObject, HomeJsonValue, HomeNoticeItem, HomeSourceKind
 } from './HomeModels';
 import {
-  CardErrorDedupe, HomeLevel, HomeLkgScope, HomeShowing, HomeSourcePolicy, HomeSourceStep, NoticeFilter, NoticeView,
-  PopupDecision, PopupPolicy
+  CardErrorDedupe, HomeLevel, HomeLkgScope, HomeShowing, HomeSourcePolicy, HomeSourceStep, IconBadgeFilter, IconBadgeView,
+  NoticeFilter, NoticeView, PopupDecision, PopupPolicy
 } from './HomePolicies';
 import { HomeLkgStore, HomeLocalStore } from './HomeStorage';
 import {
@@ -389,6 +389,11 @@ export class HomeCardView {
   readonly retrying: boolean;
   readonly bannerTaps: HomeTap[];
   readonly iconTaps: HomeTap[];
+  /**
+   * 金刚区每格此刻（快照的 now）可显示的徽标文字，与 card.icons 一一对齐：kind = text 且未到 expire_at 为 text，其余为 null
+   * （dot 暂不显示，D10-2998 (b)）。界面的徽标与读屏文字只读它。
+   */
+  readonly iconBadges: (string | null)[];
   readonly activityTaps: HomeTap[];
   readonly moreTap: HomeTap | null;
   readonly noticeRows: HomeNoticeRow[];
@@ -397,7 +402,8 @@ export class HomeCardView {
 
   constructor(owner: number, card: HomeCard, products: Record<string, Object>[], notices: HomeNoticeItem[],
     hidden: boolean, feedLoading: boolean, feedFailed: boolean, feedHasMore: boolean, render: number = 0,
-    retryDisabled: boolean = false, noticeContext: HomeNoticeContext | null = null, retrying: boolean = false) {
+    retryDisabled: boolean = false, noticeContext: HomeNoticeContext | null = null, retrying: boolean = false,
+    iconBadges: (string | null)[] | null = null) {
     this.owner = owner;
     this.render = render;
     this.card = card;
@@ -412,6 +418,9 @@ export class HomeCardView {
     const id: string = card.id;
     this.bannerTaps = card.banners.map((b: HomeBannerItem, i: number): HomeTap => new HomeTap(owner, render, id, i + 1, b.action));
     this.iconTaps = card.icons.map((c: HomeIconItem, i: number): HomeTap => new HomeTap(owner, render, id, i + 1, c.action));
+    // 没给（不经快照、不知道此刻）一律不显示徽标；给了按格对齐（长度不符的格按 null）。
+    const badges: (string | null)[] = iconBadges ?? [];
+    this.iconBadges = card.icons.map((c: HomeIconItem, i: number): string | null => i < badges.length ? badges[i] : null);
     this.activityTaps = card.activities.map((a: HomeActivityItem, i: number): HomeTap => new HomeTap(owner, render, id, i + 1, a.action));
     this.moreTap = card.moreAction === null ? null : new HomeTap(owner, render, id, 0, card.moreAction as HomeAction);
     const ctx: HomeNoticeContext = noticeContext ?? new HomeNoticeContext('', -1, false);
@@ -1065,7 +1074,7 @@ export class HomeController {
       return;
     }
     const wait: number = Math.max(0, next - this.deps.clock());
-    // 页面停留时在最近的 end_at 到期时重算（不轮询网络，G10）。
+    // 页面停留时在最近的公告 end_at / 金刚区文字徽标 expire_at 到期时重算（不轮询网络，G10、D10-2998）。
     this.noticeTimer = this.deps.timer.schedule(wait, (): void => {
       this.noticeTimer = -1;
       if (this.alive()) {
@@ -1347,7 +1356,16 @@ export class HomeController {
     for (const card of d.listCards) {
       const data: HomeSectionData = this.sections.get(card.id) ?? HomeSectionData.initial();
       let notices: HomeNoticeItem[] = [];
+      let iconBadges: (string | null)[] | null = null;
       let hidden: boolean;
+      if (card.type === HomeCardType.ICON_GRID) {
+        // 金刚区徽标：与公告条同一个 now 判在期；仍显示的文字徽标的 expire_at 并进最近到期时刻（D10-2998，照公告条做法）。
+        const badges: IconBadgeView = IconBadgeFilter.filter(card.icons, now);
+        iconBadges = badges.texts;
+        if (badges.nextExpiryMs !== null && (nextExpiry === null || badges.nextExpiryMs < nextExpiry)) {
+          nextExpiry = badges.nextExpiryMs;
+        }
+      }
       if (card.type === HomeCardType.NOTICE_BAR) {
         const source: HomeNoticeItem[] = card.sourceKind === HomeSourceKind.API ? data.notices : card.notices;
         const view: NoticeView = NoticeFilter.filter(card.id, source, closed, now);
@@ -1366,7 +1384,7 @@ export class HomeController {
         hidden = card.itemCount === 0;
       }
       views.push(new HomeCardView(this.serial, card, data.products, notices, hidden, data.loading, data.failed,
-        data.cursor !== null, this.renderSerial, gated, noticeContext, data.retrying));
+        data.cursor !== null, this.renderSerial, gated, noticeContext, data.retrying, iconBadges));
     }
     s.cards = views;
     const candidate: HomeCard | null = this.popup === null ? this.popupCandidate : null;

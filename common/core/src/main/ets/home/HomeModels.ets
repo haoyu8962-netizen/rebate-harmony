@@ -73,14 +73,40 @@ export class HomeBannerItem {
   }
 }
 
+/**
+ * 金刚区条目的徽标（契约 home-schema.json $defs/badge，D10-2998）：kind 为 text / dot / none 三种之一；text 只在 kind = text 时非 null。
+ * expireMs 是 expire_at（契约 $defs/instant，+08:00）换成的绝对毫秒，没给为 null：本机时刻到点起隐藏徽标、保留条目。
+ * dot 只解析、首页暂不显示（D10-2998 (b)）。
+ */
+export class HomeIconBadge {
+  static readonly TEXT: string = 'text';
+  static readonly DOT: string = 'dot';
+  static readonly NONE: string = 'none';
+  readonly kind: string;
+  readonly text: string | null;
+  readonly expireMs: number | null;
+
+  constructor(kind: string, text: string | null, expireMs: number | null) {
+    this.kind = kind;
+    this.text = text;
+    this.expireMs = expireMs;
+  }
+
+  /** 本机时刻 nowMs 时徽标未到期（nowMs < expireMs；没有 expire_at 不过期）。 */
+  liveAt(nowMs: number): boolean {
+    return this.expireMs === null || nowMs < (this.expireMs as number);
+  }
+}
+
 export class HomeIconItem {
-  /** https 地址，或包内图标 builtin:<名>（只认 HomeBuiltinIcon 列出的名字，G17）。 */
+  /** https 地址（含 icon 对象的 url、image），或包内图标 builtin:<名>（只认 HomeBuiltinIcon 列出的名字，G17）。 */
   readonly icon: string;
   readonly title: string;
   readonly action: HomeAction;
-  readonly badge: string | null;
+  /** 徽标；没给或不合法（含旧的字符串形态）为 null（只丢徽标、保留条目，D10-2998 (a)）。 */
+  readonly badge: HomeIconBadge | null;
 
-  constructor(icon: string, title: string, action: HomeAction, badge: string | null) {
+  constructor(icon: string, title: string, action: HomeAction, badge: HomeIconBadge | null) {
     this.icon = icon;
     this.title = title;
     this.action = action;

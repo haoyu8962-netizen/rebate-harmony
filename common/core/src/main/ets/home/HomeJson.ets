@@ -6,7 +6,7 @@
 import { UpdateGate } from '../update/UpdateGate';
 import {
   HomeAction, HomeActivityItem, HomeBannerItem, HomeBuiltinIcon, HomeCard, HomeCardType, HomeDecoded, HomeDropped,
-  HomeIconItem, HomeJsonObject, HomeJsonValue, HomeNoticeItem, HomeReason, HomeSkipped, HomeSourceKind
+  HomeIconBadge, HomeIconItem, HomeJsonObject, HomeJsonValue, HomeNoticeItem, HomeReason, HomeSkipped, HomeSourceKind
 } from './HomeModels';
 
 /** 解码一项失败的原因（内部用）。 */
@@ -22,6 +22,18 @@ const ISO_RE: RegExp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d
 const HHMM_RE: RegExp = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const NOTICE_KEYS: string[] = ['item_id', 'content_version', 'text', 'target', 'closable', 'start_at', 'end_at'];
 const PLATFORMS: string[] = ['taobao', 'jd', 'pdd'];
+// 契约 home-schema.json（rebate-platform 6c97062）原样搬的 pattern。JS 正则的 \s 本就覆盖 Unicode 空白（不必像安卓另做逐字检查）。
+/** $defs/instant：只认 +08:00、秒必填、小数 1–6 位（Z、别的偏移、缺秒、7 位小数都不合法）。 */
+const CONTRACT_INSTANT_RE: RegExp = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?\+08:00$/;
+/** $defs/icon_asset.url（另有 maxLength 2048，按码点数）。 */
+const ICON_ASSET_URL_RE: RegExp = /^https:\/\/[^\s/?#]+\/([^\s?#]*\/)?[0-9a-f]{64}\.(png|svg)$/;
+const ICON_ASSET_SHA256_RE: RegExp = /^[0-9a-f]{64}$/;
+const ICON_ASSET_KEYS: string[] = ['url', 'sha256'];
+const ICON_ASSET_URL_MAX: number = 2048;
+const BADGE_KEYS: string[] = ['kind', 'text', 'expire_at'];
+const BADGE_TEXT_MAX_POINTS: number = 2;
+const MS_PER_DAY: number = 24 * 60 * 60 * 1000;
+const PLUS_0800_MS: number = 8 * 60 * 60 * 1000;
 
 /** JSON 取值小工具（不抛出）。 */
 export class HomeJsonRead {
@@ -52,6 +64,74 @@ export class HomeJsonRead {
     }
     const ms: number = Date.parse(v as string);
     return Number.isSafeInteger(ms) ? ms : null;
+  }
+
+  /**
+   * 契约 $defs/instant（D10-3076 (2)）→ 绝对毫秒；不合法为 null。只认 CONTRACT_INSTANT_RE，且须是真实日历时刻（月 1–12、日按月份与闰年、
+   * 时 0–23、分秒 0–59）。自己拆字段换算（不用 Date.parse / Date.UTC，也不用 ISO_RE / instant）：小数取前 3 位截断为毫秒，+08:00 → 减 8 小时。
+   */
+  static contractInstant(v: HomeJsonValue | undefined): number | null {
+    if (typeof v !== 'string') {
+      return null;
+    }
+    const s: string = v as string;
+    if (!CONTRACT_INSTANT_RE.test(s)) {
+      return null;
+    }
+    // 形状已由正则钉死：yyyy-MM-ddTHH:mm:ss[.f{1,6}]+08:00，各字段位置固定。
+    const year: number = Number.parseInt(s.substring(0, 4), 10);
+    const month: number = Number.parseInt(s.substring(5, 7), 10);
+    const day: number = Number.parseInt(s.substring(8, 10), 10);
+    const hour: number = Number.parseInt(s.substring(11, 13), 10);
+    const minute: number = Number.parseInt(s.substring(14, 16), 10);
+    const second: number = Number.parseInt(s.substring(17, 19), 10);
+    if (month < 1 || month > 12 || day < 1 || day > HomeJsonRead.daysInMonth(year, month)
+      || hour > 23 || minute > 59 || second > 59) {
+      return null;
+    }
+    // 小数部分在第 19 位的 '.' 与末尾 '+08:00' 之间；不足 3 位右补 0，多于 3 位截断。
+    const frac: string = s.charAt(19) === '.' ? s.substring(20, s.length - 6) : '';
+    const millis: number = frac.length === 0 ? 0 : Number.parseInt((frac + '00').substring(0, 3), 10);
+    return HomeJsonRead.daysFromCivil(year, month, day) * MS_PER_DAY
+      + ((hour * 60 + minute) * 60 + second) * 1000 + millis - PLUS_0800_MS;
+  }
+
+  /** 公历（含外推）某年某月的天数。 */
+  static daysInMonth(year: number, month: number): number {
+    if (month === 2) {
+      const leap: boolean = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+      return leap ? 29 : 28;
+    }
+    return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+  }
+
+  /** 公历日期 → 距 1970-01-01 的天数（H. Hinnant days_from_civil；整数运算，不经 Date，年份 0000–0099 也不被改写）。 */
+  static daysFromCivil(year: number, month: number, day: number): number {
+    const y: number = month <= 2 ? year - 1 : year;
+    const era: number = Math.floor(y / 400);
+    const yoe: number = y - era * 400;
+    const mp: number = (month + 9) % 12;
+    const doy: number = Math.floor((153 * mp + 2) / 5) + day - 1;
+    const doe: number = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+    return era * 146097 + doe - 719468;
+  }
+
+  /** Unicode 码点数（JSON Schema 的 minLength / maxLength 按码点计；string.length 是 UTF-16 单元，代理对算一个）。 */
+  static codePoints(s: string): number {
+    let n: number = 0;
+    let i: number = 0;
+    while (i < s.length) {
+      const c: number = s.charCodeAt(i);
+      if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+        const next: number = s.charCodeAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          i++;
+        }
+      }
+      i++;
+      n++;
+    }
+    return n;
   }
 
   /** https 图片地址（只收 https，鸿蒙直接 Image(url)，在解码阶段校验）。 */
@@ -381,24 +461,99 @@ export class HomeJson {
       if (item === null) {
         continue;
       }
-      const iconRaw: string | null = HomeJsonRead.stringOf(item['icon']);
-      const icon: string | null = iconRaw === null ? null :
-        (HomeBuiltinIcon.nameOf(iconRaw) !== null ? iconRaw : HomeJsonRead.httpsUrl(iconRaw));
+      const icon: string | null = HomeJson.iconPicture(item);
       const title: string | null = HomeJsonRead.stringOf(item['title']);
       const action: HomeAction | null = HomeJson.action(item['action']);
-      const badge: HomeJsonValue | undefined = item['badge'];
-      if (icon === null || title === null || title.length === 0 || action === null
-        || (badge !== undefined && badge !== null && typeof badge !== 'string')) {
+      if (icon === null || title === null || title.length === 0 || action === null) {
         continue;
       }
-      card.icons.push(new HomeIconItem(icon, title, action,
-        typeof badge === 'string' && (badge as string).length > 0 ? badge as string : null));
+      // 徽标不合法（含契约已不允许的字符串形态）只丢徽标、保留条目（D10-2998 (a)）。
+      card.icons.push(new HomeIconItem(icon, title, action, HomeJson.iconBadge(item['badge'])));
     }
     // 行数：给了 rows 按 columns × rows 截取（不随屏宽增加列数，brief §0 读屏与大屏）。
     if (card.rows > 0 && card.icons.length > card.columns * card.rows) {
       card.icons = card.icons.slice(0, card.columns * card.rows);
     }
     return card;
+  }
+
+  /**
+   * 金刚区条目的图片位（契约 icon_grid_item「image 或 icon」，D10-2998 (c)、D10-3054、D10-3069、D10-3076 (1)）：
+   * icon 非 null 时只看 icon（不合法丢这一条、不回落 image）——字符串照旧（builtin:<已知名> 或 https）、对象按 $defs/icon_asset 取 url；
+   * icon 缺或为 null 时取 image，只认 https（不认 builtin:）。都不可用为 null（丢这一条）。
+   */
+  private static iconPicture(item: HomeJsonObject): string | null {
+    const icon: HomeJsonValue | undefined = item['icon'];
+    if (icon === undefined || icon === null) {
+      return HomeJsonRead.httpsUrl(item['image']);
+    }
+    const asset: HomeJsonObject | null = HomeJsonRead.objectOf(icon);
+    if (asset !== null) {
+      return HomeJson.iconAsset(asset);
+    }
+    const raw: string | null = HomeJsonRead.stringOf(icon);
+    if (raw === null) {
+      return null;
+    }
+    return HomeBuiltinIcon.nameOf(raw) !== null ? raw : HomeJsonRead.httpsUrl(raw);
+  }
+
+  /**
+   * 图标对象（契约 $defs/icon_asset，additionalProperties false）：恰好 url、sha256 两键，url 合 pattern 且 ≤ 2048 码点、sha256 为 64 位小写 hex
+   * → 按远程图取 url；首页不做摘要校验。url 以 .svg 结尾 → null（丢这一条，D10-3076 (1)，FU-HM-HOME-ICON-SVG 另登）。
+   */
+  private static iconAsset(obj: HomeJsonObject): string | null {
+    const keys: string[] = Object.keys(obj);
+    if (keys.length !== ICON_ASSET_KEYS.length || keys.some((k: string): boolean => ICON_ASSET_KEYS.indexOf(k) < 0)) {
+      return null;
+    }
+    const url: string | null = HomeJsonRead.stringOf(obj['url']);
+    const sha256: string | null = HomeJsonRead.stringOf(obj['sha256']);
+    if (url === null || sha256 === null || HomeJsonRead.codePoints(url) > ICON_ASSET_URL_MAX
+      || !ICON_ASSET_URL_RE.test(url) || !ICON_ASSET_SHA256_RE.test(sha256)) {
+      return null;
+    }
+    return url.endsWith('.svg') ? null : url;
+  }
+
+  /**
+   * 徽标（契约 $defs/badge，additionalProperties false，D10-2998 (a)、D10-3076 (2)）：kind ∈ none / dot / text 必填；
+   * text 只在 kind = text 时出现且必填、1–2 个码点（kind ≠ text 出现 text 键即不合法，含 "text": null）；
+   * expire_at 可选，出现则须合 $defs/instant 且是真实时刻（含 null 不合法）。没给、为 null、不是对象或任一条不符 → null（只丢徽标）。
+   */
+  static iconBadge(value: HomeJsonValue | undefined): HomeIconBadge | null {
+    const obj: HomeJsonObject | null = HomeJsonRead.objectOf(value);
+    if (obj === null) {
+      return null;
+    }
+    const keys: string[] = Object.keys(obj);
+    if (keys.some((k: string): boolean => BADGE_KEYS.indexOf(k) < 0)) {
+      return null;
+    }
+    const kind: string | null = HomeJsonRead.stringOf(obj['kind']);
+    if (kind !== HomeIconBadge.TEXT && kind !== HomeIconBadge.DOT && kind !== HomeIconBadge.NONE) {
+      return null;
+    }
+    let expireMs: number | null = null;
+    if (keys.indexOf('expire_at') >= 0) {
+      expireMs = HomeJsonRead.contractInstant(obj['expire_at']);
+      if (expireMs === null) {
+        return null;
+      }
+    }
+    const hasText: boolean = keys.indexOf('text') >= 0;
+    if (kind !== HomeIconBadge.TEXT) {
+      return hasText ? null : new HomeIconBadge(kind as string, null, expireMs);
+    }
+    const text: string | null = HomeJsonRead.stringOf(obj['text']);
+    if (text === null) {
+      return null;
+    }
+    const points: number = HomeJsonRead.codePoints(text);
+    if (points < 1 || points > BADGE_TEXT_MAX_POINTS) {
+      return null;
+    }
+    return new HomeIconBadge(HomeIconBadge.TEXT, text, expireMs);
   }
 
   private static productScroll(card: HomeCard, props: HomeJsonObject | null,

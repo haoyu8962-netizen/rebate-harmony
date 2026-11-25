@@ -342,6 +342,8 @@ export {
   HomeJsonValue, HomeJsonObject, HomeCardType, HomeSourceKind, HomeReason, HomeAction, HomeBannerItem, HomeIconItem,
   HomeActivityItem, HomeNoticeItem, HomeBuiltinIcon, HomeCard, HomeSkipped, HomeDropped, HomeDecoded
 } from './src/main/ets/home/HomeModels';
+// FU-HM-HOME-ENTRY-OBJECT-FIELDS（D10-2998）：金刚区徽标（契约 $defs/badge）。另起一行导出（本文件只许新增行，me12v G2）。
+export { HomeIconBadge } from './src/main/ets/home/HomeModels';
 export { HomeJsonRead, HomeJson, HomeSectionFilter, HomeAdLabel, HomeSpm } from './src/main/ets/home/HomeJson';
 export {
   HomeLevel, HomeShanghai, HomeLkgScope, HomeLocalData, NoticeView, NoticeFilter, PopupBlocker, PopupDecision, PopupPolicy,
