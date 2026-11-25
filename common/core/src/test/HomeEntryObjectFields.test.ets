@@ -133,6 +133,22 @@ function longAssetUrl(len: number): string {
   return head + dirs + tail;
 }
 
+/** 码点数（代理对算 1；测试自数，不用实现里的 HomeJsonRead.codePoints）。 */
+function codePointCount(s: string): number {
+  let n: number = 0;
+  for (let i: number = 0; i < s.length; i++) {
+    const c: number = s.charCodeAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+      const next: number = s.charCodeAt(i + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        i++;
+      }
+    }
+    n++;
+  }
+  return n;
+}
+
 export default function homeEntryObjectFieldsTest() {
   describe('HomeEntryObjectFields', () => {
     // ---------------------------------------------------------------- 图片位：icon 对象（$defs/icon_asset）
@@ -463,5 +479,55 @@ export default function homeEntryObjectFieldsTest() {
         new Case('60 秒', textBadge('新', '2026-10-10T10:00:60+08:00'))
       ]);
     });
+
+    // ---------------------------------------------------------------- 评审 r1 F3 补缺（c982108 上应绿：钉现行为）
+
+    // 年份 0001–0099 的 expire_at 精确毫秒（Date.UTC 会把 0–99 年改写成 1900–1999，实现须自己按日历换算，见 HomeJsonRead.daysFromCivil）。
+    // 期望值是手算的字面量。锚点：0001-01-01T00:00:00Z 距 1970-01-01 为 -719162 天
+    // （1–1969 年共 1969 × 365 = 718685 天，加闰日 ⌊1969/4⌋ − ⌊1969/100⌋ + ⌊1969/400⌋ = 492 − 19 + 4 = 477 天），
+    // 即 -719162 × 86400000 = -62135596800000 ms；+08:00 再减 8 小时。
+    // 交叉自检：公历 400 年恰好 146097 天，所以 y 年的时刻 = (y + 2000) 年同一墙上时刻 − 5 × 146097 天（2001–2099 年 Date.UTC 不改写）。
+    it('E09_expire_at_years_0001_to_0099_convert_to_exact_millis', 0, () => {
+      const fiveCycles: number = 5 * 146097 * 24 * 60 * 60 * 1000;
+      expect(fiveCycles).assertEqual(63113904000000);
+      const cases: string[][] = [
+        // 0001-01-01T08:00:00+08:00 = 0001-01-01T00:00:00Z（锚点本身）。
+        ['0001-01-01T08:00:00+08:00', '-62135596800000', String(at8(2001, 1, 1, 8, 0, 0, 0) - fiveCycles)],
+        // 0001-01-01T00:00:00+08:00 = 0000-12-31T16:00:00Z：锚点 − 8 × 3600000。
+        ['0001-01-01T00:00:00+08:00', '-62135625600000', String(at8(2001, 1, 1, 0, 0, 0, 0) - fiveCycles)],
+        // 0004 年是闰年（4 能整除、100 不能）：0004-02-29 合法。锚点 + (3 × 365 + 31 + 28) 天 = -719162 + 1154 = -718008 天，
+        // 再 + 12:34:56.789 − 8 h = +4:34:56.789 = 16496789 ms → -718008 × 86400000 + 16496789 = -62035874703211。
+        ['0004-02-29T12:34:56.789+08:00', '-62035874703211', String(at8(2004, 2, 29, 12, 34, 56, 789) - fiveCycles)],
+        // 0099 年的最后一毫秒（+08:00）= 0099-12-31T15:59:59.999Z。0100-01-01T00:00:00Z = 锚点 + (99 × 365 + 24) 天 = -719162 + 36159
+        // = -683003 天 = -59011459200000 ms；往前 8 h 再 1 ms → -59011459200000 − 28800000 − 1 = -59011488000001。
+        ['0099-12-31T23:59:59.999+08:00', '-59011488000001', String(at8(2099, 12, 31, 23, 59, 59, 999) - fiveCycles)]
+      ];
+      // 手算字面量与 400 年周期换算两路一致。
+      expect(cases.map((c: string[]): string => c[1]).join(',')).assertEqual(cases.map((c: string[]): string => c[2]).join(','));
+      const list: HomeIconItem[] = icons(cases.map((c: string[], i: number): string => withBadge('格' + i, textBadge('新', c[0]))));
+      expect(titles(list)).assertEqual('格0,格1,格2,格3');
+      expect(list.map((i: HomeIconItem): string => describeBadge(i)).join(' | '))
+        .assertEqual(cases.map((c: string[]): string => want('text', '新', Number(c[1]))).join(' | '));
+    });
+
+    // icon_asset.url 的 maxLength 2048 按 Unicode 码点算（契约 JSON Schema 口径），路径里有中文时与 UTF-16 长度不同。
+    // 目录段用「图标/」（BMP，1 码点 = 1 单元）+ n 个「𠮷」（U+20BB7，CJK 扩展 B，1 码点 = 2 个 UTF-16 单元）+「/」：
+    // 码点数 = 24（https://cdn.example.com/）+ 3 + n + 1 + 68（64 hex + .png）= 96 + n；UTF-16 长度 = 96 + 2n。
+    // n = 1952：码点 2048（合法，保留）、UTF-16 4000；n = 1953：码点 2049（超限，丢这一条）。按 UTF-16 算的实现会把 2048 那条也丢掉。
+    it('P12_icon_asset_url_max_counts_code_points_with_non_ascii_path', 0, () => {
+      const head: string = 'https://cdn.example.com/图标/';
+      const tail: string = '/' + HEX_A + '.png';
+      const at2048: string = head + '𠮷'.repeat(1952) + tail;
+      const at2049: string = head + '𠮷'.repeat(1953) + tail;
+      expect(codePointCount(at2048) + '/' + at2048.length).assertEqual('2048/4000');
+      expect(codePointCount(at2049) + '/' + at2049.length).assertEqual('2049/4002');
+      // 两条都合契约 pattern（[^\s?#]* 允许非 ASCII），区别只在长度。
+      const re: RegExp = /^https:\/\/[^\s/?#]+\/([^\s?#]*\/)?[0-9a-f]{64}\.(png|svg)$/;
+      expect(re.test(at2048) && re.test(at2049)).assertTrue();
+      const list: HomeIconItem[] = icons([entry(asset(at2048, HEX_A), '码点2048'), entry(asset(at2049, HEX_A), '码点2049'), good()]);
+      expect(titles(list)).assertEqual('码点2048,好格');
+      expect(list[0].icon === at2048).assertTrue();
+    });
   });
 }
+
