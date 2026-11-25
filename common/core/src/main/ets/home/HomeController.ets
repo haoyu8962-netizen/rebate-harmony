@@ -511,6 +511,8 @@ class RenderOrigin {
 export class HomeController {
   /** 契约「items 为空而带游标表示接着取」：卡片还没有任何商品时自己接着取，最多 3 次（D10-607 D4，防服务端连续回空页无限追取）。 */
   static readonly EMPTY_PAGE_FETCH_ON_MAX: number = 3;
+  /** 到期重算计时的最长等待（2^31−1 ms，约 24.86 天）：setTimeout 超过它会把 delay 置 0。 */
+  static readonly MAX_TIMER_DELAY_MS: number = 2147483647;
   private static serials: number = 0;
   readonly serial: number;
   private readonly deps: HomeDeps;
@@ -1073,7 +1075,8 @@ export class HomeController {
     if (next === null || this.disposed) {
       return;
     }
-    const wait: number = Math.max(0, next - this.deps.clock());
+    // setTimeout 的 delay 超过 2^31−1 会被置 0（SDK global.d.ts）：封顶，远期到期时先提前醒一次、重算后按剩余时长再排（评审 r1 F1 / F4）。
+    const wait: number = Math.min(HomeController.MAX_TIMER_DELAY_MS, Math.max(0, next - this.deps.clock()));
     // 页面停留时在最近的公告 end_at / 金刚区文字徽标 expire_at 到期时重算（不轮询网络，G10、D10-2998）。
     this.noticeTimer = this.deps.timer.schedule(wait, (): void => {
       this.noticeTimer = -1;
