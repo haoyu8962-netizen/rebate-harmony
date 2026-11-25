@@ -13,6 +13,9 @@ import {
 import { RouteSpec } from 'generated';
 import { SystemNeutralPreset } from 'designsystem';
 
+/** Release 本地发布闸关着的路由（FU-HM-DELETION-ENTRY-GATE；开门归 APP-13a-OPEN-harmony）。 */
+const RELEASE_GATED_DELETE_ACCOUNT: string = 'DeleteAccount';
+
 export class BuildVariant {
   static readonly CONFIG_NAME: string = 'Release';
 
@@ -146,9 +149,20 @@ export class BuildVariant {
   static registerDebugOnlyTable(): void {
   }
 
-  /** 本构建的路由表（APP-13a G01：Release 原样取 RouteTable，没有路由可用性覆盖开关；DeleteAccount since=null 即不可用）。 */
+  /**
+   * 本构建的路由表（APP-13a G01）：Release 取 RouteTable，没有路由可用性覆盖开关；只有一道本地发布闸
+   * （FU-HM-DELETION-ENTRY-GATE，D10-2913 ②、D10-2998 ①）：契约 routes.json 里 DeleteAccount 的 since.harmony 已是 1.0.0，
+   * 闸把它换成 since=null 的副本（其余字段原样），让设置行、强更页链接、风控 / 申诉、10007 落点与守卫在 Release 保持关门。
+   * 开门归 APP-13a-OPEN-harmony（删掉这道闸）；与安卓 AppRouting RELEASE_GATED_ROUTES、iOS DeleteAccountEntry.sinceIOS = nil 同口径。
+   * Staging 变体不设这道闸（缺省按契约可用，couli_debug_route_unavailable 可关）。
+   */
   static routeSpec(name: string): RouteSpec | undefined {
-    return RouteTable.spec(name);
+    const spec: RouteSpec | undefined = RouteTable.spec(name);
+    if (spec === undefined || name !== RELEASE_GATED_DELETE_ACCOUNT) {
+      return spec;
+    }
+    return new RouteSpec(spec.name, spec.kind, spec.auth, null, spec.entries, spec.h5Path, spec.debugOnly,
+      spec.agentGuide, spec.agentGuideAccount, spec.params, spec.requiredParams, spec.additionalParams);
   }
 
   /**

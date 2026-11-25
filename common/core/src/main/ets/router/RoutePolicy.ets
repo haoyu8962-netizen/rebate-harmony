@@ -57,9 +57,10 @@ export class RoutePolicy {
 }
 
 /**
- * 路由可用性的覆盖（APP-13a 编排者补充 G01）：DeleteAccount 的 since 三端都是 null（未发布）——入口统一由 Router 的路由可用性判定，不写死；
+ * 路由可用性的覆盖（APP-13a 编排者补充 G01）：入口统一由 Router 的路由可用性判定，不写死。契约已给 DeleteAccount since.harmony
+ * （1.0.0），Release 由本地闸（entry 的 src/release BuildVariant.routeSpec 给 since=null 副本）关门，开门归 APP-13a-OPEN-harmony；
  * Debug / Staging 的「路由可用性覆盖」开关（只在 entry 的 src/staging 编译，Release 没有开关本身）用这里的纯函数把 since 换成一个
- * 已发布的版本，其余字段原样，守卫照常判定（入口、参数、登录前置）。契约填上 since 后不需要开关，代码不改自动生效。
+ * 已发布的版本，其余字段原样，守卫照常判定（入口、参数、登录前置）。
  */
 export class RouteAvailability {
   /** 同一路由、since.harmony 改为 since（其余字段原样）。 */

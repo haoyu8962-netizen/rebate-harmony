@@ -188,7 +188,8 @@ export class EntryGuard {
     if (!state.fromForceUpdatePage || request.sourceKind !== RouteSource.IN_APP
       || RoutePolicy.FORCE_UPDATE_SECONDARY_ROUTES.indexOf(route) < 0
       || EntryGuard.availability(route, state, routes) !== null) {
-      // TODO(N-14): DeleteAccount 的 since.harmony 仍为 null（未发布），按未发布处理，停在强更页（rule-gaps G02）。
+      // 次要入口不可用时按未发布处理，停在强更页（rule-gaps G02）：契约已给 DeleteAccount since.harmony，Release 由本地闸
+      // （BuildVariant.routeSpec 给 since=null）关门，开门归 APP-13a-OPEN-harmony。
       return forceUpdate;
     }
     const spec: RouteSpec = routes(route) as RouteSpec;
