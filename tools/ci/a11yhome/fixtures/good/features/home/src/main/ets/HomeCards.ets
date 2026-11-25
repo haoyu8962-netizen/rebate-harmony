@@ -42,10 +42,13 @@ class BannerCell {
 class IconCell {
   readonly cell: HomeIconItem;
   readonly tap: HomeTap;
+  /** 此刻可显示的徽标文字（HomeCardView.iconBadges 对应位；到期 / 非文字徽标为 null）。 */
+  readonly badge: string | null;
 
-  constructor(cell: HomeIconItem, tap: HomeTap) {
+  constructor(cell: HomeIconItem, tap: HomeTap, badge: string | null) {
     this.cell = cell;
     this.tap = tap;
+    this.badge = badge;
   }
 }
 
@@ -187,7 +190,8 @@ export struct HomeIconGridCard {
       return [];
     }
     const view: HomeCardView = v as HomeCardView;
-    return view.card.icons.map((c: HomeIconItem, i: number): IconCell => new IconCell(c, view.iconTaps[i]));
+    return view.card.icons.map((c: HomeIconItem, i: number): IconCell => new IconCell(c, view.iconTaps[i],
+      i < view.iconBadges.length ? view.iconBadges[i] : null));
   }
 
   /** 每格命中区：格宽量到之前按自身大小，量到之后左右各扩 4（半个列距）。 */
@@ -275,8 +279,8 @@ export struct HomeIconGridCard {
           Column({ space: CouliSpacing.space1 }) {
             Stack({ alignContent: Alignment.TopEnd }) {
               this.icon(ic.cell)
-              if (ic.cell.badge !== null) {
-                Text(ic.cell.badge as string)
+              if (ic.badge !== null) {
+                Text(ic.badge as string)
                   .attributeModifier(new CouliTextModifier(CouliTypography.caption, CouliColors.textInverse))
                   .padding({ left: CouliSpacing.space1, right: CouliSpacing.space1 })
                   .backgroundColor(CouliColors.brandPrimary)
@@ -303,7 +307,7 @@ export struct HomeIconGridCard {
           .id('home_icon_cell_' + index)
           // 只有图标的格也有读屏名（adaptation-a11y-spec §9）：整格一个节点，读标题（与角标）。
           .accessibilityGroup(true)
-          .accessibilityText(ic.cell.title + (ic.cell.badge !== null ? ' ' + (ic.cell.badge as string) : ''))
+          .accessibilityText(ic.cell.title + (ic.badge !== null ? ' ' + (ic.badge as string) : ''))
           .accessibilityRole(AccessibilityRoleType.BUTTON)
           .focusBox(CouliFocus.box)
           .onClick(() => {
@@ -314,7 +318,8 @@ export struct HomeIconGridCard {
         // 评审 r1 R1-02：列距 8 让 320 宽每格只有 44.8vp（< 48）：GridItem 与格节点的命中区左右各扩半个列距（4），
         // 相邻格的命中区正好在列距中线相接、不重叠；Grid 有 16 的内边距，扩出去的部分仍在卡内。视觉与组件框不变。
         .responseRegion(this.hitRegion())
-      }, (ic: IconCell) => ic.tap.owner + ':' + ic.tap.render + ':' + ic.tap.slot + ':' + ic.cell.title)
+      // 键带上徽标文字：到期重算同一换代（render 不变）时徽标消失也要重建这一格。
+      }, (ic: IconCell) => ic.tap.owner + ':' + ic.tap.render + ':' + ic.tap.slot + ':' + ic.cell.title + ':' + (ic.badge ?? ''))
     }
     // 列数按 props 的 columns（不随屏宽增加）；行距 16、列距 8（Main-v3）。
     .columnsTemplate(this.template())
