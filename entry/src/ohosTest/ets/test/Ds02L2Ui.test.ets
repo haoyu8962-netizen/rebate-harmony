@@ -982,7 +982,18 @@ function skNear(p: Pixels, x: number, y: number, rgb: number[]): boolean {
   return direct <= SK_TOL || swapped <= SK_TOL;
 }
 
-/** 一张骨架卡截图的取色：surface / muted 各占多少（先认 surface，其次 muted）。 */
+/** 像素到 rgb 的最大通道差（RGB / BGR 两种字节序取小，与 skNear 同口径）。 */
+function skDist(p: Pixels, x: number, y: number, rgb: number[]): number {
+  let direct: number = 0;
+  let swapped: number = 0;
+  for (let c: number = 0; c < 3; c++) {
+    direct = Math.max(direct, Math.abs(p.at(x, y, c) - rgb[c]));
+    swapped = Math.max(swapped, Math.abs(p.at(x, y, c) - rgb[2 - c]));
+  }
+  return Math.min(direct, swapped);
+}
+
+/** 一张骨架卡截图的取色：surface / muted 各占多少（先认 surface，其次 muted；muted 还须比占位灰 placeholder 更近，D10-3262）。 */
 class SkTones {
   surface: number = 0;
   muted: number = 0;
@@ -1008,14 +1019,14 @@ class SkTones {
   }
 }
 
-function skTones(p: Pixels, surface: number[], muted: number[]): SkTones {
+function skTones(p: Pixels, surface: number[], muted: number[], placeholder: number[]): SkTones {
   const t: SkTones = new SkTones();
   for (let y: number = 0; y < p.height; y++) {
     for (let x: number = 0; x < p.width; x++) {
       t.total++;
       if (skNear(p, x, y, surface)) {
         t.surface++;
-      } else if (skNear(p, x, y, muted)) {
+      } else if (skNear(p, x, y, muted) && skDist(p, x, y, muted) < skDist(p, x, y, placeholder)) {
         t.muted++;
       }
     }
@@ -1151,13 +1162,14 @@ export function l2SkeletonDeviceCases(): void {
         await skTheme(mode);
         const surface: number[] = token('background.surface', mode === 'dark');
         const muted: number[] = token('background.muted', mode === 'dark');
+        const placeholder: number[] = token('background.placeholder', mode === 'dark');
         for (const s of SK_SHAPES) {
           if (s[0] !== comp) { continue; }
           const id: string = skCid(s[0], s[1], s[2]);
           const r: Rect = await skVisible(comp, id);
           let best: SkTones = new SkTones();
           for (let frame: number = 0; frame < 3; frame++) {
-            const t: SkTones = skTones(await capture(r), surface, muted);
+            const t: SkTones = skTones(await capture(r), surface, muted, placeholder);
             console.info('L2SKEL_TONES ' + mode + ' ' + id + ' #' + frame + ' ' + t.text());
             check(t.surfaceShare() >= 0.3, 'L2SKEL_SHELL_NOT_SURFACE ' + mode + ' ' + id + ' background.surface 占比 ' +
               t.surfaceShare().toFixed(2) + ' < 0.30（外壳不是静态 CouliCard 白卡）');
@@ -1245,6 +1257,7 @@ export function l2SkeletonDeviceCases(): void {
       await skFont('200');
       const surface: number[] = token('background.surface', false);
       const muted: number[] = token('background.muted', false);
+      const placeholder: number[] = token('background.placeholder', false);
       for (let i: number = 0; i < shapes.length; i++) {
         const s: string[] = shapes[i];
         const id: string = skCid(s[0], s[1], s[2]);
@@ -1255,7 +1268,7 @@ export function l2SkeletonDeviceCases(): void {
         check(Math.abs((r.right - r.left) - w0) <= 2, 'L2SKEL_FONT200_WIDTH ' + id + ' 200% 卡宽 ' + (r.right - r.left) + ' ≠ ' + w0);
         check(r.left >= box.left - 1 && r.right <= box.right + 1, 'L2SKEL_FONT200_OUTSIDE ' + id + ' 200% 骨架卡超出样例框');
         check(r.bottom - r.top >= h0 - 2, 'L2SKEL_FONT200_SQUASHED ' + id + ' 200% 卡高 ' + (r.bottom - r.top) + ' < ' + h0);
-        const t: SkTones = skTones(await capture(r), surface, muted);
+        const t: SkTones = skTones(await capture(r), surface, muted, placeholder);
         check(t.mutedShare() >= 0.05, 'L2SKEL_FONT200_BLOCKS_GONE ' + id + ' 200% 下 muted 块 ' + t.text());
       }
       await skFont('100');
@@ -2609,7 +2622,12 @@ async function assertBlockColors(scope: On, blockKey: string, iconKey: string, d
   const shot: Shot = await captureChecked(driver, block, 'l2state-' + tag);
   const bg: number[] = pixel(shot, Math.floor(shot.width * 0.15), Math.floor(shot.height * 0.5));
   const wantBg: number[] = rgbOf(blockKey, dark);
-  check(near(bg, wantBg, 10), tag + ' block ' + blockKey + (dark ? ' dark' : ' light') + ' want ' + rgbText(wantBg) + ' got ' + rgbText(bg));
+  // 块背后是目录样例框外的页面底 canvas（TokDiag 设备读数核过）：块底须比 canvas 更近，块透明露底时才抓得到（D10-3262）。
+  const base: number[] = rgbOf('background.canvas', dark);
+  const dWant: number = Math.max(Math.abs(bg[0] - wantBg[0]), Math.abs(bg[1] - wantBg[1]), Math.abs(bg[2] - wantBg[2]));
+  const dBase: number = Math.max(Math.abs(bg[0] - base[0]), Math.abs(bg[1] - base[1]), Math.abs(bg[2] - base[2]));
+  check(near(bg, wantBg, 10) && dWant < dBase, tag + ' block ' + blockKey + (dark ? ' dark' : ' light') + ' want ' + rgbText(wantBg) +
+    ' got ' + rgbText(bg) + '（须比页面底 canvas ' + rgbText(base) + ' 更近）');
   let ink: number[] = bg;
   let best: number = -1;
   for (let y: number = Math.floor(shot.height * 0.3); y < Math.floor(shot.height * 0.7); y++) {

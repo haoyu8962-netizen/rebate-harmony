@@ -33,11 +33,14 @@ function it(name: string, flags: number, body: () => Promise<void>): void {
 
 const INVITE_FULL: string = '检测到好友邀请码 K7M3QX，绑定为邀请人？';
 
-/** 屏上一点与令牌色的差（不透明令牌）。 */
-async function tokenDiff(x: number, y: number, key: string, dark: boolean, half: number = 4): Promise<string> {
+/** 屏上一点与令牌色的差（不透明令牌）；给了 rivals 时还须比每个 rivals 令牌更近（令牌近邻时固定容差分不开，D10-3262）。 */
+async function tokenDiff(x: number, y: number, key: string, dark: boolean, half: number = 4, rivals: string[] = []): Promise<string> {
   const got: number[] = await meanRgb(x, y, half);
   const want: number[] = argb(key, dark);
-  return maxDiff(got, want) <= 12 ? 'ok' : key + (dark ? '(dark)' : '') + ' want=' + rgbText(want) + ' got=' + rgbText(got);
+  const d: number = maxDiff(got, want);
+  const closer: boolean = rivals.every((k: string): boolean => d < maxDiff(got, argb(k, dark)));
+  return d <= 12 && closer ? 'ok' : key + (dark ? '(dark)' : '') + ' want=' + rgbText(want) + ' got=' + rgbText(got) +
+    (closer ? '' : ' 不比 ' + rivals.join('/') + ' 更近');
 }
 
 /** 热启动只带假服务开关与给定参数：不带 couli_debug_home_reset / 场景，开着的弹窗不被重建收起。 */
@@ -331,7 +334,8 @@ export default function hm07vOverlayUiTest() {
       check((await closeCount(NOTICE_ID)) === 0, '① 不设【关闭】', String(await closeCount(NOTICE_ID)));
       check((await noticeAction(RETRY)) === null, '① 没有【重试】');
       // 白卡（background.surface，不是错误底色）：卡左内边距区取色。
-      const bg: string = await tokenDiff(card.left + px(4), cyOf(card), 'background.surface', false);
+      const bg: string = await tokenDiff(card.left + px(4), cyOf(card), 'background.surface', false, 4,
+        ['background.canvas', 'status.error.background']);
       check(bg === 'ok', '① 卡底 background.surface（白卡，不是 status.error.background）', bg);
       // 右侧描边次按钮，命中 48、在卡内、不是实心主按钮。
       const ar: Rect = await hit48(ON.id(NOTICE_ID + '_action'), '【用商品名搜索】');
@@ -352,7 +356,8 @@ export default function hm07vOverlayUiTest() {
       check(retry !== null, '⑤ 网络失败有【重试】');
       check((await noticeAction(SEARCH_BY_NAME)) === null, '⑤ 没有【用商品名搜索】');
       check((await closeCount(NOTICE_ID)) === 0, '⑤ 不设【关闭】', String(await closeCount(NOTICE_ID)));
-      const bg: string = await tokenDiff(card.left + px(4), cyOf(card), 'background.surface', false);
+      const bg: string = await tokenDiff(card.left + px(4), cyOf(card), 'background.surface', false, 4,
+        ['background.canvas', 'status.error.background']);
       check(bg === 'ok', '⑤ 卡底 background.surface', bg);
       await hit48(ON.id(NOTICE_ID + '_action'), '【重试】');
       // 重试：同一片段再发（假服务仍断网）→ 新的 ⑤ 卡；期间不跳页、不重读剪贴板（执行层由 Core 单测守）。
