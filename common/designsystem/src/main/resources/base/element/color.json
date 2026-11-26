@@ -18,7 +18,7 @@
     },
     {
       "name": "color_background_canvas",
-      "value": "#F2EEE6"
+      "value": "#F6F5F3"
     },
     {
       "name": "color_background_admin_canvas",
@@ -30,11 +30,11 @@
     },
     {
       "name": "color_background_muted",
-      "value": "#EFEAE2"
+      "value": "#F2F1EF"
     },
     {
       "name": "color_background_placeholder",
-      "value": "#E9E2D9"
+      "value": "#EBEAE7"
     },
     {
       "name": "color_text_primary",
@@ -78,7 +78,7 @@
     },
     {
       "name": "color_status_pending_background",
-      "value": "#EFEAE2"
+      "value": "#F2F1EF"
     },
     {
       "name": "color_status_success_text",
@@ -106,7 +106,7 @@
     },
     {
       "name": "color_border_subtle",
-      "value": "#E4DED5"
+      "value": "#E6E5E3"
     },
     {
       "name": "color_border_control",
@@ -130,7 +130,7 @@
     },
     {
       "name": "color_source_border",
-      "value": "#E4DED5"
+      "value": "#E6E5E3"
     },
     {
       "name": "color_platform_tag_taobao",
@@ -166,7 +166,7 @@
     },
     {
       "name": "color_button_primary_disabled_background",
-      "value": "#E9E2D9"
+      "value": "#EBEAE7"
     },
     {
       "name": "color_button_primary_disabled_text",

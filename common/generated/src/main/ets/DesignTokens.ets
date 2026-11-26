@@ -23,7 +23,7 @@ export class ShadowLayerToken {
 }
 
 export class DesignTokens {
-  static readonly version: string = '0.5.1';
+  static readonly version: string = '0.5.3';
   static readonly colors: Map<string, string> = DesignTokens.buildColors();
   /** color.* 的深色（dark 原串，键与 colors 相同；8 位为 CSS 顺序 #RRGGBBAA）。 */
   static readonly colorsDark: Map<string, string> = DesignTokens.buildColorsDark();
@@ -48,11 +48,11 @@ export class DesignTokens {
     map.set('brand.emphasis', '#A83B1F');
     map.set('brand.secondary', '#26735B');
     map.set('brand.subtle', '#FBEFE8');
-    map.set('background.canvas', '#F2EEE6');
+    map.set('background.canvas', '#F6F5F3');
     map.set('background.admin-canvas', '#F6F3ED');
     map.set('background.surface', '#FFFFFF');
-    map.set('background.muted', '#EFEAE2');
-    map.set('background.placeholder', '#E9E2D9');
+    map.set('background.muted', '#F2F1EF');
+    map.set('background.placeholder', '#EBEAE7');
     map.set('text.primary', '#28251F');
     map.set('text.secondary', '#655E57');
     map.set('text.inverse', '#FFFFFF');
@@ -63,20 +63,20 @@ export class DesignTokens {
     map.set('rebate.solid.background', '#C44820');
     map.set('rebate.solid.text', '#FFFFFF');
     map.set('status.pending.text', '#655E57');
-    map.set('status.pending.background', '#EFEAE2');
+    map.set('status.pending.background', '#F2F1EF');
     map.set('status.success.text', '#26735B');
     map.set('status.success.background', '#EAF4EE');
     map.set('status.warning.text', '#846020');
     map.set('status.warning.background', '#FBF2DC');
     map.set('status.error.text', '#B42345');
     map.set('status.error.background', '#FDECF0');
-    map.set('border.subtle', '#E4DED5');
+    map.set('border.subtle', '#E6E5E3');
     map.set('border.control', '#8A8177');
     map.set('border.active', '#28251F');
     map.set('focus.ring', '#26735B');
     map.set('source.text', '#655E57');
     map.set('source.background', '#FFFFFF');
-    map.set('source.border', '#E4DED5');
+    map.set('source.border', '#E6E5E3');
     map.set('platform.tag.taobao', '#D53D00');
     map.set('platform.tag.tmall', '#EA0031');
     map.set('platform.tag.jd', '#E02018');
@@ -85,7 +85,7 @@ export class DesignTokens {
     map.set('button.primary.default.text', '#FFFFFF');
     map.set('button.primary.pressed.background', '#A83B1F');
     map.set('button.primary.pressed.text', '#FFFFFF');
-    map.set('button.primary.disabled.background', '#E9E2D9');
+    map.set('button.primary.disabled.background', '#EBEAE7');
     map.set('button.primary.disabled.text', '#655E57');
     map.set('button.inverse.background', '#FFFFFF');
     map.set('button.inverse.text', '#A83B1F');

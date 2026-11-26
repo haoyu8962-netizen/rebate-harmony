@@ -5,7 +5,7 @@
   },
   "design_tokens": {
     "repo": "../couli",
-    "commit": "f088f0473230d1e70232b8a246b92ef53d723929",
+    "commit": "c404003bbecdff2c67f3e744d81a5ee92e5043ce",
     "path": "design/tokens/design-tokens.json"
   },
   "files": {
@@ -39,7 +39,7 @@
     "contracts/openapi.json": "4815635c38d6c2d90af40304a8e87cfff65834e78a8fdf7f7590b4e2163e1295",
     "contracts/routes.json": "0afda43347552bb3f875fe2b76c6ab9e30d37ec22dedc77fd5a1fe88c376522b",
     "contracts/texts.default.json": "9892db319fa5d29da786d5feaf1ffd1fd1e61f97ff2ecbfa3d72bcf33d322a2e",
-    "design/design-tokens.json": "97d2bf83ada062959987f348bc695c63fabc4adb3647f03e5c0895e2548e491c",
+    "design/design-tokens.json": "58b5e1ff8a0481381cf428b284d38b2a96b5128641912acf37d54e7e6cf63c93",
     "specs/app-stores.json": "19ad122d9cf7b92044819edd30c615f4f111668a0388eea28814394e130822cf",
     "specs/client-public-ids.json": "1ef9e57a1a77dc849899ec72f53d7911ff57b6583cb3eaf78527a3bc6fb9f7b3",
     "specs/client-security-baseline.json": "25c48e505e0dee4afd7279ae9b7cbb029dbacb2585e68a7c52d3ad7e2738ff90",

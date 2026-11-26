@@ -1201,9 +1201,31 @@ def gen_texts():
 # ---------------------------------------------------------------- 令牌
 
 
+# 显式已知分组表（D10-3257 (1)，照 iOS D10-3148）：tokens 下只认这些顶层分组，键名区分大小写。
+# TOKEN_GENERATED_GROUPS：本端生成（gen_tokens 读 color / space / radius / font / interaction / component / focus / shadow，
+#   gen_theme 读 color / shadow）。
+# TOKEN_SKIPPED_GROUPS：已知、原生不生成。motion 只给 Web 用，原生三端按平台默认动效、不读 motion 令牌
+#   （00 D37、D10-837）；三端同口径跳过（D10-3147 (1) 甲、D10-3257 (1)）。整棵子树不读、不校验。
+# 表外任何顶层分组都 GenError 并报出分组名：令牌源加了新分组，必须先裁定本端怎么处理，不静默忽略。
+TOKEN_GENERATED_GROUPS = ("color", "font", "space", "radius", "shadow", "focus", "interaction", "component")
+TOKEN_SKIPPED_GROUPS = ("motion",)
+
+
+def check_token_groups(tokens):
+    if not isinstance(tokens, dict):
+        raise GenError("design-tokens.json 的 tokens 不是对象")
+    known = set(TOKEN_GENERATED_GROUPS) | set(TOKEN_SKIPPED_GROUPS)
+    unknown = [k for k in tokens if k not in known]
+    if unknown:
+        raise GenError("design-tokens.json 有生成器不认识的顶层分组：%s（已知分组：生成 %s；已知不生成 %s；新分组须先裁定本端处理方式）"
+                       % (", ".join(repr(k) for k in unknown), "、".join(TOKEN_GENERATED_GROUPS),
+                          "、".join(TOKEN_SKIPPED_GROUPS)))
+
+
 def gen_tokens():
     data = load("design/design-tokens.json")
     tokens = data["tokens"]
+    check_token_groups(tokens)
     colors = []
     colors_dark = []
 
