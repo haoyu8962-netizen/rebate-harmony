@@ -51,7 +51,7 @@ class Pinned {
 // 关键角色（鸿蒙 ARGB 表示）。
 const PINNED: Pinned[] = [
   new Pinned('text.primary', '#28251F', '#F2EEE6'),
-  new Pinned('background.canvas', '#F2EEE6', '#171513'),
+  new Pinned('background.canvas', '#F6F5F3', '#171513'),
   new Pinned('brand.primary', '#C44820', '#C44820'),
   new Pinned('status.error.text', '#B42345', '#F28DA4'),
   new Pinned('overlay.scrim', '#6628251F', '#8C000000'),

@@ -9,7 +9,7 @@
   T1  仓库里没有令牌旁路副本：任何位置都没有 design-tokens.v*.json，也没有改了名的令牌 JSON（含 tokens + darkThemePhase 的 .json），
       只许锁定快照本身
   T2  代码 / 脚本 / 配置里不再引用 design-tokens.v*.json（副本不能变成悬空引用；D10-693 ⑦）
-  T3  版本与指纹唯一：快照 sha256 / metadata.version 等于钉值（0.5.1 / 97d2bf83…）；DesignTokens.version、CouliThemeTokens.version 等于
+  T3  版本与指纹唯一：快照 sha256 / metadata.version 等于钉值（0.5.3 / 58b5e1ff…）；DesignTokens.version、CouliThemeTokens.version 等于
       快照版本；两份 Ds02Expected.ets 头注写快照 sha256、不再写 v0.4.0
   T4  gen_theme.py 不再提副本：不含 specs/design-tokens、design-tokens.v、「仍锁 v0.3.0」、版本钉 "0.4.0"
   T5  资源逐项：designsystem base / dark 的每个 color_* = argb(快照 value / dark)，与快照颜色一一对应（不多不少不重名）；
@@ -25,13 +25,13 @@
   T10 designsystem 不读 CouliThemeTokens.component（§6-3 A：CouliComponentMetrics 与四处 helper 统一读 DesignTokens.component）；
       CouliComponentMetrics 的每个字段都读 DesignTokens（不写死数值）
   T11 designsystem（src/main 与模块根 .ets）不再出现 v0.3.0 / v0.4.0 / 「令牌源副本」的说法
-  T12 contract.lock design_tokens.commit 是 f088f04 或其后代（按 verify.sh 的规则找 couli，只读 git）；lock 里快照哈希 = 快照 sha256
+  T12 contract.lock design_tokens.commit 是 c404003 或其后代（按 verify.sh 的规则找 couli，只读 git）；lock 里快照哈希 = 快照 sha256
   T13 接线：verify.sh 在 gen.py --check 之后、lint.py 之前跑本检查（--self-test 与本仓库）、生成器单测、run-logic、check-arkts；
       两个 Hypium 套件存在并在各自 List.test.ets 注册
   T14 lint.py 的 HM-LINT-11 说明与提示改成「锁定快照」，不再写「令牌源副本」
   T15 Ds02ResourcesDevice 按键比对（不按下标），5 个新键（platform.tag.* ×4、overlay.on-image）按资源名取值
 
-钉值（0.5.1 / f088f04 / 97d2bf83… / 阴影资源现值）：DSX-122 升 v0.6.0 时换值。
+钉值（0.5.3 / c404003 / 58b5e1ff… / 阴影资源现值）：DSX-122 升 v0.6.0 时换值。
 
 用法：
   python3 tools/ci/tokens/check_tokens_pipe.py              本仓库（违反即退出 1）
@@ -75,9 +75,9 @@ PENDING_KEYS = ['platform.tag.taobao', 'platform.tag.tmall', 'platform.tag.jd', 
 
 # 钉值：DSX-122 升 v0.6.0 时换值（同时换本检查、test_tokens.py 与两份 Hypium 套件里的钉值）。
 PINS = {
-    'version': '0.5.1',
-    'commit': 'f088f0473230d1e70232b8a246b92ef53d723929',
-    'sha256': '97d2bf83ada062959987f348bc695c63fabc4adb3647f03e5c0895e2548e491c',
+    'version': '0.5.3',
+    'commit': 'c404003bbecdff2c67f3e744d81a5ee92e5043ce',
+    'sha256': '58b5e1ff8a0481381cf428b284d38b2a96b5128641912acf37d54e7e6cf63c93',
     # DS-02 起的阴影资源现值（浅, 深）；本单主判据「所有像素 0 变化」，生成器改写后这两个资源一个字节都不能变。
     'shadow_res': {'shadow_card': ('#0F28251F', '#4C000000'), 'shadow_floating': ('#1F28251F', '#73000000')},
 }
@@ -219,7 +219,7 @@ def couli_lineage(root, rel, commit, pinned):
     """返回 None 表示 commit 是 pinned 或其后代；否则返回原因。"""
     couli = resolve_couli(root, rel)
     if couli is None:
-        return '取不到 couli 仓库（设 COULI_DIR），无法核对锁定提交是 f088f04 或其后代'
+        return '取不到 couli 仓库（设 COULI_DIR），无法核对锁定提交是 c404003 或其后代'
     if subprocess.run(['git', '-C', couli, 'cat-file', '-e', commit + '^{commit}'], capture_output=True).returncode != 0:
         return 'couli（%s）里没有锁定提交 %s' % (couli, commit[:12])
     if subprocess.run(['git', '-C', couli, 'merge-base', '--is-ancestor', pinned, commit], capture_output=True).returncode != 0:
@@ -276,7 +276,7 @@ def check(root, pins=PINS, lineage=couli_lineage):
 
     # T3 版本与指纹
     if snap_sha != pins['sha256']:
-        bad('T3', '快照 sha256 %s ≠ 钉值 %s（锁定 f088f04 / v0.5.1；DSX-122 升 v0.6.0 时换值）' % (snap_sha[:12], pins['sha256'][:12]))
+        bad('T3', '快照 sha256 %s ≠ 钉值 %s（锁定 c404003 / v0.5.3；DSX-122 升 v0.6.0 时换值）' % (snap_sha[:12], pins['sha256'][:12]))
     if version != pins['version']:
         bad('T3', '快照 metadata.version %r ≠ %r' % (version, pins['version']))
     design = theme = None
@@ -800,7 +800,7 @@ MUTANTS = [
     ('helper 读旧表', 'T10', _replace('common/designsystem/src/main/ets/components/Controls.ets', 'DesignTokens.component',
                                      'CouliThemeTokens.component')),
     ('注释仍写 v0.4.0', 'T11', _replace('common/designsystem/Index.ets', '锁定快照生成', '令牌 v0.4.0 生成数据')),
-    ('锁不是 f088f04 后代', 'T12', None),
+    ('锁不是 c404003 后代', 'T12', None),
     ('lock 哈希未刷新', 'T12', _replace(LOCK, '"design/design-tokens.json": "', '"design/design-tokens.json": "0')),
     ('verify 没挂本检查', 'T13', _replace(VERIFY, 'python3 "$ROOT/tools/ci/tokens/check_tokens_pipe.py" ||', '# removed ||')),
     ('verify 顺序错（令牌步在 lint 之后）', 'T13', _write(VERIFY, GOOD_VERIFY.split('step "令牌管线"')[0] + GOOD_VERIFY.split('step "lint.py（项目规则）"')[1]
@@ -830,7 +830,7 @@ def self_test():
             lineage = ok_lineage
             try:
                 if apply is None:
-                    lineage = lambda root, rel, commit, pinned: '锁定提交不是 f088f04 或其后代（合成）'
+                    lineage = lambda root, rel, commit, pinned: '锁定提交不是 c404003 或其后代（合成）'
                 else:
                     apply(d)
             except AssertionError as e:

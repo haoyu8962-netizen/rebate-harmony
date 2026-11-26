@@ -9,7 +9,7 @@
 // 被测对象都是真实产品源码（'generated' 按真实 common/generated 载入）。
 // 用法：
 //   node tools/ci/tokens/run-logic.cjs                              真实产品
-//   node tools/ci/tokens/run-logic.cjs --self-test                  合成参照件（v0.5.1 形状的最小快照 + 参照实现）全过、错误实现全红
+//   node tools/ci/tokens/run-logic.cjs --self-test                  合成参照件（v0.5.3 形状的最小快照 + 参照实现）全过、错误实现全红
 //   node tools/ci/tokens/run-logic.cjs --swap <相对路径> <文件>        把某个源码 / 资源换成 <文件>（变异体用）
 //   node tools/ci/tokens/run-logic.cjs --expect-red                 退出码取反（变异体必须至少一条失败）
 // 不冒充 hvigor 编译、ArkTS 严格检查（见 check-arkts.cjs）或设备执行。
@@ -143,7 +143,7 @@ async function run(overrides = new Map(), options = {}) {
   return { total, failures };
 }
 
-// ---------------------------------------------------------------- 自测：v0.5.1 形状的合成快照 + 参照实现（REFERENCE_ONLY）
+// ---------------------------------------------------------------- 自测：v0.5.3 形状的合成快照 + 参照实现（REFERENCE_ONLY）
 
 function referenceFixture() {
   const color = (value, dark) => ({ type: 'color', value, dark });
@@ -159,8 +159,8 @@ function referenceFixture() {
     component[group][leaf] = { type: key === 'checkbox.max-scale' ? 'number' : 'dimension', value };
   }
   const layer = (y, blur, color, opacity) => ({ x: 0, y, blur, spread: 0, color, opacity });
-  return { metadata: { version: '0.5.1' }, tokens: {
-    color: { text: { primary: color('#28251F', '#F2EEE6') }, background: { canvas: color('#F2EEE6', '#171513') },
+  return { metadata: { version: '0.5.3' }, tokens: {
+    color: { text: { primary: color('#28251F', '#F2EEE6') }, background: { canvas: color('#F6F5F3', '#171513') },
       brand: { primary: color('#C44820', '#C44820') }, status: { error: { text: color('#B42345', '#F28DA4') } },
       platform: { tag: { taobao: color('#D53D00', '#D53D00') } },
       overlay: { scrim: color('#28251F66', '#0000008C'), 'on-image': color('#0000008C', '#0000008C') } },
@@ -196,7 +196,7 @@ function reference(mutation = '') {
   const radius = numbers(t.radius);
   if (mutation === 'radius-missing-tag') radius.delete('tag');
   const DesignTokens = {
-    version: mutation === 'version' ? '0.5.0' : '0.5.1', colors, colorsDark, spacing: numbers(t.space), radius,
+    version: mutation === 'version' ? '0.5.0' : '0.5.3', colors, colorsDark, spacing: numbers(t.space), radius,
     fontSize: numbers(t.font.size), lineHeight: numbers(t.font['line-height']), fontWeight: numbers(t.font.weight),
     touchTarget: numbers(t.interaction.target), focus: numbers(t.focus), component,
     shadows: new Map(Object.entries(t.shadow).map(([k, l]) => [k, layers(l.value)])),

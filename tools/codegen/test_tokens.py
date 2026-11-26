@@ -14,7 +14,8 @@ tools/codegen/ds02_test_data.py（build_test_outputs）、tools/ci/lint.py（HM-
     CouliThemeTokens.ets（§6-5：entry base 由生成器出）。
   - ds02_test_data.build_test_outputs(root) 返回两份 Ds02Expected.ets。
   - gen.build_outputs() 纳入 gen_theme 的全部产物（§6-1 A：gen.py --check 一次覆盖全部令牌生成物）。
-钉值 0.5.1 只在 RealRepo 段用（DSX-122 升 v0.6.0 时换值）。
+钉值 0.5.3 只在 RealRepo 段用（DSX-122 升 v0.6.0 时换值）。
+顶层分组：gen.py 只认显式已知分组表；motion 已知、原生不生成（00 D37、D10-837、D10-3147、D10-3257），表外顶层分组 GenError 并报出名字。
 
 用法：python3 tools/codegen/test_tokens.py（verify.sh 在 gen.py --check 之后跑）。HM-LINT-11 一组要在临时副本里跑 4 次整份 lint.py
 （约 1–2 分钟）。
@@ -49,8 +50,8 @@ THEME_ETS = 'common/designsystem/src/main/ets/theme/CouliThemeTokens.ets'
 DESIGN_ETS = 'common/generated/src/main/ets/DesignTokens.ets'
 POISON_PATHS = ['specs/design-tokens.v0.4.0.json', 'tools/ci/ds02/fixtures/design-tokens.v0.4.0.json']
 # 钉值：DSX-122 升 v0.6.0 时换值。
-PINNED_VERSION = '0.5.1'
-PINNED_SHA256 = '97d2bf83ada062959987f348bc695c63fabc4adb3647f03e5c0895e2548e491c'
+PINNED_VERSION = '0.5.3'
+PINNED_SHA256 = '58b5e1ff8a0481381cf428b284d38b2a96b5128641912acf37d54e7e6cf63c93'
 
 
 def c(value, dark=None):
@@ -332,6 +333,98 @@ class GeneratorUnit(unittest.TestCase):
             self.assertEqual(text.count('new ExpectedColor('), len(list(leaves(data['tokens']['color']))))
 
 
+def motion_group():
+    """v0.5.3 形状的 motion：duration（带 unit ms）、cubicBezier（value 是数组），外加三层嵌套。"""
+    def dur(value):
+        return {'type': 'duration', 'value': value, 'unit': 'ms', 'description': '仅 Web；原生三端不读（00 D37）'}
+
+    def bez(*value):
+        return {'type': 'cubicBezier', 'value': list(value)}
+
+    return {
+        'duration': {'instant': dur(0), 'fast': dur(150), 'normal': dur(250)},
+        'easing': {'standard': bez(0.2, 0, 0, 1), 'emphasized-decelerate': bez(0.05, 0.7, 0.1, 1)},
+        'pulse': {'loop': {'duration': dur(1200), 'easing': bez(0.4, 0, 0.6, 1)}},
+    }
+
+
+def with_top_level(data, name, group, first=False):
+    """在 tokens 顶层加一个分组；first=True 时放在最前（不靠键序）。"""
+    tokens = data['tokens']
+    data['tokens'] = dict([(name, group)] + list(tokens.items())) if first else dict(list(tokens.items()) + [(name, group)])
+    return data
+
+
+def token_outputs(data):
+    """gen.py 令牌段 + gen_theme 全部产物 + 两份 Ds02Expected（头注快照 sha 换成占位，只比内容）。"""
+    with FixtureRoot(data) as fx:
+        out = {DESIGN_ETS: gen.gen_tokens()}
+        out.update({k.replace(os.sep, '/'): v for k, v in gen_theme.build_outputs().items()})
+        sha = hashlib.sha256(fx.raw).hexdigest()
+        for rel, text in ds02_test_data.build_test_outputs(fx.tmp).items():
+            out[rel.replace(os.sep, '/')] = text.replace(sha, '<快照sha>')
+    return out
+
+
+MOTION_WORDS = ('motion', 'duration', 'easing', 'cubicbezier', 'pulse')
+
+
+class TopLevelGroups(unittest.TestCase):
+    """D10-3257 (1)（照 iOS D10-3148）：gen.py 显式已知分组表。顶层 motion 已知、原生不生成、不报错；表外顶层分组 GenError 且报出名字。"""
+
+    def test_top_level_motion_is_skipped_not_generated_no_error(self):
+        plain = token_outputs(fixture())
+        for first in (False, True):
+            try:
+                got = token_outputs(with_top_level(fixture(), 'motion', motion_group(), first=first))
+            except gen.GenError as e:
+                self.fail('顶层 motion 是已知分组，不得报 GenError：%s' % e)
+            self.assertEqual(sorted(got), sorted(plain))
+            for rel in sorted(plain):
+                self.assertEqual(got[rel], plain[rel], rel + '：加了顶层 motion 后生成物须逐字节不变（motion 原生不生成）')
+            for rel, text in got.items():
+                low = text.lower()
+                for word in MOTION_WORDS:
+                    self.assertNotIn(word, low, rel + ' 不得出现 motion 生成物（%s）' % word)
+
+    def test_unknown_top_level_group_is_generror_naming_it(self):
+        cases = (
+            ('haptics', {'impact': {'type': 'duration', 'value': 10, 'unit': 'ms'}}),
+            ('elevation', {'card': {'type': 'dimension', 'value': 2}}),
+            ('opacity', 0.5),
+            ('Motion', motion_group()),
+            ('MOTION', motion_group()),
+            ('motions', motion_group()),
+        )
+        for name, group in cases:
+            for first in (False, True):
+                data = with_top_level(fixture(), 'motion', motion_group())
+                data = with_top_level(data, name, group, first=first)
+                with FixtureRoot(data):
+                    with self.assertRaises(gen.GenError, msg='表外顶层分组 %r 必须 GenError（只有小写 motion 已知）' % name) as ctx:
+                        gen.gen_tokens()
+                self.assertIn(name, str(ctx.exception), 'GenError 须报出陌生分组名 %r' % name)
+
+    def test_real_snapshot_motion_skipped_and_unknown_group_still_fails(self):
+        real = json.loads((ROOT / SNAP_REL).read_bytes())
+        self.assertIn('motion', real['tokens'], '锁定快照 v0.5.3 带顶层 motion')
+        kinds = sorted({leaf['type'] for _k, leaf in leaves(real['tokens']['motion'])})
+        self.assertEqual(kinds, ['cubicBezier', 'duration'])
+        self.assertEqual(len(list(leaves(real['tokens']['motion']))), 15)
+        bare = json.loads(json.dumps(real))
+        del bare['tokens']['motion']
+        try:
+            got = token_outputs(real)
+        except gen.GenError as e:
+            self.fail('真实快照的顶层 motion 不得报 GenError：%s' % e)
+        self.assertEqual(got, token_outputs(bare), '去掉 motion 前后生成物须逐字节相同')
+        data = with_top_level(json.loads(json.dumps(real)), 'haptics', {'impact': {'type': 'duration', 'value': 10, 'unit': 'ms'}})
+        with FixtureRoot(data):
+            with self.assertRaises(gen.GenError, msg='跳过 motion 不得连带放过别的陌生顶层分组') as ctx:
+                gen.gen_tokens()
+        self.assertIn('haptics', str(ctx.exception))
+
+
 def assert_one_chain(case, design, theme):
     """DesignTokens（CSS 原串）与 CouliThemeTokens（ARGB 派生）同源：逐键 argb 相等、版本相等、阴影两套相等。"""
     case.assertEqual(design['version'], theme['version'])
@@ -357,9 +450,9 @@ class RealRepo(unittest.TestCase):
         cls.gen_outputs = {k.replace(os.sep, '/'): v for k, v in gen.build_outputs().items()}
         cls.theme_outputs = {k.replace(os.sep, '/'): v for k, v in gen_theme.build_outputs().items()}
 
-    def test_snapshot_is_locked_v0_5_1(self):
+    def test_snapshot_is_locked_v0_5_3(self):
         raw = (ROOT / SNAP_REL).read_bytes()
-        self.assertEqual(hashlib.sha256(raw).hexdigest(), PINNED_SHA256, '快照须是 couli f088f04 原字节（DSX-122 换值）')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), PINNED_SHA256, '快照须是 couli c404003 原字节（DSX-122 换值）')
         self.assertEqual(json.loads(raw)['metadata']['version'], PINNED_VERSION)
 
     def test_gen_build_outputs_include_every_theme_output_verbatim(self):
@@ -462,7 +555,7 @@ class LintThemeDrift(unittest.TestCase):
             return json.dumps(data, indent=2) + '\n'
 
         def entry_base(text):
-            return text.replace('#F2EEE6', '#F2EEE7')
+            return text.replace('#F6F5F3', '#F6F5F4')
 
         for name, rel, edit in (('theme-color', THEME_ETS, edit_color), ('dark-row', DS_DARK, drop_dark_row),
                                 ('entry-base', ENTRY_BASE, entry_base)):

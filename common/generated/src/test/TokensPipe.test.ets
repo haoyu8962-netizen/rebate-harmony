@@ -4,9 +4,9 @@ import { DesignTokens, ShadowLayerToken } from '../../Index';
 
 // TOKENS-PIPE-harmony 测试作者 v1（brief-harmony §4-3）：DesignTokens 与锁定快照逐叶比对，期望只从快照读取。
 // 不改既有的 ContractConformance；这里补它不比的 dark、shadow、component、lineHeight、fontWeight、focus、touchTarget。
-// 钉值 0.5.1：DSX-122 升 v0.6.0 时换值。
+// 钉值 0.5.3：DSX-122 升 v0.6.0 时换值。
 const TOKENS_PATH: string = 'design/design-tokens.json';
-const PINNED_VERSION: string = '0.5.1';
+const PINNED_VERSION: string = '0.5.3';
 
 type Scalar = string | number | boolean | null | undefined;
 

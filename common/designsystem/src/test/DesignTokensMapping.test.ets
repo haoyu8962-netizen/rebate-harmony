@@ -13,7 +13,7 @@ export default function designTokensMappingTest() {
       expect(JSON.stringify(CouliColors.buttonPrimaryPressedBackground.params))
         .assertEqual('["app.color.color_button_primary_pressed_background"]');
       expect(CouliColors.token('brand.primary')).assertEqual('#C44820');
-      expect(CouliColors.token('background.canvas')).assertEqual('#F2EEE6');
+      expect(CouliColors.token('background.canvas')).assertEqual('#F6F5F3');
       expect(CouliColors.token('background.admin-canvas')).assertEqual('#F6F3ED');
       expect(CouliColors.token('button.primary.pressed.background')).assertEqual('#A83B1F');
     });
