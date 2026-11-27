@@ -93,11 +93,16 @@ export default function payoutSave50301Test() {
         expect(p.canSave).assertTrue();
       } finally {
         WalletDraftTexts.DRAFTS.delete(SensitiveOutcome.BANK_VENDOR_KEY);
+        // D10-2797 ①：用完后草稿表里已没有这个键（finally 里核对，上面断言失败时也走到这里）。
+        expect(WalletDraftTexts.DRAFTS.has(SensitiveOutcome.BANK_VENDOR_KEY)).assertFalse();
       }
+      expect(WalletDraftTexts.DRAFTS.has(SensitiveOutcome.BANK_VENDOR_KEY)).assertFalse();
       expect(WalletDraftTexts.has(SensitiveOutcome.BANK_VENDOR_KEY)).assertFalse();
     });
 
     it('other_50301_scenes_and_other_5xxxx_keep_their_mapping', 0, () => {
+      // D10-2797 ①：上一条用例无论成败都不得把注入的键留在草稿表里（Hypium 按登记顺序执行，这条紧随其后）。
+      expect(WalletDraftTexts.DRAFTS.has(SensitiveOutcome.BANK_VENDOR_KEY)).assertFalse();
       // 提现提交的 50301：没有场景子键，仍按表 A 取 error.50301
       const withdraw: WalletRecord = SensitiveOutcome.of(SensitiveOutcome.OP_WITHDRAW, SensitiveOutcome.SUBMIT, false,
         errorResult(50301));
