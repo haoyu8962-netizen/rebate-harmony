@@ -161,6 +161,12 @@ import phoneChangeB120bTest from './PhoneChangeB120b.test';
 import homeEntryObjectFieldsTest from './HomeEntryObjectFields.test';
 import homeEntryBadgeExpiryTest from './HomeEntryBadgeExpiry.test';
 import payoutSave50301Test from './PayoutSave50301.test';
+import bridgeOriginsKeysTest from './BridgeOriginsKeys.test';
+import bridgeOriginsRulesTest from './BridgeOriginsRules.test';
+import bridgeOriginsLiteralsTest from './BridgeOriginsLiterals.test';
+import bridgeOriginsCodecTest from './BridgeOriginsCodec.test';
+import configStoreBridgeOriginsTest from './ConfigStoreBridgeOrigins.test';
+import bridgeOriginsWiringTest from './BridgeOriginsWiring.test';
 
 export default function testsuite() {
   // APP-10b R1-04：向量接线的脚本端口与帧数据只在测试源码集，登记用例前注入生产的接线入口。
@@ -349,4 +355,12 @@ export default function testsuite() {
   homeEntryBadgeExpiryTest();
   // FU-HM-PAYOUT-50301（#24 只加；D10-2781 ④）：收款账号保存 50301 取 error.50301.bank_vendor，字典没有时回落 error.50001 + trace6。
   payoutSave50301Test();
+  // FU-HM-BRIDGE-ORIGINS-VERIFY（#24 只加；D10-3507 / D10-3512）：bridge_origins 验签之后的规则（端口打桩）、v / version 字面量、
+  // P1363→DER 与 base64url、公钥表与 release 表不含非 prod kid、ConfigStore 上次可用白名单、生产验签闭包。
+  bridgeOriginsKeysTest();
+  bridgeOriginsRulesTest();
+  bridgeOriginsLiteralsTest();
+  bridgeOriginsCodecTest();
+  configStoreBridgeOriginsTest();
+  bridgeOriginsWiringTest();
 }

@@ -6,11 +6,13 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   ApiOutcome, ApiRequest, ApiResult, AuthPageRules, BridgeCall, BridgeCaller, BridgeFrames, BridgeGesture,
-  BridgeHandlers, BridgeHost, BridgeJson, BridgeOrigins, BridgeOriginsVerifier, BridgePageSession, BridgeResult,
-  BridgeTouchKind, ConfigLayers, ExternalNavDecision, ExternalNavFrame, ExternalNavHooks, ExternalNavOutcome,
-  ExternalNavPolicy, ExternalNoticeKey, ExternalPageNavigator, ExternalUnionOutcome, PendingContractBridgeOriginsVerifier,
+  BridgeHandlers, BridgeHost, BridgeJson, BridgeOriginsCheck, BridgeOriginsWiring, BridgePageSession, BridgeResult,
+  BridgeTouchKind, ExternalNavDecision, ExternalNavFrame, ExternalNavHooks, ExternalNavOutcome,
+  ExternalNavPolicy, ExternalNoticeKey, ExternalPageNavigator, ExternalUnionOutcome, ConfigReply, ConfigStore, Es256Port,
   RegisteredDomain, TransportRequest, TransportResponse, UpdateCheckStatus, UpdateState, WebBackPolicy
 } from '../../Index';
+import { BundledConfig } from 'generated';
+import { dataWithJws, headerJson, jwsOf, originsJson, payloadJson, unitKeys } from './BridgeOriginsTestSupport';
 import { apiResult, FakeState, flush, MAIN_TAP, ManualClock, req, wire } from './BridgeHost.test';
 import { RegistryRig, SIGN_SECRET, registered } from './ClientCoreIntegration.test';
 import { Deferred, envelope } from './NetworkTestRig';
@@ -39,31 +41,12 @@ function sessionWith(values: string[]): BridgePageSession {
   return new BridgePageSession((): string => source.next());
 }
 
-/** 按层的配置替身。 */
-class FakeLayers implements ConfigLayers {
-  readonly values: Map<string, string> = new Map<string, string>();
+/** ES256 端口替身（N-22）：valid 为 true 时签名算验过（本机单测没有真密码学，验签之后的规则走真实现）。 */
+class SignatureStub implements Es256Port {
+  valid: boolean = false;
 
-  set(source: string, key: string, json: string): FakeLayers {
-    this.values.set(source + '/' + key, json);
-    return this;
-  }
-
-  layerValue(source: string, key: string): string | null {
-    return this.values.get(source + '/' + key) ?? null;
-  }
-}
-
-/** 只认带 "signed":true 的层（测试用的验签替身）。 */
-class StubVerifier implements BridgeOriginsVerifier {
-  verifySigned(valueJson: string): string[] | null {
-    const v: Record<string, Object> = JSON.parse(valueJson) as Record<string, Object>;
-    return v['signed'] === true ? v['origins'] as string[] : null;
-  }
-
-  trustBundled(valueJson: string): string[] | null {
-    const v: Record<string, Object> = JSON.parse(valueJson) as Record<string, Object>;
-    const origins: Object | undefined = v['origins'];
-    return origins === undefined ? null : origins as string[];
+  verify(_spkiDer: Uint8Array, _signingInput: Uint8Array, _p1363: Uint8Array): boolean {
+    return this.valid;
   }
 }
 
@@ -282,33 +265,59 @@ export default function bridgeReviewR1Test() {
     });
 
     it('r1_03_whitelist_comes_only_from_verified_bridge_origins', 0, () => {
-      // h5_base_url 合法、bridge_origins 为空或没有有效签名：白名单为空，不用 h5_base_url 代替。
-      const unsigned: FakeLayers = new FakeLayers()
-        .set('current', 'h5_base_url', '"https://h5.example.test/"')
-        .set('current', 'bridge_origins', '{}')
-        .set('lkg', 'bridge_origins', '{"origins":["https://old.example.test"]}')
-        .set('bundled', 'bridge_origins', '{}');
-      expect(JSON.stringify(BridgeOrigins.fromConfig(unsigned, new StubVerifier()))).assertEqual('[]');
-      expect(JSON.stringify(BridgeOrigins.fromConfig(unsigned, new PendingContractBridgeOriginsVerifier())))
-        .assertEqual('[]');
-      expect(JSON.stringify(BridgeOrigins.fromConfig(null, new StubVerifier()))).assertEqual('[]');
-      // 顺序：当前验签通过 → LKG 验签通过 → 包内；不跨层合并，只留 https。
-      const layered: FakeLayers = new FakeLayers()
-        .set('current', 'bridge_origins', '{"signed":false,"origins":["https://cur.example.test"]}')
-        .set('lkg', 'bridge_origins', '{"signed":true,"origins":["https://LKG.example.test:443","http://plain.example.test"]}')
-        .set('bundled', 'bridge_origins', '{"origins":["https://bundled.example.test"]}');
-      expect(JSON.stringify(BridgeOrigins.fromConfig(layered, new StubVerifier())))
-        .assertEqual('["https://lkg.example.test"]');
-      layered.set('current', 'bridge_origins', '{"signed":true,"origins":["https://cur.example.test"]}');
-      expect(JSON.stringify(BridgeOrigins.fromConfig(layered, new StubVerifier())))
-        .assertEqual('["https://cur.example.test"]');
-      const bundledOnly: FakeLayers = new FakeLayers()
-        .set('bundled', 'bridge_origins', '{"origins":["https://bundled.example.test"]}');
-      expect(JSON.stringify(BridgeOrigins.fromConfig(bundledOnly, new StubVerifier())))
-        .assertEqual('["https://bundled.example.test"]');
-      // 契约未定（N-22）：生产验签器对任何层都给不出白名单。
-      expect(JSON.stringify(BridgeOrigins.fromConfig(layered, new PendingContractBridgeOriginsVerifier())))
-        .assertEqual('[]');
+      // N-22（D10-3512 #24 改写）：白名单只来自 ConfigStore 的上次可用白名单，即 200 新配置里验签通过的 bridge_origins；
+      // h5_base_url、未签名、旧数组形状、包内占位 jws、签名验不过一律不给白名单，也不顶掉已有的上次可用（不逐层现验、不信任包内层）。
+      const port: SignatureStub = new SignatureStub();
+      const verify: BridgeOriginsCheck = BridgeOriginsWiring.check((): string | undefined => 'test', 'couli', unitKeys(), port);
+      let disk: string | null = null;
+      const replies: ((reply: ConfigReply) => void)[] = [];
+      const newStore: () => ConfigStore = (): ConfigStore => new ConfigStore((): string | null => disk,
+        (value: string | null): void => {
+          disk = value;
+        }, (_etag: string | null, done: (reply: ConfigReply) => void): void => {
+          replies.push(done);
+        }, (): number => 0, BundledConfig.DATA_JSON, verify);
+      const settle: (reply: ConfigReply) => void = (reply: ConfigReply): void => {
+        const done: ((reply: ConfigReply) => void) | undefined = replies.shift();
+        if (done === undefined) {
+          throw new Error('no fetch in flight');
+        }
+        done(reply);
+      };
+      const store: ConfigStore = newStore();
+      const serve: (data: string) => void = (data: string): void => {
+        store.onForeground();
+        settle(new ConfigReply(ConfigReply.OK, data, null));
+      };
+      store.onColdStart();
+      settle(new ConfigReply(ConfigReply.FAILURE, null, null));
+      // 只有包内配置（bridge_origins 是占位 jws）：白名单为空。
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('[]');
+      // h5_base_url 合法、bridge_origins 为空对象 / 旧数组形状 / 包内占位：白名单为空，不用 h5_base_url 代替。
+      serve('{"h5_base_url":"https://h5.example.test/","bridge_origins":{}}');
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('[]');
+      serve('{"h5_base_url":"https://h5.example.test/","bridge_origins":["https://h5.example.test"]}');
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('[]');
+      serve(BundledConfig.DATA_JSON);
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('[]');
+      // 形状对、签名验不过：仍为空。
+      const signedCur: string = dataWithJws(jwsOf(headerJson(), payloadJson('2', originsJson(['https://cur.example.test']))));
+      serve(signedCur);
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('[]');
+      // 验签通过：白名单 = payload.origins 原样。
+      port.valid = true;
+      serve(signedCur);
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('["https://cur.example.test"]');
+      // 之后只有 h5_base_url / 非规范 origin（不先规范化再接受）的配置：保留上次可用，不被替换。
+      serve('{"h5_base_url":"https://other.example.test/"}');
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('["https://cur.example.test"]');
+      serve(dataWithJws(jwsOf(headerJson(), payloadJson('3', originsJson(['https://LKG.example.test:443',
+        'http://plain.example.test'])))));
+      expect(JSON.stringify(store.trustedOrigins())).assertEqual('["https://cur.example.test"]');
+      // 重启只认落盘的上次可用。
+      const restarted: ConfigStore = newStore();
+      restarted.onColdStart();
+      expect(JSON.stringify(restarted.trustedOrigins())).assertEqual('["https://cur.example.test"]');
     });
 
     it('r1_07_auth_pages_are_isolated_on_initial_and_every_navigation', 0, () => {

@@ -1,3 +1,4 @@
+import { BridgeOriginsCheck, BridgeOriginsLastGood } from '../bridge/BridgeOriginsVerifier';
 import { EnvironmentSwitchGate } from '../config/EnvironmentSwitchGate';
 import { ConfigResolver, JsonRecord } from './ConfigResolver';
 
@@ -96,6 +97,13 @@ export class ConfigStore implements ConfigLayers {
   private readonly fetcher: ConfigFetcher;
   private readonly clock: () => number;
   private readonly bundledObject: JsonRecord;
+  /**
+   * bridge_origins 验签闭包（N-22，scope.md P4 ①）：缺省一律拒（白名单恒空）。
+   * 写测步桩：只存不用。实现步：200 时 `verify(body, 上次可用 version) ?? 上次可用` 并随 LKG 写 bridge_origins_last_good；冷启动读 LKG
+   * 带该键且形状完整（version 非负安全整数、origins 非空字符串数组）直接用，否则用 LKG 的 data 现验一次（lastGoodVersion = null）；
+   * 304 不变；clearForEnvironmentSwitch 清空；闭包抛错按不通过；结果再兜底 origins 非空且 version ≥ 上次可用。
+   */
+  private readonly verifyBridgeOrigins: BridgeOriginsCheck;
 
   private current: JsonRecord | null = null;
   private etag: string | null = null;
@@ -117,12 +125,25 @@ export class ConfigStore implements ConfigLayers {
   private pendingFresh: boolean = false;
 
   constructor(readFile: () => string | null, writeFile: (value: string | null) => void, fetcher: ConfigFetcher,
-    clock: () => number, bundled: string) {
+    clock: () => number, bundled: string,
+    verifyBridgeOrigins: BridgeOriginsCheck =
+      (_dataJson: string, _lastGoodVersion: number | null): BridgeOriginsLastGood | null => null) {
     this.readFile = readFile;
     this.writeFile = writeFile;
     this.fetcher = fetcher;
     this.clock = clock;
     this.bundledObject = ConfigResolver.parseObject(bundled) ?? {};
+    this.verifyBridgeOrigins = verifyBridgeOrigins;
+  }
+
+  /** 可信 H5 源（N-22）：上次可用白名单的 origins（副本）；没有为 []（WebPage 不打开）。桩：恒 []。 */
+  trustedOrigins(): string[] {
+    return [];
+  }
+
+  /** 上次可用白名单的 version；没有为 null。桩：恒 null。 */
+  trustedOriginsVersion(): number | null {
+    return null;
   }
 
   /** 当前生效的 data（JSON 文本）。 */

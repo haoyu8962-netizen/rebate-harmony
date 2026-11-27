@@ -19,7 +19,12 @@ export {
   FileTrustedAuthJournal, FileTrustedWebOwnerRecord, TrustedAuthJournal, TrustedAuthPage, TrustedAuthStore, TrustedAuthSync,
   TrustedWebOwnerRecord
 } from './TrustedAuthSync';
-export { BridgeOriginsVerifier, PendingContractBridgeOriginsVerifier, BridgeOrigins } from './BridgeOrigins';
+// 旧的逐层现验（BridgeOrigins.ets）由实现步整体删除（D10-3512 (d)）；写测步只撤掉旧接口名的导出，名字让给新的验签器。
+export { PendingContractBridgeOriginsVerifier, BridgeOrigins } from './BridgeOrigins';
+export {
+  BridgeOriginsLastGood, BridgeOriginsCheck, ConfigSignKeyEntry, ConfigSignKeys, Es256Port, CryptoKitEs256, Es256, Base64Url,
+  BridgeOriginsVerdict, BridgeOriginsVerifier, BridgeOriginsWiring
+} from './BridgeOriginsVerifier';
 export {
   ExternalNavFrame, ExternalUnionOutcome, ExternalNoticeKey, ExternalNavOutcome, ExternalNavHooks, AuthPageRules,
   RegisteredDomain, ExternalPageNavigator, WebBackPolicy
