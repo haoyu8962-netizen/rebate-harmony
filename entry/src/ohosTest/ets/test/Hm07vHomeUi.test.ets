@@ -651,7 +651,8 @@ export default function hm07vHomeUiTest() {
         const close: Rect = await hit48(ON.id('home_notice_close'), '公告关闭');
         const bar: Rect = await rect(ON.id('home_section_notice_static'), '公告条');
         check(close.top >= bar.top - 1 && close.bottom <= bar.bottom + 1, '公告关闭在条内');
-        atLeast(await colorAt(bar, 4, 4, 'brand.subtle', false), 0.8, '公告条底 brand.subtle');
+        // 取样点在条内（左 16vp、半高）：(4, 4) 落在 16vp 圆角外、露页面底（D10-3403）。
+        atLeast(await colorAt(bar, 16, (bar.bottom - bar.top) / density() / 2, 'brand.subtle', false), 0.8, '公告条底 brand.subtle');
         // 剪贴板分享提示条关闭（位置在搜索行下、价值卡上；样式属 b 段，这里只守命中区与位置）。
         await launch(Launch.of(GUEST).with('couli_debug_share', SHARE_SAMPLE));
         const prompt: Component | null = await maybe(ON.id('clipboard_share_prompt'), 6000);
