@@ -3,10 +3,10 @@ import { deviceInfo } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiRequest, ClipboardController, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeOrigins, BridgeRouteOpening,
+  ApiClient, ApiRequest, ClipboardController, ApiResult, AppConfig, BridgeBinding, BridgeLoginWait, LoginService, RouterLoginHost, BridgeHandlers, BridgeHost, BridgeRouteOpening,
   BridgeStatePort, ClientEvent, ConfigSnapshot, ConfigStore, EnvironmentGate, EnvironmentSwitchGate, EventDiagnostics,
   ExternalNavDecision, ExternalNavEvents, ExternalNavHooks, ExternalNavPolicy, ExternalPageOptions, GuardDecision,
-  GuardState, LocalRejectReason, OriginRules, PendingContractBridgeOriginsVerifier, PermissionResult,
+  GuardState, LocalRejectReason, OriginRules, PermissionResult,
   FileSlot, FileTrustedAuthJournal, FileTrustedWebOwnerRecord, PrivacyState, RouteRequest, RouteSource, RouteTargetAllowlist, SessionIdentity,
   SessionLoginEpochs, TrustedAuthJournal, TrustedAuthPage, TrustedAuthSync, TrustedWebOwnerRecord, UpdateCheckStatus,
   UpdateState
@@ -82,8 +82,9 @@ export class AppBridgeState implements BridgeStatePort {
 
 /**
  * App 组合处的 JSBridge 与两类容器接线（APP-04；03 §5）：
- * - 可信 origin：只来自验签通过的 bridge_origins（core BridgeOrigins：当前 → LKG → 包内，R1-03）。契约还没给出它的形状与
- *   签名（TODO(N-22)），现在任何一层都验不了，白名单为空、WebPage 一律不加载；不拿 h5_base_url 等别的配置项代替。
+ * - 可信 origin：只来自验签通过的 bridge_origins（N-22，D10-3507；R1-03）——取 ConfigStore 的上次可用白名单
+ *   （ConfigStore.trustedOrigins：/v1/config 200 时经 ES256 验签通过才替换，随 LKG 落盘；包内配置的 jws 是占位、不信）。
+ *   没有上次可用（含 Release 现在没有 prod 公钥）时为空、WebPage 一律不加载；不拿 h5_base_url 等别的配置项代替。
  *   Debug 构建另加本机一致性测试源（BuildVariant.debugTrustedOrigins，Release 为空、产物里没有回环地址）。
  * - 宿主：登记 Core 能力（app.getConfig、auth.getUser / getH5Token / login、net.signedRequest、nav.open、perm.*、
  *   clipboard.write / setAutoDetect、track.event），容器再登记 app.getEnv、ui.*、nav.close。trade.*、share.open、media.*、
@@ -95,10 +96,13 @@ export class AppBridge {
   /** 平台页面被拦后「去搜索」的去向（routes.json Search）。 */
   static readonly SEARCH_ROUTE: string = 'Search';
 
-  /** 可信 origin 白名单（规范化、去重）。 */
+  /**
+   * 可信 origin 白名单（去重）：ConfigStore 的上次可用白名单（每项本身就是规范化 https origin；ConfigStore 未组合时为 []），
+   * 再并上 Debug 的一致性测试源（规范化后）。
+   */
   static trustedOrigins(): string[] {
-    const out: string[] = BridgeOrigins.fromConfig(AppClientCore.shared.config,
-      new PendingContractBridgeOriginsVerifier());
+    const store: ConfigStore | null = AppClientCore.shared.config;
+    const out: string[] = store === null ? [] : store.trustedOrigins();
     for (const extra of BuildVariant.debugTrustedOrigins()) {
       const origin: string | null = OriginRules.normalize(extra);
       if (origin !== null && out.indexOf(origin) < 0) {

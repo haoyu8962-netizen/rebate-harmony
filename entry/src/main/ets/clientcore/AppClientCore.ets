@@ -1,11 +1,13 @@
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ApiClient, ApiConfigFetcher, AppConfig, ClientEvent, ClientPlatformRaw, ConfigFetcher, ConfigStore, DeviceRegistry,
-  EnvironmentSwitchGate, EventSink, FileSlot, LocalDataCleaner, PermissionRequester, PermissionResult, PrivacyState,
-  PrivacyStateRaw, SystemRepeatingTimer, TrackerFlushScheduler, TrackerQueue, TrackerQueueCleaner
+  ApiClient, ApiConfigFetcher, AppConfig, BridgeOriginsCheck, BridgeOriginsWiring, ClientEvent, ClientPlatformRaw,
+  ConfigFetcher, ConfigSignKeys, ConfigStore, CryptoKitEs256, DeviceRegistry, EnvironmentSource, EnvironmentSwitchGate,
+  EventSink, FileSlot, LocalDataCleaner, PermissionRequester, PermissionResult, PrivacyState, PrivacyStateRaw,
+  SystemRepeatingTimer, TrackerFlushScheduler, TrackerQueue, TrackerQueueCleaner
 } from 'core';
 import { BundledConfig } from 'generated';
-import { AppNetwork } from '../network/AppNetwork';
+import { APP_ID, AppNetwork } from '../network/AppNetwork';
 import { HarmonyPermissionSystem } from '../permission/HarmonyPermissionSystem';
 import { PermissionPromptModel } from '../permission/PermissionPromptModel';
 import { AppUpdate } from '../update/AppUpdate';
@@ -15,6 +17,8 @@ import { HARMONY_CHANNEL } from '../update/HarmonyStoreAccess';
 const CONFIG_LKG_FILE: string = 'couli_config_lkg.json';
 const TRACKER_QUEUE_FILE: string = 'couli_tracker_queue.json';
 const PERMISSION_THROTTLE_FILE: string = 'couli_permission_throttle.json';
+const DOMAIN: number = 0x0000;
+const TAG: string = 'CouliConfig';
 
 /**
  * 埋点上报 sink：openapi 还没有 /v1/events（needs.md N-20）。TODO(N-20)：契约补上后改为经 ApiClient 上报；在那之前不上报，
@@ -46,6 +50,7 @@ class ConfigLkgCleaner implements LocalDataCleaner {
  * EntryAbility.onCreate 调 compose 一次（在 AppNetwork.compose 之后）。
  * - ConfigStore：环境闸门 SETTLED 后（AppPrivacy.environmentSettled）冷启动——同步读 LKG 文件，再后台经 ApiClient 拉
  *   getConfig（基本模式、首启未同意时也在匿名白名单里）；回前台带 If-None-Match 再拉。LKG 登记进环境切换清理（config_lkg）。
+ *   bridge_origins 验签闭包见 bridgeOriginsCheck（N-22：可信 H5 源只取 ConfigStore 的上次可用白名单）。
  *   运行中切换环境完成（EnvironmentSwitchGate 重新打开，新环境已提交）后重新拉取（R1-02、lessons 5）。
  * - TrackerQueue：隐私结论第一次读出时按该结论创建（未同意、撤回清理未完成时不读旧队列并删残留文件）；之后隐私变化与撤回清理
  *   完成经 privacyChanged 通知（撤回同意立即清空队列、不再上报）。队列登记在撤回清理名单与切换环境清理里（tracker_queue，
@@ -97,7 +102,7 @@ export class AppClientCore {
     const lkg: FileSlot = FileSlot.at(files, CONFIG_LKG_FILE);
     const fetcher: ConfigFetcher = ApiConfigFetcher.create((): ApiClient | null => AppNetwork.client);
     const store: ConfigStore = new ConfigStore((): string | null => lkg.read(), (value: string | null): void => lkg.write(value),
-      fetcher, (): number => Date.now(), BundledConfig.DATA_JSON);
+      fetcher, (): number => Date.now(), BundledConfig.DATA_JSON, AppClientCore.bridgeOriginsCheck());
     this.configStore = store;
     AppConfig.cleaners.register(new ConfigLkgCleaner(store));
     // 运行中切换环境完成（新环境已提交、闸门重新打开）：重新拉取配置（旧环境的 LKG 已在清理阶段删除）。
@@ -123,6 +128,21 @@ export class AppClientCore {
       (): void => this.flushEvents(), TrackerQueue.FLUSH_INTERVAL_MILLIS);
     this.flushScheduler = scheduler;
     scheduler.start();
+  }
+
+  /**
+   * bridge_origins 验签闭包（N-22，D10-3507；scope.md E1 / E2）：每次调用现取运行环境 id（环境闸门非 SETTLED 时为 undefined → 拒；
+   * 切换环境后用新环境）；app_id 与 X-App-Id 同一常量（AppNetwork 的 APP_ID）；公钥表是本构建随包的那份（Release 只有 prod 钥，
+   * 现为空；Debug / Staging 另有 staging 钥）；验签走 cryptoFramework。拒绝时 hilog warn 一条（reason、过滤截断的 kid、env，
+   * 同一份文档同一环境只记一次；不写 jws 与 origins）。
+   */
+  private static bridgeOriginsCheck(): BridgeOriginsCheck {
+    return BridgeOriginsWiring.check((): string | undefined => {
+      const source: EnvironmentSource | undefined = AppConfig.environment();
+      return source === undefined ? undefined : String(source.current);
+    }, APP_ID, ConfigSignKeys.bundled(), new CryptoKitEs256(), (line: string): void => {
+      hilog.warn(DOMAIN, TAG, '%{public}s', line);
+    });
   }
 
   /** 环境闸门 SETTLED：配置冷启动（读 LKG → 后台拉取）。同一进程只做一次。 */

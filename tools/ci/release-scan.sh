@@ -49,6 +49,8 @@
 #     （entry/src/staging/ets/variant/DebugFakeAccount.ets、BuildVariant.ets）
 #   - 首页 SDUI 的本机假服务与草稿预览（APP-11）：标记 COULI_FAKE_HOME_SERVER_APP11_5e8c21、启动参数键 couli_debug_home_scene
 #     （entry/src/staging/ets/variant/DebugFakeHome.ets）、预览页标记 COULI_HOME_PREVIEW_APP11_9b4d27（entry/src/staging/ets/home/HomePreviewPage.ets）
+#   - 配置签名公钥（N-22，FU-HM-BRIDGE-ORIGINS-VERIFY）：staging 钥的 kid config-staging-2026-11b（common/core/src/staging/ets/config/
+#     ConfigSignKeysBundled.ets；Release 编译 src/release 的同名表，只许 prod 钥）
 #   - 测试深链 scheme couli-debug（APP-02a：module.json 的 skills 只在 product=staging 声明，见 entry/hvigorfile.ts；
 #     App 只认它的 DeepLinkConfig 在 entry/src/staging）。--self-test 另要求 module.json 的 EntryAbility skills 真的声明了它
 #     （类名在开启混淆后可能被改名，所以每项都另配一个字符串字面量标记；字面量不会被裁掉，它们在逻辑里被用到）
@@ -167,6 +169,9 @@ markers = [
     "couli_debug_route_unavailable",
     # FU-HM-THEME-BASE：系统颜色中性角色方案的启动参数键（entry/src/staging/ets/variant/BuildVariant.ets），Release 必须不含。
     "couli_debug_theme_neutral",
+    # FU-HM-BRIDGE-ORIGINS-VERIFY（N-22，D10-3512 (e)）：staging 配置签名公钥的 kid（common/core/src/staging/ets/config/
+    # ConfigSignKeysBundled.ets），Release 的随包公钥表只许 prod 钥，必须不含。
+    "config-staging-2026-11b",
 ]
 # APP-10b R1-04：只许在测试源码集的标记（任何制品都不得命中；不参与 --self-test 的「必须命中」）。
 test_only_markers = [

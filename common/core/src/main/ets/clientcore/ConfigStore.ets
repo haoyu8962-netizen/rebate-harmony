@@ -43,6 +43,17 @@ export class ConfigSnapshot {
 export type ConfigListener = (snapshot: ConfigSnapshot) => void;
 export type ConfigFetcher = (etag: string | null, done: (reply: ConfigReply) => void) => void;
 
+/** LKG 文件里的上次可用白名单（N-22）：键序固定 version、origins。 */
+class LkgLastGood {
+  version: number;
+  origins: string[];
+
+  constructor(version: number, origins: string[]) {
+    this.version = version;
+    this.origins = origins;
+  }
+}
+
 /** LKG 文件的内容（readFile / writeFile 存取的文本对调用方不透明）。 */
 class LkgFile {
   format: number = ConfigStore.LKG_FORMAT;
@@ -52,13 +63,21 @@ class LkgFile {
   link_patterns: JsonRecord | null;
   /** 按平台最近一次成功取到的搜索 Tab 状态（某次成功响应缺平台时沿用，R1-05；重启后结果一致）。 */
   search_status: Record<string, string> | null;
+  /**
+   * 上次可用白名单（N-22，scope.md P4 ⑥）：只写验签通过的值；没有时为 undefined，JSON.stringify 不写这个键（旧格式不变）。
+   * 读回时形状不完整按没有（见 ConfigStore.storedLastGood）。
+   */
+  bridge_origins_last_good: LkgLastGood | undefined = undefined;
 
   constructor(savedAt: number, data: JsonRecord, linkPatterns: JsonRecord | null,
-    searchStatus: Record<string, string> | null) {
+    searchStatus: Record<string, string> | null, lastGood: BridgeOriginsLastGood | null = null) {
     this.saved_at = savedAt;
     this.data = data;
     this.link_patterns = linkPatterns;
     this.search_status = searchStatus;
+    if (lastGood !== null) {
+      this.bridge_origins_last_good = new LkgLastGood(lastGood.version, lastGood.origins.slice());
+    }
   }
 }
 
@@ -70,6 +89,12 @@ class LkgFile {
  *   拉取失败、304 都不动当前配置与 LKG。每次成功都推进「上一份成功配置」（R1-05、lessons 7）：被替换的当前配置成为内存里的
  *   LKG 层；按平台的搜索 Tab 状态另记「各平台最近一次成功的取值」（合并历次成功响应，随 LKG 文件持久化），某次成功响应缺
  *   字段或缺平台时用它，不回落到冷启动时读到的旧 LKG，重启后结果与重启前一致。
+ * - 上次可用白名单（N-22；契约 ConfigBridgeOrigins「Client」段；同安卓 ConfigStore）：可信 H5 源只来自它，不按层现验、不信包内层。
+ *   200 新配置：用当前上次可用的 version 调 verifyBridgeOrigins 验新 data；通过 → 成为上次可用并随 LKG 落盘
+ *   （bridge_origins_last_good）；不通过 → 保留原值，LKG 照旧写原值（失败值不写成上次可用，AC-S1-180 ②）。冷启动：LKG 带该字段且
+ *   形状完整 → 直接用；没有该字段（旧 LKG）或形状不完整 → 用 LKG 的 data 现验一次（lastGoodVersion = null）。304、拉取失败不变；
+ *   clearForEnvironmentSwitch 清空。闭包抛错按不通过；结果再兜底 origins 非空且 version 不低于上次可用。包内配置的 jws 是占位、
+ *   也从不交给闭包 → 没有服务端配置时白名单为空。
  * - 同一时刻最多一个在途拉取（在途时再回前台不另发）；clearForEnvironmentSwitch 之后晚到的结果丢弃。
  * - 可观察：subscribe 的监听在每次换层或换内容时收到快照；按层取值见 searchStatus、linkPatterns、value（ConfigResolver）。
  *
@@ -79,7 +104,7 @@ class LkgFile {
  *
  * 「清除缓存」不清这里（03 §4.3）；切换环境时由清理器调 clearForEnvironmentSwitch（03 §3.6）。单线程（UI 线程）使用。
  */
-/** 按层读取顶层键（不跨层回落）：桥白名单这类要逐层验签的配置用（03 §5.1；APP-04 R1-03）。 */
+/** 按层读取顶层键（不跨层回落）。桥白名单已不按层取（N-22：只认 ConfigStore 的上次可用白名单，trustedOrigins）。 */
 export interface ConfigLayers {
   /** source 为 ConfigSourceRaw 的 current / lkg / bundled；这一层没有该键为 null。返回 JSON 文本。 */
   layerValue(source: string, key: string): string | null;
@@ -98,12 +123,12 @@ export class ConfigStore implements ConfigLayers {
   private readonly clock: () => number;
   private readonly bundledObject: JsonRecord;
   /**
-   * bridge_origins 验签闭包（N-22，scope.md P4 ①）：缺省一律拒（白名单恒空）。
-   * 写测步桩：只存不用。实现步：200 时 `verify(body, 上次可用 version) ?? 上次可用` 并随 LKG 写 bridge_origins_last_good；冷启动读 LKG
-   * 带该键且形状完整（version 非负安全整数、origins 非空字符串数组）直接用，否则用 LKG 的 data 现验一次（lastGoodVersion = null）；
-   * 304 不变；clearForEnvironmentSwitch 清空；闭包抛错按不通过；结果再兜底 origins 非空且 version ≥ 上次可用。
+   * bridge_origins 验签闭包（N-22，scope.md P4 ①）：入参为 data（JSON 文本）与上次可用的 version（没有为 null），通过返回白名单。
+   * 缺省一律拒（白名单恒空）。生产由 entry 的 AppClientCore 注入 BridgeOriginsWiring.check（每次调用现取运行环境 id）。
    */
   private readonly verifyBridgeOrigins: BridgeOriginsCheck;
+  /** 上次可用白名单（N-22）：只放验签通过的值；没有为 null。随 LKG 文件保存（bridge_origins_last_good）。 */
+  private lastGoodOrigins: BridgeOriginsLastGood | null = null;
 
   private current: JsonRecord | null = null;
   private etag: string | null = null;
@@ -136,14 +161,14 @@ export class ConfigStore implements ConfigLayers {
     this.verifyBridgeOrigins = verifyBridgeOrigins;
   }
 
-  /** 可信 H5 源（N-22）：上次可用白名单的 origins（副本）；没有为 []（WebPage 不打开）。桩：恒 []。 */
+  /** 可信 H5 源（N-22）：上次可用白名单的 origins（副本）；没有为 []（WebPage 不打开）。 */
   trustedOrigins(): string[] {
-    return [];
+    return this.lastGoodOrigins === null ? [] : this.lastGoodOrigins.origins.slice();
   }
 
-  /** 上次可用白名单的 version；没有为 null。桩：恒 null。 */
+  /** 上次可用白名单的 version；没有为 null。 */
   trustedOriginsVersion(): number | null {
-    return null;
+    return this.lastGoodOrigins === null ? null : this.lastGoodOrigins.version;
   }
 
   /** 当前生效的 data（JSON 文本）。 */
@@ -187,6 +212,12 @@ export class ConfigStore implements ConfigLayers {
     this.lastPatterns = stored === null ? null : (stored.link_patterns ?? ConfigResolver.linkPatternsIn(stored.data));
     this.lastSearch = stored === null ? {} :
     ConfigStore.mergeSearch(stored.search_status ?? {}, ConfigStore.searchStatusOf(stored.data));
+    // 带字段的 LKG 是本 App 验过后才写的，直接用；升级前的旧 LKG（没有该字段或形状不完整）用它的 data 现验一次。
+    // （decode 已按形状完整才放进 bridge_origins_last_good。）
+    const storedLastGood: LkgLastGood | undefined = stored === null ? undefined : stored.bridge_origins_last_good;
+    this.lastGoodOrigins = stored === null ? null : (storedLastGood !== undefined ?
+      new BridgeOriginsLastGood(storedLastGood.version, storedLastGood.origins.slice()) :
+      this.checkBridgeOrigins(JSON.stringify(stored.data), null));
     this.publish();
     this.startFetch();
   }
@@ -382,6 +413,7 @@ export class ConfigStore implements ConfigLayers {
       this.lkg = null;
       this.lastPatterns = null;
       this.lastSearch = {};
+      this.lastGoodOrigins = null;
       this.publish();
     }
   }
@@ -429,8 +461,13 @@ export class ConfigStore implements ConfigLayers {
     }
     const patterns: JsonRecord | null = ConfigResolver.linkPatternsIn(body) ?? this.lastPatterns;
     const search: Record<string, string> = ConfigStore.mergeSearch(this.lastSearch, ConfigStore.searchStatusOf(body));
+    // 上次可用白名单（N-22）：每次 200 都用当前上次可用的 version 验新 data（缺字段、旧数组形状也交给闭包判拒）；通过才替换，
+    // 不通过保留原值——LKG 里照旧写原值，失败值不写成上次可用（AC-S1-180 ②）。
+    const lastGoodVersion: number | null = this.lastGoodOrigins === null ? null : this.lastGoodOrigins.version;
+    const lastGood: BridgeOriginsLastGood | null =
+      this.checkBridgeOrigins(reply.bodyJson as string, lastGoodVersion) ?? this.lastGoodOrigins;
     try {
-      this.writeFile(JSON.stringify(new LkgFile(this.clock(), body, patterns, search)));
+      this.writeFile(JSON.stringify(new LkgFile(this.clock(), body, patterns, search, lastGood)));
     } catch (e) {
       // 写不进 LKG：本次响应照样生效，下次成功时再写。
     }
@@ -443,7 +480,58 @@ export class ConfigStore implements ConfigLayers {
     this.etag = reply.etag;
     this.lastPatterns = patterns;
     this.lastSearch = search;
+    this.lastGoodOrigins = lastGood;
     this.publish();
+  }
+
+  /**
+   * 调注入的验签闭包：闭包抛错按不通过；结果再兜底——version 是非负安全整数且不低于 lastGoodVersion、origins 非空且都是字符串
+   * 才算数（闭包自身已判，这里不让回退或空表顶掉上次可用）。返回副本。
+   */
+  private checkBridgeOrigins(dataJson: string, lastGoodVersion: number | null): BridgeOriginsLastGood | null {
+    let result: BridgeOriginsLastGood | null = null;
+    try {
+      result = this.verifyBridgeOrigins(dataJson, lastGoodVersion);
+    } catch (e) {
+      return null;
+    }
+    if (result === null || result === undefined) {
+      return null;
+    }
+    return ConfigStore.lastGoodOf(result.version, result.origins, lastGoodVersion);
+  }
+
+  /** LKG 里的上次可用白名单：version 为非负安全整数、origins 为非空字符串数组才算形状完整，否则 null（冷启动改用 data 现验）。 */
+  private static storedLastGood(value: Object | null | undefined): BridgeOriginsLastGood | null {
+    const record: JsonRecord | null = ConfigResolver.objectOf(value);
+    if (record === null) {
+      return null;
+    }
+    const origins: Object | undefined = record['origins'];
+    if (origins === undefined || origins === null || !Array.isArray(origins)) {
+      return null;
+    }
+    return ConfigStore.lastGoodOf(record['version'], origins as Object[], null);
+  }
+
+  /** 形状兜底（见 checkBridgeOrigins / storedLastGood）；不成立为 null。 */
+  private static lastGoodOf(version: Object | null | undefined, origins: Object[] | null | undefined,
+    atLeast: number | null): BridgeOriginsLastGood | null {
+    if (typeof version !== 'number' || !Number.isSafeInteger(version as number) || (version as number) < 0 ||
+      (atLeast !== null && (version as number) < atLeast)) {
+      return null;
+    }
+    if (origins === null || origins === undefined || !Array.isArray(origins) || origins.length === 0) {
+      return null;
+    }
+    const out: string[] = [];
+    for (const item of origins) {
+      if (typeof item !== 'string') {
+        return null;
+      }
+      out.push(item as string);
+    }
+    return new BridgeOriginsLastGood(version as number, out);
   }
 
   /**
@@ -547,6 +635,7 @@ export class ConfigStore implements ConfigLayers {
     }
     const savedAt: Object | undefined = root['saved_at'];
     return new LkgFile(typeof savedAt === 'number' ? savedAt as number : 0, data,
-      ConfigResolver.completePatterns(root['link_patterns']), ConfigStore.storedSearch(root['search_status']));
+      ConfigResolver.completePatterns(root['link_patterns']), ConfigStore.storedSearch(root['search_status']),
+      ConfigStore.storedLastGood(root['bridge_origins_last_good']));
   }
 }

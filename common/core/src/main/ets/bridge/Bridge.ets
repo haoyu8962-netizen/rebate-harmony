@@ -19,8 +19,7 @@ export {
   FileTrustedAuthJournal, FileTrustedWebOwnerRecord, TrustedAuthJournal, TrustedAuthPage, TrustedAuthStore, TrustedAuthSync,
   TrustedWebOwnerRecord
 } from './TrustedAuthSync';
-// 旧的逐层现验（BridgeOrigins.ets）由实现步整体删除（D10-3512 (d)）；写测步只撤掉旧接口名的导出，名字让给新的验签器。
-export { PendingContractBridgeOriginsVerifier, BridgeOrigins } from './BridgeOrigins';
+// N-22 bridge_origins 验签（D10-3507 / D10-3512）：可信 H5 源只来自 ConfigStore 的上次可用白名单；旧的逐层现验与 Pending 实现已删。
 export {
   BridgeOriginsLastGood, BridgeOriginsCheck, ConfigSignKeyEntry, ConfigSignKeys, Es256Port, CryptoKitEs256, Es256, Base64Url,
   BridgeOriginsVerdict, BridgeOriginsVerifier, BridgeOriginsWiring

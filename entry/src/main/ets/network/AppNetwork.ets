@@ -16,8 +16,11 @@ import { HARMONY_CHANNEL, HARMONY_PLATFORM } from '../update/HarmonyStoreAccess'
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CouliNetwork';
-/** TODO(N-19)：X-App-Id 的取值契约里没有登记，与 Android 一样先用占位 couli。 */
-const APP_ID: string = 'couli';
+/**
+ * 本应用的 app_id：X-App-Id 与 bridge_origins 验签的 payload.app_id 同源（N-22，AppClientCore 引用这一个常量，不另写字面量）。
+ * TODO(N-19)：取值契约里没有登记，与 Android 一样先用占位 couli。
+ */
+export const APP_ID: string = 'couli';
 /** 会话撤销标记的沙盒文件（F-HM-34；不含凭据，只记被撤销会话的登录世代或短摘要）。 */
 const SESSION_REVOKED_FILE: string = 'couli_session.revoked';
 

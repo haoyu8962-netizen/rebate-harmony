@@ -36,7 +36,7 @@ export class BridgeEnvInfo {
 
 /**
  * 可信容器的配置（App 组合处给；容器不认识任何 Feature，跨功能跳转只经回调交回 App 的 Router）。
- * - trustedOrigins：每次判断时读当前白名单（Release：/v1/config 的 h5_base_url origin；Debug 另加本机一致性测试源）；
+ * - trustedOrigins：每次判断时读当前白名单（验签通过的 bridge_origins 上次可用白名单，N-22；Debug 另加本机一致性测试源）；
  * - host：已登记 Core 能力（app.getConfig、auth.*、net.signedRequest、nav.open、perm.*、clipboard.*、track.event）的宿主，
  *   容器再登记自己的界面能力（app.getEnv、ui.*、nav.close）；
  * - onExternal：主框架要去白名单外的 https 地址时交给 App 在新的 ExternalWebView 打开（原容器不动，03 §5.1）。
